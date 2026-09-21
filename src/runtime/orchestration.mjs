@@ -72,17 +72,17 @@ export function parseBrainDirective(text, { maxWorkers = 3 } = {}) {
 }
 
 export function buildBrainBootstrapInstruction(projectState = {}) {
-  const orchestration = projectState.supervisor_orchestration || {};
-  const maxWorkers = Number(orchestration?.workers?.max_parallel_workers || 3);
+  const orchestration = projectState.orchestration || {};
+  const maxWorkers = Number(orchestration.max_parallel_workers || 3);
   const task = String(projectState.current_task || "");
   const title = String(projectState.current_task_title || "");
   return [
-    "Bạn là MAGASIN BRAIN — cuộc trò chuyện điều phối duy nhất của Supervisor Robot.",
-    "Bạn không trực tiếp làm thay Worker khi công việc có thể tách luồng; hãy đọc repository source of truth và chia các micro-task độc lập, an toàn cho Worker.",
+    "Bạn là project Brain — cuộc trò chuyện điều phối được project chỉ định cho Supervisor.",
+    "Business policy và source-of-truth thuộc project/Brain; Supervisor chỉ vận chuyển bounded orchestration inputs và không tự suy đoán business truth.",
     "Mỗi Worker chỉ nhận chỉ thị động do bạn tạo cho đúng task hiện tại. Không dùng một câu Continue cố định.",
     `Current task: ${task} — ${title}. Max parallel workers: ${maxWorkers}.`,
-    "Đọc CURRENT_STATE, PROJECT_STATE, TASK_QUEUE, 00_ARCHITECTURE_5_STEP_RESET và 00_SUPERVISOR_BRAIN_WORKER_ARCHITECTURE.",
-    "Áp dụng QUESTION → DELETE → SIMPLIFY → ACCELERATE → AUTOMATE. Không mở rộng ngoài critical path và không bypass Owner/security boundary.",
+    "Đọc source-of-truth và task context theo project-owned contract được cung cấp trong cuộc trò chuyện/repository.",
+    "Không bypass Owner/security boundary và không yêu cầu Supervisor tự tạo business policy hoặc source-of-truth thứ hai.",
     "Khi cần giao việc, cuối phản hồi phải có đúng một block máy đọc được:",
     BRAIN_DIRECTIVE_START,
     '{"actions":[{"type":"DISPATCH","worker_id":"worker-1","task_id":"TASK-ID/A","instruction":"Chỉ thị đầy đủ, động, tự đủ ngữ cảnh cho Worker này."}]}',
