@@ -122,7 +122,7 @@ test("Three-Lane normalizes transient WEB Work URLs from existing registry state
       "lane-1": {
         work_url: `https://chatgpt.com/c/WEB:${uuid}`,
         awaiting_work: true,
-        task_id: "TASK-049/THREE-LANE-E2E-01"
+        task_id: "WORK-THREE-LANE-E2E-01"
       }
     }
   });
@@ -244,7 +244,7 @@ test("legacy Work target state infers mode without fabricating a pending revisio
 test("Work dispatch envelope carries deterministic machine marker without changing task body", () => {
   const dispatchId = "abc123";
   const text = buildWorkDispatchInstruction({
-    taskId: "TASK-049/TEST",
+    taskId: "WORK-THREE-LANE-TEST",
     dispatchId,
     instruction: "Do one safe thing."
   });
