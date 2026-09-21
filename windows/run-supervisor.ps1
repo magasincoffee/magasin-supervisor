@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$root = Join-Path $env:LOCALAPPDATA 'MAGASIN\BusinessOS\supervisor'
+$root = & (Join-Path $PSScriptRoot 'state-root.ps1')
 $runtime = Join-Path $root 'runtime'
 $profile = Join-Path $root 'browser_profile'
 $target = Join-Path $root 'target.json'
@@ -15,7 +15,7 @@ $registryFile = Join-Path $root 'orchestration.json'
 $runtimeStatusFile = Join-Path $root 'runtime-status.json'
 $laneConfigFile = Join-Path $root 'lanes.json'
 $laneStatusFile = Join-Path $root 'lane-status.json'
-$projectStateUrl = 'https://raw.githubusercontent.com/magasincoffee/magasincoffee.github.io/main/01_DOCS/MAGASIN/00_PROJECT_STATE.json'
+$projectInputUrl = [string]$env:MAGASIN_SUPERVISOR_PROJECT_INPUT_URL
 $mutexName = 'Local\MAGASIN_BUSINESS_OS_SUPERVISOR'
 $mutex = New-Object System.Threading.Mutex($false, $mutexName)
 $ownsMutex = $false
@@ -147,9 +147,14 @@ try {
 
         $runtimeMode = $null
         try {
-            $projectState = Invoke-RestMethod -Uri $projectStateUrl -TimeoutSec 4 -Headers @{ 'Cache-Control'='no-cache' }
-            if ($projectState -and $projectState.supervisor_orchestration) {
-                $runtimeMode = [string]$projectState.supervisor_orchestration.mode
+            if (-not [string]::IsNullOrWhiteSpace($projectInputUrl)) {
+                $projectState = Invoke-RestMethod -Uri $projectInputUrl -TimeoutSec 4 -Headers @{ 'Cache-Control'='no-cache' }
+                $adapterOrchestration = if ($projectState.orchestration) { $projectState.orchestration } else { $projectState.supervisor_orchestration }
+                if ($adapterOrchestration) {
+                    $runtimeMode = [string]$adapterOrchestration.mode
+                }
+            } else {
+                throw 'No explicit project input URL configured'
             }
         } catch {
             # Preserve the last locally verified runtime mode during transient
@@ -220,6 +225,9 @@ try {
         Push-Location $runtime
         try {
             $nodeArgs = @($entryPoint, '--cdp-url', $cdpBaseUrl, '--poll-ms', '5000')
+            if ($entryPoint -ne 'src/runtime/three-lane-cli.mjs' -and -not [string]::IsNullOrWhiteSpace($projectInputUrl)) {
+                $nodeArgs += @('--project-input-url', $projectInputUrl)
+            }
             if (-not $DryRun) { $nodeArgs += '--execute' }
             & node @nodeArgs
             $nodeExitCode = $LASTEXITCODE
