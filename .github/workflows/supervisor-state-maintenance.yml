@@ -1,4 +1,4 @@
-# MIG-002 guard: production state-maintenance job is inert until MIG-004/MIG-005 release gates.
+# MIG-003 guard: production state-maintenance job is inert until MIG-004/MIG-005 release gates.
 name: Supervisor State Maintenance
 
 # Explicit Owner-authorized maintenance only. Release/source pushes must never
@@ -36,7 +36,7 @@ concurrency:
 
 jobs:
   maintenance:
-    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
+    if: ${{ false }} # MIG-003: production/self-hosted execution disabled until MIG-004/MIG-005
     runs-on: self-hosted
     timeout-minutes: 7
     env:
@@ -52,13 +52,15 @@ jobs:
           $ErrorActionPreference = "Stop"
           Set-StrictMode -Version Latest
 
-          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          . (Join-Path $env:GITHUB_WORKSPACE "windows\state-root.ps1")
+
+          $root = Get-SupervisorStateRoot
           $runtime = Join-Path $root "runtime"
           $configFile = Join-Path $root "lanes.json"
           $registryFile = Join-Path $root "lane-registry.json"
           $statusFile = Join-Path $root "lane-status.json"
           $installedRuntimeSource = Join-Path $runtime "src\runtime\three-lane-cli.mjs"
-          $sourceRuntime = Join-Path $env:GITHUB_WORKSPACE "08_INTEGRATIONS\supervisor\src\runtime\three-lane-cli.mjs"
+          $sourceRuntime = Join-Path $env:GITHUB_WORKSPACE "src\runtime\three-lane-cli.mjs"
           $integrityHelper = Join-Path $env:GITHUB_WORKSPACE ".github\scripts\supervisor-integrity-registry.ps1"
           $stopScript = Join-Path $runtime "windows\stop-supervisor.ps1"
           $startScript = Join-Path $runtime "windows\start-supervisor.ps1"
