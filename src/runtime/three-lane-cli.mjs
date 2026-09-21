@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { resolveSupervisorStateRoot } from "./state-root.mjs";
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
@@ -153,8 +154,7 @@ function parseArgs(argv) {
 }
 
 function localRoot() {
-  const base = process.env.LOCALAPPDATA || process.env.HOME || process.cwd();
-  return path.join(base, "MAGASIN", "BusinessOS", "supervisor");
+  return resolveSupervisorStateRoot(process.env);
 }
 
 async function atomicJsonWrite(filePath, value) {
