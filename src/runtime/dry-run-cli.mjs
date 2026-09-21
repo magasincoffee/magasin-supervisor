@@ -2,9 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
-import { readProjectState } from "../state.mjs";
+import { loadProjectInput } from "../project-adapter.mjs";
 import { SupervisorSession } from "./session.mjs";
 import { runSupervisorStep } from "./step.mjs";
+import { resolveSupervisorStateRoot } from "./state-root.mjs";
 
 function parseArgs(argv) {
   const result = {
@@ -13,7 +14,8 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
     if (key === "--cdp-url") result.cdpUrl = argv[++i];
-    else if (key === "--state") result.statePath = argv[++i];
+    else if (key === "--project-input" || key === "--state") result.projectInputPath = argv[++i];
+    else if (key === "--project-input-url" || key === "--state-url") result.projectInputUrl = argv[++i];
     else if (key === "--target") result.targetPath = argv[++i];
     else throw new Error(`unknown argument: ${key}`);
   }
@@ -21,8 +23,7 @@ function parseArgs(argv) {
 }
 
 function defaultTargetPath() {
-  const base = process.env.LOCALAPPDATA || process.env.HOME || process.cwd();
-  return path.join(base, "MAGASIN", "BusinessOS", "supervisor", "target.json");
+  return path.join(resolveSupervisorStateRoot().root, "target.json");
 }
 
 function validateLocalTarget(value) {
@@ -37,19 +38,16 @@ function validateLocalTarget(value) {
 
 const args = parseArgs(process.argv.slice(2));
 const targetPath = args.targetPath || defaultTargetPath();
-const statePath = args.statePath || path.resolve(
-  process.cwd(),
-  "..",
-  "..",
-  "01_DOCS",
-  "MAGASIN",
-  "00_PROJECT_STATE.json"
-);
+const projectInputPath = args.projectInputPath || null;
+const projectInputUrl = args.projectInputUrl || null;
 
 const target = validateLocalTarget(
   JSON.parse(await fs.readFile(targetPath, "utf8"))
 );
-const projectState = await readProjectState(statePath);
+const projectState = await loadProjectInput({
+  filePath: projectInputPath,
+  url: projectInputUrl
+});
 
 const session = new SupervisorSession({
   cdpUrl: args.cdpUrl,
