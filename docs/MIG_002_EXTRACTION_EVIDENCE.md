@@ -1,6 +1,6 @@
 # MIG-002 — Independent Supervisor Repository Extraction Evidence
 
-Status: **CANDIDATE / TARGET PR PENDING**
+Status: **TARGET EXTRACTION DONE / EXACT-MAIN HOSTED GATES GREEN / BUSINESS-OS CLOSURE PENDING**
 Date: 2026-09-21
 Task: `MIG-002 — Extract Supervisor Platform to Independent Repository`
 
@@ -154,3 +154,81 @@ MIG-003 must not perform production cutover; that remains MIG-005.
 ## 11. Stop boundary
 
 MIG-002 stops after target PR/parity evidence and Business OS source-of-truth closure. It does not self-start MIG-003.
+
+
+## 12. Target PR and CI closure evidence
+
+### Extraction PR
+
+- Target PR #1: `chore(migration): extract Supervisor platform from frozen baseline`
+- PR #1 head: `d6da4e83e238cc632a4a57f7dec0642eb0fff224`
+- PR #1 merge: `e67ae8101c391fc0a77b41ae6190bb615356be99`
+
+The first exact-main hosted runs on PR #1 correctly exposed legacy monorepo coupling:
+
+- Supervisor Tests run `35625923395`: **FAIL**, limited to legacy tests resolving `.github/workflows/**` via the old embedded-depth assumption.
+- Supervisor Integrity run `35625923480`: **FAIL**, additionally exposing Business OS-only `02_CORE`, night-run and old source-root assumptions.
+- These failures were classified as MIG-003/MIG-004 coupling, not runtime semantic regressions.
+- No runtime/test implementation was changed to force the legacy monorepo suite green.
+
+Production/self-hosted protection on the first target main was independently proven:
+
+- Autostart run `35625923489`: **SKIPPED**
+- Lifecycle run `35625923418`: self-hosted job **SKIPPED**
+- Open Control Panel run `35625923441`: **SKIPPED**
+- RBT-009 run `35625923459`: Tier A / preflight / Tier B all **SKIPPED**
+
+### Extraction-safe CI correction PR
+
+- Target PR #2: `ci(migration): scope MIG-002 checks to extraction-safe core`
+- final PR #2 head: `47be8911b43c2450c8dcda3a2f0755f288ab89bd`
+- PR #2 merge: `07160cfab6943d647661f732590a0ce45e2f92a5`
+
+PR-head exact-SHA gates:
+
+- Supervisor Tests run `35626549947`, job `106422214782`: **SUCCESS**
+- Supervisor Integrity run `35626550365`, static-audit job `106422217392`: **SUCCESS**
+- Supervisor Integrity runtime-audit job `106422270193`: **SKIPPED**
+
+Exact-main gates on `07160cfab6943d647661f732590a0ce45e2f92a5`:
+
+- Supervisor Tests run `35626662536`, job `106422585371`: **SUCCESS**
+  - extraction-safe platform tests: **184 / 184 PASS**
+  - failures: **0**
+  - `RBT009A_STRICTMODE_MATRIX_A_TO_O=PASS`
+  - `MIG_002_EXTRACTION_SAFE_TESTS=True`
+  - `ZERO_PRODUCTION_MUTATION=True`
+- Supervisor Integrity run `35626662417`, static-audit job `106422584584`: **SUCCESS**
+  - extraction-safe cross-platform core tests: **71 / 71 PASS**
+  - failures: **0**
+  - `MIG_002_ROOT_NATIVE_STATIC=True`
+  - `MIG_002_SELF_HOSTED_FAIL_CLOSED=True`
+  - `ZERO_PRODUCTION_MUTATION=True`
+- Supervisor Integrity runtime-audit job `106422631900`: **SKIPPED**
+- Lifecycle run `35626662157`: **SKIPPED**
+- RBT-009 run `35626662264`: **SKIPPED**
+
+This is the intended MIG-002 gate: safe hosted extraction tests and static parity/safety checks are green; self-hosted production acceptance remains fail-closed for later migration stages.
+
+## 13. Target-side conclusion
+
+Target repository extraction is complete and reviewable.
+
+- target repository: `https://github.com/magasincoffee/magasin-supervisor`
+- bootstrap main SHA: `815fc10bbc1814ed46f73b63391b9e67e29aa446`
+- extraction implementation main SHA: `07160cfab6943d647661f732590a0ce45e2f92a5`
+- parity manifest: `docs/MIG_002_PARITY_PROVENANCE.json`
+- parity: **137 / 137**
+- missing: **0**
+- duplicate mapping: **0**
+- MOVE byte-equivalent: **90 / 90**
+- REWRITE provenance: **47 / 47**
+- extraction-only rewritten mapped files: **8**
+- production cutover: **false**
+- production authority: **UNCHANGED_EXISTING_SUPERVISOR**
+- local production state mutation: **none**
+- RBT-009 release effect: **none**
+
+`ZERO_PRODUCTION_MUTATION=true`
+
+MIG-002 target-side work is DONE. Business OS source-of-truth must now record the accepted target evidence and advance only to `MIG-003 READY / NOT STARTED`. MIG-003 is not started by this task.
