@@ -8,6 +8,11 @@ import {
   CANONICAL_CONTINUE_INSTRUCTION,
   OBSERVATIONS
 } from "../decision.mjs";
+import {
+  loadProjectInput,
+  selectProjectInputSource
+} from "../project-adapter.mjs";
+import { supervisorStateRoot } from "../state-root.mjs";
 import { executeDecision } from "../ui/actions.mjs";
 import { SupervisorSession } from "./session.mjs";
 import { SupervisorLoopController } from "./loop.mjs";
@@ -24,9 +29,7 @@ import {
   writeRuntimeStatus
 } from "./status.mjs";
 
-const DEFAULT_STATE_URL =
-  "https://raw.githubusercontent.com/magasincoffee/magasincoffee.github.io/main/01_DOCS/MAGASIN/00_PROJECT_STATE.json";
-const SUPERVISOR_RUNTIME_VERSION = "2026-09-19.29";
+const SUPERVISOR_RUNTIME_VERSION = "2026-09-21.61";
 
 const ROLLOVER_INSTRUCTION =
   "Tiếp tục dự án MAGASIN trong cuộc trò chuyện mới vì cuộc trò chuyện trước đã đầy, bị kẹt hoặc không thể khôi phục. " +
@@ -36,7 +39,8 @@ const ROLLOVER_INSTRUCTION =
 function parseArgs(argv) {
   const result = {
     cdpUrl: "http://127.0.0.1:9222",
-    stateUrl: DEFAULT_STATE_URL,
+    projectInputUrl: null,
+    projectInputFile: null,
     execute: false,
     pollMs: 5000,
     stallMs: 4 * 60_000,
@@ -45,7 +49,8 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
     if (key === "--cdp-url") result.cdpUrl = argv[++i];
-    else if (key === "--state-url") result.stateUrl = argv[++i];
+    else if (key === "--project-input-url" || key === "--state-url") result.projectInputUrl = argv[++i];
+    else if (key === "--project-input-file" || key === "--state") result.projectInputFile = argv[++i];
     else if (key === "--target") result.targetPath = argv[++i];
     else if (key === "--execute") result.execute = true;
     else if (key === "--poll-ms") result.pollMs = Number(argv[++i]);
@@ -57,19 +62,7 @@ function parseArgs(argv) {
 }
 
 function localRoot() {
-  const base = process.env.LOCALAPPDATA || process.env.HOME || process.cwd();
-  return path.join(base, "MAGASIN", "BusinessOS", "supervisor");
-}
-
-async function fetchProjectState(url) {
-  const response = await fetch(url, {
-    cache: "no-store",
-    headers: { "user-agent": "MAGASIN-Supervisor/0.3" }
-  });
-  if (!response.ok) {
-    throw new Error(`project state fetch failed: HTTP ${response.status}`);
-  }
-  return response.json();
+  return supervisorStateRoot();
 }
 
 function validateTarget(value) {
@@ -244,6 +237,10 @@ async function createFreshConversation({
 }
 
 const args = parseArgs(process.argv.slice(2));
+selectProjectInputSource({
+  filePath: args.projectInputFile,
+  url: args.projectInputUrl
+});
 if (!Number.isFinite(args.pollMs) || args.pollMs < 1000) {
   throw new TypeError("poll-ms must be at least 1000");
 }
@@ -324,7 +321,10 @@ while (true) {
   } catch {}
 
   try {
-    const projectState = await fetchProjectState(args.stateUrl);
+    const projectState = await loadProjectInput({
+      filePath: args.projectInputFile,
+      url: args.projectInputUrl
+    });
     lastProjectState = projectState;
 
     if (projectState.status === "DONE") {
@@ -343,8 +343,8 @@ while (true) {
 
     if (projectState.autonomy === "PAUSED") {
       const pauseReason =
-        projectState?.night_run?.temporal_gate?.reason ||
-        "repository autonomy is PAUSED";
+        projectState.pause_reason ||
+        "project autonomy is PAUSED";
       await safeAppendLog(logPath, {
         type: "AUTONOMY_PAUSED",
         action: ACTIONS.WAIT,
