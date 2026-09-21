@@ -1,67 +1,35 @@
-import fs from "node:fs/promises";
-import path from "node:path";
+import process from "node:process";
 
-export const PROJECT_STATUSES = new Set([
-  "READY",
-  "RUNNING",
-  "TESTING",
-  "FIXING",
-  "WAIT_CI",
-  "WAIT_USER",
-  "BLOCKED",
-  "DONE"
-]);
+import {
+  AUTONOMY_MODES,
+  PROJECT_INPUT_PATH_ENV,
+  PROJECT_STATUSES,
+  loadProjectInput,
+  resolveProjectInputSource,
+  validateProjectInput
+} from "./project-adapter.mjs";
 
-export const AUTONOMY_MODES = new Set([
-  "AUTO_CONTINUE",
-  "MANUAL",
-  "PAUSED"
-]);
-
-export function defaultProjectStatePath(repoRoot = process.cwd()) {
-  return path.join(repoRoot, "01_DOCS", "MAGASIN", "00_PROJECT_STATE.json");
-}
+export { AUTONOMY_MODES, PROJECT_STATUSES };
 
 export function validateProjectState(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new TypeError("project state must be a JSON object");
-  }
-
-  const requiredStrings = ["project", "current_phase", "current_task", "status", "autonomy"];
-  for (const key of requiredStrings) {
-    if (typeof value[key] !== "string" || !value[key].trim()) {
-      throw new TypeError(`project state field ${key} must be a non-empty string`);
-    }
-  }
-
-  if (!PROJECT_STATUSES.has(value.status)) {
-    throw new TypeError(`unsupported project status: ${value.status}`);
-  }
-
-  if (!AUTONOMY_MODES.has(value.autonomy)) {
-    throw new TypeError(`unsupported autonomy mode: ${value.autonomy}`);
-  }
-
-  for (const key of ["blocked", "requires_user"]) {
-    if (typeof value[key] !== "boolean") {
-      throw new TypeError(`project state field ${key} must be boolean`);
-    }
-  }
-
-  if (value.next_task != null && typeof value.next_task !== "string") {
-    throw new TypeError("project state field next_task must be string or null");
-  }
-
-  return Object.freeze({ ...value });
+  return validateProjectInput(value);
 }
 
-export async function readProjectState(filePath = defaultProjectStatePath()) {
-  const raw = await fs.readFile(filePath, "utf8");
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new SyntaxError(`invalid project-state JSON: ${error.message}`);
+export function defaultProjectStatePath(env = process.env) {
+  const source = resolveProjectInputSource({ env });
+  if (source.type !== "FILE") {
+    throw new Error("defaultProjectStatePath requires explicit file-backed project input");
   }
-  return validateProjectState(parsed);
+  return source.value;
 }
+
+export async function readProjectState(filePath = null, options = {}) {
+  return loadProjectInput({
+    filePath,
+    url: options.url || null,
+    env: options.env || process.env,
+    fetchImpl: options.fetchImpl
+  });
+}
+
+export { PROJECT_INPUT_PATH_ENV };
