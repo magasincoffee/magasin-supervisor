@@ -4,13 +4,13 @@ import process from "node:process";
 
 import { ACTIONS, decideContinuation } from "../decision.mjs";
 import { inspectActionSurface } from "../ui/actions.mjs";
-import { readProjectState } from "../state.mjs";
+import { loadProjectInput, selectProjectInputSource } from "../project-adapter.mjs";
+import { supervisorStateRoot } from "../state-root.mjs";
 import { executeDecision } from "../ui/actions.mjs";
 import { SupervisorSession } from "./session.mjs";
 
 function localRoot() {
-  const base = process.env.LOCALAPPDATA || process.env.HOME || process.cwd();
-  return path.join(base, "MAGASIN", "BusinessOS", "supervisor");
+  return supervisorStateRoot();
 }
 
 function validateTarget(value) {
@@ -24,14 +24,31 @@ function validateTarget(value) {
   return value;
 }
 
+function parseArgs(argv) {
+  const result = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    const key = argv[i];
+    if (key === "--project-input-file" || key === "--state") result.projectInputFile = argv[++i];
+    else if (key === "--project-input-url") result.projectInputUrl = argv[++i];
+    else if (key === "--cdp-url") result.cdpUrl = argv[++i];
+    else throw new Error(`unknown argument: ${key}`);
+  }
+  return result;
+}
+
+const args = parseArgs(process.argv.slice(2));
+selectProjectInputSource({
+  filePath: args.projectInputFile,
+  url: args.projectInputUrl
+});
 const root = localRoot();
 const target = validateTarget(JSON.parse(
   await fs.readFile(path.join(root, "target.json"), "utf8")
 ));
-const statePath = path.resolve(
-  process.cwd(), "..", "..", "01_DOCS", "MAGASIN", "00_PROJECT_STATE.json"
-);
-const projectState = await readProjectState(statePath);
+const projectState = await loadProjectInput({
+  filePath: args.projectInputFile,
+  url: args.projectInputUrl
+});
 
 const session = new SupervisorSession({
   cdpUrl: "http://127.0.0.1:9222",
