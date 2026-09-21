@@ -2,7 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
-import { readProjectState } from "../state.mjs";
+import { loadProjectInput, selectProjectInputSource } from "../project-adapter.mjs";
+import { supervisorStateRoot } from "../state-root.mjs";
 import { SupervisorSession } from "./session.mjs";
 import { runSupervisorStep } from "./step.mjs";
 
@@ -13,7 +14,8 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
     if (key === "--cdp-url") result.cdpUrl = argv[++i];
-    else if (key === "--state") result.statePath = argv[++i];
+    else if (key === "--project-input-file" || key === "--state") result.projectInputFile = argv[++i];
+    else if (key === "--project-input-url") result.projectInputUrl = argv[++i];
     else if (key === "--target") result.targetPath = argv[++i];
     else throw new Error(`unknown argument: ${key}`);
   }
@@ -21,8 +23,7 @@ function parseArgs(argv) {
 }
 
 function defaultTargetPath() {
-  const base = process.env.LOCALAPPDATA || process.env.HOME || process.cwd();
-  return path.join(base, "MAGASIN", "BusinessOS", "supervisor", "target.json");
+  return path.join(supervisorStateRoot(), "target.json");
 }
 
 function validateLocalTarget(value) {
@@ -37,19 +38,18 @@ function validateLocalTarget(value) {
 
 const args = parseArgs(process.argv.slice(2));
 const targetPath = args.targetPath || defaultTargetPath();
-const statePath = args.statePath || path.resolve(
-  process.cwd(),
-  "..",
-  "..",
-  "01_DOCS",
-  "MAGASIN",
-  "00_PROJECT_STATE.json"
-);
 
 const target = validateLocalTarget(
   JSON.parse(await fs.readFile(targetPath, "utf8"))
 );
-const projectState = await readProjectState(statePath);
+selectProjectInputSource({
+  filePath: args.projectInputFile,
+  url: args.projectInputUrl
+});
+const projectState = await loadProjectInput({
+  filePath: args.projectInputFile,
+  url: args.projectInputUrl
+});
 
 const session = new SupervisorSession({
   cdpUrl: args.cdpUrl,
