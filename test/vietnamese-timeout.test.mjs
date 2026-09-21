@@ -9,12 +9,12 @@ function projectState() {
   return {
     project: "MAGASIN Business OS",
     current_phase: "P1",
-    current_task: "TASK-006",
+    current_task: "PLATFORM-006",
     status: "RUNNING",
     autonomy: "AUTO_CONTINUE",
     blocked: false,
     requires_user: false,
-    next_task: "TASK-007"
+    next_task: "PLATFORM-007"
   };
 }
 
