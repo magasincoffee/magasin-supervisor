@@ -8,22 +8,24 @@ import { readProjectState, validateProjectState } from "../src/state.mjs";
 
 function validState(overrides = {}) {
   return {
-    project: "MAGASIN Business OS",
-    current_phase: "P1",
-    current_task: "TASK-002",
+    project: "Example Project",
+    repository: "example/project",
+    current_phase: "BUILD",
+    current_task: "PLATFORM-002",
     status: "READY",
     autonomy: "AUTO_CONTINUE",
     blocked: false,
     requires_user: false,
-    next_task: "TASK-003",
+    next_task: "PLATFORM-003",
     ...overrides
   };
 }
 
-test("validateProjectState accepts canonical state", () => {
+test("validateProjectState accepts bounded project input", () => {
   const result = validateProjectState(validState());
-  assert.equal(result.current_task, "TASK-002");
+  assert.equal(result.current_task, "PLATFORM-002");
   assert.equal(result.autonomy, "AUTO_CONTINUE");
+  assert.equal(result.repository, "example/project");
 });
 
 test("validateProjectState rejects unsupported status", () => {
@@ -39,17 +41,20 @@ test("validateProjectState requires explicit safety booleans", () => {
   assert.throws(() => validateProjectState(value), /requires_user/);
 });
 
-test("readProjectState parses a state file", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "magasin-supervisor-"));
-  const file = path.join(dir, "state.json");
+test("readProjectState parses an explicit state/input file", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "supervisor-project-input-"));
+  const file = path.join(dir, "input.json");
   await fs.writeFile(file, JSON.stringify(validState()), "utf8");
-  const state = await readProjectState(file);
-  assert.equal(state.next_task, "TASK-003");
+  const state = await readProjectState(file, { env: {} });
+  assert.equal(state.next_task, "PLATFORM-003");
 });
 
-test("readProjectState reports invalid JSON", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "magasin-supervisor-"));
-  const file = path.join(dir, "state.json");
+test("readProjectState reports invalid project-input JSON", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "supervisor-project-input-"));
+  const file = path.join(dir, "input.json");
   await fs.writeFile(file, "{broken", "utf8");
-  await assert.rejects(() => readProjectState(file), /invalid project-state JSON/);
+  await assert.rejects(
+    () => readProjectState(file, { env: {} }),
+    /invalid project-input JSON/
+  );
 });
