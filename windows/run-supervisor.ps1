@@ -223,6 +223,9 @@ try {
         Push-Location $runtime
         try {
             $nodeArgs = @($entryPoint, '--cdp-url', $cdpBaseUrl, '--poll-ms', '5000')
+            if ($runtimeMode -ne 'THREE_LANE_V1') {
+                $nodeArgs += @('--project-adapter', $projectAdapterSource)
+            }
             if (-not $DryRun) { $nodeArgs += '--execute' }
             & node @nodeArgs
             $nodeExitCode = $LASTEXITCODE
