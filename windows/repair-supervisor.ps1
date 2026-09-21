@@ -5,10 +5,11 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $sourceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$repoRoot = (Resolve-Path (Join-Path $sourceRoot '..\..')).Path
+$repoRoot = $sourceRoot
 $installScript = Join-Path $sourceRoot 'windows\install-supervisor.ps1'
 $sourceLifecycle = Join-Path $sourceRoot 'windows\lifecycle-truth.ps1'
-$root = Join-Path $env:LOCALAPPDATA 'MAGASIN\BusinessOS\supervisor'
+. (Join-Path $PSScriptRoot 'state-root.ps1')
+$root = Get-SupervisorStateRoot
 $runtime = Join-Path $root 'runtime'
 $runtimeLoop = Join-Path $runtime 'src\runtime\supervisor-loop-cli.mjs'
 $runtimeBrainWorker = Join-Path $runtime 'src\runtime\brain-worker-cli.mjs'
@@ -19,7 +20,6 @@ $profile = Join-Path $root 'browser_profile'
 $target = Join-Path $root 'target.json'
 $pidFile = Join-Path $root 'supervisor.pid'
 $logFile = Join-Path $root 'supervisor.log'
-$projectStateUrl = 'https://raw.githubusercontent.com/magasincoffee/magasincoffee.github.io/main/01_DOCS/MAGASIN/00_PROJECT_STATE.json'
 $sourceThreeLane = Join-Path $sourceRoot 'src\runtime\three-lane-cli.mjs'
 
 function Get-SupervisorRuntimeVersion([string]$Path) {
@@ -190,24 +190,15 @@ try {
     Assert-InstalledFingerprint
     Write-Host "Installed runtime fingerprint: PASS ($expectedRuntimeVersion)"
 
-    $projectState = $null
-    try {
-        $projectState = Invoke-RestMethod -Uri $projectStateUrl -TimeoutSec 4 -Headers @{ 'Cache-Control'='no-cache' }
-    } catch {}
-
-    $threeLaneMode = [bool](
-        $projectState -and
-        $projectState.supervisor_orchestration -and
-        [string]$projectState.supervisor_orchestration.mode -eq 'THREE_LANE_V1'
-    )
-    $brainWorkerMode = [bool](
-        $projectState -and
-        $projectState.supervisor_orchestration -and
-        [string]$projectState.supervisor_orchestration.mode -eq 'BRAIN_WORKER_V1'
-    )
-    if (-not $threeLaneMode -and -not $brainWorkerMode) {
-        $threeLaneMode = $true
+    $runtimeMode = if ($env:SUPERVISOR_RUNTIME_MODE) {
+        [string]$env:SUPERVISOR_RUNTIME_MODE
+    } else {
+        'THREE_LANE_V1'
     }
+    if ($runtimeMode -notin @('THREE_LANE_V1','BRAIN_WORKER_V1','LEGACY_LOOP_V1')) {
+        throw "Unsupported SUPERVISOR_RUNTIME_MODE: $runtimeMode"
+    }
+    $threeLaneMode = [bool]($runtimeMode -eq 'THREE_LANE_V1')
 
     $ownerStopAfterInstall = Get-LifecycleOwnerStopState -Root $root
     $enabledLaneCountAfterInstall = Get-EnabledLaneCount -Root $root
