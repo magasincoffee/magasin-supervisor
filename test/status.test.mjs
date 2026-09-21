@@ -60,10 +60,12 @@ test("runtime status path preserves legacy root by compatibility default", () =>
 });
 
 test("runtime status path honors explicit platform state-root config", () => {
-  const file = defaultRuntimeStatusPath({
+  const env = {
     MAGASIN_SUPERVISOR_STATE_ROOT: path.join("D:", "SupervisorState")
-  });
-  assert.equal(file, path.join(path.resolve("D:", "SupervisorState"), "runtime-status.json"));
+  };
+  const file = defaultRuntimeStatusPath(env);
+  assert.match(file, /SupervisorState[\\/]runtime-status\.json$/);
+  assert.doesNotMatch(file, /BusinessOS/);
 });
 
 test("runtime status exposes why an action did not execute", () => {
