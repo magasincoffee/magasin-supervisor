@@ -80,10 +80,10 @@ jobs:
           . "$env:GITHUB_WORKSPACE\windows\project-adapter.ps1"
           $state = ConvertTo-SupervisorProjectState (Read-SupervisorProjectAdapter)
           if ($state.supervisor_orchestration.mode -ne "THREE_LANE_V1") {
-            throw "Checked-out PROJECT_STATE does not enable THREE_LANE_V1"
+            throw "Project adapter does not enable THREE_LANE_V1"
           }
           if ([int]$state.supervisor_orchestration.lane_count -ne 3) {
-            throw "Checked-out PROJECT_STATE does not define exactly three lanes"
+            throw "Project adapter does not define exactly three lanes"
           }
           if ([bool]$state.supervisor_orchestration.brain_autodiscovery) {
             throw "Brain autodiscovery must be disabled in THREE_LANE_V1"
