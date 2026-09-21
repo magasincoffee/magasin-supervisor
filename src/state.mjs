@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import path from "node:path";
 
 export const PROJECT_STATUSES = new Set([
   "READY",
@@ -17,10 +16,6 @@ export const AUTONOMY_MODES = new Set([
   "MANUAL",
   "PAUSED"
 ]);
-
-export function defaultProjectStatePath(repoRoot = process.cwd()) {
-  return path.join(repoRoot, "01_DOCS", "MAGASIN", "00_PROJECT_STATE.json");
-}
 
 export function validateProjectState(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -55,7 +50,8 @@ export function validateProjectState(value) {
   return Object.freeze({ ...value });
 }
 
-export async function readProjectState(filePath = defaultProjectStatePath()) {
+export async function readProjectState(filePath) {
+  if (typeof filePath !== "string" || !filePath.trim()) throw new TypeError("explicit project-state path is required");
   const raw = await fs.readFile(filePath, "utf8");
   let parsed;
   try {
