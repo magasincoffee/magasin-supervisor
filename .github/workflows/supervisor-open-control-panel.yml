@@ -22,7 +22,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          $root = & "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
           $runtime = Join-Path $root "runtime"
           $lifecycle = Join-Path $runtime "windows\lifecycle-truth.ps1"
           $shortcut = Join-Path ([Environment]::GetFolderPath("Desktop")) "MAGASIN BUSINESS OS CONTROL.lnk"
