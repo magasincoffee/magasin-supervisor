@@ -93,14 +93,14 @@ test("result relay is deterministic and includes full Work text", () => {
   const a = buildLaneResultRelay({
     laneId: "lane-1",
     projectName: "Business OS",
-    taskId: "TASK-123",
+    taskId: "PLATFORM-123",
     generation: 2,
     responseText: "FULL RESULT BODY"
   });
   const b = buildLaneResultRelay({
     laneId: "lane-1",
     projectName: "Business OS",
-    taskId: "TASK-123",
+    taskId: "PLATFORM-123",
     generation: 2,
     responseText: "FULL RESULT BODY"
   });
@@ -122,7 +122,7 @@ test("Three-Lane normalizes transient WEB Work URLs from existing registry state
       "lane-1": {
         work_url: `https://chatgpt.com/c/WEB:${uuid}`,
         awaiting_work: true,
-        task_id: "TASK-049/THREE-LANE-E2E-01"
+        task_id: "PLATFORM-049/THREE-LANE-E2E-01"
       }
     }
   });
@@ -244,13 +244,13 @@ test("legacy Work target state infers mode without fabricating a pending revisio
 test("Work dispatch envelope carries deterministic machine marker without changing task body", () => {
   const dispatchId = "abc123";
   const text = buildWorkDispatchInstruction({
-    taskId: "TASK-049/TEST",
+    taskId: "PLATFORM-049/TEST",
     dispatchId,
     instruction: "Do one safe thing."
   });
 
   assert.match(text, /MAGASIN_WORK_DISPATCH_V1/);
-  assert.match(text, /task_id=TASK-049\/TEST/);
+  assert.match(text, /task_id=PLATFORM-049\/TEST/);
   assert.match(text, /dispatch_id=abc123/);
   assert.match(text, /Do one safe thing\./);
   assert.equal(workDispatchMarker(dispatchId), "dispatch_id=abc123");
