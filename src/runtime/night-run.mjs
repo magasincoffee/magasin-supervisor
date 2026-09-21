@@ -59,7 +59,7 @@ export function validateNightRunContract({ contract, registry, cursor }) {
     throw new NightRunContractError("allowed project ids must be unique");
   }
 
-  if (!registry || registry.schema_version !== "business-os-project-registry.v1") {
+  if (!registry || registry.schema_version !== "supervisor-project-registry.v1") {
     throw new NightRunContractError("unsupported project registry");
   }
   if (registry.discovery_policy !== "DENY_UNREGISTERED") {
@@ -103,10 +103,8 @@ export function validateNightRunContract({ contract, registry, cursor }) {
     "SECRET_EXPOSURE",
     "MFA_BYPASS",
     "CAPTCHA_BYPASS",
-    "DESTRUCTIVE_PRODUCTION_DB",
-    "LIVE_SAYDIVOICE_GENERATE",
-    "LIVE_SAYDIVOICE_DOWNLOAD",
-    "THIRD_PROJECT_EXECUTION"
+    "DESTRUCTIVE_PRODUCTION_ACTION",
+    "UNREGISTERED_PROJECT_EXECUTION"
   ];
   const forbidden = new Set(contract.forbidden || []);
   for (const rule of requiredForbidden) {
@@ -115,7 +113,7 @@ export function validateNightRunContract({ contract, registry, cursor }) {
     }
   }
 
-  if (!cursor || cursor.schema_version !== "business-os-execution-cursor.v1") {
+  if (!cursor || cursor.schema_version !== "supervisor-execution-cursor.v1") {
     throw new NightRunContractError("unsupported execution cursor");
   }
   if (cursor.night_run_id !== runId) {
