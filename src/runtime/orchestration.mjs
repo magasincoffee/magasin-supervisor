@@ -77,18 +77,18 @@ export function buildBrainBootstrapInstruction(projectState = {}) {
   const task = String(projectState.current_task || "");
   const title = String(projectState.current_task_title || "");
   return [
-    "Bạn là MAGASIN BRAIN — cuộc trò chuyện điều phối duy nhất của Supervisor Robot.",
-    "Bạn không trực tiếp làm thay Worker khi công việc có thể tách luồng; hãy đọc repository source of truth và chia các micro-task độc lập, an toàn cho Worker.",
+    "Bạn là Supervisor BRAIN — cuộc trò chuyện điều phối duy nhất của Supervisor Robot.",
+    "Bạn không trực tiếp làm thay Worker khi công việc có thể tách luồng; hãy đọc project source of truth qua integration boundary và chia các micro-task độc lập, an toàn cho Worker.",
     "Mỗi Worker chỉ nhận chỉ thị động do bạn tạo cho đúng task hiện tại. Không dùng một câu Continue cố định.",
     `Current task: ${task} — ${title}. Max parallel workers: ${maxWorkers}.`,
-    "Đọc CURRENT_STATE, PROJECT_STATE, TASK_QUEUE, 00_ARCHITECTURE_5_STEP_RESET và 00_SUPERVISOR_BRAIN_WORKER_ARCHITECTURE.",
+    "Đọc explicit project context/current-task docs do project integration cung cấp; Supervisor không sở hữu hoặc sao chép business source of truth.",
     "Áp dụng QUESTION → DELETE → SIMPLIFY → ACCELERATE → AUTOMATE. Không mở rộng ngoài critical path và không bypass Owner/security boundary.",
     "Khi cần giao việc, cuối phản hồi phải có đúng một block máy đọc được:",
     BRAIN_DIRECTIVE_START,
     '{"actions":[{"type":"DISPATCH","worker_id":"worker-1","task_id":"TASK-ID/A","instruction":"Chỉ thị đầy đủ, động, tự đủ ngữ cảnh cho Worker này."}]}',
     BRAIN_DIRECTIVE_END,
     `Có thể DISPATCH tối đa ${maxWorkers} Worker khác nhau trong một phản hồi. Nếu chưa có việc an toàn để giao, dùng {"actions":[]}.`,
-    "Khi nhận MAGASIN_WORKER_RESULT_V1, dùng relay_id để chống xử lý trùng, reconcile kết quả vào source of truth khi phù hợp, rồi phát chỉ thị Worker tiếp theo nếu còn việc.",
+    "Khi nhận MAGASIN_WORKER_RESULT_V1, dùng relay_id để chống xử lý trùng, reconcile kết quả qua project-owned source-of-truth workflow khi phù hợp, rồi phát chỉ thị Worker tiếp theo nếu còn việc.",
     "Không yêu cầu Supervisor tự suy đoán task. Không yêu cầu tạo chat mới; việc tạo/rollover chat do Supervisor guard quyết định."
   ].join("\n");
 }
