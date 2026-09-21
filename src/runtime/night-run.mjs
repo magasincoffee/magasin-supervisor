@@ -12,6 +12,16 @@ export class NightRunLeaseBusyError extends Error {
   }
 }
 
+export const PROJECT_REGISTRY_SCHEMAS = new Set([
+  "supervisor-project-registry.v1",
+  "business-os-project-registry.v1"
+]);
+
+export const EXECUTION_CURSOR_SCHEMAS = new Set([
+  "supervisor-execution-cursor.v1",
+  "business-os-execution-cursor.v1"
+]);
+
 function requireString(value, label) {
   if (typeof value !== "string" || !value.trim()) {
     throw new NightRunContractError(`${label} must be a non-empty string`);
@@ -59,7 +69,7 @@ export function validateNightRunContract({ contract, registry, cursor }) {
     throw new NightRunContractError("allowed project ids must be unique");
   }
 
-  if (!registry || registry.schema_version !== "business-os-project-registry.v1") {
+  if (!registry || !PROJECT_REGISTRY_SCHEMAS.has(registry.schema_version)) {
     throw new NightRunContractError("unsupported project registry");
   }
   if (registry.discovery_policy !== "DENY_UNREGISTERED") {
@@ -115,7 +125,7 @@ export function validateNightRunContract({ contract, registry, cursor }) {
     }
   }
 
-  if (!cursor || cursor.schema_version !== "business-os-execution-cursor.v1") {
+  if (!cursor || !EXECUTION_CURSOR_SCHEMAS.has(cursor.schema_version)) {
     throw new NightRunContractError("unsupported execution cursor");
   }
   if (cursor.night_run_id !== runId) {
