@@ -3,10 +3,10 @@ import path from "node:path";
 
 import { classifyUiSnapshot } from "./classifier.mjs";
 import { collectSafeUiSnapshot } from "./snapshot.mjs";
+import { resolveSupervisorStateRoot } from "../runtime/state-root.mjs";
 
 export function defaultSupervisorProfileDir(env = process.env) {
-  const base = env.LOCALAPPDATA || env.HOME || process.cwd();
-  return path.join(base, "MAGASIN", "BusinessOS", "supervisor", "browser_profile");
+  return path.join(resolveSupervisorStateRoot({ env }).root, "browser_profile");
 }
 
 export function resolveChromeExecutable(env = process.env) {
