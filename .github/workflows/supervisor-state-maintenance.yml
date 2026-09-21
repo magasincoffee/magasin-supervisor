@@ -52,13 +52,13 @@ jobs:
           $ErrorActionPreference = "Stop"
           Set-StrictMode -Version Latest
 
-          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          $root = & "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
           $runtime = Join-Path $root "runtime"
           $configFile = Join-Path $root "lanes.json"
           $registryFile = Join-Path $root "lane-registry.json"
           $statusFile = Join-Path $root "lane-status.json"
           $installedRuntimeSource = Join-Path $runtime "src\runtime\three-lane-cli.mjs"
-          $sourceRuntime = Join-Path $env:GITHUB_WORKSPACE "08_INTEGRATIONS\supervisor\src\runtime\three-lane-cli.mjs"
+          $sourceRuntime = Join-Path $env:GITHUB_WORKSPACE "src\runtime\three-lane-cli.mjs"
           $integrityHelper = Join-Path $env:GITHUB_WORKSPACE ".github\scripts\supervisor-integrity-registry.ps1"
           $stopScript = Join-Path $runtime "windows\stop-supervisor.ps1"
           $startScript = Join-Path $runtime "windows\start-supervisor.ps1"
