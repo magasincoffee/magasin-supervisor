@@ -4,13 +4,13 @@ import process from "node:process";
 
 import { ACTIONS, decideContinuation } from "../decision.mjs";
 import { inspectActionSurface } from "../ui/actions.mjs";
-import { readProjectState } from "../state.mjs";
+import { loadProjectInput } from "../project-adapter.mjs";
 import { executeDecision } from "../ui/actions.mjs";
 import { SupervisorSession } from "./session.mjs";
+import { resolveSupervisorStateRoot } from "./state-root.mjs";
 
 function localRoot() {
-  const base = process.env.LOCALAPPDATA || process.env.HOME || process.cwd();
-  return path.join(base, "MAGASIN", "BusinessOS", "supervisor");
+  return resolveSupervisorStateRoot().root;
 }
 
 function validateTarget(value) {
@@ -28,10 +28,7 @@ const root = localRoot();
 const target = validateTarget(JSON.parse(
   await fs.readFile(path.join(root, "target.json"), "utf8")
 ));
-const statePath = path.resolve(
-  process.cwd(), "..", "..", "01_DOCS", "MAGASIN", "00_PROJECT_STATE.json"
-);
-const projectState = await readProjectState(statePath);
+const projectState = await loadProjectInput();
 
 const session = new SupervisorSession({
   cdpUrl: "http://127.0.0.1:9222",
