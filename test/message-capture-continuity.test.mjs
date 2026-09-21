@@ -28,16 +28,16 @@ test("assistant continuity capture returns only deterministic digests to the run
 test("Worker instruction continuity capture returns only deterministic user-turn digests", async () => {
   const page = {
     async evaluate() {
-      return ["TASK-049/D instruction", "TASK-049/E instruction"];
+      return ["WORK-CAP-D instruction", "WORK-CAP-E instruction"];
     }
   };
 
   const digests = await captureUserTurnDigests(page);
   assert.deepEqual(digests, [
-    digestCapturedResponse("TASK-049/D instruction"),
-    digestCapturedResponse("TASK-049/E instruction")
+    digestCapturedResponse("WORK-CAP-D instruction"),
+    digestCapturedResponse("WORK-CAP-E instruction")
   ]);
-  assert.equal(digests.includes("TASK-049/E instruction"), false);
+  assert.equal(digests.includes("WORK-CAP-E instruction"), false);
 });
 
 
