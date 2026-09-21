@@ -16,6 +16,7 @@ import {
   captureUserTurnDigests
 } from "../ui/message-capture.mjs";
 import { OBSERVATIONS } from "../decision.mjs";
+import { loadProjectInput } from "../project-adapter.mjs";
 import { pageMatchesTarget, targetFromUrl } from "./recovery.mjs";
 import {
   BRAIN_WORKER_MODE,
@@ -32,22 +33,23 @@ import {
   buildRuntimeStatus,
   defaultRuntimeStatusPath
 } from "./status.mjs";
+import { resolveSupervisorStateRoot } from "./state-root.mjs";
 
-const DEFAULT_STATE_URL =
-  "https://raw.githubusercontent.com/magasincoffee/magasincoffee.github.io/main/01_DOCS/MAGASIN/00_PROJECT_STATE.json";
 const SUPERVISOR_RUNTIME_VERSION = "2026-09-19.29";
 
 function parseArgs(argv) {
   const result = {
     cdpUrl: "http://127.0.0.1:9222",
-    stateUrl: DEFAULT_STATE_URL,
+    projectInputPath: null,
+    projectInputUrl: null,
     execute: false,
     pollMs: 5000
   };
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
     if (key === "--cdp-url") result.cdpUrl = argv[++i];
-    else if (key === "--state-url") result.stateUrl = argv[++i];
+    else if (key === "--project-input" || key === "--state") result.projectInputPath = argv[++i];
+    else if (key === "--project-input-url" || key === "--state-url") result.projectInputUrl = argv[++i];
     else if (key === "--execute") result.execute = true;
     else if (key === "--poll-ms") result.pollMs = Number(argv[++i]);
     else throw new Error(`unknown argument: ${key}`);
@@ -56,8 +58,7 @@ function parseArgs(argv) {
 }
 
 function localRoot() {
-  const base = process.env.LOCALAPPDATA || process.env.HOME || process.cwd();
-  return path.join(base, "MAGASIN", "BusinessOS", "supervisor");
+  return resolveSupervisorStateRoot().root;
 }
 
 class ProjectStateFetchError extends Error {
@@ -67,22 +68,13 @@ class ProjectStateFetchError extends Error {
   }
 }
 
-async function fetchProjectState(url) {
+async function fetchProjectState({ filePath = null, url = null } = {}) {
   try {
-    const response = await fetch(url, {
-      cache: "no-store",
-      headers: { "user-agent": "MAGASIN-Supervisor-BrainWorker/0.4" }
-    });
-    if (!response.ok) {
-      throw new ProjectStateFetchError(
-        `project state fetch failed: HTTP ${response.status}`
-      );
-    }
-    return response.json();
+    return await loadProjectInput({ filePath, url });
   } catch (error) {
     if (error instanceof ProjectStateFetchError) throw error;
     throw new ProjectStateFetchError(
-      `project state fetch temporarily unavailable: ${String(error?.message || error)}`,
+      `project input temporarily unavailable: ${String(error?.message || error)}`,
       error
     );
   }
@@ -582,7 +574,7 @@ async function rolloverBrain({ adapter, registry, projectState, execute, registr
 }
 
 function workerCapacity(config) {
-  const value = Number(config?.workers?.max_parallel_workers || 3);
+  const value = Number(config?.max_parallel_workers || 3);
   if (!Number.isInteger(value) || value < 1 || value > 12) {
     throw new Error("invalid max_parallel_workers");
   }
@@ -1104,7 +1096,10 @@ try {
 
     try {
       try {
-        projectState = await fetchProjectState(args.stateUrl);
+        projectState = await fetchProjectState({
+          filePath: args.projectInputPath,
+          url: args.projectInputUrl
+        });
         projectStateFetchFailures = 0;
       } catch (error) {
         if (!(error instanceof ProjectStateFetchError)) throw error;
@@ -1132,7 +1127,7 @@ try {
         continue;
       }
 
-      const config = projectState.supervisor_orchestration || {};
+      const config = projectState.orchestration || {};
 
       if (config.mode !== BRAIN_WORKER_MODE) {
         throw new Error("source of truth no longer authorizes BRAIN_WORKER_V1");
