@@ -3,7 +3,7 @@
   "task_id": "MIG-003",
   "target_repository": "magasincoffee/magasin-supervisor",
   "exact_base_sha": "64371bedc7b9c976047224152dba820c12a0674c",
-  "implementation_snapshot_sha": "518c84699212d43c150447eaebc88e61a025f90d",
+  "implementation_snapshot_sha": "154fa3f4ca3c0feaf50874be3e4a98fb95e4159e",
   "production_cutover": false,
   "production_authority": "UNCHANGED_EXISTING_SUPERVISOR",
   "zero_production_mutation": true,
@@ -229,5 +229,6 @@
     "Full hosted/full-suite path-assumption cleanup not required for MIG-003 contract closure",
     "No production authority cutover; remains MIG-005",
     "No final RBT-009 8h qualification; remains MIG-006"
-  ]
+  ],
+  "implementation_snapshot_note": "Final implementation/CI-glue snapshot before PR-head gates; later evidence-only commits do not change platform runtime semantics."
 }
