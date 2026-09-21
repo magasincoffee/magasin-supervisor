@@ -76,20 +76,23 @@ export function buildBrainBootstrapInstruction(projectState = {}) {
   const maxWorkers = Number(orchestration?.workers?.max_parallel_workers || 3);
   const task = String(projectState.current_task || "");
   const title = String(projectState.current_task_title || "");
+  const configured = String(projectState?.instructions?.brain_bootstrap || "").trim();
+  const projectPolicy = configured ||
+    "Read the project's explicit source-of-truth through the configured project adapter. " +
+    "Do not invent project policy or bypass Owner/security boundaries.";
   return [
-    "Bạn là MAGASIN BRAIN — cuộc trò chuyện điều phối duy nhất của Supervisor Robot.",
-    "Bạn không trực tiếp làm thay Worker khi công việc có thể tách luồng; hãy đọc repository source of truth và chia các micro-task độc lập, an toàn cho Worker.",
-    "Mỗi Worker chỉ nhận chỉ thị động do bạn tạo cho đúng task hiện tại. Không dùng một câu Continue cố định.",
+    "You are the Supervisor Brain orchestration conversation.",
+    "Delegate bounded independent work to Workers when safe; do not duplicate Worker execution in the Brain.",
+    "Each Worker receives a dynamic instruction for the currently authorized task.",
     `Current task: ${task} — ${title}. Max parallel workers: ${maxWorkers}.`,
-    "Đọc CURRENT_STATE, PROJECT_STATE, TASK_QUEUE, 00_ARCHITECTURE_5_STEP_RESET và 00_SUPERVISOR_BRAIN_WORKER_ARCHITECTURE.",
-    "Áp dụng QUESTION → DELETE → SIMPLIFY → ACCELERATE → AUTOMATE. Không mở rộng ngoài critical path và không bypass Owner/security boundary.",
-    "Khi cần giao việc, cuối phản hồi phải có đúng một block máy đọc được:",
+    projectPolicy,
+    "When dispatching work, end the response with exactly one machine-readable block:",
     BRAIN_DIRECTIVE_START,
-    '{"actions":[{"type":"DISPATCH","worker_id":"worker-1","task_id":"TASK-ID/A","instruction":"Chỉ thị đầy đủ, động, tự đủ ngữ cảnh cho Worker này."}]}',
+    '{"actions":[{"type":"DISPATCH","worker_id":"worker-1","task_id":"TASK-ID/A","instruction":"Complete, bounded instruction for this Worker."}]}',
     BRAIN_DIRECTIVE_END,
-    `Có thể DISPATCH tối đa ${maxWorkers} Worker khác nhau trong một phản hồi. Nếu chưa có việc an toàn để giao, dùng {"actions":[]}.`,
-    "Khi nhận MAGASIN_WORKER_RESULT_V1, dùng relay_id để chống xử lý trùng, reconcile kết quả vào source of truth khi phù hợp, rồi phát chỉ thị Worker tiếp theo nếu còn việc.",
-    "Không yêu cầu Supervisor tự suy đoán task. Không yêu cầu tạo chat mới; việc tạo/rollover chat do Supervisor guard quyết định."
+    `Dispatch at most ${maxWorkers} distinct Workers. If no safe work is available, use {"actions":[]}.`,
+    "When MAGASIN_WORKER_RESULT_V1 arrives, use relay_id for duplicate protection and reconcile only through project-owned source-of-truth.",
+    "Do not ask Supervisor to guess the task. Conversation creation/rollover remains Supervisor-controlled."
   ].join("\n");
 }
 
@@ -105,8 +108,8 @@ export function buildBrainRolloverInstruction(projectState = {}, registry = {}) 
   return [
     buildBrainBootstrapInstruction(projectState),
     "",
-    "Đây là rollover của MAGASIN BRAIN vì chính cuộc trò chuyện Brain trước đã hiển thị thông báo conversationFull.",
-    "Khôi phục điều phối từ repository và metadata local an toàn sau đây; không suy đoán nội dung hội thoại cũ:",
+    "This is a Brain rollover because the prior Brain conversation reported conversationFull.",
+    "Restore orchestration only from configured project inputs and the safe local metadata below; do not infer prior message content:",
     JSON.stringify({ workers }, null, 2)
   ].join("\n");
 }
