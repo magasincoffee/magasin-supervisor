@@ -9,12 +9,12 @@ import {
 test("runtime status exposes project/task/action metadata without private content", () => {
   const payload = buildRuntimeStatus({
     projectState: {
-      project: "MAGASIN Business OS",
-      repository: "magasincoffee/magasincoffee.github.io",
+      project: "Example Project",
+      repository: "example/example-project",
       current_phase: "P1",
-      current_task: "TASK-009",
+      current_task: "WORK-009",
       current_task_title: "Store/product canonical model review",
-      next_task: "TASK-010",
+      next_task: "WORK-010",
       autonomy: "AUTO_CONTINUE",
       status: "READY",
       requires_user: false,
@@ -28,8 +28,8 @@ test("runtime status exposes project/task/action metadata without private conten
     retryCount: 1
   });
 
-  assert.equal(payload.project, "MAGASIN Business OS");
-  assert.equal(payload.current_task, "TASK-009");
+  assert.equal(payload.project, "Example Project");
+  assert.equal(payload.current_task, "WORK-009");
   assert.equal(payload.project_status, "READY");
   assert.equal(payload.status, "RUNNING");
   assert.equal(payload.decision_action, "WAIT");
@@ -39,7 +39,7 @@ test("runtime status exposes project/task/action metadata without private conten
   assert.doesNotMatch(keys, /cookie|token|credential|message_body|prompt/i);
 });
 
-test("runtime status path stays under local MAGASIN BusinessOS supervisor root", () => {
+test("runtime status path uses platform-owned root when no legacy state exists", () => {
   const file = defaultRuntimeStatusPath({
     LOCALAPPDATA: "C:\\Users\\Owner\\AppData\\Local"
   });
@@ -50,12 +50,12 @@ test("runtime status path stays under local MAGASIN BusinessOS supervisor root",
 test("runtime status exposes why an action did not execute", () => {
   const payload = buildRuntimeStatus({
     projectState: {
-      project: "MAGASIN Business OS",
-      repository: "magasincoffee/magasincoffee.github.io",
+      project: "Example Project",
+      repository: "example/example-project",
       current_phase: "P1",
-      current_task: "TASK-009",
+      current_task: "WORK-009",
       current_task_title: "Store/product canonical model review",
-      next_task: "TASK-010",
+      next_task: "WORK-010",
       autonomy: "AUTO_CONTINUE"
     },
     status: "READY",
@@ -71,12 +71,12 @@ test("runtime status exposes why an action did not execute", () => {
 test("runtime status exposes recovery state without conversation content", () => {
   const payload = buildRuntimeStatus({
     projectState: {
-      project: "MAGASIN Business OS",
-      repository: "magasincoffee/magasincoffee.github.io",
+      project: "Example Project",
+      repository: "example/example-project",
       current_phase: "P1",
-      current_task: "TASK-009",
+      current_task: "WORK-009",
       current_task_title: "Store/product canonical model review",
-      next_task: "TASK-010",
+      next_task: "WORK-010",
       autonomy: "AUTO_CONTINUE"
     },
     status: "RECOVERING",
@@ -105,9 +105,9 @@ test("runtime status exposes recovery state without conversation content", () =>
 test("runtime status preserves safe WAIT_USER boundary metadata", () => {
   const payload = buildRuntimeStatus({
     projectState: {
-      project: "MAGASIN Business OS",
-      repository: "magasincoffee/magasincoffee.github.io",
-      current_task: "TASK-035",
+      project: "Example Project",
+      repository: "example/example-project",
+      current_task: "WORK-035",
       status: "WAIT_USER",
       autonomy: "MANUAL",
       requires_user: true,
