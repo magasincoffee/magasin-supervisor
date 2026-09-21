@@ -1,3 +1,5 @@
+> **MIG-002 bootstrap state:** independent repository extraction only. Production cutover is disabled; the existing embedded Supervisor remains the sole production authority until MIG-005.
+
 # MAGASIN Supervisor
 
 Production local autonomy runtime for MAGASIN Business OS.
@@ -26,7 +28,7 @@ Canonical target design:
 
 Canonical Brain → Robot directive serialization for every MAGASIN project Brain:
 
-`../../01_DOCS/MAGASIN/00_MAGASIN_LANE_DIRECTIVE_V1_PROTOCOL.md`
+`docs/MAGASIN_LANE_DIRECTIVE_V1_PROTOCOL.md`
 
 All Brain conversations controlled by Supervisor must emit byte-exact `MAGASIN_LANE_DIRECTIVE_V1` markers with valid JSON according to that protocol. Markdown-escaped markers such as `<<\\<MAGASIN_LANE_DIRECTIVE_V1>>>` are invalid and fail closed.
 
@@ -368,6 +370,6 @@ cd 08_INTEGRATIONS\supervisor
 npm test
 ~~~
 
-Relevant docs-only PRs under `08_INTEGRATIONS/supervisor/**` still trigger Supervisor Tests and Supervisor Integrity static-audit. Runtime/self-hosted mutation acceptance remains reserved for implementation releases.
+Relevant root-native Supervisor changes under `src/**`, `test/**`, `windows/**`, `docs/**`, `package.json`, and guarded workflow/script paths trigger safe hosted Supervisor checks. Runtime/self-hosted mutation acceptance remains disabled during MIG-002. Runtime/self-hosted mutation acceptance remains reserved for implementation releases.
 
 Production/private data, authenticated browser profiles, target conversation identifiers and local logs remain outside Git.
