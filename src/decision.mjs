@@ -24,24 +24,24 @@ export const ACTIONS = Object.freeze({
 });
 
 export const CANONICAL_CONTINUE_INSTRUCTION =
-  "Tiếp tục dự án MAGASIN theo repository source of truth và kiến trúc Five-Step. " +
-  "Đọc CURRENT_STATE, PROJECT_STATE, TASK_QUEUE, 00_ARCHITECTURE_5_STEP_RESET và current task docs. " +
-  "Trước mỗi thay đổi áp dụng QUESTION → DELETE → SIMPLIFY → ACCELERATE → AUTOMATE; không mở rộng module ngoài critical path. " +
-  "Tiếp tục đúng micro-task hiện tại, test/fix/regression/E2E, cập nhật state rồi sang task kế tiếp nếu không cần Owner.";
+  "Tiếp tục project theo source-of-truth và policy do project/Brain sở hữu. " +
+  "Dùng project input hiện tại chỉ như bounded orchestration context; không suy đoán business policy từ Supervisor. " +
+  "Tiếp tục đúng task hiện tại, kiểm chứng thay đổi, cập nhật source-of-truth của project khi project contract yêu cầu, " +
+  "và chỉ vượt sang task kế tiếp khi project policy cho phép.";
 
 export const OWNER_DECISION_RECONCILE_INSTRUCTION =
-  "RECONCILE QUYẾT ĐỊNH OWNER — repository hiện đang WAIT_USER. " +
+  "RECONCILE QUYẾT ĐỊNH OWNER — project input hiện đang WAIT_USER. " +
   "Đọc ngữ cảnh hội thoại hiện tại và xác định Owner có vừa đưa ra quyết định rõ ràng cho đúng boundary đang chờ hay chưa. " +
-  "Nếu và chỉ nếu quyết định đó rõ ràng, cập nhật decision/contract/task docs và PROJECT_STATE để phản ánh quyết định đã chốt; sau đó tiếp tục critical path theo Five-Step. " +
-  "Nếu Owner chưa quyết định đủ rõ hoặc quyết định không khớp boundary đang chờ, tuyệt đối không suy đoán: giữ WAIT_USER và nêu đúng câu hỏi còn thiếu. " +
-  "Không lặp lại việc đã hoàn tất. Áp dụng QUESTION → DELETE → SIMPLIFY → ACCELERATE → AUTOMATE.";
+  "Nếu và chỉ nếu quyết định đó rõ ràng, reconcile vào source-of-truth theo project-owned contract; Supervisor không tự phát minh business state. " +
+  "Nếu Owner chưa quyết định đủ rõ hoặc quyết định không khớp boundary đang chờ, giữ WAIT_USER và nêu đúng câu hỏi còn thiếu. " +
+  "Không lặp lại việc đã hoàn tất.";
 
 export const HANDOFF_RECONCILE_INSTRUCTION =
   "TIẾP QUẢN PHIÊN ĐANG MỞ — không khởi động lại công việc một cách máy móc. " +
-  "Trước tiên đọc ngữ cảnh hội thoại hiện tại để xác định Owner vừa yêu cầu gì, ChatGPT đang làm gì hoặc vừa hoàn tất phần nào. " +
-  "Sau đó đối chiếu CURRENT_STATE, PROJECT_STATE, TASK_QUEUE và 00_ARCHITECTURE_5_STEP_RESET. " +
-  "Nếu yêu cầu trực tiếp mới nhất của Owner làm thay đổi ưu tiên hoặc kiến trúc so với repository, hãy reconcile và cập nhật source-of-truth trước khi tự tiếp tục. " +
-  "Không lặp lại việc đã hoàn tất trong chat. Áp dụng QUESTION → DELETE → SIMPLIFY → ACCELERATE → AUTOMATE; ưu tiên critical path hiện tại, test/fix/regression/E2E và chỉ hỏi Owner khi gặp boundary thật.";
+  "Trước tiên đọc ngữ cảnh hội thoại hiện tại để xác định Owner vừa yêu cầu gì và phần nào vừa hoàn tất. " +
+  "Sau đó reconcile với source-of-truth theo project-owned contract và bounded project input hiện tại. " +
+  "Nếu yêu cầu mới nhất làm thay đổi ưu tiên, cập nhật source-of-truth của project trước khi tự tiếp tục. " +
+  "Không lặp lại việc đã hoàn tất; chỉ hỏi Owner khi gặp boundary thật.";
 
 export function buildContinueInstruction(projectState = {}) {
   const task = String(projectState.current_task || "").trim();
