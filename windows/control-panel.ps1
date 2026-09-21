@@ -10,6 +10,8 @@ Add-Type -AssemblyName System.Drawing
 
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'state-root.ps1')
+
 function Get-ControlPanelViewportLayout([Drawing.Rectangle]$WorkingArea) {
     $desiredWindow = New-Object Drawing.Size(1240, 930)
     $logicalCanvas = New-Object Drawing.Size(1215, 1510)
@@ -69,7 +71,7 @@ if ($ViewportProbe) {
     exit 0
 }
 
-$root = Join-Path $env:LOCALAPPDATA 'MAGASIN\BusinessOS\supervisor'
+$root = Get-SupervisorStateRoot
 $runtime = Join-Path $root 'runtime'
 $configFile = Join-Path $root 'lanes.json'
 $registryFile = Join-Path $root 'lane-registry.json'
