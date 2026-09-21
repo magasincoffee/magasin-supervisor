@@ -1,4 +1,4 @@
-# MIG-002 extraction-only CI: root-native, GitHub-hosted, no production browser/lifecycle mutation.
+# MIG-003 decoupling CI: root-native, project-neutral, GitHub-hosted, no production browser/lifecycle mutation.
 name: Supervisor Tests
 
 on:
@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - 'fix/mig-002-*'
+      - 'refactor/mig-003-*'
     paths:
       - 'src/**'
       - 'test/**'
@@ -43,7 +44,15 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Run extraction-safe platform core tests
+      - name: Run project-adapter and state-root contract tests
+        run: |
+          node --test test/project-adapter.test.mjs test/state-root.test.mjs test/state.test.mjs test/status.test.mjs
+
+      - name: Run project-neutral decision/orchestration/night-run tests
+        run: |
+          node --test test/decision.test.mjs test/orchestration.test.mjs test/night-run.test.mjs test/brain-worker-runtime-contract.test.mjs
+
+      - name: Run decoupled platform core tests
         run: |
           node --test `
             test/lane-events.test.mjs `
@@ -73,8 +82,10 @@ jobs:
       - name: Run StrictMode soak-monitor parser matrix only
         run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-rbt009-soak-strictmode-tests.ps1"
 
-      - name: Record deferred legacy coupling boundary
+      - name: Record MIG-003 decoupling gate
         run: |
-          Write-Host "MIG_002_EXTRACTION_SAFE_TESTS=True"
-          Write-Host "FULL_LEGACY_MONOREPO_SUITE_DEFERRED_TO_MIG_003_MIG_004=True"
+          Write-Host "MIG_003_PROJECT_ADAPTER_GREEN=True"
+          Write-Host "MIG_003_STATE_ROOT_COMPATIBILITY_GREEN=True"
+          Write-Host "MIG_003_PROJECT_NEUTRAL_CORE_GREEN=True"
+          Write-Host "FULL_SELF_HOSTED_PARITY_DEFERRED_TO_MIG_004=True"
           Write-Host "ZERO_PRODUCTION_MUTATION=True"
