@@ -8,11 +8,11 @@ on:
       - main
     paths:
       - .github/workflows/supervisor-lifecycle-acceptance.yml
-      - 08_INTEGRATIONS/supervisor/src/**
-      - 08_INTEGRATIONS/supervisor/windows/**
-      - 08_INTEGRATIONS/supervisor/package.json
-      - 08_INTEGRATIONS/supervisor/package-lock.json
-      - 08_INTEGRATIONS/supervisor/test/release-integration-matrix.test.mjs
+      - src/**
+      - windows/**
+      - package.json
+      - package-lock.json
+      - test/release-integration-matrix.test.mjs
       - .github/workflows/supervisor-rbt009-soak.yml
       - .github/scripts/supervisor-rbt009-soak.ps1
       - .github/scripts/supervisor-rbt009-soak-lib.ps1
@@ -38,7 +38,7 @@ jobs:
 
       - name: Run Supervisor tests before lifecycle acceptance
         shell: powershell
-        working-directory: 08_INTEGRATIONS/supervisor
+        working-directory: .
         run: |
           npm install --ignore-scripts --no-audit --no-fund
           npm test
@@ -47,11 +47,12 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "08_INTEGRATIONS/supervisor/windows/install-supervisor.ps1"
+          powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "windows/install-supervisor.ps1"
           if ($LASTEXITCODE -ne 0) { throw "Lifecycle acceptance install failed" }
-          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot
           $runtimeThreeLane = Join-Path $root "runtime\src\runtime\three-lane-cli.mjs"
-          $sourceThreeLane = Join-Path $env:GITHUB_WORKSPACE "08_INTEGRATIONS\supervisor\src\runtime\three-lane-cli.mjs"
+          $sourceThreeLane = Join-Path $env:GITHUB_WORKSPACE "src\runtime\three-lane-cli.mjs"
           $lifecycle = Join-Path $root "runtime\windows\lifecycle-truth.ps1"
 
           function Get-SupervisorRuntimeVersion([string]$Path) {
@@ -76,7 +77,8 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot
           $runtime = Join-Path $root "runtime"
           $configFile = Join-Path $root "lanes.json"
           $registryFile = Join-Path $root "lane-registry.json"
@@ -128,7 +130,7 @@ jobs:
               Where-Object {
                 $_.CommandLine -and
                 $_.CommandLine -like "*run-supervisor.ps1*" -and
-                $_.CommandLine -like "*MAGASIN\BusinessOS\supervisor*"
+                $_.CommandLine -like "*$root*"
               } |
               ForEach-Object { Stop-TechnicalProcessTree -ProcessId ([int]$_.ProcessId) }
 
@@ -204,7 +206,7 @@ jobs:
 
           # Wait for the exact checked-out release when install and lifecycle
           # workflows are triggered concurrently by the same merge.
-          $sourceThreeLane = Join-Path $env:GITHUB_WORKSPACE "08_INTEGRATIONS\supervisor\src\runtime\three-lane-cli.mjs"
+          $sourceThreeLane = Join-Path $env:GITHUB_WORKSPACE "src\runtime\three-lane-cli.mjs"
           $expectedVersion = Get-SupervisorRuntimeVersion -Path $sourceThreeLane
           if (-not $expectedVersion) { throw "Checked-out runtime version marker is missing" }
           $runtimeReady = $false
