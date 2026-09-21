@@ -4,7 +4,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$root = Join-Path $env:LOCALAPPDATA 'MAGASIN\BusinessOS\supervisor'
+. (Join-Path $PSScriptRoot 'state-root.ps1')
+. (Join-Path $PSScriptRoot 'project-adapter.ps1')
+
+$root = Get-SupervisorStateRoot
 $runtime = Join-Path $root 'runtime'
 $profile = Join-Path $root 'browser_profile'
 $target = Join-Path $root 'target.json'
@@ -15,7 +18,7 @@ $registryFile = Join-Path $root 'orchestration.json'
 $runtimeStatusFile = Join-Path $root 'runtime-status.json'
 $laneConfigFile = Join-Path $root 'lanes.json'
 $laneStatusFile = Join-Path $root 'lane-status.json'
-$projectStateUrl = 'https://raw.githubusercontent.com/magasincoffee/magasincoffee.github.io/main/01_DOCS/MAGASIN/00_PROJECT_STATE.json'
+$projectAdapterSource = Get-SupervisorProjectAdapterSource
 $mutexName = 'Local\MAGASIN_BUSINESS_OS_SUPERVISOR'
 $mutex = New-Object System.Threading.Mutex($false, $mutexName)
 $ownsMutex = $false
@@ -147,7 +150,7 @@ try {
 
         $runtimeMode = $null
         try {
-            $projectState = Invoke-RestMethod -Uri $projectStateUrl -TimeoutSec 4 -Headers @{ 'Cache-Control'='no-cache' }
+            $projectState = ConvertTo-SupervisorProjectState (Read-SupervisorProjectAdapter -Source $projectAdapterSource)
             if ($projectState -and $projectState.supervisor_orchestration) {
                 $runtimeMode = [string]$projectState.supervisor_orchestration.mode
             }
