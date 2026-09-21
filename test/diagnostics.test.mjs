@@ -10,7 +10,7 @@ function context(overrides = {}) {
   return {
     projectState: {
       current_phase: "P1",
-      current_task: "TASK-035",
+      current_task: "PLATFORM-035",
       current_task_title: "MAGASIN email adapter/config",
       status: "WAIT_USER",
       autonomy: "MANUAL",
@@ -91,7 +91,7 @@ test("diagnostics writes latest snapshot without conversation text", async () =>
   const latest = JSON.parse(await fs.readFile(latestPath, "utf8"));
 
   assert.equal(latest.runtime_version, "test");
-  assert.equal(latest.project.current_task, "TASK-035");
+  assert.equal(latest.project.current_task, "PLATFORM-035");
   assert.deepEqual(latest.project.owner_boundary_pending, []);
   assert.equal(
     latest.project.activation_boundary_reason,
