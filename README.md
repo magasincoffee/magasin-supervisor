@@ -263,7 +263,7 @@ Planning target remains roughly <=20 minutes active implementation work when a t
 
 TASK-RBT-002 introduces a privacy-safe append-only local event file:
 
-`%LOCALAPPDATA%\MAGASIN\BusinessOS\supervisor\lane-events.ndjson`
+`<resolved-supervisor-state-root>\lane-events.ndjson`
 
 Minimum event families include:
 
@@ -326,7 +326,7 @@ The future scheduler shares only browser resources and a global mutation lease. 
 Local runtime root:
 
 ~~~text
-%LOCALAPPDATA%\MAGASIN\BusinessOS\supervisor
+<resolved-supervisor-state-root>
 ~~~
 
 Desktop control:
@@ -366,7 +366,7 @@ Supervisor must not continue through:
 ## Development test
 
 ~~~powershell
-cd 08_INTEGRATIONS\supervisor
+cd magasin-supervisor
 npm test
 ~~~
 
