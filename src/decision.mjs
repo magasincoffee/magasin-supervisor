@@ -33,7 +33,7 @@ export const OWNER_DECISION_RECONCILE_INSTRUCTION =
   "RECONCILE QUYẾT ĐỊNH OWNER — project input hiện đang WAIT_USER. " +
   "Đọc ngữ cảnh hội thoại hiện tại và xác định Owner có vừa đưa ra quyết định rõ ràng cho đúng boundary đang chờ hay chưa. " +
   "Nếu và chỉ nếu quyết định đó rõ ràng, reconcile vào source-of-truth theo project-owned contract; Supervisor không tự phát minh business state. " +
-  "Nếu Owner chưa quyết định đủ rõ hoặc quyết định không khớp boundary đang chờ, giữ WAIT_USER và nêu đúng câu hỏi còn thiếu. " +
+  "Nếu Owner chưa quyết định đủ rõ hoặc quyết định không khớp boundary đang chờ, không suy đoán: giữ WAIT_USER và nêu đúng câu hỏi còn thiếu. " +
   "Không lặp lại việc đã hoàn tất.";
 
 export const HANDOFF_RECONCILE_INSTRUCTION =
