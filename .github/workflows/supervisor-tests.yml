@@ -1,11 +1,11 @@
-# MIG-002 extraction-only CI: root-native, GitHub-hosted, no production browser/lifecycle mutation.
+# MIG-003 hosted CI: decoupled platform contracts plus non-production core regressions.
 name: Supervisor Tests
 
 on:
   push:
     branches:
       - main
-      - 'fix/mig-002-*'
+      - 'mig-003/**'
     paths:
       - 'src/**'
       - 'test/**'
@@ -14,6 +14,7 @@ on:
       - 'package.json'
       - '.github/scripts/supervisor-*'
       - '.github/workflows/supervisor-tests.yml'
+      - '.github/workflows/supervisor-integrity.yml'
   pull_request:
     paths:
       - 'src/**'
@@ -22,7 +23,7 @@ on:
       - 'docs/**'
       - 'package.json'
       - '.github/scripts/supervisor-*'
-      - '.github/workflows/supervisor-tests.yml'
+      - '.github/workflows/supervisor-*.yml'
   workflow_dispatch:
 
 permissions:
@@ -31,7 +32,7 @@ permissions:
 jobs:
   unit-tests:
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     defaults:
       run:
         working-directory: .
@@ -43,7 +44,18 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Run extraction-safe platform core tests
+      - name: Run MIG-003 decoupling contract tests
+        run: |
+          node --test `
+            test/project-adapter.test.mjs `
+            test/state-root.test.mjs `
+            test/state.test.mjs `
+            test/decision.test.mjs `
+            test/orchestration.test.mjs `
+            test/status.test.mjs `
+            test/night-run.test.mjs
+
+      - name: Run platform safety/core regressions
         run: |
           node --test `
             test/lane-events.test.mjs `
@@ -73,8 +85,10 @@ jobs:
       - name: Run StrictMode soak-monitor parser matrix only
         run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-rbt009-soak-strictmode-tests.ps1"
 
-      - name: Record deferred legacy coupling boundary
+      - name: Record MIG-003 safety markers
         run: |
-          Write-Host "MIG_002_EXTRACTION_SAFE_TESTS=True"
-          Write-Host "FULL_LEGACY_MONOREPO_SUITE_DEFERRED_TO_MIG_003_MIG_004=True"
+          Write-Host "MIG_003_PROJECT_ADAPTER_TESTS=True"
+          Write-Host "MIG_003_STATE_ROOT_COMPATIBILITY_TESTS=True"
+          Write-Host "MIG_003_PLATFORM_CORE_REGRESSION=True"
+          Write-Host "SELF_HOSTED_PRODUCTION_WORKFLOWS_INERT=True"
           Write-Host "ZERO_PRODUCTION_MUTATION=True"
