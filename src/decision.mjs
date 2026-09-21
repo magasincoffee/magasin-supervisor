@@ -24,24 +24,23 @@ export const ACTIONS = Object.freeze({
 });
 
 export const CANONICAL_CONTINUE_INSTRUCTION =
-  "Tiếp tục dự án MAGASIN theo repository source of truth và kiến trúc Five-Step. " +
-  "Đọc CURRENT_STATE, PROJECT_STATE, TASK_QUEUE, 00_ARCHITECTURE_5_STEP_RESET và current task docs. " +
-  "Trước mỗi thay đổi áp dụng QUESTION → DELETE → SIMPLIFY → ACCELERATE → AUTOMATE; không mở rộng module ngoài critical path. " +
-  "Tiếp tục đúng micro-task hiện tại, test/fix/regression/E2E, cập nhật state rồi sang task kế tiếp nếu không cần Owner.";
+  "Continue the currently authorized project task using the project's explicit source-of-truth and safety rules. " +
+  "Do not invent missing project policy, do not bypass Owner/security boundaries, and do not repeat completed work.";
 
 export const OWNER_DECISION_RECONCILE_INSTRUCTION =
-  "RECONCILE QUYẾT ĐỊNH OWNER — repository hiện đang WAIT_USER. " +
-  "Đọc ngữ cảnh hội thoại hiện tại và xác định Owner có vừa đưa ra quyết định rõ ràng cho đúng boundary đang chờ hay chưa. " +
-  "Nếu và chỉ nếu quyết định đó rõ ràng, cập nhật decision/contract/task docs và PROJECT_STATE để phản ánh quyết định đã chốt; sau đó tiếp tục critical path theo Five-Step. " +
-  "Nếu Owner chưa quyết định đủ rõ hoặc quyết định không khớp boundary đang chờ, tuyệt đối không suy đoán: giữ WAIT_USER và nêu đúng câu hỏi còn thiếu. " +
-  "Không lặp lại việc đã hoàn tất. Áp dụng QUESTION → DELETE → SIMPLIFY → ACCELERATE → AUTOMATE.";
+  "Reconcile only an explicit Owner decision that matches the currently waiting boundary. " +
+  "If the decision is missing or ambiguous, keep WAIT_USER and state the unresolved boundary. " +
+  "Do not invent project policy or mutate unrelated project state.";
 
 export const HANDOFF_RECONCILE_INSTRUCTION =
-  "TIẾP QUẢN PHIÊN ĐANG MỞ — không khởi động lại công việc một cách máy móc. " +
-  "Trước tiên đọc ngữ cảnh hội thoại hiện tại để xác định Owner vừa yêu cầu gì, ChatGPT đang làm gì hoặc vừa hoàn tất phần nào. " +
-  "Sau đó đối chiếu CURRENT_STATE, PROJECT_STATE, TASK_QUEUE và 00_ARCHITECTURE_5_STEP_RESET. " +
-  "Nếu yêu cầu trực tiếp mới nhất của Owner làm thay đổi ưu tiên hoặc kiến trúc so với repository, hãy reconcile và cập nhật source-of-truth trước khi tự tiếp tục. " +
-  "Không lặp lại việc đã hoàn tất trong chat. Áp dụng QUESTION → DELETE → SIMPLIFY → ACCELERATE → AUTOMATE; ưu tiên critical path hiện tại, test/fix/regression/E2E và chỉ hỏi Owner khi gặp boundary thật.";
+  "Take over the already-open project conversation without restarting work mechanically. " +
+  "Reconcile the latest explicit Owner request with the project's configured source-of-truth before continuing. " +
+  "Do not repeat completed work and fail closed on ambiguity.";
+
+function projectInstruction(projectState, key, fallback) {
+  const configured = String(projectState?.instructions?.[key] || "").trim();
+  return configured || fallback;
+}
 
 export function buildContinueInstruction(projectState = {}) {
   const task = String(projectState.current_task || "").trim();
@@ -53,7 +52,7 @@ export function buildContinueInstruction(projectState = {}) {
     focus ? `Micro-task repository hiện tại: ${focus}.` : ""
   ].filter(Boolean).join(" ");
 
-  return `${CANONICAL_CONTINUE_INSTRUCTION} ${context}`.trim();
+  return `${projectInstruction(projectState, "continue", CANONICAL_CONTINUE_INSTRUCTION)} ${context}`.trim();
 }
 
 const HARD_STOPS = new Set([
@@ -134,7 +133,7 @@ export function decideContinuation({
       return {
         action: ACTIONS.CONTINUE,
         reason: "owner boundary is waiting; reconcile any explicit live Owner decision into repository state",
-        instruction: OWNER_DECISION_RECONCILE_INSTRUCTION
+        instruction: projectInstruction(state, "owner_reconcile", OWNER_DECISION_RECONCILE_INSTRUCTION)
       };
     }
 
@@ -172,7 +171,7 @@ export function decideContinuation({
         ? "active conversation is idle; reconcile live Owner/chat context before autonomous continuation"
         : "assistant response completed and autonomous continuation is allowed",
       instruction: handoff
-        ? HANDOFF_RECONCILE_INSTRUCTION
+        ? projectInstruction(state, "handoff", HANDOFF_RECONCILE_INSTRUCTION)
         : buildContinueInstruction(state)
     };
   }
