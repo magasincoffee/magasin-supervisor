@@ -6,7 +6,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$root = Join-Path $env:LOCALAPPDATA 'MAGASIN\BusinessOS\supervisor'
+. (Join-Path $PSScriptRoot 'state-root.ps1')
+$root = Get-SupervisorStateRoot
 $runtime = Join-Path $root 'runtime'
 $runScript = Join-Path $runtime 'windows\run-supervisor.ps1'
 $lifecycleScript = Join-Path $runtime 'windows\lifecycle-truth.ps1'
