@@ -14,8 +14,8 @@ PROCESS TRUTH > LANE TRUTH > PERSISTED RECOVERY STATE
 Canonical companions:
 
 - `01_DOCS/MAGASIN/00_SUPERVISOR_THREE_LANE_ARCHITECTURE.md`
-- `08_INTEGRATIONS/supervisor/docs/ROBOT_LIFECYCLE_TRUTH_ARCHITECTURE.md`
-- `08_INTEGRATIONS/supervisor/README.md`
+- `docs/ROBOT_LIFECYCLE_TRUTH_ARCHITECTURE.md`
+- `README.md`
 
 TASK-RBT-001 changes documentation and implementation planning only. It must not change production runtime, deploy, modify authenticated browser state, or alter Owner-selected Brain/Work targets.
 
@@ -537,7 +537,7 @@ Semantics:
 
 New local file:
 
-`%LOCALAPPDATA%\MAGASIN\BusinessOS\supervisor\lane-events.ndjson`
+`<resolved-supervisor-state-root>\lane-events.ndjson`
 
 Purpose: operational observability only.
 
@@ -1212,7 +1212,7 @@ Residual implementation risks:
 
 This docs/plan task is complete only when:
 
-- this document exists under `08_INTEGRATIONS/supervisor/docs/`;
+- this document exists under `docs/`;
 - lifecycle architecture cross-references it without changing truth hierarchy;
 - Three-Lane architecture reflects scheduler, hot-swap, full-detection and planning contracts;
 - Supervisor README distinguishes current v50 behavior from target TASK-RBT roadmap;
