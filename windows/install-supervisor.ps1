@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$root = Join-Path $env:LOCALAPPDATA 'MAGASIN\BusinessOS\supervisor'
+$root = & (Join-Path $PSScriptRoot 'state-root.ps1')
 $runtime = Join-Path $root 'runtime'
 $pidFile = Join-Path $root 'supervisor.pid'
 $stopFile = Join-Path $root 'STOP'
