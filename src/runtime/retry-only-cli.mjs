@@ -30,7 +30,7 @@ const target = validateTarget(JSON.parse(
 ));
 const projectAdapter = process.env.MAGASIN_SUPERVISOR_PROJECT_ADAPTER || null;
 if (!projectAdapter) throw new Error("MAGASIN_SUPERVISOR_PROJECT_ADAPTER is required");
-const projectState = await readProjectStateFromAdapter(args.projectAdapter);
+const projectState = await readProjectStateFromAdapter(projectAdapter);
 
 const session = new SupervisorSession({
   cdpUrl: "http://127.0.0.1:9222",
