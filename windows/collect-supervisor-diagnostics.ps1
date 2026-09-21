@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 
-$root = Join-Path $env:LOCALAPPDATA 'MAGASIN\BusinessOS\supervisor'
+$root = & (Join-Path $PSScriptRoot 'state-root.ps1')
 $diagnosticsRoot = Join-Path $root 'diagnostics'
 $latest = Join-Path $diagnosticsRoot 'latest.json'
 $incidents = Join-Path $diagnosticsRoot 'incidents.ndjson'
