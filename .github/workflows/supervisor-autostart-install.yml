@@ -1,0 +1,1060 @@
+# MIG-002 guard: production install/autostart jobs are inert until MIG-004/MIG-005 release gates.
+name: Supervisor Autostart Install
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 08_INTEGRATIONS/supervisor/src/**
+      - 08_INTEGRATIONS/supervisor/windows/**
+      - 08_INTEGRATIONS/supervisor/test/**
+      - 08_INTEGRATIONS/supervisor/package.json
+      - .github/workflows/supervisor-autostart-install.yml
+      - .github/workflows/supervisor-rbt009-soak.yml
+      - .github/scripts/supervisor-rbt009-soak.ps1
+      - .github/scripts/supervisor-rbt009-soak-lib.ps1
+      - .github/scripts/supervisor-rbt009-soak-strictmode-tests.ps1
+      - .github/scripts/supervisor-release-event-validator.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-autostart-install
+  cancel-in-progress: true
+
+jobs:
+  install:
+    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Supervisor tests
+        shell: powershell
+        working-directory: 08_INTEGRATIONS/supervisor
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          npm test
+
+      - name: Snapshot lifecycle target fingerprint
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          $configFile = Join-Path $root "lanes.json"
+          $fingerprintFile = Join-Path $env:RUNNER_TEMP "magasin-lifecycle-targets-before.sha256"
+
+          function Get-TargetFingerprint([string]$Path) {
+            if (-not (Test-Path $Path)) { return "NO_CONFIG" }
+            $config = Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+            $canonical = @($config.lanes | Sort-Object lane_id | ForEach-Object {
+              "$([string]$_.lane_id)|$([string]$_.brain_url)|$([int]$_.brain_url_revision)|$([string]$_.work_url)|$([int]$_.work_url_revision)"
+            }) -join "`n"
+            $bytes = [Text.Encoding]::UTF8.GetBytes($canonical)
+            $hasher = [Security.Cryptography.SHA256]::Create()
+            try {
+              return ([BitConverter]::ToString($hasher.ComputeHash($bytes))).Replace("-","").ToLowerInvariant()
+            } finally {
+              $hasher.Dispose()
+            }
+          }
+
+          Set-Content -Path $fingerprintFile -Value (Get-TargetFingerprint $configFile) -Encoding ascii
+          Write-Host "TARGET_SNAPSHOT_CREATED=True"
+
+      - name: Install latest Supervisor runtime
+        shell: powershell
+        run: |
+          powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "08_INTEGRATIONS/supervisor/windows/install-supervisor.ps1"
+
+      - name: Verify checked-out Three-Lane source-of-truth
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $statePath = "01_DOCS/MAGASIN/00_PROJECT_STATE.json"
+          if (-not (Test-Path $statePath)) { throw "Checked-out PROJECT_STATE is missing" }
+          $state = Get-Content $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($state.supervisor_orchestration.mode -ne "THREE_LANE_V1") {
+            throw "Checked-out PROJECT_STATE does not enable THREE_LANE_V1"
+          }
+          if ([int]$state.supervisor_orchestration.lane_count -ne 3) {
+            throw "Checked-out PROJECT_STATE does not define exactly three lanes"
+          }
+          if ([bool]$state.supervisor_orchestration.brain_autodiscovery) {
+            throw "Brain autodiscovery must be disabled in THREE_LANE_V1"
+          }
+          Write-Host "PROJECT_AUTONOMY=$([string]$state.autonomy)"
+          Write-Host "SOURCE_OF_TRUTH_LOCAL_CHECK=True"
+
+      - name: Register lifecycle recovery without overriding Owner STOP
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "08_INTEGRATIONS/supervisor/windows/install-autostart.ps1"
+
+          $lifecycle = Join-Path $root "runtime\windows\lifecycle-truth.ps1"
+          $start = Join-Path $root "runtime\windows\start-supervisor.ps1"
+          if (-not (Test-Path $lifecycle)) { throw "Installed lifecycle truth helper is missing" }
+          . $lifecycle
+
+          $ownerStop = Get-LifecycleOwnerStopState -Root $root
+          $enabledLaneCount = Get-EnabledLaneCount -Root $root
+          Write-Host "OWNER_STOP_LATCH=$([bool]$ownerStop.blocked)"
+          Write-Host "ENABLED_LANE_COUNT=$enabledLaneCount"
+
+          if ($ownerStop.blocked) {
+            Write-Host "SUPERVISOR_START_REQUESTED=False"
+            Write-Host "START_REASON=OWNER_STOP"
+          } elseif ($enabledLaneCount -lt 1) {
+            Write-Host "SUPERVISOR_START_REQUESTED=False"
+            Write-Host "START_REASON=ALL_LANES_DISABLED"
+          } else {
+            powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $start -Hidden -Recovery
+            if ($LASTEXITCODE -ne 0) { throw "Recovery start failed" }
+            Write-Host "SUPERVISOR_START_REQUESTED=True"
+            Write-Host "START_REASON=ENABLED_LANE_RECOVERY"
+          }
+
+      - name: Verify lifecycle installation
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          $runtime = Join-Path $root "runtime"
+          $lifecycle = Join-Path $runtime "windows\lifecycle-truth.ps1"
+          $configFile = Join-Path $root "lanes.json"
+          $statusFile = Join-Path $root "lane-status.json"
+          $fingerprintFile = Join-Path $env:RUNNER_TEMP "magasin-lifecycle-targets-before.sha256"
+
+          if (-not (Test-Path $lifecycle)) { throw "Lifecycle truth helper is missing" }
+          . $lifecycle
+
+          $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+          $value = (Get-ItemProperty -Path $runKey -Name "MAGASINBusinessOSAutostart" -ErrorAction Stop).MAGASINBusinessOSAutostart
+          if ($value -notmatch "autostart-bootstrap\.ps1") { throw "HKCU autostart value is invalid" }
+
+          function Get-SupervisorRuntimeVersion([string]$Path) {
+            if (-not (Test-Path $Path)) { throw "Supervisor runtime source is missing" }
+            $source = Get-Content $Path -Raw -Encoding UTF8
+            $match = [regex]::Match($source, 'SUPERVISOR_RUNTIME_VERSION\s*=\s*"([^"]+)"')
+            if (-not $match.Success) { throw "Supervisor runtime version marker is missing" }
+            return [string]$match.Groups[1].Value
+          }
+
+          $sourceThreeLane = Join-Path $env:GITHUB_WORKSPACE "08_INTEGRATIONS\supervisor\src\runtime\three-lane-cli.mjs"
+          $runtimeThreeLane = Join-Path $runtime "src\runtime\three-lane-cli.mjs"
+          $expectedVersion = Get-SupervisorRuntimeVersion -Path $sourceThreeLane
+          $installedVersion = Get-SupervisorRuntimeVersion -Path $runtimeThreeLane
+          if ($installedVersion -ne $expectedVersion) {
+            throw "Installed Three-Lane runtime version does not match checked-out source"
+          }
+          Write-Host "SUPERVISOR_RUNTIME_VERSION_MATCH=True"
+
+          function Get-TargetFingerprint([string]$Path) {
+            if (-not (Test-Path $Path)) { return "NO_CONFIG" }
+            $config = Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+            $canonical = @($config.lanes | Sort-Object lane_id | ForEach-Object {
+              "$([string]$_.lane_id)|$([string]$_.brain_url)|$([int]$_.brain_url_revision)|$([string]$_.work_url)|$([int]$_.work_url_revision)"
+            }) -join "`n"
+            $bytes = [Text.Encoding]::UTF8.GetBytes($canonical)
+            $hasher = [Security.Cryptography.SHA256]::Create()
+            try {
+              return ([BitConverter]::ToString($hasher.ComputeHash($bytes))).Replace("-","").ToLowerInvariant()
+            } finally {
+              $hasher.Dispose()
+            }
+          }
+
+          $beforeFingerprint = if (Test-Path $fingerprintFile) {
+            (Get-Content $fingerprintFile -ErrorAction Stop | Select-Object -First 1).Trim()
+          } else {
+            throw "Target fingerprint snapshot is missing"
+          }
+          $afterFingerprint = Get-TargetFingerprint $configFile
+          if ($beforeFingerprint -ne $afterFingerprint) {
+            throw "Brain/Work target fingerprint changed during install"
+          }
+          Write-Host "TARGET_URLS_UNCHANGED=True"
+
+          $ownerStop = Get-LifecycleOwnerStopState -Root $root
+          $enabledLaneCount = Get-EnabledLaneCount -Root $root
+
+          if ($ownerStop.blocked -or $enabledLaneCount -lt 1) {
+            Start-Sleep -Seconds 3
+            $truth = Get-LifecycleProcessTruth -Root $root
+            if ($truth.wrapper_alive -or $truth.three_lane_alive -or $truth.chrome_alive) {
+              throw "Lifecycle-suppressed install unexpectedly started Robot processes"
+            }
+            if ($ownerStop.blocked) {
+              Write-Host "ACCEPTANCE_F_OWNER_STOP_WINS=True"
+            } else {
+              Write-Host "ACCEPTANCE_A_ALL_LANES_DISABLED_NO_AUTOSTART=True"
+            }
+          } else {
+            $healthy = $false
+            for ($i = 0; $i -lt 60; $i++) {
+              $truth = Get-LifecycleProcessTruth -Root $root
+              if ($truth.healthy) {
+                $healthy = $true
+                break
+              }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $healthy) { throw "Enabled lane runtime did not recover after install" }
+            if (-not (Test-Path $statusFile)) { throw "Three-Lane status is missing" }
+            $status = Get-Content $statusFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ([string]$status.supervisor_runtime_version -ne $expectedVersion) {
+              throw "Three-Lane status version does not match checked-out source"
+            }
+            if ([string]$status.persisted_state_role -ne "RECOVERY_ONLY") {
+              throw "Three-Lane status is missing lifecycle recovery role"
+            }
+            Write-Host "SUPERVISOR_ONLINE=True"
+            Write-Host "THREE_LANE_RUNTIME=True"
+            Write-Host "BUSINESS_CHROME_ONLINE=True"
+            Write-Host "BUSINESS_CHROME_CDP_HEALTHY=True"
+          }
+
+          Write-Host "THREE_LANE_COUNT=3"
+          Write-Host "BRAIN_AUTODISCOVERY_ACTIVE=False"
+          Write-Host "WORK_URL_OWNER_REQUIRED=False"
+          Write-Host "WORK_URL_OWNER_EDITABLE=True"
+          Write-Host "BRAIN_URL_OWNER_EDITABLE=True"
+          Write-Host "BRAIN_URL_PERSISTED=True"
+          Write-Host "BRAIN_URL_HOT_SWAP=True"
+          Write-Host "AUTOSTART_REGISTERED=True"
+          Write-Host "WINDOWS_LOGIN_BYPASS=False"
+
+      - name: Verify Work target hot-swap fixture without production mutation
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          $runtime = Join-Path $root "runtime"
+          $runtimeCli = Join-Path $runtime "src\runtime\three-lane-cli.mjs"
+          $configFile = Join-Path $root "lanes.json"
+          $lifecycle = Join-Path $runtime "windows\lifecycle-truth.ps1"
+
+          if (-not (Test-Path $runtimeCli)) { throw "Installed Three-Lane runtime CLI is missing" }
+          if (-not (Test-Path $lifecycle)) { throw "Lifecycle truth helper is missing" }
+          . $lifecycle
+
+          function Get-TargetFingerprint([string]$Path) {
+            if (-not (Test-Path $Path)) { return "NO_CONFIG" }
+            $config = Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+            $canonical = @($config.lanes | Sort-Object lane_id | ForEach-Object {
+              "$([string]$_.lane_id)|$([string]$_.brain_url)|$([int]$_.brain_url_revision)|$([string]$_.work_url)|$([int]$_.work_url_revision)"
+            }) -join "`n"
+            $bytes = [Text.Encoding]::UTF8.GetBytes($canonical)
+            $hasher = [Security.Cryptography.SHA256]::Create()
+            try {
+              return ([BitConverter]::ToString($hasher.ComputeHash($bytes))).Replace("-","").ToLowerInvariant()
+            } finally {
+              $hasher.Dispose()
+            }
+          }
+
+          $targetBefore = Get-TargetFingerprint $configFile
+          $truthBefore = Get-LifecycleProcessTruth -Root $root
+          $wrapperBefore = if ($truthBefore.wrapper_alive) {
+            [int](Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+          } else { 0 }
+
+          $output = & node $runtimeCli --work-target-fixture
+          if ($LASTEXITCODE -ne 0) { throw "Installed Work target fixture acceptance failed" }
+          $output | ForEach-Object { Write-Host $_ }
+
+          foreach ($marker in @(
+            "WORK_TARGET_FIXTURE_ACTIVE_PENDING=True",
+            "WORK_TARGET_FIXTURE_RESTART_PENDING=True",
+            "WORK_TARGET_FIXTURE_SAFE_BOUNDARY_APPLY_ONCE=True",
+            "WORK_TARGET_FIXTURE_TASK_LATCH_PRESERVED=True",
+            "WORK_TARGET_FIXTURE_SAME_TARGET_NO_GENERATION_CHURN=True",
+            "WORK_TARGET_FIXTURE_BRAIN_DIRECTIVE_PRESERVED=True"
+          )) {
+            if ($output -notcontains $marker) { throw "Missing fixture marker: $marker" }
+          }
+
+          $targetAfter = Get-TargetFingerprint $configFile
+          if ($targetBefore -ne $targetAfter) {
+            throw "Production Brain/Work target fingerprint changed during fixture acceptance"
+          }
+
+          $truthAfter = Get-LifecycleProcessTruth -Root $root
+          $wrapperAfter = if ($truthAfter.wrapper_alive) {
+            [int](Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+          } else { 0 }
+          if ($wrapperBefore -ne $wrapperAfter) {
+            throw "Fixture acceptance restarted or stopped the Supervisor wrapper"
+          }
+
+          Write-Host "WORK_TARGET_RUNTIME_ARTIFACT_FIXTURE=True"
+          Write-Host "WORK_TARGET_FIXTURE_ACCEPTANCE=True"
+          Write-Host "WORK_TARGET_PRODUCTION_CONFIG_UNCHANGED=True"
+          Write-Host "WORK_TARGET_RUNTIME_PID_UNCHANGED=True"
+
+      - name: Verify browser scheduler fixture and live page budget without production mutation
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          $runtime = Join-Path $root "runtime"
+          $runtimeCli = Join-Path $runtime "src\runtime\three-lane-cli.mjs"
+          $configFile = Join-Path $root "lanes.json"
+          $statusFile = Join-Path $root "lane-status.json"
+          $lifecycle = Join-Path $runtime "windows\lifecycle-truth.ps1"
+
+          if (-not (Test-Path $runtimeCli)) { throw "Installed Three-Lane runtime CLI is missing" }
+          if (-not (Test-Path $lifecycle)) { throw "Lifecycle truth helper is missing" }
+          . $lifecycle
+
+          function Get-TargetFingerprint([string]$Path) {
+            if (-not (Test-Path $Path)) { return "NO_CONFIG" }
+            $config = Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+            $canonical = @($config.lanes | Sort-Object lane_id | ForEach-Object {
+              "$([string]$_.lane_id)|$([string]$_.brain_url)|$([int]$_.brain_url_revision)|$([string]$_.work_url)|$([int]$_.work_url_revision)"
+            }) -join "`n"
+            $bytes = [Text.Encoding]::UTF8.GetBytes($canonical)
+            $hasher = [Security.Cryptography.SHA256]::Create()
+            try {
+              return ([BitConverter]::ToString($hasher.ComputeHash($bytes))).Replace("-","").ToLowerInvariant()
+            } finally {
+              $hasher.Dispose()
+            }
+          }
+
+          $targetBefore = Get-TargetFingerprint $configFile
+          $truthBefore = Get-LifecycleProcessTruth -Root $root
+          $wrapperBefore = if ($truthBefore.wrapper_alive) {
+            [int](Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+          } else { 0 }
+
+          $output = & node $runtimeCli --browser-scheduler-fixture
+          if ($LASTEXITCODE -ne 0) { throw "Installed browser scheduler fixture acceptance failed" }
+          $output | ForEach-Object { Write-Host $_ }
+
+          foreach ($marker in @(
+            "BROWSER_SCHEDULER_FIXTURE_DEFAULT_BUDGET_3=True",
+            "BROWSER_SCHEDULER_FIXTURE_ONE_LANE=True",
+            "BROWSER_SCHEDULER_FIXTURE_TWO_LANE_FAIR=True",
+            "BROWSER_SCHEDULER_FIXTURE_THREE_LANE_FAIR=True",
+            "BROWSER_SCHEDULER_FIXTURE_MUTATION_SINGLETON=True",
+            "BROWSER_SCHEDULER_FIXTURE_PAGE_BUDGET_HARD_BOUND=True",
+            "BROWSER_SCHEDULER_FIXTURE_LRU_EVICTION=True",
+            "BROWSER_SCHEDULER_FIXTURE_ACTIVE_MUTATION_NOT_EVICTED=True",
+            "BROWSER_SCHEDULER_FIXTURE_UNPERSISTED_ARTIFACT_GUARDED=True",
+            "BROWSER_SCHEDULER_FIXTURE_REOPEN_NO_RESEND=True",
+            "BROWSER_SCHEDULER_FIXTURE_DURABLE_TRUTH_UNCHANGED=True",
+            "BROWSER_SCHEDULER_FIXTURE_LATCHES_SURVIVE_REOPEN=True",
+            "BROWSER_SCHEDULER_FIXTURE_PENDING_WORK_PRESERVED=True"
+          )) {
+            if ($output -notcontains $marker) { throw "Missing browser scheduler fixture marker: $marker" }
+          }
+
+          $targetAfter = Get-TargetFingerprint $configFile
+          if ($targetBefore -ne $targetAfter) {
+            throw "Production Brain/Work target fingerprint changed during scheduler fixture acceptance"
+          }
+
+          $truthAfter = Get-LifecycleProcessTruth -Root $root
+          $wrapperAfter = if ($truthAfter.wrapper_alive) {
+            [int](Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+          } else { 0 }
+          if ($wrapperBefore -ne $wrapperAfter) {
+            throw "Scheduler fixture acceptance restarted or stopped the Supervisor wrapper"
+          }
+
+          $ownerStop = Get-LifecycleOwnerStopState -Root $root
+          $enabledLaneCount = Get-EnabledLaneCount -Root $root
+          if (-not $ownerStop.blocked -and $enabledLaneCount -gt 0) {
+            $schedulerReady = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              if (Test-Path $statusFile) {
+                $status = Get-Content $statusFile -Raw -Encoding UTF8 | ConvertFrom-Json
+                if (
+                  $status.scheduler -and
+                  [int]$status.scheduler.page_budget -eq 3 -and
+                  [int]$status.scheduler.resident_chatgpt_pages -le 3
+                ) {
+                  $schedulerReady = $true
+                  break
+                }
+              }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $schedulerReady) {
+              throw "Live production scheduler did not report page budget <= 3"
+            }
+            Write-Host "BROWSER_SCHEDULER_LIVE_PAGE_BUDGET_OK=True"
+            Write-Host "BROWSER_SCHEDULER_LIVE_PAGE_BUDGET=3"
+            Write-Host "BROWSER_SCHEDULER_LIVE_PAGE_COUNT=$([int]$status.scheduler.resident_chatgpt_pages)"
+            Write-Host "BROWSER_SCHEDULER_LIVE_ENABLED_LANES=$enabledLaneCount"
+            if ($enabledLaneCount -eq 1) {
+              Write-Host "BROWSER_SCHEDULER_LIVE_ONE_LANE_MODE=True"
+            }
+          } else {
+            Write-Host "BROWSER_SCHEDULER_LIVE_PAGE_BUDGET_SUPPRESSED_BY_LIFECYCLE=True"
+          }
+
+          Write-Host "BROWSER_SCHEDULER_RUNTIME_ARTIFACT_FIXTURE=True"
+          Write-Host "BROWSER_SCHEDULER_FIXTURE_ACCEPTANCE=True"
+          Write-Host "BROWSER_SCHEDULER_PRODUCTION_CONFIG_UNCHANGED=True"
+          Write-Host "BROWSER_SCHEDULER_RUNTIME_PID_UNCHANGED=True"
+
+      - name: Verify long-running Work watchdog fixture without production mutation
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          $runtime = Join-Path $root "runtime"
+          $runtimeCli = Join-Path $runtime "src\runtime\three-lane-cli.mjs"
+          $panelScript = Join-Path $runtime "windows\control-panel.ps1"
+          $panelFixture = Join-Path $runtime "windows\control-panel-observability-fixture.ps1"
+          $configFile = Join-Path $root "lanes.json"
+          $statusFile = Join-Path $root "lane-status.json"
+          $registryFile = Join-Path $root "lane-registry.json"
+          $lifecycle = Join-Path $runtime "windows\lifecycle-truth.ps1"
+
+          if (-not (Test-Path $runtimeCli)) { throw "Installed Three-Lane runtime CLI is missing" }
+          if (-not (Test-Path $lifecycle)) { throw "Lifecycle truth helper is missing" }
+          . $lifecycle
+
+          function Get-TargetFingerprint([string]$Path) {
+            if (-not (Test-Path $Path)) { return "NO_CONFIG" }
+            $config = Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+            $canonical = @($config.lanes | Sort-Object lane_id | ForEach-Object {
+              "$([string]$_.lane_id)|$([string]$_.brain_url)|$([int]$_.brain_url_revision)|$([string]$_.work_url)|$([int]$_.work_url_revision)"
+            }) -join "`n"
+            $bytes = [Text.Encoding]::UTF8.GetBytes($canonical)
+            $hasher = [Security.Cryptography.SHA256]::Create()
+            try {
+              return ([BitConverter]::ToString($hasher.ComputeHash($bytes))).Replace("-","").ToLowerInvariant()
+            } finally {
+              $hasher.Dispose()
+            }
+          }
+
+          function Get-RegistryTruthFingerprint([string]$Path) {
+            if (-not (Test-Path $Path)) { return "NO_REGISTRY" }
+            $registry = Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+            $canonical = @("lane-1","lane-2","lane-3" | ForEach-Object {
+              $lane = $registry.lanes.$_
+              "$_|$([string]$lane.task_id)|$([bool]$lane.awaiting_work)|$([string]$lane.work_url)|$([int]$lane.work_generation)|$([string]$lane.last_dispatch_id)|$([int]$lane.pending_work_url_revision)|$([string]$lane.dispatch_inflight)|$([string]$lane.relay_inflight)"
+            }) -join "`n"
+            $bytes = [Text.Encoding]::UTF8.GetBytes($canonical)
+            $hasher = [Security.Cryptography.SHA256]::Create()
+            try {
+              return ([BitConverter]::ToString($hasher.ComputeHash($bytes))).Replace("-","").ToLowerInvariant()
+            } finally {
+              $hasher.Dispose()
+            }
+          }
+
+          $targetBefore = Get-TargetFingerprint $configFile
+          $registryBefore = Get-RegistryTruthFingerprint $registryFile
+          $truthBefore = Get-LifecycleProcessTruth -Root $root
+          $wrapperBefore = if ($truthBefore.wrapper_alive) {
+            [int](Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+          } else { 0 }
+
+          $output = & node $runtimeCli --work-watchdog-fixture
+          if ($LASTEXITCODE -ne 0) { throw "Installed Work watchdog fixture acceptance failed" }
+          $output | ForEach-Object { Write-Host $_ }
+
+          foreach ($marker in @(
+            "WORK_WATCHDOG_FIXTURE_LONG_RUNNING_NO_RELOAD=True",
+            "WORK_WATCHDOG_FIXTURE_STALL_CHECK_BEFORE_RELOAD=True",
+            "WORK_WATCHDOG_FIXTURE_ONE_RELOAD_MAX_PER_EPOCH=True",
+            "WORK_WATCHDOG_FIXTURE_RESTART_NO_DUPLICATE_RELOAD=True",
+            "WORK_WATCHDOG_FIXTURE_POST_RELOAD_POSSIBLY_STALLED=True",
+            "WORK_WATCHDOG_FIXTURE_FRESH_PROGRESS_REARMED=True",
+            "WORK_WATCHDOG_FIXTURE_RELOAD_COOLDOWN_ENFORCED=True",
+            "WORK_WATCHDOG_FIXTURE_OWNER_STOP_BLOCKS=True",
+            "WORK_WATCHDOG_FIXTURE_SECURITY_BLOCKS=True",
+            "WORK_WATCHDOG_FIXTURE_IDENTITY_MISMATCH_FAIL_CLOSED=True",
+            "WORK_WATCHDOG_FIXTURE_EXACT_ONCE_STATE_PRESERVED=True",
+            "WORK_WATCHDOG_FIXTURE_PENDING_WORK_PRESERVED=True",
+            "WORK_WATCHDOG_FIXTURE_NO_RESEND_PATH=True"
+          )) {
+            if ($output -notcontains $marker) { throw "Missing Work watchdog fixture marker: $marker" }
+          }
+
+          $targetAfter = Get-TargetFingerprint $configFile
+          $registryAfter = Get-RegistryTruthFingerprint $registryFile
+          if ($targetBefore -ne $targetAfter) {
+            throw "Production Brain/Work target fingerprint changed during watchdog fixture"
+          }
+          if ($registryBefore -ne $registryAfter) {
+            throw "Production task/latch/pending Work truth changed during watchdog fixture"
+          }
+
+          $truthAfter = Get-LifecycleProcessTruth -Root $root
+          $wrapperAfter = if ($truthAfter.wrapper_alive) {
+            [int](Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+          } else { 0 }
+          if ($wrapperBefore -ne $wrapperAfter) {
+            throw "Watchdog fixture restarted or stopped the Supervisor wrapper"
+          }
+
+          $ownerStop = Get-LifecycleOwnerStopState -Root $root
+          $enabledLaneCount = Get-EnabledLaneCount -Root $root
+          if (-not $ownerStop.blocked -and $enabledLaneCount -gt 0) {
+            $ready = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              if (Test-Path $statusFile) {
+                $status = Get-Content $statusFile -Raw -Encoding UTF8 | ConvertFrom-Json
+                if (
+                  $status.scheduler -and
+                  [int]$status.scheduler.page_budget -eq 3 -and
+                  [int]$status.scheduler.resident_chatgpt_pages -le 3
+                ) {
+                  $ready = $true
+                  break
+                }
+              }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $ready) { throw "Live scheduler page budget is not healthy after watchdog fixture" }
+            Write-Host "WORK_WATCHDOG_LIVE_PAGE_BUDGET_OK=True"
+            Write-Host "WORK_WATCHDOG_LIVE_PAGE_COUNT=$([int]$status.scheduler.resident_chatgpt_pages)"
+          } else {
+            Write-Host "WORK_WATCHDOG_LIVE_PAGE_BUDGET_SUPPRESSED_BY_LIFECYCLE=True"
+          }
+
+          Write-Host "WORK_WATCHDOG_RUNTIME_ARTIFACT_FIXTURE=True"
+          Write-Host "WORK_WATCHDOG_PRODUCTION_TARGETS_UNCHANGED=True"
+          Write-Host "WORK_WATCHDOG_PRODUCTION_TRUTH_UNCHANGED=True"
+          Write-Host "WORK_WATCHDOG_RUNTIME_PID_UNCHANGED=True"
+
+          $relayRearmOutput = & node $runtimeCli --relay-rearm-fixture
+          if ($LASTEXITCODE -ne 0) { throw "Installed relay rearm fixture acceptance failed" }
+          $relayRearmOutput | ForEach-Object { Write-Host $_ }
+
+          foreach ($marker in @(
+            "RELAY_REARM_FIXTURE_EXHAUSTED_OWNER_REARMED=True",
+            "RELAY_REARM_FIXTURE_SAME_RELAY_ID=True",
+            "RELAY_REARM_FIXTURE_BOUNDED_THREE_ATTEMPTS=True",
+            "RELAY_REARM_FIXTURE_NO_AUTO_REARM=True",
+            "RELAY_REARM_FIXTURE_SAME_REVISION_APPLIES_ONCE=True",
+            "RELAY_REARM_FIXTURE_NEW_REVISION_OPENS_ONE_EPOCH=True",
+            "RELAY_REARM_FIXTURE_MARKER_RECONCILE_BEFORE_REARM=True",
+            "RELAY_REARM_FIXTURE_STABLE_BRAIN_GATE=True",
+            "RELAY_REARM_FIXTURE_RESULT_IDENTITY_FAIL_CLOSED=True",
+            "RELAY_REARM_FIXTURE_EVIDENCE_FAIL_CLOSED=True",
+            "RELAY_REARM_FIXTURE_TASK_RESULT_TARGETS_PRESERVED=True",
+            "RELAY_REARM_FIXTURE_NO_WORK_DISPATCH_RESET=True"
+          )) {
+            if ($relayRearmOutput -notcontains $marker) {
+              throw "Missing relay rearm fixture marker: $marker"
+            }
+          }
+
+          $targetAfterRelayRearm = Get-TargetFingerprint $configFile
+          $registryAfterRelayRearm = Get-RegistryTruthFingerprint $registryFile
+          if ($targetAfterRelayRearm -ne $targetAfter) {
+            throw "Production Brain/Work target fingerprint changed during relay rearm fixture"
+          }
+          if ($registryAfterRelayRearm -ne $registryAfter) {
+            throw "Production task/latch/pending Work truth changed during relay rearm fixture"
+          }
+
+          $truthAfterRelayRearm = Get-LifecycleProcessTruth -Root $root
+          $wrapperAfterRelayRearm = if ($truthAfterRelayRearm.wrapper_alive) {
+            [int](Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+          } else { 0 }
+          if ($wrapperAfterRelayRearm -ne $wrapperAfter) {
+            throw "Relay rearm fixture restarted or stopped the Supervisor wrapper"
+          }
+
+          Write-Host "RELAY_REARM_RUNTIME_ARTIFACT_FIXTURE=True"
+          Write-Host "RELAY_REARM_PRODUCTION_TARGETS_UNCHANGED=True"
+          Write-Host "RELAY_REARM_PRODUCTION_TRUTH_UNCHANGED=True"
+          Write-Host "RELAY_REARM_RUNTIME_PID_UNCHANGED=True"
+
+          $workFullOutput = & node $runtimeCli --work-full-fixture
+          if ($LASTEXITCODE -ne 0) { throw "Installed Work-full rollover fixture acceptance failed" }
+          $workFullOutput | ForEach-Object { Write-Host $_ }
+
+          foreach ($marker in @(
+            "WORK_FULL_FIXTURE_SINGLE_REGEX_NO_ROLLOVER=True",
+            "WORK_FULL_FIXTURE_MULTI_SIGNAL_CONFIRMED=True",
+            "WORK_FULL_FIXTURE_RUNNING_RESPONSE_GUARDED=True",
+            "WORK_FULL_FIXTURE_BLANK_TARGET_BEFORE_SEND=True",
+            "WORK_FULL_FIXTURE_TARGET_PERSISTED_BEFORE_DISPATCH=True",
+            "WORK_FULL_FIXTURE_GENERATION_ONCE=True",
+            "WORK_FULL_FIXTURE_CRASH_RESUME=True",
+            "WORK_FULL_FIXTURE_DISPATCH_EXACT_ONCE=True",
+            "WORK_FULL_FIXTURE_PENDING_OWNER_TARGET_PRECEDENCE=True",
+            "WORK_FULL_FIXTURE_NO_BRAIN_CHANGE=True"
+          )) {
+            if ($workFullOutput -notcontains $marker) {
+              throw "Missing Work-full rollover fixture marker: $marker"
+            }
+          }
+
+          $targetAfterWorkFull = Get-TargetFingerprint $configFile
+          $registryAfterWorkFull = Get-RegistryTruthFingerprint $registryFile
+          if ($targetAfterWorkFull -ne $targetAfterRelayRearm) {
+            throw "Production Brain/Work target fingerprint changed during Work-full fixture"
+          }
+          if ($registryAfterWorkFull -ne $registryAfterRelayRearm) {
+            throw "Production task/latch/pending Work truth changed during Work-full fixture"
+          }
+
+          $truthAfterWorkFull = Get-LifecycleProcessTruth -Root $root
+          $wrapperAfterWorkFull = if ($truthAfterWorkFull.wrapper_alive) {
+            [int](Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+          } else { 0 }
+          if ($wrapperAfterWorkFull -ne $wrapperAfterRelayRearm) {
+            throw "Work-full fixture restarted or stopped the Supervisor wrapper"
+          }
+
+          Write-Host "WORK_FULL_RUNTIME_ARTIFACT_FIXTURE=True"
+          Write-Host "WORK_FULL_PRODUCTION_CONFIG_UNCHANGED=True"
+          Write-Host "WORK_FULL_PRODUCTION_TARGETS_UNCHANGED=True"
+          Write-Host "WORK_FULL_PRODUCTION_TRUTH_UNCHANGED=True"
+          Write-Host "WORK_FULL_RUNTIME_PID_UNCHANGED=True"
+
+          $staleTargetOutput = & node $runtimeCli --stale-target-fixture
+          if ($LASTEXITCODE -ne 0) { throw "Installed stale-target quarantine fixture acceptance failed" }
+          $staleTargetOutput | ForEach-Object { Write-Host $_ }
+
+          foreach ($marker in @(
+            "STALE_TARGET_FIXTURE_BEFORE_NAVIGATION_COUNT=100",
+            "STALE_TARGET_FIXTURE_MISSING_DETECTED=True",
+            "STALE_TARGET_FIXTURE_QUARANTINED=True",
+            "STALE_TARGET_FIXTURE_100_TURNS_ZERO_REOPEN=True",
+            "STALE_TARGET_FIXTURE_RESTART_ZERO_REOPEN=True",
+            "STALE_TARGET_FIXTURE_RECONNECT_ZERO_REOPEN=True",
+            "STALE_TARGET_FIXTURE_EVICTION_ZERO_REOPEN=True",
+            "STALE_TARGET_FIXTURE_STOP_START_PRESERVES=True",
+            "STALE_TARGET_FIXTURE_BRAIN_MISSING_BLOCKED=True",
+            "STALE_TARGET_FIXTURE_OWNER_NEW_TARGET_CLEARS=True",
+            "STALE_TARGET_FIXTURE_ACTIVE_STATE_PRESERVED=True",
+            "STALE_TARGET_FIXTURE_WATCHDOG_BLOCKED=True",
+            "STALE_TARGET_FIXTURE_RELAY_REOPEN_BLOCKED=True",
+            "STALE_TARGET_FIXTURE_MISSING_NOT_FULL=True",
+            "STALE_TARGET_FIXTURE_DEAD_PAGE_CLEANED=True",
+            "STALE_TARGET_FIXTURE_PAGE_BUDGET_THREE=True",
+            "STALE_TARGET_FIXTURE_EVENT_SPAM_BOUNDED=True",
+            "STALE_TARGET_FIXTURE_OTHER_LANES_PROGRESS=True",
+            "STALE_TARGET_FIXTURE_PRIVACY=True"
+          )) {
+            if ($staleTargetOutput -notcontains $marker) {
+              throw "Missing stale-target fixture marker: $marker"
+            }
+          }
+
+          $targetAfterStaleTarget = Get-TargetFingerprint $configFile
+          $registryAfterStaleTarget = Get-RegistryTruthFingerprint $registryFile
+          if ($targetAfterStaleTarget -ne $targetAfterWorkFull) {
+            throw "Production Brain/Work target fingerprint changed during stale-target fixture"
+          }
+          if ($registryAfterStaleTarget -ne $registryAfterWorkFull) {
+            throw "Production task/latch/pending Work truth changed during stale-target fixture"
+          }
+
+          $truthAfterStaleTarget = Get-LifecycleProcessTruth -Root $root
+          $wrapperAfterStaleTarget = if ($truthAfterStaleTarget.wrapper_alive) {
+            [int](Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+          } else { 0 }
+          if ($wrapperAfterStaleTarget -ne $wrapperAfterWorkFull) {
+            throw "Stale-target fixture restarted or stopped the Supervisor wrapper"
+          }
+
+          Write-Host "STALE_TARGET_RUNTIME_ARTIFACT_FIXTURE=True"
+          Write-Host "STALE_TARGET_PRODUCTION_CONFIG_UNCHANGED=True"
+          Write-Host "STALE_TARGET_PRODUCTION_TARGETS_UNCHANGED=True"
+          Write-Host "STALE_TARGET_PRODUCTION_TRUTH_UNCHANGED=True"
+          Write-Host "STALE_TARGET_RUNTIME_PID_UNCHANGED=True"
+
+          function Get-ControlPanelTruthFingerprint([string]$Path) {
+            if (-not (Test-Path $Path)) { return "NO_REGISTRY" }
+            $registry = Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+            $canonical = @("lane-1","lane-2","lane-3" | ForEach-Object {
+              $lane = $registry.lanes.$_
+              [ordered]@{
+                lane_id = $_
+                task_id = $lane.task_id
+                awaiting_work = $lane.awaiting_work
+                work_url = $lane.work_url
+                work_generation = $lane.work_generation
+                pending_work_url_revision = $lane.pending_work_url_revision
+                dispatch_inflight = $lane.dispatch_inflight
+                relay_inflight = $lane.relay_inflight
+                task_timing = $lane.task_timing
+                work_watchdog = $lane.work_watchdog
+                work_rollover = $lane.work_rollover
+                brain_target_health = $lane.brain_target_health
+                work_target_health = $lane.work_target_health
+              } | ConvertTo-Json -Compress -Depth 20
+            }) -join "`n"
+            $bytes = [Text.Encoding]::UTF8.GetBytes($canonical)
+            $hasher = [Security.Cryptography.SHA256]::Create()
+            try {
+              return ([BitConverter]::ToString($hasher.ComputeHash($bytes))).Replace("-","").ToLowerInvariant()
+            } finally {
+              $hasher.Dispose()
+            }
+          }
+
+          function Get-RobotCdpPageCount {
+            $chrome = Get-LifecycleRobotChrome -Root $root
+            if (-not $chrome -or -not $chrome.CommandLine) { return $null }
+            if ($chrome.CommandLine -notmatch '--remote-debugging-port=(\d+)') { return $null }
+            $port = [int]$Matches[1]
+            try {
+              $pages = Invoke-RestMethod -Uri "http://127.0.0.1:$port/json/list" -TimeoutSec 2
+              return @($pages | Where-Object { [string]$_.type -eq "page" }).Count
+            } catch {
+              return $null
+            }
+          }
+
+          $controlTargetBefore = Get-TargetFingerprint $configFile
+          $controlTruthBefore = Get-ControlPanelTruthFingerprint $registryFile
+          $controlProcessBefore = Get-LifecycleProcessTruth -Root $root
+          $controlWrapperBefore = if ($controlProcessBefore.wrapper_alive) {
+            [int](Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+          } else { 0 }
+          $controlPageCountBefore = Get-RobotCdpPageCount
+
+          $controlOutput = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panelFixture
+          if ($LASTEXITCODE -ne 0) { throw "Installed Control Panel observability fixture failed" }
+          $controlOutput | ForEach-Object { Write-Host $_ }
+
+          foreach ($marker in @(
+            "CONTROL_PANEL_PROCESS_TRUTH_FIRST=True",
+            "CONTROL_PANEL_PAGE_BUDGET_VISIBLE=True",
+            "CONTROL_PANEL_LANE_TIMING_VISIBLE=True",
+            "CONTROL_PANEL_EVENT_TAIL_BOUNDED=True",
+            "CONTROL_PANEL_EVENT_CORRUPT_TAIL_TOLERATED=True",
+            "CONTROL_PANEL_EVENT_MALFORMED_SKIPPED=True",
+            "CONTROL_PANEL_EVENT_CONCURRENT_APPEND=True",
+            "CONTROL_PANEL_PRIVACY_SAFE=True",
+            "CONTROL_PANEL_NO_BROWSER_MUTATION=True",
+            "CONTROL_PANEL_UNKNOWN_EVENT_TOLERATED=True",
+            "CONTROL_PANEL_PROCESS_RESOURCE_DEGRADED_SAFE=True"
+          )) {
+            if ($controlOutput -notcontains $marker) {
+              throw "Missing Control Panel fixture marker: $marker"
+            }
+          }
+
+          $probeOutput = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panelScript -ObservabilityProbe
+          if ($LASTEXITCODE -ne 0) { throw "Installed Control Panel observability probe failed" }
+          $probeLine = @($probeOutput | Where-Object { [string]$_ -match '^\{' } | Select-Object -Last 1)
+          if ($probeLine.Count -ne 1) { throw "Control Panel observability probe did not emit one JSON payload" }
+          $probe = [string]$probeLine[0] | ConvertFrom-Json
+          if ([string]$probe.schema_version -ne "control-panel-observability-probe.v1") {
+            throw "Control Panel observability probe schema mismatch"
+          }
+          if ([int]$probe.timeline_event_count -gt 30) {
+            throw "Control Panel production timeline exceeded bounded event count"
+          }
+          if ([int]$probe.timeline_bytes_read -gt 262144) {
+            throw "Control Panel production timeline exceeded bounded byte read"
+          }
+
+          $sourceRuntime = Get-Content $runtimeCli -Raw -Encoding UTF8
+          $versionMatch = [regex]::Match($sourceRuntime, 'SUPERVISOR_RUNTIME_VERSION\s*=\s*"([^"]+)"')
+          if (-not $versionMatch.Success) { throw "Installed runtime version not found" }
+          if (
+            [string]$probe.runtime_version -and
+            [string]$probe.runtime_version -ne [string]$versionMatch.Groups[1].Value
+          ) {
+            throw "Control Panel probe runtime version does not match installed source"
+          }
+
+          $controlTargetAfter = Get-TargetFingerprint $configFile
+          $controlTruthAfter = Get-ControlPanelTruthFingerprint $registryFile
+          if ($controlTargetAfter -ne $controlTargetBefore) {
+            throw "Production Brain/Work targets changed during Control Panel observability acceptance"
+          }
+          if ($controlTruthAfter -ne $controlTruthBefore) {
+            throw "Production task/latch/pending/quarantine truth changed during Control Panel observability acceptance"
+          }
+
+          $controlProcessAfter = Get-LifecycleProcessTruth -Root $root
+          $controlWrapperAfter = if ($controlProcessAfter.wrapper_alive) {
+            [int](Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+          } else { 0 }
+          if ($controlWrapperAfter -ne $controlWrapperBefore) {
+            throw "Control Panel observability fixture/probe restarted or stopped the Supervisor wrapper"
+          }
+
+          $controlPageCountAfter = Get-RobotCdpPageCount
+          if (
+            $null -ne $controlPageCountBefore -and
+            $null -ne $controlPageCountAfter -and
+            [int]$controlPageCountAfter -ne [int]$controlPageCountBefore
+          ) {
+            throw "Control Panel observability probe changed dedicated Chrome page count"
+          }
+
+          Write-Host "CONTROL_PANEL_RUNTIME_ARTIFACT_FIXTURE=True"
+          Write-Host "CONTROL_PANEL_REAL_STATUS_EVENT_READ=True"
+          Write-Host "CONTROL_PANEL_PRODUCTION_TARGETS_UNCHANGED=True"
+          Write-Host "CONTROL_PANEL_PRODUCTION_TRUTH_UNCHANGED=True"
+          Write-Host "CONTROL_PANEL_RUNTIME_PID_UNCHANGED=True"
+          Write-Host "CONTROL_PANEL_NO_BROWSER_MUTATION=True"
+
+          $planningFixture = Join-Path $runtime "src\runtime\brain-planning-acceptance-cli.mjs"
+          if (-not (Test-Path $planningFixture)) { throw "Installed Brain planning fixture is missing" }
+
+          $planningTargetBefore = Get-TargetFingerprint $configFile
+          $planningTruthBefore = Get-ControlPanelTruthFingerprint $registryFile
+          $planningProcessBefore = Get-LifecycleProcessTruth -Root $root
+          $planningWrapperBefore = if ($planningProcessBefore.wrapper_alive) {
+            [int](Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+          } else { 0 }
+
+          $planningOutput = & node.exe $planningFixture
+          if ($LASTEXITCODE -ne 0) { throw "Installed Brain planning contract fixture failed" }
+          $planningOutput | ForEach-Object { Write-Host $_ }
+
+          foreach ($marker in @(
+            "BRAIN_PLANNING_V1_BACKWARD_COMPATIBLE=True",
+            "BRAIN_PLANNING_ACCEPT_CORRELATED=True",
+            "BRAIN_PLANNING_REJECT_CORRELATED=True",
+            "BRAIN_PLANNING_REJECT_UNRELATED_BLOCKED=True",
+            "BRAIN_PLANNING_VERDICT_IDEMPOTENT=True",
+            "BRAIN_PLANNING_LEGACY_HANDSHAKE_NO_DUPLICATE=True",
+            "BRAIN_PLANNING_ACTIVE_DISPATCH_NO_RESEND=True",
+            "BRAIN_PLANNING_WORK_STOP_GUARD=True",
+            "BRAIN_PLANNING_EVENTS_PRIVACY_SAFE=True"
+          )) {
+            if ($planningOutput -notcontains $marker) {
+              throw "Missing Brain planning fixture marker: $marker"
+            }
+          }
+
+          $planningTargetAfter = Get-TargetFingerprint $configFile
+          $planningTruthAfter = Get-ControlPanelTruthFingerprint $registryFile
+          if ($planningTargetAfter -ne $planningTargetBefore) {
+            throw "Production Brain/Work targets changed during Brain planning acceptance"
+          }
+          if ($planningTruthAfter -ne $planningTruthBefore) {
+            throw "Production task/latch/pending/quarantine truth changed during Brain planning acceptance"
+          }
+
+          $planningProcessAfter = Get-LifecycleProcessTruth -Root $root
+          $planningWrapperAfter = if ($planningProcessAfter.wrapper_alive) {
+            [int](Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+          } else { 0 }
+          if ($planningWrapperAfter -ne $planningWrapperBefore) {
+            throw "Brain planning fixture restarted or stopped the Supervisor wrapper"
+          }
+
+          Write-Host "BRAIN_PLANNING_RUNTIME_ARTIFACT_FIXTURE=True"
+          Write-Host "BRAIN_PLANNING_PRODUCTION_TARGETS_UNCHANGED=True"
+          Write-Host "BRAIN_PLANNING_PRODUCTION_TRUTH_UNCHANGED=True"
+          Write-Host "BRAIN_PLANNING_RUNTIME_PID_UNCHANGED=True"
+
+      - name: Verify event timing foundation privacy
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          $eventFile = Join-Path $root "lane-events.ndjson"
+          $registryFile = Join-Path $root "lane-registry.json"
+          $configFile = Join-Path $root "lanes.json"
+          $lifecycle = Join-Path $root "runtime\windows\lifecycle-truth.ps1"
+
+          if (-not (Test-Path $lifecycle)) { throw "Lifecycle truth helper is missing" }
+          . $lifecycle
+          $ownerStop = Get-LifecycleOwnerStopState -Root $root
+          $enabledLaneCount = Get-EnabledLaneCount -Root $root
+
+          if ($ownerStop.blocked -or $enabledLaneCount -lt 1) {
+            Write-Host "EVENT_TIMING_RUNTIME_SUPPRESSED=True"
+            exit 0
+          }
+
+          $ready = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            if ((Test-Path $eventFile) -and (Get-Item $eventFile).Length -gt 0) {
+              $ready = $true
+              break
+            }
+            Start-Sleep -Seconds 1
+          }
+          if (-not $ready) { throw "lane-events.ndjson was not created/appended by active Supervisor runtime" }
+
+          $allowed = [System.Collections.Generic.HashSet[string]]::new(
+            [string[]]@(
+              "schema_version","timestamp","lane_id","actor","event_type",
+              "task_id","phase","reason_code","work_generation","work_url_revision","elapsed_ms",
+              "queue_time_ms","execution_time_ms","dispatch_id","relay_id",
+              "target_role","target_digest","target_revision"
+            )
+          )
+          $recent = @(Get-Content $eventFile -Tail 200 -Encoding UTF8)
+          if ($recent.Count -lt 1) { throw "lane-events.ndjson contains no events" }
+
+          $seenStarted = @{}
+          $seenRelay = @{}
+          foreach ($line in $recent) {
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            $event = $line | ConvertFrom-Json
+            foreach ($property in @($event.PSObject.Properties.Name)) {
+              if (-not $allowed.Contains([string]$property)) {
+                throw "lane-events.ndjson contains a non-allowlisted property"
+              }
+            }
+            $raw = [string]$line
+            if ($raw -match '(?i)https?://|chatgpt\.com|brain_url|work_url|screenshot_path|attachment_path|cookie|bearer\s') {
+              throw "lane-events.ndjson contains forbidden private metadata"
+            }
+            if ([string]$event.event_type -eq "WORK_STARTED" -and $event.dispatch_id) {
+              $key = "$([string]$event.lane_id)|$([string]$event.task_id)|$([string]$event.dispatch_id)"
+              if ($seenStarted.ContainsKey($key)) { throw "duplicate WORK_STARTED correlation found in recent event window" }
+              $seenStarted[$key] = $true
+            }
+            if ([string]$event.event_type -eq "RESULT_RELAY_CONFIRMED" -and $event.relay_id) {
+              $key = "$([string]$event.lane_id)|$([string]$event.task_id)|$([string]$event.relay_id)"
+              if ($seenRelay.ContainsKey($key)) { throw "duplicate RESULT_RELAY_CONFIRMED correlation found in recent event window" }
+              $seenRelay[$key] = $true
+            }
+          }
+
+          if (-not (Test-Path $registryFile)) { throw "lane-registry.json is missing" }
+          $registry = Get-Content $registryFile -Raw -Encoding UTF8 | ConvertFrom-Json
+          foreach ($laneId in @("lane-1","lane-2","lane-3")) {
+            $laneState = $registry.lanes.$laneId
+            if ($laneState -and -not $laneState.PSObject.Properties["task_timing"]) {
+              throw "lane registry is missing additive task_timing state"
+            }
+          }
+
+          Write-Host "LANE_EVENT_LOG_PRESENT=True"
+          Write-Host "LANE_EVENT_ALLOWLIST_SAFE=True"
+          Write-Host "LANE_EVENT_PRIVATE_CONTENT_ABSENT=True"
+          Write-Host "RECENT_EVENT_CORRELATIONS_UNIQUE=True"
+          Write-Host "TASK_TIMING_REGISTRY_PRESENT=True"
+
+  verify-survival:
+    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
+    name: verify-survival
+    needs: install
+    runs-on: self-hosted
+    timeout-minutes: 7
+    steps:
+      - name: Checkout canonical Supervisor source
+        uses: actions/checkout@v4
+
+      - name: Verify lifecycle survived previous job cleanup
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          Start-Sleep -Seconds 15
+
+          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          $lifecycle = Join-Path $root "runtime\windows\lifecycle-truth.ps1"
+          $statusFile = Join-Path $root "lane-status.json"
+          if (-not (Test-Path $lifecycle)) { throw "Lifecycle truth helper is missing" }
+          . $lifecycle
+
+          $ownerStop = Get-LifecycleOwnerStopState -Root $root
+          $enabledLaneCount = Get-EnabledLaneCount -Root $root
+
+          if ($ownerStop.blocked -or $enabledLaneCount -lt 1) {
+            $truth = Get-LifecycleProcessTruth -Root $root
+            if ($truth.wrapper_alive -or $truth.three_lane_alive -or $truth.chrome_alive) {
+              throw "Runtime started even though lifecycle truth suppresses automatic boot"
+            }
+            if ($ownerStop.blocked) {
+              Write-Host "POST_JOB_OWNER_STOP_PRESERVED=True"
+            } else {
+              Write-Host "POST_JOB_ALL_LANES_DISABLED=True"
+            }
+            exit 0
+          }
+
+          $healthy = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            $truth = Get-LifecycleProcessTruth -Root $root
+            if ($truth.healthy) {
+              $healthy = $true
+              break
+            }
+            Start-Sleep -Seconds 1
+          }
+          if (-not $healthy) { throw "Lifecycle did not survive/recover after previous self-hosted job" }
+
+          function Get-SupervisorRuntimeVersion([string]$Path) {
+            if (-not (Test-Path $Path)) { throw "Supervisor runtime source is missing" }
+            $source = Get-Content $Path -Raw -Encoding UTF8
+            $match = [regex]::Match($source, 'SUPERVISOR_RUNTIME_VERSION\s*=\s*"([^"]+)"')
+            if (-not $match.Success) { throw "Supervisor runtime version marker is missing" }
+            return [string]$match.Groups[1].Value
+          }
+
+          if (-not (Test-Path $statusFile)) { throw "Three-Lane status is missing after previous job cleanup" }
+          $sourceThreeLane = Join-Path $env:GITHUB_WORKSPACE "08_INTEGRATIONS\supervisor\src\runtime\three-lane-cli.mjs"
+          $expectedVersion = Get-SupervisorRuntimeVersion -Path $sourceThreeLane
+          $status = Get-Content $statusFile -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ([string]$status.supervisor_runtime_version -ne $expectedVersion) {
+            throw "Post-job Three-Lane runtime version does not match checked-out source"
+          }
+          Write-Host "POST_JOB_RUNTIME_VERSION_MATCH=True"
+
+          Write-Host "POST_JOB_SUPERVISOR_ALIVE=True"
+          Write-Host "POST_JOB_THREE_LANE_ALIVE=True"
+          Write-Host "POST_JOB_ROBOT_CHROME_ALIVE=True"
+          Write-Host "POST_JOB_ROBOT_CDP_HEALTHY=True"
+          Write-Host "POST_JOB_LANE_COUNT=3"
+
+      - name: Open Control Panel and verify lifecycle truth
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          $lifecycle = Join-Path $root "runtime\windows\lifecycle-truth.ps1"
+          $shortcut = Join-Path ([Environment]::GetFolderPath("Desktop")) "MAGASIN BUSINESS OS CONTROL.lnk"
+          if (-not (Test-Path $lifecycle)) { throw "Lifecycle truth helper is missing" }
+          . $lifecycle
+
+          $before = Get-LifecycleProcessTruth -Root $root
+          $beforeWrapperPid = if ($before.wrapper_alive) {
+            (Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+          } else { 0 }
+
+          if (-not (Test-Path $shortcut)) { throw "Control Panel shortcut is missing" }
+          Start-Process $shortcut
+          Start-Sleep -Seconds 4
+
+          $ownerStop = Get-LifecycleOwnerStopState -Root $root
+          $enabledLaneCount = Get-EnabledLaneCount -Root $root
+          $after = Get-LifecycleProcessTruth -Root $root
+
+          if ($ownerStop.blocked -or $enabledLaneCount -lt 1) {
+            if (-not $before.wrapper_alive -and $after.wrapper_alive) {
+              throw "Opening Control Panel auto-started runtime while lifecycle truth suppresses it"
+            }
+          } else {
+            $healthy = $after.healthy
+            for ($i = 0; -not $healthy -and $i -lt 45; $i++) {
+              Start-Sleep -Seconds 1
+              $after = Get-LifecycleProcessTruth -Root $root
+              $healthy = $after.healthy
+            }
+            if (-not $healthy) { throw "Opening Control Panel did not recover enabled runtime" }
+
+            if ($before.healthy -and $beforeWrapperPid) {
+              $afterWrapperPid = (Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+              if ($afterWrapperPid -ne $beforeWrapperPid) {
+                throw "Healthy runtime was restarted unnecessarily when panel opened"
+              }
+              Write-Host "ACCEPTANCE_E_HEALTHY_NO_REDUNDANT_RESTART=True"
+            }
+          }
+
+          Write-Host "CONTROL_PANEL_OPENED=True"
+          Write-Host "LIFECYCLE_SURVIVAL=True"

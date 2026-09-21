@@ -1,0 +1,49 @@
+name: Supervisor Cancel Stale Integrity Run
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/supervisor-cancel-stale-run.yml"
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  cancel-stale-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      GH_TOKEN: ${{ github.token }}
+      STALE_RUN_ID: "35437861625"
+    steps:
+      - name: Cancel only the known stale Supervisor Integrity run
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${STALE_RUN_ID}" --jq '.status')"
+          if [ "$status" = "completed" ]; then
+            echo "STALE_RUN_ALREADY_TERMINAL=True"
+            exit 0
+          fi
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/runs/${STALE_RUN_ID}/cancel"
+          echo "STALE_RUN_CANCEL_REQUESTED=True"
+          sleep 5
+          status="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${STALE_RUN_ID}" --jq '.status')"
+          if [ "$status" != "completed" ]; then
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/runs/${STALE_RUN_ID}/force-cancel"
+            echo "STALE_RUN_FORCE_CANCEL_REQUESTED=True"
+          fi
+          echo "STALE_RUN_ID=${STALE_RUN_ID}"
+
+      - name: Report repository self-hosted runner state
+        shell: bash
+        run: |
+          set -euo pipefail
+          json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runners")"
+          echo "SELF_HOSTED_RUNNER_COUNT=$(jq '.total_count' <<<"$json")"
+          echo "SELF_HOSTED_RUNNER_ONLINE_COUNT=$(jq '[.runners[] | select(.status == "online")] | length' <<<"$json")"
+          echo "SELF_HOSTED_RUNNER_OFFLINE_COUNT=$(jq '[.runners[] | select(.status == "offline")] | length' <<<"$json")"
+          echo "SELF_HOSTED_RUNNER_BUSY_COUNT=$(jq '[.runners[] | select(.busy == true)] | length' <<<"$json")"

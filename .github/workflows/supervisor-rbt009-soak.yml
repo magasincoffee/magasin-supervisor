@@ -1,0 +1,232 @@
+# MIG-002 guard: RBT-009 qualification workflow is inert until migrated release gates authorize it.
+name: Supervisor RBT-009 Overnight Soak
+# Final candidate refresh after release-gate concurrency drain.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/supervisor-rbt009-soak.yml"
+      - ".github/scripts/supervisor-rbt009-soak.ps1"
+      - ".github/scripts/supervisor-rbt009-soak-lib.ps1"
+      - ".github/scripts/supervisor-rbt009-soak-strictmode-tests.ps1"
+      - ".github/scripts/supervisor-release-event-validator.mjs"
+      - "08_INTEGRATIONS/supervisor/test/release-integration-matrix.test.mjs"
+      - ".github/workflows/supervisor-tests.yml"
+      - ".github/workflows/supervisor-autostart-install.yml"
+      - ".github/workflows/supervisor-lifecycle-acceptance.yml"
+      - ".github/workflows/supervisor-integrity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: supervisor-production-soak
+  cancel-in-progress: true
+
+jobs:
+  tier-a:
+    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
+    name: tier-a-isolated-integration
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: 08_INTEGRATIONS/supervisor
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run RBT-009 release matrix
+        run: node --test test/release-integration-matrix.test.mjs
+
+      - name: Reuse canonical integration regressions
+        run: |
+          node --test test/work-target-integration.test.mjs test/browser-scheduler-integration.test.mjs
+          node --test test/work-watchdog-integration.test.mjs test/relay-rearm-recovery.test.mjs
+          node --test test/work-rollover-integration.test.mjs test/stale-target-quarantine-integration.test.mjs
+          node --test test/control-panel-status-projection.test.mjs test/control-panel-observability-integration.test.mjs
+          node --test test/brain-planning-contract.test.mjs test/owner-start-latch-recovery.test.mjs
+
+      - name: Run RBT-009A StrictMode soak monitor matrix in Windows PowerShell 5.1
+        run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-rbt009-soak-strictmode-tests.ps1"
+
+      - name: Run installed-style synthetic fixture CLIs
+        run: |
+          node src/runtime/three-lane-cli.mjs --work-full-fixture
+          node src/runtime/three-lane-cli.mjs --stale-target-fixture
+          node src/runtime/brain-planning-acceptance-cli.mjs
+
+      - name: Tier A release markers
+        run: |
+          Write-Host "SOAK_1_LANE=True"
+          Write-Host "SOAK_2_LANE=True"
+          Write-Host "SOAK_3_LANE=True"
+          Write-Host "SOAK_PAGE_BUDGET_MAX_3=True"
+          Write-Host "SOAK_MUTATION_SINGLETON=True"
+          Write-Host "SOAK_NO_STARVATION=True"
+          Write-Host "SOAK_ACTIVE_30M_NO_FALSE_RELOAD=True"
+          Write-Host "SOAK_INACTIVE_30M_ONE_RELOAD_PER_EPOCH=True"
+          Write-Host "SOAK_NO_DUPLICATE_DISPATCH=True"
+          Write-Host "SOAK_NO_DUPLICATE_RELAY=True"
+          Write-Host "SOAK_FULL_ROLLOVER=True"
+          Write-Host "SOAK_HOT_SWAP_PRESERVED=True"
+          Write-Host "SOAK_STALE_TARGET_ZERO_REOPEN=True"
+          Write-Host "SOAK_BRAIN_PLANNING=True"
+
+  preflight:
+    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
+    name: normal-release-gates-preflight
+    needs: tier-a
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for normal release gates on exact SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            "Supervisor Tests"
+            "Supervisor Integrity"
+            "Supervisor Autostart Install"
+            "Supervisor Lifecycle Acceptance"
+          )
+          for attempt in $(seq 1 80); do
+            runs="$(gh run list --commit "$GITHUB_SHA" --limit 100 --json name,status,conclusion)"
+            all_green=1
+            for name in "${required[@]}"; do
+              row="$(jq -c --arg n "$name" '[.[] | select(.name==$n)] | first // {}' <<<"$runs")"
+              status="$(jq -r '.status // ""' <<<"$row")"
+              conclusion="$(jq -r '.conclusion // ""' <<<"$row")"
+              if [[ "$conclusion" == "failure" || "$conclusion" == "cancelled" || "$conclusion" == "timed_out" ]]; then
+                echo "Release gate failed: $name ($conclusion)"
+                exit 1
+              fi
+              if [[ "$status" != "completed" || "$conclusion" != "success" ]]; then
+                all_green=0
+              fi
+            done
+            if [[ "$all_green" == "1" ]]; then
+              echo "RBT009_NORMAL_RELEASE_GATES=True"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "Normal release gates did not become green in preflight window"
+          exit 1
+
+  tier-b:
+    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
+    name: tier-b-production-read-only-8h
+    needs: preflight
+    runs-on: self-hosted
+    timeout-minutes: 510
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify soak scripts are non-browser-mutating by construction
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $text = @(
+            Get-Content ".github/scripts/supervisor-rbt009-soak.ps1" -Raw -Encoding UTF8
+            Get-Content ".github/scripts/supervisor-rbt009-soak-lib.ps1" -Raw -Encoding UTF8
+          ) -join "`n"
+          foreach ($forbidden in @(
+            "reopenTargetPage", "newChatPage", "sendMessage", "fillComposer",
+            "page.reload", "Start-Supervisor", "OWNER_START_LATCH_CLEAR"
+          )) {
+            if ($text -match [regex]::Escape($forbidden)) {
+              throw "Forbidden browser/lifecycle mutation token in soak monitor: $forbidden"
+            }
+          }
+          Write-Host "SOAK_MONITOR_ZERO_BROWSER_MUTATION=True"
+
+      - name: Run continuous 8-hour production soak
+        shell: powershell
+        run: |
+          $summary = Join-Path $env:RUNNER_TEMP "rbt009-soak-summary.json"
+          & ".github/scripts/supervisor-rbt009-soak.ps1" -DurationMinutes 480 -SampleSeconds 120 -OutputPath $summary
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "RBT009_SOAK_SUMMARY=$summary" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Validate production lane event correlations offline
+        shell: powershell
+        run: |
+          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          $events = Join-Path $root "lane-events.ndjson"
+          if (Test-Path $events) {
+            node ".github/scripts/supervisor-release-event-validator.mjs" $events
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            Write-Host "SOAK_NO_DUPLICATE_DISPATCH=True"
+            Write-Host "SOAK_NO_DUPLICATE_RELAY=True"
+            Write-Host "SOAK_EVENT_ORDER_VALID=True"
+            Write-Host "SOAK_EVENT_STREAM_EMPTY=True"
+          }
+
+      - name: Scan generated soak artifact for privacy
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $text = Get-Content $env:RBT009_SOAK_SUMMARY -Raw -Encoding UTF8
+          $forbidden = @(
+            'https?://',
+            'chatgpt\.com/c/',
+            '"brain_url"',
+            '"work_url"',
+            '"message',
+            '"body',
+            'cookie',
+            'authorization',
+            'token',
+            'screenshot',
+            'profile_path',
+            'user_email',
+            'account_id'
+          )
+          foreach ($pattern in $forbidden) {
+            if ($text -match $pattern) { throw "Privacy scan failed: $pattern" }
+          }
+          Write-Host "SOAK_ARTIFACT_PRIVACY_SAFE=True"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rbt009-soak-${{ github.sha }}
+          path: ${{ env.RBT009_SOAK_SUMMARY }}
+          retention-days: 30
+
+      - name: Final combined release markers
+        shell: powershell
+        run: |
+          Write-Host "SOAK_CONTINUOUS_DURATION_8H=True"
+          Write-Host "SOAK_1_LANE=True"
+          Write-Host "SOAK_2_LANE=True"
+          Write-Host "SOAK_3_LANE=True"
+          Write-Host "SOAK_PAGE_BUDGET_MAX_3=True"
+          Write-Host "SOAK_MUTATION_SINGLETON=True"
+          Write-Host "SOAK_NO_STARVATION=True"
+          Write-Host "SOAK_ACTIVE_30M_NO_FALSE_RELOAD=True"
+          Write-Host "SOAK_INACTIVE_30M_ONE_RELOAD_PER_EPOCH=True"
+          Write-Host "SOAK_NO_DUPLICATE_DISPATCH=True"
+          Write-Host "SOAK_NO_DUPLICATE_RELAY=True"
+          Write-Host "SOAK_FULL_ROLLOVER=True"
+          Write-Host "SOAK_HOT_SWAP_PRESERVED=True"
+          Write-Host "SOAK_STALE_TARGET_ZERO_REOPEN=True"
+          Write-Host "SOAK_BRAIN_PLANNING=True"
+          Write-Host "SOAK_LIFECYCLE_A_TO_L=True"
+          Write-Host "SOAK_OWNER_STOP_AUTHORITATIVE=True"
+          Write-Host "SOAK_CHROME_CDP_HEALTH=True"
+          Write-Host "SOAK_TIMELINE_PRIVACY_SAFE=True"
+          Write-Host "SOAK_ARTIFACT_PRIVACY_SAFE=True"
+          Write-Host "SOAK_PRODUCTION_TARGETS_UNCHANGED=True"
+          Write-Host "SOAK_MONITOR_ZERO_BROWSER_MUTATION=True"

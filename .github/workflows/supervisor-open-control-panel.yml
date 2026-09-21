@@ -1,0 +1,97 @@
+# MIG-002 guard: production control-panel opener is inert until MIG-004/MIG-005 release gates.
+name: Supervisor Open Control Panel
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/supervisor-open-control-panel.yml
+
+permissions:
+  contents: read
+
+jobs:
+  open-robot:
+    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
+    runs-on: self-hosted
+    timeout-minutes: 7
+    steps:
+      - name: Open Control Panel and verify lifecycle recovery
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          $runtime = Join-Path $root "runtime"
+          $lifecycle = Join-Path $runtime "windows\lifecycle-truth.ps1"
+          $shortcut = Join-Path ([Environment]::GetFolderPath("Desktop")) "MAGASIN BUSINESS OS CONTROL.lnk"
+          $controlPanel = Join-Path $runtime "windows\control-panel.ps1"
+
+          if (-not (Test-Path $lifecycle)) { throw "Lifecycle truth helper is missing" }
+          . $lifecycle
+
+          $ownerStopBefore = Get-LifecycleOwnerStopState -Root $root
+          $enabledBefore = Get-EnabledLaneCount -Root $root
+          $truthBefore = Get-LifecycleProcessTruth -Root $root
+          $wrapperPidBefore = if ($truthBefore.wrapper_alive) {
+            (Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+          } else { 0 }
+
+          if (Test-Path $shortcut) {
+            Start-Process $shortcut
+          } elseif (Test-Path $controlPanel) {
+            Start-Process powershell.exe -ArgumentList @(
+              "-NoLogo",
+              "-NoProfile",
+              "-ExecutionPolicy", "Bypass",
+              "-File", ('"' + $controlPanel + '"')
+            )
+          } else {
+            throw "Control Panel launcher is missing"
+          }
+
+          if ($ownerStopBefore.blocked) {
+            Start-Sleep -Seconds 5
+            $truthAfter = Get-LifecycleProcessTruth -Root $root
+            if ($truthAfter.wrapper_alive -or $truthAfter.three_lane_alive -or $truthAfter.chrome_alive) {
+              throw "Control Panel bypassed Owner STOP"
+            }
+            Write-Host "ACCEPTANCE_F_OWNER_STOP_WINS=True"
+          } elseif ($enabledBefore -lt 1) {
+            Start-Sleep -Seconds 5
+            $truthAfter = Get-LifecycleProcessTruth -Root $root
+            if (-not $truthBefore.wrapper_alive -and $truthAfter.wrapper_alive) {
+              throw "Control Panel auto-started runtime with all lanes disabled"
+            }
+            Write-Host "ACCEPTANCE_A_ALL_LANES_DISABLED_NO_AUTOSTART=True"
+          } else {
+            $healthy = $false
+            for ($i = 0; $i -lt 60; $i++) {
+              $truthAfter = Get-LifecycleProcessTruth -Root $root
+              if ($truthAfter.healthy) {
+                $healthy = $true
+                break
+              }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $healthy) {
+              throw "Control Panel did not recover enabled runtime"
+            }
+
+            if ($truthBefore.healthy -and $wrapperPidBefore) {
+              $wrapperPidAfter = (Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+              if ($wrapperPidAfter -ne $wrapperPidBefore) {
+                throw "Healthy runtime restarted unnecessarily"
+              }
+              Write-Host "ACCEPTANCE_E_HEALTHY_NO_RESTART=True"
+            } else {
+              Write-Host "ACCEPTANCE_B_ENABLED_RUNTIME_RECOVERED=True"
+            }
+          }
+
+          Write-Host "ROBOT_SUPERVISOR_RUNNING=$([bool](Get-LifecycleProcessTruth -Root $root).wrapper_alive)"
+          Write-Host "ROBOT_THREE_LANE_RUNNING=$([bool](Get-LifecycleProcessTruth -Root $root).three_lane_alive)"
+          Write-Host "ROBOT_CHROME_RUNNING=$([bool](Get-LifecycleProcessTruth -Root $root).chrome_alive)"
+          Write-Host "ROBOT_CDP_HEALTHY=$([bool](Get-LifecycleProcessTruth -Root $root).cdp_healthy)"
+          Write-Host "CONTROL_PANEL_OPENED=True"
