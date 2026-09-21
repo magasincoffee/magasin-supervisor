@@ -42,7 +42,7 @@ if (!args.projectAdapter) throw new Error("--project-adapter is required");
 const target = validateLocalTarget(
   JSON.parse(await fs.readFile(targetPath, "utf8"))
 );
-const projectState = await readProjectStateFromAdapter(args.projectAdapter || projectAdapter);
+const projectState = await readProjectStateFromAdapter(args.projectAdapter);
 
 const session = new SupervisorSession({
   cdpUrl: args.cdpUrl,
