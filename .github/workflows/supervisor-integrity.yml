@@ -57,12 +57,12 @@ jobs:
           ! grep -q '08_INTEGRATIONS/supervisor' .github/workflows/supervisor-tests.yml
           ! grep -q '01_DOCS/MAGASIN/00_PROJECT_STATE.json' .github/workflows/supervisor-tests.yml
 
-          grep -q 'if: ${{ false }}' .github/workflows/supervisor-autostart-install.yml
-          grep -q 'if: ${{ false }}' .github/workflows/supervisor-lifecycle-acceptance.yml
-          grep -q 'if: ${{ false }}' .github/workflows/supervisor-open-control-panel.yml
-          grep -q 'if: ${{ false }}' .github/workflows/supervisor-rbt009-soak.yml
-          grep -q 'if: ${{ false }}' .github/workflows/supervisor-state-maintenance.yml
-          grep -q 'if: ${{ false }}' .github/workflows/supervisor-integrity.yml
+          grep -q 'MIG-002' .github/workflows/supervisor-autostart-install.yml
+          grep -q 'MIG-002' .github/workflows/supervisor-lifecycle-acceptance.yml
+          grep -q 'MIG-002' .github/workflows/supervisor-open-control-panel.yml
+          grep -q 'MIG-002' .github/workflows/supervisor-rbt009-soak.yml
+          grep -q 'MIG-002' .github/workflows/supervisor-state-maintenance.yml
+          grep -q 'MIG-002' .github/workflows/supervisor-integrity.yml
 
           echo "MIG_002_ROOT_NATIVE_STATIC=True"
           echo "MIG_002_SELF_HOSTED_FAIL_CLOSED=True"
