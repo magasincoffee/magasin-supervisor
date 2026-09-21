@@ -1,6 +1,8 @@
 $ErrorActionPreference = 'Stop'
 
-$root = Join-Path $env:LOCALAPPDATA 'MAGASIN\BusinessOS\supervisor'
+. (Join-Path $PSScriptRoot 'state-root.ps1')
+
+$root = Get-SupervisorStateRoot
 $stop = Join-Path $root 'STOP'
 $pidFile = Join-Path $root 'supervisor.pid'
 $autostartDisabled = Join-Path $root 'AUTOSTART_DISABLED'
