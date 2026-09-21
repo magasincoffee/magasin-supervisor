@@ -1,4 +1,4 @@
-# MIG-002 guard: production install/autostart jobs are inert until MIG-004/MIG-005 release gates.
+# MIG-003 guard: production install/autostart jobs are inert until MIG-004/MIG-005 release gates.
 name: Supervisor Autostart Install
 
 on:
@@ -6,10 +6,10 @@ on:
     branches:
       - main
     paths:
-      - 08_INTEGRATIONS/supervisor/src/**
-      - 08_INTEGRATIONS/supervisor/windows/**
-      - 08_INTEGRATIONS/supervisor/test/**
-      - 08_INTEGRATIONS/supervisor/package.json
+      - src/**
+      - windows/**
+      - test/**
+      - package.json
       - .github/workflows/supervisor-autostart-install.yml
       - .github/workflows/supervisor-rbt009-soak.yml
       - .github/scripts/supervisor-rbt009-soak.ps1
@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   install:
-    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
+    if: ${{ false }} # MIG-003: production/self-hosted execution disabled until MIG-004/MIG-005
     runs-on: self-hosted
     timeout-minutes: 15
     steps:
@@ -36,7 +36,7 @@ jobs:
 
       - name: Run Supervisor tests
         shell: powershell
-        working-directory: 08_INTEGRATIONS/supervisor
+        working-directory: .
         run: |
           npm install --ignore-scripts --no-audit --no-fund
           npm test
@@ -45,7 +45,8 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          . (Join-Path $env:GITHUB_WORKSPACE "windows\state-root.ps1")
+          $root = Get-SupervisorStateRoot
           $configFile = Join-Path $root "lanes.json"
           $fingerprintFile = Join-Path $env:RUNNER_TEMP "magasin-lifecycle-targets-before.sha256"
 
@@ -70,33 +71,39 @@ jobs:
       - name: Install latest Supervisor runtime
         shell: powershell
         run: |
-          powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "08_INTEGRATIONS/supervisor/windows/install-supervisor.ps1"
+          powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "windows/install-supervisor.ps1"
 
-      - name: Verify checked-out Three-Lane source-of-truth
+      - name: Verify checked-out platform contracts
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $statePath = "01_DOCS/MAGASIN/00_PROJECT_STATE.json"
-          if (-not (Test-Path $statePath)) { throw "Checked-out PROJECT_STATE is missing" }
-          $state = Get-Content $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
-          if ($state.supervisor_orchestration.mode -ne "THREE_LANE_V1") {
-            throw "Checked-out PROJECT_STATE does not enable THREE_LANE_V1"
+          foreach ($required in @(
+            "src/project-adapter.mjs",
+            "src/state-root.mjs",
+            "src/runtime/three-lane-cli.mjs",
+            "windows/state-root.ps1",
+            "windows/lifecycle-truth.ps1"
+          )) {
+            if (-not (Test-Path $required)) { throw "Missing platform contract: $required" }
           }
-          if ([int]$state.supervisor_orchestration.lane_count -ne 3) {
-            throw "Checked-out PROJECT_STATE does not define exactly three lanes"
+          $launcher = Get-Content "windows/run-supervisor.ps1" -Raw -Encoding UTF8
+          if ($launcher -match "00_PROJECT_STATE\.json|magasincoffee/magasincoffee\.github\.io") {
+            throw "Platform launcher still depends on Business OS source truth"
           }
-          if ([bool]$state.supervisor_orchestration.brain_autodiscovery) {
-            throw "Brain autodiscovery must be disabled in THREE_LANE_V1"
+          if ($launcher -notmatch "SUPERVISOR_RUNTIME_MODE") {
+            throw "Platform launcher runtime-mode contract is missing"
           }
-          Write-Host "PROJECT_AUTONOMY=$([string]$state.autonomy)"
+          Write-Host "PLATFORM_PROJECT_ADAPTER_BOUNDARY=True"
+          Write-Host "PLATFORM_STATE_ROOT_BOUNDARY=True"
           Write-Host "SOURCE_OF_TRUTH_LOCAL_CHECK=True"
 
       - name: Register lifecycle recovery without overriding Owner STOP
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
-          powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "08_INTEGRATIONS/supervisor/windows/install-autostart.ps1"
+          . (Join-Path $env:GITHUB_WORKSPACE "windows\state-root.ps1")
+          $root = Get-SupervisorStateRoot
+          powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "windows/install-autostart.ps1"
 
           $lifecycle = Join-Path $root "runtime\windows\lifecycle-truth.ps1"
           $start = Join-Path $root "runtime\windows\start-supervisor.ps1"
@@ -125,7 +132,8 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          . (Join-Path $env:GITHUB_WORKSPACE "windows\state-root.ps1")
+          $root = Get-SupervisorStateRoot
           $runtime = Join-Path $root "runtime"
           $lifecycle = Join-Path $runtime "windows\lifecycle-truth.ps1"
           $configFile = Join-Path $root "lanes.json"
@@ -147,7 +155,7 @@ jobs:
             return [string]$match.Groups[1].Value
           }
 
-          $sourceThreeLane = Join-Path $env:GITHUB_WORKSPACE "08_INTEGRATIONS\supervisor\src\runtime\three-lane-cli.mjs"
+          $sourceThreeLane = Join-Path $env:GITHUB_WORKSPACE "src\runtime\three-lane-cli.mjs"
           $runtimeThreeLane = Join-Path $runtime "src\runtime\three-lane-cli.mjs"
           $expectedVersion = Get-SupervisorRuntimeVersion -Path $sourceThreeLane
           $installedVersion = Get-SupervisorRuntimeVersion -Path $runtimeThreeLane
@@ -235,7 +243,8 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          . (Join-Path $env:GITHUB_WORKSPACE "windows\state-root.ps1")
+          $root = Get-SupervisorStateRoot
           $runtime = Join-Path $root "runtime"
           $runtimeCli = Join-Path $runtime "src\runtime\three-lane-cli.mjs"
           $configFile = Join-Path $root "lanes.json"
@@ -303,7 +312,8 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          . (Join-Path $env:GITHUB_WORKSPACE "windows\state-root.ps1")
+          $root = Get-SupervisorStateRoot
           $runtime = Join-Path $root "runtime"
           $runtimeCli = Join-Path $runtime "src\runtime\three-lane-cli.mjs"
           $configFile = Join-Path $root "lanes.json"
@@ -411,7 +421,8 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          . (Join-Path $env:GITHUB_WORKSPACE "windows\state-root.ps1")
+          $root = Get-SupervisorStateRoot
           $runtime = Join-Path $root "runtime"
           $runtimeCli = Join-Path $runtime "src\runtime\three-lane-cli.mjs"
           $panelScript = Join-Path $runtime "windows\control-panel.ps1"
@@ -861,7 +872,8 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          . (Join-Path $env:GITHUB_WORKSPACE "windows\state-root.ps1")
+          $root = Get-SupervisorStateRoot
           $eventFile = Join-Path $root "lane-events.ndjson"
           $registryFile = Join-Path $root "lane-registry.json"
           $configFile = Join-Path $root "lanes.json"
@@ -940,7 +952,7 @@ jobs:
           Write-Host "TASK_TIMING_REGISTRY_PRESENT=True"
 
   verify-survival:
-    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
+    if: ${{ false }} # MIG-003: production/self-hosted execution disabled until MIG-004/MIG-005
     name: verify-survival
     needs: install
     runs-on: self-hosted
@@ -955,7 +967,9 @@ jobs:
           $ErrorActionPreference = "Stop"
           Start-Sleep -Seconds 15
 
-          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          . (Join-Path $env:GITHUB_WORKSPACE "windows\state-root.ps1")
+
+          $root = Get-SupervisorStateRoot
           $lifecycle = Join-Path $root "runtime\windows\lifecycle-truth.ps1"
           $statusFile = Join-Path $root "lane-status.json"
           if (-not (Test-Path $lifecycle)) { throw "Lifecycle truth helper is missing" }
@@ -997,7 +1011,7 @@ jobs:
           }
 
           if (-not (Test-Path $statusFile)) { throw "Three-Lane status is missing after previous job cleanup" }
-          $sourceThreeLane = Join-Path $env:GITHUB_WORKSPACE "08_INTEGRATIONS\supervisor\src\runtime\three-lane-cli.mjs"
+          $sourceThreeLane = Join-Path $env:GITHUB_WORKSPACE "src\runtime\three-lane-cli.mjs"
           $expectedVersion = Get-SupervisorRuntimeVersion -Path $sourceThreeLane
           $status = Get-Content $statusFile -Raw -Encoding UTF8 | ConvertFrom-Json
           if ([string]$status.supervisor_runtime_version -ne $expectedVersion) {
@@ -1015,7 +1029,8 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          . (Join-Path $env:GITHUB_WORKSPACE "windows\state-root.ps1")
+          $root = Get-SupervisorStateRoot
           $lifecycle = Join-Path $root "runtime\windows\lifecycle-truth.ps1"
           $shortcut = Join-Path ([Environment]::GetFolderPath("Desktop")) "MAGASIN BUSINESS OS CONTROL.lnk"
           if (-not (Test-Path $lifecycle)) { throw "Lifecycle truth helper is missing" }
