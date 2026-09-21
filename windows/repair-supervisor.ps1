@@ -4,11 +4,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'state-root.ps1')
+. (Join-Path $PSScriptRoot 'project-adapter.ps1')
+
 $sourceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $repoRoot = (Resolve-Path (Join-Path $sourceRoot '..\..')).Path
 $installScript = Join-Path $sourceRoot 'windows\install-supervisor.ps1'
 $sourceLifecycle = Join-Path $sourceRoot 'windows\lifecycle-truth.ps1'
-$root = Join-Path $env:LOCALAPPDATA 'MAGASIN\BusinessOS\supervisor'
+$root = Get-SupervisorStateRoot
 $runtime = Join-Path $root 'runtime'
 $runtimeLoop = Join-Path $runtime 'src\runtime\supervisor-loop-cli.mjs'
 $runtimeBrainWorker = Join-Path $runtime 'src\runtime\brain-worker-cli.mjs'
@@ -19,7 +22,7 @@ $profile = Join-Path $root 'browser_profile'
 $target = Join-Path $root 'target.json'
 $pidFile = Join-Path $root 'supervisor.pid'
 $logFile = Join-Path $root 'supervisor.log'
-$projectStateUrl = 'https://raw.githubusercontent.com/magasincoffee/magasincoffee.github.io/main/01_DOCS/MAGASIN/00_PROJECT_STATE.json'
+$projectAdapterSource = Get-SupervisorProjectAdapterSource
 $sourceThreeLane = Join-Path $sourceRoot 'src\runtime\three-lane-cli.mjs'
 
 function Get-SupervisorRuntimeVersion([string]$Path) {
@@ -192,7 +195,7 @@ try {
 
     $projectState = $null
     try {
-        $projectState = Invoke-RestMethod -Uri $projectStateUrl -TimeoutSec 4 -Headers @{ 'Cache-Control'='no-cache' }
+        $projectState = ConvertTo-SupervisorProjectState (Read-SupervisorProjectAdapter -Source $projectAdapterSource)
     } catch {}
 
     $threeLaneMode = [bool](
