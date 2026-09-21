@@ -4,6 +4,17 @@
 
 Production local autonomy runtime for MAGASIN Business OS.
 
+## Project adapter and state-root contracts
+
+The independent Supervisor does not own project/business truth.
+
+- Project orchestration input is explicit: pass `--project-input` / `--project-input-url` or set `MAGASIN_SUPERVISOR_PROJECT_INPUT` / `MAGASIN_SUPERVISOR_PROJECT_INPUT_URL`.
+- Missing or ambiguous project input fails closed for runtimes that require project context.
+- The adapter projects only bounded orchestration fields; arbitrary business data is not copied into Supervisor state.
+- Local runtime state uses `MAGASIN_SUPERVISOR_STATE_ROOT` when configured.
+- Without that variable, MIG-003 deliberately resolves the historical state root for compatibility; no files are moved, renamed, reset, or copied.
+- Production cutover and any state-root migration remain outside MIG-003.
+
 ## Current architecture
 
 The active production orchestration mode is **Three-Lane V1**. Each lane has isolated persisted state:
@@ -263,7 +274,7 @@ Planning target remains roughly <=20 minutes active implementation work when a t
 
 TASK-RBT-002 introduces a privacy-safe append-only local event file:
 
-`%LOCALAPPDATA%\MAGASIN\BusinessOS\supervisor\lane-events.ndjson`
+`$MAGASIN_SUPERVISOR_STATE_ROOT\lane-events.ndjson` (legacy fallback remains ``MAGASIN_SUPERVISOR_STATE_ROOT` when explicitly configured; otherwise legacy compatibility root `%LOCALAPPDATA%\MAGASIN\BusinessOS\supervisor`\lane-events.ndjson` until cutover)
 
 Minimum event families include:
 
@@ -326,7 +337,7 @@ The future scheduler shares only browser resources and a global mutation lease. 
 Local runtime root:
 
 ~~~text
-%LOCALAPPDATA%\MAGASIN\BusinessOS\supervisor
+`MAGASIN_SUPERVISOR_STATE_ROOT` when explicitly configured; otherwise legacy compatibility root `%LOCALAPPDATA%\MAGASIN\BusinessOS\supervisor`
 ~~~
 
 Desktop control:
@@ -366,7 +377,7 @@ Supervisor must not continue through:
 ## Development test
 
 ~~~powershell
-cd 08_INTEGRATIONS\supervisor
+cd magasin-supervisor
 npm test
 ~~~
 
