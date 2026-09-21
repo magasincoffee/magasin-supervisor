@@ -21,13 +21,13 @@ test("Brain directive supplies dynamic Worker instructions", () => {
         {
           type: "DISPATCH",
           worker_id: "worker-1",
-          task_id: "TASK-049/A",
+          task_id: "PLATFORM-049/A",
           instruction: "Inspect recovery guards and return concrete findings."
         },
         {
           type: "DISPATCH",
           worker_id: "worker-2",
-          task_id: "TASK-049/B",
+          task_id: "PLATFORM-049/B",
           instruction: "Verify Windows runtime selection independently."
         }
       ]
@@ -90,14 +90,14 @@ test("Worker result envelope includes full response once with deterministic rela
   const body = "line one\nline two\nline three";
   const first = buildWorkerResultEnvelope({
     workerId: "worker-1",
-    taskId: "TASK-049/A",
+    taskId: "PLATFORM-049/A",
     generation: 2,
     turn: 17,
     responseText: body
   });
   const second = buildWorkerResultEnvelope({
     workerId: "worker-1",
-    taskId: "TASK-049/A",
+    taskId: "PLATFORM-049/A",
     generation: 2,
     turn: 17,
     responseText: body
@@ -114,7 +114,7 @@ test("registry sanitizer never persists instruction or response bodies", () => {
     workers: {
       "worker-1": {
         worker_id: "worker-1",
-        task_id: "TASK-049/A",
+        task_id: "PLATFORM-049/A",
         instruction: "SECRET BODY",
         responseText: "FULL PRIVATE RESPONSE",
         instruction_digest: "abc",
