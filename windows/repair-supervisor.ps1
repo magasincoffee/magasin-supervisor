@@ -5,10 +5,11 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $sourceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$repoRoot = (Resolve-Path (Join-Path $sourceRoot '..\..')).Path
+$repoRoot = $sourceRoot
 $installScript = Join-Path $sourceRoot 'windows\install-supervisor.ps1'
 $sourceLifecycle = Join-Path $sourceRoot 'windows\lifecycle-truth.ps1'
-$root = Join-Path $env:LOCALAPPDATA 'MAGASIN\BusinessOS\supervisor'
+. (Join-Path $PSScriptRoot 'state-root.ps1')
+$root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
 $runtime = Join-Path $root 'runtime'
 $runtimeLoop = Join-Path $runtime 'src\runtime\supervisor-loop-cli.mjs'
 $runtimeBrainWorker = Join-Path $runtime 'src\runtime\brain-worker-cli.mjs'
@@ -19,7 +20,11 @@ $profile = Join-Path $root 'browser_profile'
 $target = Join-Path $root 'target.json'
 $pidFile = Join-Path $root 'supervisor.pid'
 $logFile = Join-Path $root 'supervisor.log'
-$projectStateUrl = 'https://raw.githubusercontent.com/magasincoffee/magasincoffee.github.io/main/01_DOCS/MAGASIN/00_PROJECT_STATE.json'
+$projectAdapterPath = [string]$env:SUPERVISOR_PROJECT_ADAPTER_PATH
+$projectAdapterUrl = [string]$env:SUPERVISOR_PROJECT_ADAPTER_URL
+if (-not [string]::IsNullOrWhiteSpace($projectAdapterPath) -and -not [string]::IsNullOrWhiteSpace($projectAdapterUrl)) {
+    throw 'Configure exactly one project adapter source during repair.'
+}
 $sourceThreeLane = Join-Path $sourceRoot 'src\runtime\three-lane-cli.mjs'
 
 function Get-SupervisorRuntimeVersion([string]$Path) {
@@ -192,8 +197,22 @@ try {
 
     $projectState = $null
     try {
-        $projectState = Invoke-RestMethod -Uri $projectStateUrl -TimeoutSec 4 -Headers @{ 'Cache-Control'='no-cache' }
-    } catch {}
+        $adapter = $null
+        if (-not [string]::IsNullOrWhiteSpace($projectAdapterPath)) {
+            if (-not (Test-Path $projectAdapterPath)) { throw "Configured project adapter file is missing: $projectAdapterPath" }
+            $adapter = Get-Content $projectAdapterPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        } elseif (-not [string]::IsNullOrWhiteSpace($projectAdapterUrl)) {
+            $adapter = Invoke-RestMethod -Uri $projectAdapterUrl -TimeoutSec 4 -Headers @{ 'Cache-Control'='no-cache' }
+        }
+        if ($adapter) {
+            if ([string]$adapter.schema_version -ne 'supervisor-project-adapter.v1' -or -not $adapter.project_state) {
+                throw 'Configured project adapter is invalid.'
+            }
+            $projectState = $adapter.project_state
+        }
+    } catch {
+        throw "Project adapter validation failed during repair: $($_.Exception.Message)"
+    }
 
     $threeLaneMode = [bool](
         $projectState -and
@@ -205,8 +224,11 @@ try {
         $projectState.supervisor_orchestration -and
         [string]$projectState.supervisor_orchestration.mode -eq 'BRAIN_WORKER_V1'
     )
-    if (-not $threeLaneMode -and -not $brainWorkerMode) {
-        $threeLaneMode = $true
+    if (-not $projectState) {
+        $localLaneConfig = Read-LifecycleJson (Join-Path $root 'lanes.json')
+        $localRegistry = Read-LifecycleJson (Join-Path $root 'orchestration.json')
+        $threeLaneMode = [bool]($localLaneConfig -and [string]$localLaneConfig.mode -eq 'THREE_LANE_V1')
+        $brainWorkerMode = [bool]($localRegistry -and [string]$localRegistry.mode -eq 'BRAIN_WORKER_V1')
     }
 
     $ownerStopAfterInstall = Get-LifecycleOwnerStopState -Root $root

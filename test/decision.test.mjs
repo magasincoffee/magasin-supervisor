@@ -9,14 +9,14 @@ import {
 
 function state(overrides = {}) {
   return {
-    project: "MAGASIN Business OS",
+    project: "Example Project",
     current_phase: "P1",
-    current_task: "TASK-003",
+    current_task: "WORK-003",
     status: "RUNNING",
     autonomy: "AUTO_CONTINUE",
     blocked: false,
     requires_user: false,
-    next_task: "TASK-004",
+    next_task: "WORK-004",
     ...overrides
   };
 }
@@ -27,7 +27,7 @@ test("continues only after completed response and allowed state", () => {
     observation: OBSERVATIONS.RESPONSE_COMPLETE
   });
   assert.equal(result.action, ACTIONS.CONTINUE);
-  assert.match(result.instruction, /repository source of truth/);
+  assert.match(result.instruction, /explicit source-of-truth/);
 });
 
 test("waits while assistant is still running", () => {
@@ -94,7 +94,7 @@ test("does not continue in MANUAL autonomy mode", () => {
 test("PAUSED temporal gate suppresses repeated continuation without creating an Owner boundary", () => {
   const result = decideContinuation({
     projectState: state({
-      current_task: "TASK-048",
+      current_task: "WORK-048",
       status: "READY",
       autonomy: "PAUSED",
       requires_user: false,
@@ -118,34 +118,39 @@ test("stops cleanly when project is DONE", () => {
 test("first idle continuation uses handoff reconciliation instruction", () => {
   const result = decideContinuation({
     projectState: state({
-      current_phase: "P1_SCHEDULE_FIRST_CORE_FLOW",
-      current_task: "TASK-029",
-      current_task_title: "Schedule-first canonical flow contract"
+      current_phase: "PHASE-A",
+      current_task: "WORK-029",
+      current_task_title: "Example work item",
+      instructions: {
+        handoff: "PROJECT HANDOFF POLICY"
+      }
     }),
     observation: OBSERVATIONS.RESPONSE_COMPLETE,
     handoff: true
   });
 
   assert.equal(result.action, ACTIONS.CONTINUE);
-  assert.match(result.instruction, /TIẾP QUẢN PHIÊN ĐANG MỞ/);
-  assert.match(result.instruction, /QUESTION → DELETE → SIMPLIFY → ACCELERATE → AUTOMATE/);
+  assert.match(result.instruction, /PROJECT HANDOFF POLICY/);
   assert.match(result.reason, /reconcile live Owner\/chat context/);
 });
 
 test("normal continuation carries Five-Step and current repository task context", () => {
   const result = decideContinuation({
     projectState: state({
-      current_phase: "P1_SCHEDULE_FIRST_CORE_FLOW",
-      current_task: "TASK-029",
-      current_task_title: "Schedule-first canonical flow contract"
+      current_phase: "PHASE-A",
+      current_task: "WORK-029",
+      current_task_title: "Example work item",
+      instructions: {
+        continue: "PROJECT CONTINUATION POLICY"
+      }
     }),
     observation: OBSERVATIONS.RESPONSE_COMPLETE
   });
 
   assert.equal(result.action, ACTIONS.CONTINUE);
-  assert.match(result.instruction, /Five-Step/);
-  assert.match(result.instruction, /TASK-029/);
-  assert.match(result.instruction, /Schedule-first canonical flow contract/);
+  assert.match(result.instruction, /PROJECT CONTINUATION POLICY/);
+  assert.match(result.instruction, /WORK-029/);
+  assert.match(result.instruction, /Example work item/);
 });
 
 test("waits when the latest visible message is still the Owner request", () => {
@@ -165,16 +170,17 @@ test("Owner decision reconciliation may safely run while repository is WAIT_USER
     projectState: state({
       status: "WAIT_USER",
       autonomy: "MANUAL",
-      requires_user: true
+      requires_user: true,
+      instructions: {
+        owner_reconcile: "PROJECT OWNER RECONCILE POLICY"
+      }
     }),
     observation: OBSERVATIONS.RESPONSE_COMPLETE,
     ownerReconcile: true
   });
 
   assert.equal(result.action, ACTIONS.CONTINUE);
-  assert.match(result.instruction, /RECONCILE QUYẾT ĐỊNH OWNER/);
-  assert.match(result.instruction, /Nếu và chỉ nếu/);
-  assert.match(result.instruction, /không suy đoán/);
+  assert.match(result.instruction, /PROJECT OWNER RECONCILE POLICY/);
 });
 
 test("Owner reconciliation never bypasses a BLOCKED project state", () => {

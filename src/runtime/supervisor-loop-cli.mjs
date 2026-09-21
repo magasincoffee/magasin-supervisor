@@ -8,6 +8,11 @@ import {
   CANONICAL_CONTINUE_INSTRUCTION,
   OBSERVATIONS
 } from "../decision.mjs";
+import {
+  loadProjectStateFromSource,
+  resolveProjectAdapterSource
+} from "../project-adapter.mjs";
+import { resolveStateRoot } from "../state-root.mjs";
 import { executeDecision } from "../ui/actions.mjs";
 import { SupervisorSession } from "./session.mjs";
 import { SupervisorLoopController } from "./loop.mjs";
@@ -24,8 +29,6 @@ import {
   writeRuntimeStatus
 } from "./status.mjs";
 
-const DEFAULT_STATE_URL =
-  "https://raw.githubusercontent.com/magasincoffee/magasincoffee.github.io/main/01_DOCS/MAGASIN/00_PROJECT_STATE.json";
 const SUPERVISOR_RUNTIME_VERSION = "2026-09-19.29";
 
 const ROLLOVER_INSTRUCTION =
@@ -36,7 +39,8 @@ const ROLLOVER_INSTRUCTION =
 function parseArgs(argv) {
   const result = {
     cdpUrl: "http://127.0.0.1:9222",
-    stateUrl: DEFAULT_STATE_URL,
+    projectAdapterPath: null,
+    projectAdapterUrl: null,
     execute: false,
     pollMs: 5000,
     stallMs: 4 * 60_000,
@@ -45,7 +49,9 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
     if (key === "--cdp-url") result.cdpUrl = argv[++i];
-    else if (key === "--state-url") result.stateUrl = argv[++i];
+    else if (key === "--project-adapter") result.projectAdapterPath = argv[++i];
+    else if (key === "--project-adapter-url") result.projectAdapterUrl = argv[++i];
+    else if (key === "--state-url") result.projectAdapterUrl = argv[++i];
     else if (key === "--target") result.targetPath = argv[++i];
     else if (key === "--execute") result.execute = true;
     else if (key === "--poll-ms") result.pollMs = Number(argv[++i]);
@@ -57,19 +63,7 @@ function parseArgs(argv) {
 }
 
 function localRoot() {
-  const base = process.env.LOCALAPPDATA || process.env.HOME || process.cwd();
-  return path.join(base, "MAGASIN", "BusinessOS", "supervisor");
-}
-
-async function fetchProjectState(url) {
-  const response = await fetch(url, {
-    cache: "no-store",
-    headers: { "user-agent": "MAGASIN-Supervisor/0.3" }
-  });
-  if (!response.ok) {
-    throw new Error(`project state fetch failed: HTTP ${response.status}`);
-  }
-  return response.json();
+  return resolveStateRoot({ compatibility: "legacy-preserve" });
 }
 
 function validateTarget(value) {
@@ -254,6 +248,10 @@ if (!Number.isFinite(args.unavailableGraceMs) || args.unavailableGraceMs < 15_00
   throw new TypeError("unavailable-grace-ms must be at least 15000");
 }
 
+const projectAdapterSource = resolveProjectAdapterSource({
+  pathValue: args.projectAdapterPath,
+  urlValue: args.projectAdapterUrl
+});
 const root = localRoot();
 const targetPath = args.targetPath || path.join(root, "target.json");
 const stopPath = path.join(root, "STOP");
@@ -324,7 +322,7 @@ while (true) {
   } catch {}
 
   try {
-    const projectState = await fetchProjectState(args.stateUrl);
+    const projectState = await loadProjectStateFromSource(projectAdapterSource);
     lastProjectState = projectState;
 
     if (projectState.status === "DONE") {

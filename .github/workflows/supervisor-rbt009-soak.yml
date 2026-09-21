@@ -1,4 +1,4 @@
-# MIG-002 guard: RBT-009 qualification workflow is inert until migrated release gates authorize it.
+# MIG-003 guard: production/self-hosted execution remains inert until MIG-004/MIG-005 release gates.
 name: Supervisor RBT-009 Overnight Soak
 # Final candidate refresh after release-gate concurrency drain.
 
@@ -12,7 +12,7 @@ on:
       - ".github/scripts/supervisor-rbt009-soak-lib.ps1"
       - ".github/scripts/supervisor-rbt009-soak-strictmode-tests.ps1"
       - ".github/scripts/supervisor-release-event-validator.mjs"
-      - "08_INTEGRATIONS/supervisor/test/release-integration-matrix.test.mjs"
+      - "test/release-integration-matrix.test.mjs"
       - ".github/workflows/supervisor-tests.yml"
       - ".github/workflows/supervisor-autostart-install.yml"
       - ".github/workflows/supervisor-lifecycle-acceptance.yml"
@@ -35,7 +35,7 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: 08_INTEGRATIONS/supervisor
+        working-directory: .
         shell: powershell
     steps:
       - uses: actions/checkout@v4
@@ -162,7 +162,8 @@ jobs:
       - name: Validate production lane event correlations offline
         shell: powershell
         run: |
-          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
           $events = Join-Path $root "lane-events.ndjson"
           if (Test-Path $events) {
             node ".github/scripts/supervisor-release-event-validator.mjs" $events

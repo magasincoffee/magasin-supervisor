@@ -16,6 +16,11 @@ import {
   captureUserTurnDigests
 } from "../ui/message-capture.mjs";
 import { OBSERVATIONS } from "../decision.mjs";
+import {
+  loadProjectStateFromSource,
+  resolveProjectAdapterSource
+} from "../project-adapter.mjs";
+import { resolveStateRoot } from "../state-root.mjs";
 import { pageMatchesTarget, targetFromUrl } from "./recovery.mjs";
 import {
   BRAIN_WORKER_MODE,
@@ -33,21 +38,22 @@ import {
   defaultRuntimeStatusPath
 } from "./status.mjs";
 
-const DEFAULT_STATE_URL =
-  "https://raw.githubusercontent.com/magasincoffee/magasincoffee.github.io/main/01_DOCS/MAGASIN/00_PROJECT_STATE.json";
 const SUPERVISOR_RUNTIME_VERSION = "2026-09-19.29";
 
 function parseArgs(argv) {
   const result = {
     cdpUrl: "http://127.0.0.1:9222",
-    stateUrl: DEFAULT_STATE_URL,
+    projectAdapterPath: null,
+    projectAdapterUrl: null,
     execute: false,
     pollMs: 5000
   };
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
     if (key === "--cdp-url") result.cdpUrl = argv[++i];
-    else if (key === "--state-url") result.stateUrl = argv[++i];
+    else if (key === "--project-adapter") result.projectAdapterPath = argv[++i];
+    else if (key === "--project-adapter-url") result.projectAdapterUrl = argv[++i];
+    else if (key === "--state-url") result.projectAdapterUrl = argv[++i];
     else if (key === "--execute") result.execute = true;
     else if (key === "--poll-ms") result.pollMs = Number(argv[++i]);
     else throw new Error(`unknown argument: ${key}`);
@@ -56,33 +62,23 @@ function parseArgs(argv) {
 }
 
 function localRoot() {
-  const base = process.env.LOCALAPPDATA || process.env.HOME || process.cwd();
-  return path.join(base, "MAGASIN", "BusinessOS", "supervisor");
+  return resolveStateRoot({ compatibility: "legacy-preserve" });
 }
 
-class ProjectStateFetchError extends Error {
+class ProjectAdapterLoadError extends Error {
   constructor(message, cause = null) {
     super(message, cause ? { cause } : undefined);
-    this.name = "ProjectStateFetchError";
+    this.name = "ProjectAdapterLoadError";
   }
 }
 
-async function fetchProjectState(url) {
+async function loadProjectState(source) {
   try {
-    const response = await fetch(url, {
-      cache: "no-store",
-      headers: { "user-agent": "MAGASIN-Supervisor-BrainWorker/0.4" }
-    });
-    if (!response.ok) {
-      throw new ProjectStateFetchError(
-        `project state fetch failed: HTTP ${response.status}`
-      );
-    }
-    return response.json();
+    return await loadProjectStateFromSource(source);
   } catch (error) {
-    if (error instanceof ProjectStateFetchError) throw error;
-    throw new ProjectStateFetchError(
-      `project state fetch temporarily unavailable: ${String(error?.message || error)}`,
+    if (error instanceof ProjectAdapterLoadError) throw error;
+    throw new ProjectAdapterLoadError(
+      `project adapter unavailable: ${String(error?.message || error)}`,
       error
     );
   }
@@ -1069,6 +1065,10 @@ if (!Number.isFinite(args.pollMs) || args.pollMs < 1000) {
   throw new TypeError("poll-ms must be at least 1000");
 }
 
+const projectAdapterSource = resolveProjectAdapterSource({
+  pathValue: args.projectAdapterPath,
+  urlValue: args.projectAdapterUrl
+});
 const root = localRoot();
 const stopPath = path.join(root, "STOP");
 const registryPath = path.join(root, "orchestration.json");
@@ -1080,7 +1080,7 @@ const runtimeStatusPath = defaultRuntimeStatusPath();
 let registry = await loadRegistry(registryPath);
 let projectState = {};
 let adapter = null;
-let projectStateFetchFailures = 0;
+let projectAdapterLoadFailures = 0;
 
 await safeLog(logPath, {
   type: "RUNTIME_BOOT",
@@ -1104,19 +1104,19 @@ try {
 
     try {
       try {
-        projectState = await fetchProjectState(args.stateUrl);
-        projectStateFetchFailures = 0;
+        projectState = await loadProjectState(projectAdapterSource);
+        projectAdapterLoadFailures = 0;
       } catch (error) {
-        if (!(error instanceof ProjectStateFetchError)) throw error;
+        if (!(error instanceof ProjectAdapterLoadError)) throw error;
 
-        projectStateFetchFailures += 1;
+        projectAdapterLoadFailures += 1;
         const retryMs = Math.min(
           30_000,
-          Math.max(args.pollMs, args.pollMs * (2 ** Math.min(projectStateFetchFailures - 1, 3)))
+          Math.max(args.pollMs, args.pollMs * (2 ** Math.min(projectAdapterLoadFailures - 1, 3)))
         );
 
         await safeLog(logPath, {
-          type: "PROJECT_STATE_FETCH_RETRY",
+          type: "PROJECT_ADAPTER_LOAD_RETRY",
           role: "orchestrator",
           errorName: error.name,
           reason: `${error.message}; retrying automatically in ${retryMs}ms`
@@ -1126,7 +1126,7 @@ try {
           brainStatus: registry.brain.awaiting_response ? "THINKING" : "IDLE",
           workers: registry.workers,
           errorName: error.name,
-          reason: "project state temporarily unavailable; retrying automatically"
+          reason: "project adapter temporarily unavailable; retrying automatically"
         }).catch(() => {});
         await delay(retryMs);
         continue;

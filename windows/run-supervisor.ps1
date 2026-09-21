@@ -4,7 +4,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$root = Join-Path $env:LOCALAPPDATA 'MAGASIN\BusinessOS\supervisor'
+. (Join-Path $PSScriptRoot 'state-root.ps1')
+$root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
 $runtime = Join-Path $root 'runtime'
 $profile = Join-Path $root 'browser_profile'
 $target = Join-Path $root 'target.json'
@@ -15,7 +16,28 @@ $registryFile = Join-Path $root 'orchestration.json'
 $runtimeStatusFile = Join-Path $root 'runtime-status.json'
 $laneConfigFile = Join-Path $root 'lanes.json'
 $laneStatusFile = Join-Path $root 'lane-status.json'
-$projectStateUrl = 'https://raw.githubusercontent.com/magasincoffee/magasincoffee.github.io/main/01_DOCS/MAGASIN/00_PROJECT_STATE.json'
+$projectAdapterPath = [string]$env:SUPERVISOR_PROJECT_ADAPTER_PATH
+$projectAdapterUrl = [string]$env:SUPERVISOR_PROJECT_ADAPTER_URL
+if (-not [string]::IsNullOrWhiteSpace($projectAdapterPath) -and -not [string]::IsNullOrWhiteSpace($projectAdapterUrl)) {
+    throw 'Configure exactly one project adapter source: SUPERVISOR_PROJECT_ADAPTER_PATH or SUPERVISOR_PROJECT_ADAPTER_URL.'
+}
+
+function Read-ConfiguredProjectAdapterState {
+    $adapter = $null
+    if (-not [string]::IsNullOrWhiteSpace($projectAdapterPath)) {
+        if (-not (Test-Path $projectAdapterPath)) { throw "Configured project adapter file is missing: $projectAdapterPath" }
+        $adapter = Get-Content $projectAdapterPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    } elseif (-not [string]::IsNullOrWhiteSpace($projectAdapterUrl)) {
+        $adapter = Invoke-RestMethod -Uri $projectAdapterUrl -TimeoutSec 4 -Headers @{ 'Cache-Control'='no-cache' }
+    } else {
+        return $null
+    }
+
+    if ([string]$adapter.schema_version -ne 'supervisor-project-adapter.v1' -or -not $adapter.project_state) {
+        throw 'Configured project adapter does not satisfy supervisor-project-adapter.v1.'
+    }
+    return $adapter.project_state
+}
 $mutexName = 'Local\MAGASIN_BUSINESS_OS_SUPERVISOR'
 $mutex = New-Object System.Threading.Mutex($false, $mutexName)
 $ownsMutex = $false
@@ -147,7 +169,7 @@ try {
 
         $runtimeMode = $null
         try {
-            $projectState = Invoke-RestMethod -Uri $projectStateUrl -TimeoutSec 4 -Headers @{ 'Cache-Control'='no-cache' }
+            $projectState = Read-ConfiguredProjectAdapterState
             if ($projectState -and $projectState.supervisor_orchestration) {
                 $runtimeMode = [string]$projectState.supervisor_orchestration.mode
             }
@@ -197,7 +219,7 @@ try {
             }
 
             if (-not $runtimeMode) {
-                Write-Host 'Project state is temporarily unavailable; preserving wrapper and retrying without mode downgrade.'
+                Write-Host 'Project adapter is unavailable; preserving wrapper and retrying without mode downgrade.'
                 Start-Sleep -Seconds 5
                 continue
             }
@@ -220,6 +242,17 @@ try {
         Push-Location $runtime
         try {
             $nodeArgs = @($entryPoint, '--cdp-url', $cdpBaseUrl, '--poll-ms', '5000')
+            if ($entryPoint -in @('src/runtime/brain-worker-cli.mjs','src/runtime/supervisor-loop-cli.mjs')) {
+                if (-not [string]::IsNullOrWhiteSpace($projectAdapterPath)) {
+                    $nodeArgs += @('--project-adapter', $projectAdapterPath)
+                } elseif (-not [string]::IsNullOrWhiteSpace($projectAdapterUrl)) {
+                    $nodeArgs += @('--project-adapter-url', $projectAdapterUrl)
+                } else {
+                    Write-Host 'Project adapter is required for legacy/brain-worker mode; waiting fail-closed.'
+                    Start-Sleep -Seconds 5
+                    continue
+                }
+            }
             if (-not $DryRun) { $nodeArgs += '--execute' }
             & node @nodeArgs
             $nodeExitCode = $LASTEXITCODE
