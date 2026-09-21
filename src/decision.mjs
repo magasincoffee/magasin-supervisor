@@ -24,22 +24,22 @@ export const ACTIONS = Object.freeze({
 });
 
 export const CANONICAL_CONTINUE_INSTRUCTION =
-  "Tiếp tục dự án MAGASIN theo repository source of truth và kiến trúc Five-Step. " +
-  "Đọc CURRENT_STATE, PROJECT_STATE, TASK_QUEUE, 00_ARCHITECTURE_5_STEP_RESET và current task docs. " +
+  "Tiếp tục project theo explicit project source-of-truth được project adapter cung cấp. " +
+  "Đọc project context/current task docs được Brain hoặc project integration chỉ định; Supervisor không tự suy đoán business truth. " +
   "Trước mỗi thay đổi áp dụng QUESTION → DELETE → SIMPLIFY → ACCELERATE → AUTOMATE; không mở rộng module ngoài critical path. " +
-  "Tiếp tục đúng micro-task hiện tại, test/fix/regression/E2E, cập nhật state rồi sang task kế tiếp nếu không cần Owner.";
+  "Tiếp tục đúng micro-task hiện tại, test/fix/regression/E2E, cập nhật project source-of-truth qua project-owned workflow rồi sang task kế tiếp nếu không cần Owner.";
 
 export const OWNER_DECISION_RECONCILE_INSTRUCTION =
   "RECONCILE QUYẾT ĐỊNH OWNER — repository hiện đang WAIT_USER. " +
   "Đọc ngữ cảnh hội thoại hiện tại và xác định Owner có vừa đưa ra quyết định rõ ràng cho đúng boundary đang chờ hay chưa. " +
-  "Nếu và chỉ nếu quyết định đó rõ ràng, cập nhật decision/contract/task docs và PROJECT_STATE để phản ánh quyết định đã chốt; sau đó tiếp tục critical path theo Five-Step. " +
+  "Nếu và chỉ nếu quyết định đó rõ ràng, cập nhật project-owned decision/contract/task truth qua integration boundary; sau đó tiếp tục critical path theo Five-Step. " +
   "Nếu Owner chưa quyết định đủ rõ hoặc quyết định không khớp boundary đang chờ, tuyệt đối không suy đoán: giữ WAIT_USER và nêu đúng câu hỏi còn thiếu. " +
   "Không lặp lại việc đã hoàn tất. Áp dụng QUESTION → DELETE → SIMPLIFY → ACCELERATE → AUTOMATE.";
 
 export const HANDOFF_RECONCILE_INSTRUCTION =
   "TIẾP QUẢN PHIÊN ĐANG MỞ — không khởi động lại công việc một cách máy móc. " +
   "Trước tiên đọc ngữ cảnh hội thoại hiện tại để xác định Owner vừa yêu cầu gì, ChatGPT đang làm gì hoặc vừa hoàn tất phần nào. " +
-  "Sau đó đối chiếu CURRENT_STATE, PROJECT_STATE, TASK_QUEUE và 00_ARCHITECTURE_5_STEP_RESET. " +
+  "Sau đó đối chiếu explicit project context và current task docs do project integration cung cấp. " +
   "Nếu yêu cầu trực tiếp mới nhất của Owner làm thay đổi ưu tiên hoặc kiến trúc so với repository, hãy reconcile và cập nhật source-of-truth trước khi tự tiếp tục. " +
   "Không lặp lại việc đã hoàn tất trong chat. Áp dụng QUESTION → DELETE → SIMPLIFY → ACCELERATE → AUTOMATE; ưu tiên critical path hiện tại, test/fix/regression/E2E và chỉ hỏi Owner khi gặp boundary thật.";
 
