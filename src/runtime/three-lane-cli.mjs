@@ -102,6 +102,7 @@ import {
   rolloverMatchesDirective
 } from "./work-rollover.mjs";
 import { projectLaneOperationalStatus } from "./status-projection.mjs";
+import { resolveSupervisorStateRoot } from "./state-root.mjs";
 import {
   TARGET_AVAILABILITY,
   TARGET_HEALTH_REASONS,
@@ -153,8 +154,7 @@ function parseArgs(argv) {
 }
 
 function localRoot() {
-  const base = process.env.LOCALAPPDATA || process.env.HOME || process.cwd();
-  return path.join(base, "MAGASIN", "BusinessOS", "supervisor");
+  return resolveSupervisorStateRoot().root;
 }
 
 async function atomicJsonWrite(filePath, value) {
