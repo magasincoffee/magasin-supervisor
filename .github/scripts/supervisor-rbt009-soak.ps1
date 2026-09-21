@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 if ($DurationMinutes -lt 1) { throw "DurationMinutes must be >= 1" }
 if ($SampleSeconds -lt 30) { throw "SampleSeconds must be >= 30" }
 
-$root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+$root = Get-SupervisorStateRoot
 $runtime = Join-Path $root "runtime"
 $lifecycle = Join-Path $runtime "windows\lifecycle-truth.ps1"
 $configFile = Join-Path $root "lanes.json"
