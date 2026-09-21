@@ -69,7 +69,7 @@ if ($ViewportProbe) {
     exit 0
 }
 
-$root = Join-Path $env:LOCALAPPDATA 'MAGASIN\BusinessOS\supervisor'
+$root = & (Join-Path $PSScriptRoot 'state-root.ps1')
 $runtime = Join-Path $root 'runtime'
 $configFile = Join-Path $root 'lanes.json'
 $registryFile = Join-Path $root 'lane-registry.json'
@@ -80,7 +80,7 @@ $lifecycleScript = Join-Path $runtime 'windows\lifecycle-truth.ps1'
 $observabilityScript = Join-Path $runtime 'windows\control-panel-observability.ps1'
 $openChatScript = Join-Path $runtime 'windows\open-supervisor-chat.ps1'
 $runnerRoot = 'C:\actions-runner-business\actions-runner'
-$repoUrl = 'https://github.com/magasincoffee/magasincoffee.github.io'
+$repoUrl = [string]$env:MAGASIN_SUPERVISOR_PROJECT_REPOSITORY_URL
 $vietnamTimeZone = [TimeZoneInfo]::FindSystemTimeZoneById('SE Asia Standard Time')
 $script:lastRecoveryRequestAt = [DateTimeOffset]::MinValue
 
@@ -572,7 +572,7 @@ $repoButton = New-Object Windows.Forms.Button
 $repoButton.Location = New-Object Drawing.Point(1015, 76)
 $repoButton.Size = New-Object Drawing.Size(170, 42)
 $repoButton.Text = 'MỞ DỰ ÁN'
-$repoButton.Add_Click({ Start-Process $repoUrl })
+$repoButton.Add_Click({ if (-not [string]::IsNullOrWhiteSpace($repoUrl)) { Start-Process $repoUrl } })
 $content.Controls.Add($repoButton)
 
 $laneUi = @{}
