@@ -16,6 +16,12 @@ import {
   captureUserTurnDigests
 } from "../ui/message-capture.mjs";
 import { OBSERVATIONS } from "../decision.mjs";
+import {
+  ProjectInputError,
+  loadProjectInput,
+  selectProjectInputSource
+} from "../project-adapter.mjs";
+import { supervisorStateRoot } from "../state-root.mjs";
 import { pageMatchesTarget, targetFromUrl } from "./recovery.mjs";
 import {
   BRAIN_WORKER_MODE,
@@ -33,21 +39,21 @@ import {
   defaultRuntimeStatusPath
 } from "./status.mjs";
 
-const DEFAULT_STATE_URL =
-  "https://raw.githubusercontent.com/magasincoffee/magasincoffee.github.io/main/01_DOCS/MAGASIN/00_PROJECT_STATE.json";
-const SUPERVISOR_RUNTIME_VERSION = "2026-09-19.29";
+const SUPERVISOR_RUNTIME_VERSION = "2026-09-21.61";
 
 function parseArgs(argv) {
   const result = {
     cdpUrl: "http://127.0.0.1:9222",
-    stateUrl: DEFAULT_STATE_URL,
+    projectInputUrl: null,
+    projectInputFile: null,
     execute: false,
     pollMs: 5000
   };
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
     if (key === "--cdp-url") result.cdpUrl = argv[++i];
-    else if (key === "--state-url") result.stateUrl = argv[++i];
+    else if (key === "--project-input-url" || key === "--state-url") result.projectInputUrl = argv[++i];
+    else if (key === "--project-input-file" || key === "--state") result.projectInputFile = argv[++i];
     else if (key === "--execute") result.execute = true;
     else if (key === "--poll-ms") result.pollMs = Number(argv[++i]);
     else throw new Error(`unknown argument: ${key}`);
@@ -56,36 +62,7 @@ function parseArgs(argv) {
 }
 
 function localRoot() {
-  const base = process.env.LOCALAPPDATA || process.env.HOME || process.cwd();
-  return path.join(base, "MAGASIN", "BusinessOS", "supervisor");
-}
-
-class ProjectStateFetchError extends Error {
-  constructor(message, cause = null) {
-    super(message, cause ? { cause } : undefined);
-    this.name = "ProjectStateFetchError";
-  }
-}
-
-async function fetchProjectState(url) {
-  try {
-    const response = await fetch(url, {
-      cache: "no-store",
-      headers: { "user-agent": "MAGASIN-Supervisor-BrainWorker/0.4" }
-    });
-    if (!response.ok) {
-      throw new ProjectStateFetchError(
-        `project state fetch failed: HTTP ${response.status}`
-      );
-    }
-    return response.json();
-  } catch (error) {
-    if (error instanceof ProjectStateFetchError) throw error;
-    throw new ProjectStateFetchError(
-      `project state fetch temporarily unavailable: ${String(error?.message || error)}`,
-      error
-    );
-  }
+  return supervisorStateRoot();
 }
 
 async function atomicJsonWrite(filePath, value) {
@@ -1065,6 +1042,10 @@ async function relayWorkerResult({
 }
 
 const args = parseArgs(process.argv.slice(2));
+selectProjectInputSource({
+  filePath: args.projectInputFile,
+  url: args.projectInputUrl
+});
 if (!Number.isFinite(args.pollMs) || args.pollMs < 1000) {
   throw new TypeError("poll-ms must be at least 1000");
 }
@@ -1104,10 +1085,16 @@ try {
 
     try {
       try {
-        projectState = await fetchProjectState(args.stateUrl);
+        projectState = await loadProjectInput({
+          filePath: args.projectInputFile,
+          url: args.projectInputUrl
+        });
         projectStateFetchFailures = 0;
       } catch (error) {
-        if (!(error instanceof ProjectStateFetchError)) throw error;
+        if (
+          !(error instanceof ProjectInputError) ||
+          error.code !== "PROJECT_INPUT_UNAVAILABLE"
+        ) throw error;
 
         projectStateFetchFailures += 1;
         const retryMs = Math.min(
@@ -1116,7 +1103,7 @@ try {
         );
 
         await safeLog(logPath, {
-          type: "PROJECT_STATE_FETCH_RETRY",
+          type: "PROJECT_INPUT_FETCH_RETRY",
           role: "orchestrator",
           errorName: error.name,
           reason: `${error.message}; retrying automatically in ${retryMs}ms`
@@ -1126,7 +1113,7 @@ try {
           brainStatus: registry.brain.awaiting_response ? "THINKING" : "IDLE",
           workers: registry.workers,
           errorName: error.name,
-          reason: "project state temporarily unavailable; retrying automatically"
+          reason: "project input temporarily unavailable; retrying automatically"
         }).catch(() => {});
         await delay(retryMs);
         continue;
@@ -1135,7 +1122,7 @@ try {
       const config = projectState.supervisor_orchestration || {};
 
       if (config.mode !== BRAIN_WORKER_MODE) {
-        throw new Error("source of truth no longer authorizes BRAIN_WORKER_V1");
+        throw new Error("project input no longer authorizes BRAIN_WORKER_V1");
       }
       if (projectState.status === "DONE") {
         await writeStatus(runtimeStatusPath, projectState, {
