@@ -250,7 +250,7 @@ test("Work dispatch envelope carries deterministic machine marker without changi
   });
 
   assert.match(text, /MAGASIN_WORK_DISPATCH_V1/);
-  assert.match(text, /task_id=TASK-049\/TEST/);
+  assert.match(text, /task_id=WORK-THREE-LANE-TEST/);
   assert.match(text, /dispatch_id=abc123/);
   assert.match(text, /Do one safe thing\./);
   assert.equal(workDispatchMarker(dispatchId), "dispatch_id=abc123");
