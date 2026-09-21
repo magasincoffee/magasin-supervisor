@@ -1,10 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { resolveSupervisorStateRoot } from "./state-root.mjs";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { ACTIONS } from "../decision.mjs";
-import { readProjectState } from "../state.mjs";
+import { readProjectStateFromAdapter } from "../project-adapter.mjs";
 import { SupervisorSession } from "./session.mjs";
 import { runSupervisorStep } from "./step.mjs";
 
@@ -18,7 +19,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
     if (key === "--cdp-url") result.cdpUrl = argv[++i];
-    else if (key === "--state") result.statePath = argv[++i];
+    else if (key === "--project-adapter") result.projectAdapter = argv[++i];
     else if (key === "--target") result.targetPath = argv[++i];
     else if (key === "--execute") result.execute = true;
     else if (key === "--wait-seconds") result.waitSeconds = Number(argv[++i]);
@@ -29,8 +30,7 @@ function parseArgs(argv) {
 }
 
 function localTargetPath() {
-  const base = process.env.LOCALAPPDATA || process.env.HOME || process.cwd();
-  return path.join(base, "MAGASIN", "BusinessOS", "supervisor", "target.json");
+  return path.join(resolveSupervisorStateRoot(process.env), "target.json");
 }
 
 function validateTarget(value) {
@@ -52,13 +52,11 @@ if (!Number.isFinite(args.pollMs) || args.pollMs < 250) {
   throw new TypeError("poll-ms must be at least 250");
 }
 
-const statePath = args.statePath || path.resolve(
-  process.cwd(), "..", "..", "01_DOCS", "MAGASIN", "00_PROJECT_STATE.json"
-);
+if (!args.projectAdapter) throw new Error("--project-adapter is required");
 const target = validateTarget(JSON.parse(
   await fs.readFile(args.targetPath || localTargetPath(), "utf8")
 ));
-const projectState = await readProjectState(statePath);
+const projectState = await readProjectStateFromAdapter(args.projectAdapter || projectAdapter);
 const session = new SupervisorSession({
   cdpUrl: args.cdpUrl,
   maxConnectRetries: 2
