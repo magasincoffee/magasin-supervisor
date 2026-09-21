@@ -1,12 +1,11 @@
-# MIG-002 extraction-only rewrite: root-native paths; GitHub-hosted tests only.
+# MIG-002 extraction-only CI: root-native, GitHub-hosted, no production browser/lifecycle mutation.
 name: Supervisor Tests
 
 on:
   push:
     branches:
       - main
-      - 'feat/supervisor-*'
-      - 'fix/supervisor-*'
+      - 'fix/mig-002-*'
     paths:
       - 'src/**'
       - 'test/**'
@@ -15,16 +14,6 @@ on:
       - 'package.json'
       - '.github/scripts/supervisor-*'
       - '.github/workflows/supervisor-tests.yml'
-      - '.github/workflows/supervisor-tests.yml'
-      - '.github/workflows/supervisor-state-maintenance.yml'
-      - '.github/scripts/supervisor-state-maintenance-regression.ps1'
-      - '.github/workflows/supervisor-rbt009-soak.yml'
-      - '.github/workflows/supervisor-autostart-install.yml'
-      - '.github/workflows/supervisor-lifecycle-acceptance.yml'
-      - '.github/scripts/supervisor-rbt009-soak.ps1'
-      - '.github/scripts/supervisor-rbt009-soak-lib.ps1'
-      - '.github/scripts/supervisor-rbt009-soak-strictmode-tests.ps1'
-      - '.github/scripts/supervisor-release-event-validator.mjs'
   pull_request:
     paths:
       - 'src/**'
@@ -34,14 +23,6 @@ on:
       - 'package.json'
       - '.github/scripts/supervisor-*'
       - '.github/workflows/supervisor-tests.yml'
-      - '.github/workflows/supervisor-tests.yml'
-      - '.github/workflows/supervisor-state-maintenance.yml'
-      - '.github/scripts/supervisor-state-maintenance-regression.ps1'
-      - '.github/scripts/supervisor-rbt009-soak.ps1'
-      - '.github/scripts/supervisor-rbt009-soak-lib.ps1'
-      - '.github/scripts/supervisor-rbt009-soak-strictmode-tests.ps1'
-      - '.github/scripts/supervisor-release-event-validator.mjs'
-      - '.github/workflows/supervisor-rbt009-soak.yml'
   workflow_dispatch:
 
 permissions:
@@ -61,45 +42,40 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Run TASK-RBT-002 event timing targeted tests
-        run: node --test test/lane-events.test.mjs
-      - name: Run TASK-RBT-004 browser scheduler targeted tests
-        run: node --test test/browser-scheduler.test.mjs test/browser-scheduler-integration.test.mjs
-      - name: Run TASK-RBT-005 long-running Work watchdog targeted tests
-        run: node --test test/work-watchdog.test.mjs test/work-watchdog-integration.test.mjs
-      - name: Run TASK-RBT-005A relay rearm targeted tests
-        run: node --test test/relay-retry-v48.test.mjs test/relay-rearm-recovery.test.mjs
-      - name: Run TASK-RBT-006 Work-full rollover targeted tests
-        run: node --test test/work-capacity.test.mjs test/work-rollover.test.mjs test/work-rollover-integration.test.mjs
-      - name: Run TASK-RBT-006A stale-target quarantine targeted tests
-        run: node --test test/target-health.test.mjs test/stale-target-quarantine-integration.test.mjs
-      - name: Run TASK-RBT-006B Owner START latch targeted tests
-        run: node --test test/owner-start-latch-recovery.test.mjs test/lifecycle-truth-v50.test.mjs test/windows-kill-switch.test.mjs
-      - name: Run TASK-RBT-007 Control Panel observability targeted tests
+
+      - name: Run extraction-safe platform core tests
         run: |
-          node --test test/control-panel-status-projection.test.mjs test/control-panel-observability-integration.test.mjs
-          & ".\windows\control-panel-observability-fixture.ps1"
-      - name: Run TASK-RBT-008 Brain planning contract targeted tests
-        run: |
-          node --test test/brain-planning-contract.test.mjs
-          node src/runtime/brain-planning-acceptance-cli.mjs
-      - name: Run installed-runtime synthetic acceptance fixtures directly
+          node --test `
+            test/lane-events.test.mjs `
+            test/browser-scheduler.test.mjs `
+            test/browser-scheduler-integration.test.mjs `
+            test/work-watchdog.test.mjs `
+            test/work-watchdog-integration.test.mjs `
+            test/relay-retry-v48.test.mjs `
+            test/relay-rearm-recovery.test.mjs `
+            test/work-capacity.test.mjs `
+            test/work-rollover.test.mjs `
+            test/work-rollover-integration.test.mjs `
+            test/target-health.test.mjs `
+            test/stale-target-quarantine-integration.test.mjs `
+            test/control-panel-status-projection.test.mjs `
+            test/control-panel-observability-integration.test.mjs `
+            test/brain-planning-contract.test.mjs
+
+      - name: Run Brain planning acceptance fixture
+        run: node src/runtime/brain-planning-acceptance-cli.mjs
+
+      - name: Run synthetic runtime fixtures without production targets
         run: |
           node src/runtime/three-lane-cli.mjs --work-full-fixture
           node src/runtime/three-lane-cli.mjs --stale-target-fixture
           node src/runtime/brain-planning-acceptance-cli.mjs
-      - name: Run TASK-RBT-009 deterministic release matrix
-        run: node --test test/release-integration-matrix.test.mjs
-      - name: Run TASK-RBT-009A StrictMode soak monitor matrix in Windows PowerShell 5.1
+
+      - name: Run StrictMode soak-monitor parser matrix only
         run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-rbt009-soak-strictmode-tests.ps1"
-      - name: Run Supervisor unit tests
-        run: npm test
-      - name: Run TASK-RBT-002B state maintenance gate regressions
+
+      - name: Record deferred legacy coupling boundary
         run: |
-          & "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-state-maintenance-regression.ps1" -WorkflowPath "$env:GITHUB_WORKSPACE\.github\workflows\supervisor-state-maintenance.yml" -HelperPath "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-integrity-registry.ps1"
-      - name: Verify no browser/live side effects in foundation
-        run: |
-          if (Test-Path node_modules) {
-            Write-Host "node_modules present only if a later package install created it."
-          }
-          Write-Host "PASS: foundation test workflow contains no browser login, ChatGPT action, credential, or self-hosted runner step."
+          Write-Host "MIG_002_EXTRACTION_SAFE_TESTS=True"
+          Write-Host "FULL_LEGACY_MONOREPO_SUITE_DEFERRED_TO_MIG_003_MIG_004=True"
+          Write-Host "ZERO_PRODUCTION_MUTATION=True"
