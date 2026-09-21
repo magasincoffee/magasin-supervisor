@@ -147,7 +147,7 @@ test("Control Panel invalid Work validation happens before target persistence", 
 
 test("maintenance reset is explicitly separated from ordinary Work target revision", async () => {
   const runtime = await read("../src/runtime/three-lane-cli.mjs");
-  const workflow = await read("../../../.github/workflows/supervisor-state-maintenance.yml");
+  const workflow = await read("../.github/workflows/supervisor-state-maintenance.yml");
 
   const reset = functionSlice(
     runtime,
@@ -180,7 +180,7 @@ test("Work target operational events are metadata-only", async () => {
 });
 
 test("installed production acceptance runs fixture through exact runtime CLI without target mutation", async () => {
-  const workflow = await read("../../../.github/workflows/supervisor-autostart-install.yml");
+  const workflow = await read("../.github/workflows/supervisor-autostart-install.yml");
   const runtime = await read("../src/runtime/three-lane-cli.mjs");
 
   assert.match(runtime, /--work-target-fixture/);
@@ -192,8 +192,8 @@ test("installed production acceptance runs fixture through exact runtime CLI wit
 });
 
 test("release workflows and repair derive runtime version from canonical source", async () => {
-  const install = await read("../../../.github/workflows/supervisor-autostart-install.yml");
-  const lifecycle = await read("../../../.github/workflows/supervisor-lifecycle-acceptance.yml");
+  const install = await read("../.github/workflows/supervisor-autostart-install.yml");
+  const lifecycle = await read("../.github/workflows/supervisor-lifecycle-acceptance.yml");
   const repair = await read("../windows/repair-supervisor.ps1");
 
   for (const source of [install, lifecycle, repair]) {
