@@ -8,7 +8,7 @@ $sourceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $repoRoot = (Resolve-Path (Join-Path $sourceRoot '..\..')).Path
 $installScript = Join-Path $sourceRoot 'windows\install-supervisor.ps1'
 $sourceLifecycle = Join-Path $sourceRoot 'windows\lifecycle-truth.ps1'
-$root = Join-Path $env:LOCALAPPDATA 'MAGASIN\BusinessOS\supervisor'
+$root = & (Join-Path $PSScriptRoot 'state-root.ps1')
 $runtime = Join-Path $root 'runtime'
 $runtimeLoop = Join-Path $runtime 'src\runtime\supervisor-loop-cli.mjs'
 $runtimeBrainWorker = Join-Path $runtime 'src\runtime\brain-worker-cli.mjs'
@@ -19,7 +19,7 @@ $profile = Join-Path $root 'browser_profile'
 $target = Join-Path $root 'target.json'
 $pidFile = Join-Path $root 'supervisor.pid'
 $logFile = Join-Path $root 'supervisor.log'
-$projectStateUrl = 'https://raw.githubusercontent.com/magasincoffee/magasincoffee.github.io/main/01_DOCS/MAGASIN/00_PROJECT_STATE.json'
+$projectInputUrl = [string]$env:MAGASIN_SUPERVISOR_PROJECT_INPUT_URL
 $sourceThreeLane = Join-Path $sourceRoot 'src\runtime\three-lane-cli.mjs'
 
 function Get-SupervisorRuntimeVersion([string]$Path) {
@@ -191,9 +191,11 @@ try {
     Write-Host "Installed runtime fingerprint: PASS ($expectedRuntimeVersion)"
 
     $projectState = $null
-    try {
-        $projectState = Invoke-RestMethod -Uri $projectStateUrl -TimeoutSec 4 -Headers @{ 'Cache-Control'='no-cache' }
-    } catch {}
+    if (-not [string]::IsNullOrWhiteSpace($projectInputUrl)) {
+        try {
+            $projectState = Invoke-RestMethod -Uri $projectInputUrl -TimeoutSec 4 -Headers @{ 'Cache-Control'='no-cache' }
+        } catch {}
+    }
 
     $threeLaneMode = [bool](
         $projectState -and
