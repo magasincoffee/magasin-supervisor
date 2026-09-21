@@ -118,7 +118,7 @@ test("observability probe is read-only and contains no target URL fields", async
 });
 
 test("Autostart Work-target step has no cross-step Control Panel variable dependency", async () => {
-  const workflow = await read("../../../.github/workflows/supervisor-autostart-install.yml");
+  const workflow = await read("../.github/workflows/supervisor-autostart-install.yml");
   const start = workflow.indexOf("Verify Work target hot-swap fixture without production mutation");
   const end = workflow.indexOf("Verify browser scheduler fixture and live page budget without production mutation", start);
   assert.ok(start >= 0 && end > start);
@@ -127,7 +127,7 @@ test("Autostart Work-target step has no cross-step Control Panel variable depend
 });
 
 test("Autostart release gate runs installed Control Panel fixture and read-only production probe", async () => {
-  const workflow = await read("../../../.github/workflows/supervisor-autostart-install.yml");
+  const workflow = await read("../.github/workflows/supervisor-autostart-install.yml");
   assert.match(workflow, /control-panel-observability-fixture\.ps1/);
   assert.match(workflow, /-ObservabilityProbe/);
   assert.match(workflow, /CONTROL_PANEL_PRODUCTION_TARGETS_UNCHANGED=True/);
