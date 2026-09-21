@@ -257,7 +257,7 @@ test("Work UI USER_PENDING settles into one handoff reconcile after a stable idl
     page: p,
     projectState: state({
       current_phase: "P1_SCHEDULE_FIRST_CORE_FLOW",
-      current_task: "TASK-029",
+      current_task: "WORK-LOOP",
       current_task_title: "Schedule-first canonical flow contract"
     }),
     probe: pendingProbe,
