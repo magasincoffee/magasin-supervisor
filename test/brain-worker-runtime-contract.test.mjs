@@ -211,10 +211,10 @@ test("project-state network failures recover automatically instead of escalating
     "utf8"
   );
 
-  assert.match(runtime, /class ProjectStateFetchError extends Error/);
-  assert.match(runtime, /PROJECT_STATE_FETCH_RETRY/);
+  assert.match(runtime, /class ProjectAdapterFetchError extends Error/);
+  assert.match(runtime, /PROJECT_ADAPTER_FETCH_RETRY/);
   assert.match(runtime, /status: "RECOVERING"/);
-  assert.match(runtime, /project state temporarily unavailable; retrying automatically/);
+  assert.match(runtime, /project adapter temporarily unavailable; retrying automatically/);
   assert.match(runtime, /Math\.min\(\s*30_000/);
 });
 
