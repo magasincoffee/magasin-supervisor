@@ -56,9 +56,9 @@ jobs:
           test -e .github/scripts/supervisor-integrity-registry.ps1
           test -e .github/workflows/supervisor-tests.yml
 
-          ! grep -R -q '08_INTEGRATIONS/supervisor' src windows .github/workflows/supervisor-*.yml
-          ! grep -R -q '01_DOCS/MAGASIN/00_PROJECT_STATE.json' src windows .github/workflows/supervisor-*.yml
-          ! grep -R -q 'magasincoffee/magasincoffee.github.io' src windows .github/workflows/supervisor-*.yml
+          ! grep -R --exclude='supervisor-integrity.yml' -q '08_INTEGRATIONS/supervisor' src windows .github/workflows/supervisor-*.yml
+          ! grep -R --exclude='supervisor-integrity.yml' -q '01_DOCS/MAGASIN/00_PROJECT_STATE.json' src windows .github/workflows/supervisor-*.yml
+          ! grep -R --exclude='supervisor-integrity.yml' -q 'magasincoffee/magasincoffee.github.io' src windows .github/workflows/supervisor-*.yml
           grep -q 'supervisor-project-adapter.v1' src/project-adapter.mjs
           grep -q 'legacy-preserve' src/state-root.mjs
           grep -q 'legacy-preserve' windows/state-root.ps1
