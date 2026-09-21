@@ -21,6 +21,26 @@ function optionalString(value, field) {
   return value;
 }
 
+function optionalInstruction(value, field) {
+  const text = optionalString(value, field);
+  if (text == null) return null;
+  if (text.length > 12000) throw new TypeError(`${field} exceeds 12000 characters`);
+  return text;
+}
+
+function validateInstructions(value) {
+  if (value == null) return Object.freeze({});
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError("project_state.instructions must be an object");
+  }
+  return Object.freeze({
+    continue: optionalInstruction(value.continue, "project_state.instructions.continue"),
+    owner_reconcile: optionalInstruction(value.owner_reconcile, "project_state.instructions.owner_reconcile"),
+    handoff: optionalInstruction(value.handoff, "project_state.instructions.handoff"),
+    brain_bootstrap: optionalInstruction(value.brain_bootstrap, "project_state.instructions.brain_bootstrap")
+  });
+}
+
 export function validateBoundedProjectState(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new TypeError("project_state must be an object");
@@ -39,7 +59,8 @@ export function validateBoundedProjectState(value) {
     requires_user: value.requires_user,
     supervisor_orchestration: value.supervisor_orchestration || null,
     owner_boundary: value.owner_boundary || null,
-    activation_boundary: value.activation_boundary || null
+    activation_boundary: value.activation_boundary || null,
+    instructions: validateInstructions(value.instructions)
   };
 
   if (!PROJECT_STATUSES.has(state.status)) {
