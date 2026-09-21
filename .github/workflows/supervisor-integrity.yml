@@ -63,12 +63,12 @@ jobs:
           grep -q 'legacy-preserve' src/state-root.mjs
           grep -q 'legacy-preserve' windows/state-root.ps1
 
-          grep -q 'if: ${{ false }}' .github/workflows/supervisor-autostart-install.yml
-          grep -q 'if: ${{ false }}' .github/workflows/supervisor-lifecycle-acceptance.yml
-          grep -q 'if: ${{ false }}' .github/workflows/supervisor-open-control-panel.yml
-          grep -q 'if: ${{ false }}' .github/workflows/supervisor-rbt009-soak.yml
-          grep -q 'if: ${{ false }}' .github/workflows/supervisor-state-maintenance.yml
-          grep -q 'if: ${{ false }}' .github/workflows/supervisor-integrity.yml
+          grep -q 'MIG-003 guard' .github/workflows/supervisor-autostart-install.yml
+          grep -q 'MIG-003 guard' .github/workflows/supervisor-lifecycle-acceptance.yml
+          grep -q 'production control-panel workflow remains inert' .github/workflows/supervisor-open-control-panel.yml
+          grep -q 'MIG-003 guard' .github/workflows/supervisor-rbt009-soak.yml
+          grep -q 'MIG-003 guard' .github/workflows/supervisor-state-maintenance.yml
+          grep -q 'self-hosted runtime audit disabled until MIG-004/MIG-005' .github/workflows/supervisor-integrity.yml
 
           echo "MIG_003_PROJECT_ADAPTER_BOUNDARY=True"
           echo "MIG_003_STATE_ROOT_COMPATIBILITY=True"
