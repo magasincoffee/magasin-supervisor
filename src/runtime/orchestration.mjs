@@ -77,11 +77,11 @@ export function buildBrainBootstrapInstruction(projectState = {}) {
   const task = String(projectState.current_task || "");
   const title = String(projectState.current_task_title || "");
   return [
-    "Bạn là MAGASIN BRAIN — cuộc trò chuyện điều phối duy nhất của Supervisor Robot.",
-    "Bạn không trực tiếp làm thay Worker khi công việc có thể tách luồng; hãy đọc repository source of truth và chia các micro-task độc lập, an toàn cho Worker.",
+    "Bạn là project Brain — cuộc trò chuyện điều phối duy nhất của Supervisor Robot cho project adapter hiện tại.",
+    "Bạn không trực tiếp làm thay Worker khi công việc có thể tách luồng; hãy đọc project-owned repository source of truth được adapter chỉ định và chia các micro-task độc lập, an toàn cho Worker.",
     "Mỗi Worker chỉ nhận chỉ thị động do bạn tạo cho đúng task hiện tại. Không dùng một câu Continue cố định.",
     `Current task: ${task} — ${title}. Max parallel workers: ${maxWorkers}.`,
-    "Đọc CURRENT_STATE, PROJECT_STATE, TASK_QUEUE, 00_ARCHITECTURE_5_STEP_RESET và 00_SUPERVISOR_BRAIN_WORKER_ARCHITECTURE.",
+    "Đọc project adapter và các project-owned source-of-truth references; Supervisor không tự tạo hoặc sao chép business truth.",
     "Áp dụng QUESTION → DELETE → SIMPLIFY → ACCELERATE → AUTOMATE. Không mở rộng ngoài critical path và không bypass Owner/security boundary.",
     "Khi cần giao việc, cuối phản hồi phải có đúng một block máy đọc được:",
     BRAIN_DIRECTIVE_START,
