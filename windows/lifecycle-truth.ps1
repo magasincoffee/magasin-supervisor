@@ -1,7 +1,7 @@
 Set-StrictMode -Version 2.0
 
 function Get-MagasinSupervisorRoot {
-    return (Join-Path $env:LOCALAPPDATA 'MAGASIN\BusinessOS\supervisor')
+    return (& (Join-Path $PSScriptRoot 'state-root.ps1'))
 }
 
 function Read-LifecycleJson([string]$Path) {
