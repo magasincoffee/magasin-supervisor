@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$root = Join-Path $env:LOCALAPPDATA 'MAGASIN\BusinessOS\supervisor'
+$root = & (Join-Path $PSScriptRoot 'state-root.ps1')
 $profile = Join-Path $root 'browser_profile'
 $targetFile = Join-Path $root 'target.json'
 $orchestrationFile = Join-Path $root 'orchestration.json'
