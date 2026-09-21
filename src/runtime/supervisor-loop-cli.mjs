@@ -8,6 +8,7 @@ import {
   CANONICAL_CONTINUE_INSTRUCTION,
   OBSERVATIONS
 } from "../decision.mjs";
+import { loadProjectInput } from "../project-adapter.mjs";
 import { executeDecision } from "../ui/actions.mjs";
 import { SupervisorSession } from "./session.mjs";
 import { SupervisorLoopController } from "./loop.mjs";
@@ -23,9 +24,8 @@ import {
   defaultRuntimeStatusPath,
   writeRuntimeStatus
 } from "./status.mjs";
+import { resolveSupervisorStateRoot } from "./state-root.mjs";
 
-const DEFAULT_STATE_URL =
-  "https://raw.githubusercontent.com/magasincoffee/magasincoffee.github.io/main/01_DOCS/MAGASIN/00_PROJECT_STATE.json";
 const SUPERVISOR_RUNTIME_VERSION = "2026-09-19.29";
 
 const ROLLOVER_INSTRUCTION =
@@ -36,7 +36,8 @@ const ROLLOVER_INSTRUCTION =
 function parseArgs(argv) {
   const result = {
     cdpUrl: "http://127.0.0.1:9222",
-    stateUrl: DEFAULT_STATE_URL,
+    projectInputPath: null,
+    projectInputUrl: null,
     execute: false,
     pollMs: 5000,
     stallMs: 4 * 60_000,
@@ -45,7 +46,8 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
     if (key === "--cdp-url") result.cdpUrl = argv[++i];
-    else if (key === "--state-url") result.stateUrl = argv[++i];
+    else if (key === "--project-input" || key === "--state") result.projectInputPath = argv[++i];
+    else if (key === "--project-input-url" || key === "--state-url") result.projectInputUrl = argv[++i];
     else if (key === "--target") result.targetPath = argv[++i];
     else if (key === "--execute") result.execute = true;
     else if (key === "--poll-ms") result.pollMs = Number(argv[++i]);
@@ -57,19 +59,11 @@ function parseArgs(argv) {
 }
 
 function localRoot() {
-  const base = process.env.LOCALAPPDATA || process.env.HOME || process.cwd();
-  return path.join(base, "MAGASIN", "BusinessOS", "supervisor");
+  return resolveSupervisorStateRoot().root;
 }
 
-async function fetchProjectState(url) {
-  const response = await fetch(url, {
-    cache: "no-store",
-    headers: { "user-agent": "MAGASIN-Supervisor/0.3" }
-  });
-  if (!response.ok) {
-    throw new Error(`project state fetch failed: HTTP ${response.status}`);
-  }
-  return response.json();
+async function fetchProjectState({ filePath = null, url = null } = {}) {
+  return loadProjectInput({ filePath, url });
 }
 
 function validateTarget(value) {
@@ -324,7 +318,10 @@ while (true) {
   } catch {}
 
   try {
-    const projectState = await fetchProjectState(args.stateUrl);
+    const projectState = await fetchProjectState({
+      filePath: args.projectInputPath,
+      url: args.projectInputUrl
+    });
     lastProjectState = projectState;
 
     if (projectState.status === "DONE") {
@@ -343,7 +340,7 @@ while (true) {
 
     if (projectState.autonomy === "PAUSED") {
       const pauseReason =
-        projectState?.night_run?.temporal_gate?.reason ||
+        projectState?.temporal_gate_reason ||
         "repository autonomy is PAUSED";
       await safeAppendLog(logPath, {
         type: "AUTONOMY_PAUSED",
