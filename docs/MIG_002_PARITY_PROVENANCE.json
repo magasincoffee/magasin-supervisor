@@ -10,9 +10,9 @@
   "frozen_source_tree_sha": "b0947bac1847dd34cae2f14fdc46a3c70ee6de57",
   "target_repository": "magasincoffee/magasin-supervisor",
   "target_bootstrap_main_sha": "815fc10bbc1814ed46f73b63391b9e67e29aa446",
-  "parity_snapshot_branch": "migration/mig-002-extract-platform",
-  "parity_snapshot_commit_sha": "98551bfa654b132fe818e6e787e9d99b52ab5f97",
-  "parity_snapshot_tree_sha": "f0b40caab315a01c767c81b1f41cc76068b24918",
+  "parity_snapshot_branch": "fix/mig-002-extraction-safe-ci",
+  "parity_snapshot_commit_sha": "11e878dfb828c4d194da26de77bd07e0c94b40d5",
+  "parity_snapshot_tree_sha": "01412780d5fc7ce7a8828ac05d5d1ed6b706274f",
   "production_cutover": false,
   "production_authority": "UNCHANGED_EXISTING_SUPERVISOR",
   "managed_record_count": 137,
@@ -40,7 +40,8 @@
   "additional_unmapped_bootstrap_files": [
     ".github/MIGRATION_BOOTSTRAP_GUARD.md",
     "docs/THREE_LANE_V1_ARCHITECTURE.md",
-    "docs/MAGASIN_LANE_DIRECTIVE_V1_PROTOCOL.md"
+    "docs/MAGASIN_LANE_DIRECTIVE_V1_PROTOCOL.md",
+    "docs/MIG_002_EXTRACTION_EVIDENCE.md"
   ],
   "rbt_continuity": {
     "rbt_001_to_008": "ACCEPTED",
@@ -178,11 +179,11 @@
       "source_size_bytes": 7740,
       "classification": "REWRITE",
       "target_path": ".github/workflows/supervisor-integrity.yml",
-      "target_blob_sha": "a922b464e78158de51519586ae2295fa4f4f8a48",
+      "target_blob_sha": "00df102a9674153eaec7b02a47047ae6050120a1",
       "represented_exactly_once": true,
       "byte_equivalent": false,
       "extraction_only_rewrite": true,
-      "extraction_only_rewrite_reason": "ROOT_NATIVE_STATIC_AUDIT_AND_DISABLE_SELF_HOSTED_RUNTIME_AUDIT",
+      "extraction_only_rewrite_reason": "EXTRACTION_SAFE_ROOT_NATIVE_STATIC_CORE_GATE_AND_DISABLE_SELF_HOSTED_RUNTIME_AUDIT",
       "coupling_tags": [
         "EMBEDDED_REPO_ROOT",
         "LOCAL_STATE_ROOT"
@@ -262,11 +263,11 @@
       "source_size_bytes": 4837,
       "classification": "REWRITE",
       "target_path": ".github/workflows/supervisor-tests.yml",
-      "target_blob_sha": "8ed8c08f000e540db5e348763ae1011aa3e8b7d8",
+      "target_blob_sha": "e1eb2130a48b04f282e04ec1b9434ef1eb228879",
       "represented_exactly_once": true,
       "byte_equivalent": false,
       "extraction_only_rewrite": true,
-      "extraction_only_rewrite_reason": "ROOT_NATIVE_PATHS_FOR_SAFE_GITHUB_HOSTED_UNIT_TESTS",
+      "extraction_only_rewrite_reason": "EXTRACTION_SAFE_ROOT_NATIVE_GITHUB_HOSTED_PLATFORM_CORE_TEST_GATE",
       "coupling_tags": [
         "EMBEDDED_REPO_ROOT",
         "BUSINESS_OS_PROJECT_STATE"
