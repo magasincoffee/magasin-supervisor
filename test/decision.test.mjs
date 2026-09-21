@@ -9,14 +9,14 @@ import {
 
 function state(overrides = {}) {
   return {
-    project: "MAGASIN Business OS",
+    project: "Example Project",
     current_phase: "P1",
-    current_task: "TASK-003",
+    current_task: "WORK-003",
     status: "RUNNING",
     autonomy: "AUTO_CONTINUE",
     blocked: false,
     requires_user: false,
-    next_task: "TASK-004",
+    next_task: "WORK-004",
     ...overrides
   };
 }
@@ -94,7 +94,7 @@ test("does not continue in MANUAL autonomy mode", () => {
 test("PAUSED temporal gate suppresses repeated continuation without creating an Owner boundary", () => {
   const result = decideContinuation({
     projectState: state({
-      current_task: "TASK-048",
+      current_task: "WORK-PAUSED",
       status: "READY",
       autonomy: "PAUSED",
       requires_user: false,
@@ -119,7 +119,7 @@ test("first idle continuation uses handoff reconciliation instruction", () => {
   const result = decideContinuation({
     projectState: state({
       current_phase: "P1_SCHEDULE_FIRST_CORE_FLOW",
-      current_task: "TASK-029",
+      current_task: "WORK-SCHEDULE",
       current_task_title: "Schedule-first canonical flow contract"
     }),
     observation: OBSERVATIONS.RESPONSE_COMPLETE,
@@ -136,7 +136,7 @@ test("normal continuation carries Five-Step and current repository task context"
   const result = decideContinuation({
     projectState: state({
       current_phase: "P1_SCHEDULE_FIRST_CORE_FLOW",
-      current_task: "TASK-029",
+      current_task: "WORK-SCHEDULE",
       current_task_title: "Schedule-first canonical flow contract"
     }),
     observation: OBSERVATIONS.RESPONSE_COMPLETE
@@ -144,7 +144,7 @@ test("normal continuation carries Five-Step and current repository task context"
 
   assert.equal(result.action, ACTIONS.CONTINUE);
   assert.match(result.instruction, /Five-Step/);
-  assert.match(result.instruction, /TASK-029/);
+  assert.match(result.instruction, /WORK-SCHEDULE/);
   assert.match(result.instruction, /Schedule-first canonical flow contract/);
 });
 
