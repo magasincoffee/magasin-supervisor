@@ -36,7 +36,7 @@ jobs:
 
       - name: Run Supervisor tests
         shell: powershell
-        working-directory: 08_INTEGRATIONS/supervisor
+        working-directory: .
         run: |
           npm install --ignore-scripts --no-audit --no-fund
           npm test
