@@ -130,7 +130,7 @@ jobs:
               Where-Object {
                 $_.CommandLine -and
                 $_.CommandLine -like "*run-supervisor.ps1*" -and
-                $_.CommandLine -like "*MAGASIN\BusinessOS\supervisor*"
+                $_.CommandLine -like "*$root*"
               } |
               ForEach-Object { Stop-TechnicalProcessTree -ProcessId ([int]$_.ProcessId) }
 
