@@ -1,4 +1,4 @@
-# MIG-002 guard: RBT-009 qualification workflow is inert until migrated release gates authorize it.
+# MIG-003 guard: RBT-009 qualification workflow is inert until migrated release gates authorize it.
 name: Supervisor RBT-009 Overnight Soak
 # Final candidate refresh after release-gate concurrency drain.
 
@@ -12,7 +12,7 @@ on:
       - ".github/scripts/supervisor-rbt009-soak-lib.ps1"
       - ".github/scripts/supervisor-rbt009-soak-strictmode-tests.ps1"
       - ".github/scripts/supervisor-release-event-validator.mjs"
-      - "08_INTEGRATIONS/supervisor/test/release-integration-matrix.test.mjs"
+      - "test/release-integration-matrix.test.mjs"
       - ".github/workflows/supervisor-tests.yml"
       - ".github/workflows/supervisor-autostart-install.yml"
       - ".github/workflows/supervisor-lifecycle-acceptance.yml"
@@ -29,13 +29,13 @@ concurrency:
 
 jobs:
   tier-a:
-    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
+    if: ${{ false }} # MIG-003: production/self-hosted execution disabled until MIG-004/MIG-005
     name: tier-a-isolated-integration
     runs-on: windows-latest
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: 08_INTEGRATIONS/supervisor
+        working-directory: .
         shell: powershell
     steps:
       - uses: actions/checkout@v4
@@ -81,7 +81,7 @@ jobs:
           Write-Host "SOAK_BRAIN_PLANNING=True"
 
   preflight:
-    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
+    if: ${{ false }} # MIG-003: production/self-hosted execution disabled until MIG-004/MIG-005
     name: normal-release-gates-preflight
     needs: tier-a
     runs-on: ubuntu-latest
@@ -125,7 +125,7 @@ jobs:
           exit 1
 
   tier-b:
-    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
+    if: ${{ false }} # MIG-003: production/self-hosted execution disabled until MIG-004/MIG-005
     name: tier-b-production-read-only-8h
     needs: preflight
     runs-on: self-hosted
@@ -162,7 +162,8 @@ jobs:
       - name: Validate production lane event correlations offline
         shell: powershell
         run: |
-          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          . (Join-Path $env:GITHUB_WORKSPACE "windows\state-root.ps1")
+          $root = Get-SupervisorStateRoot
           $events = Join-Path $root "lane-events.ndjson"
           if (Test-Path $events) {
             node ".github/scripts/supervisor-release-event-validator.mjs" $events
