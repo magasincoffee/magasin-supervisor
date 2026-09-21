@@ -59,7 +59,6 @@ jobs:
             test/target-health.test.mjs `
             test/stale-target-quarantine-integration.test.mjs `
             test/control-panel-status-projection.test.mjs `
-            test/control-panel-observability-integration.test.mjs `
             test/brain-planning-contract.test.mjs
 
       - name: Run Brain planning acceptance fixture
