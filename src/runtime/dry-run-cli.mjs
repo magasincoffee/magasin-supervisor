@@ -1,0 +1,94 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import process from "node:process";
+
+import { readProjectState } from "../state.mjs";
+import { SupervisorSession } from "./session.mjs";
+import { runSupervisorStep } from "./step.mjs";
+
+function parseArgs(argv) {
+  const result = {
+    cdpUrl: "http://127.0.0.1:9222"
+  };
+  for (let i = 0; i < argv.length; i += 1) {
+    const key = argv[i];
+    if (key === "--cdp-url") result.cdpUrl = argv[++i];
+    else if (key === "--state") result.statePath = argv[++i];
+    else if (key === "--target") result.targetPath = argv[++i];
+    else throw new Error(`unknown argument: ${key}`);
+  }
+  return result;
+}
+
+function defaultTargetPath() {
+  const base = process.env.LOCALAPPDATA || process.env.HOME || process.cwd();
+  return path.join(base, "MAGASIN", "BusinessOS", "supervisor", "target.json");
+}
+
+function validateLocalTarget(value) {
+  if (!value || typeof value !== "object") throw new Error("invalid local target");
+  if (value.origin !== "https://chatgpt.com") throw new Error("unexpected target origin");
+  if (typeof value.pathname !== "string" ||
+      !/^\/(c|g|project)\//.test(value.pathname)) {
+    throw new Error("unexpected target pathname");
+  }
+  return value;
+}
+
+const args = parseArgs(process.argv.slice(2));
+const targetPath = args.targetPath || defaultTargetPath();
+const statePath = args.statePath || path.resolve(
+  process.cwd(),
+  "..",
+  "..",
+  "01_DOCS",
+  "MAGASIN",
+  "00_PROJECT_STATE.json"
+);
+
+const target = validateLocalTarget(
+  JSON.parse(await fs.readFile(targetPath, "utf8"))
+);
+const projectState = await readProjectState(statePath);
+
+const session = new SupervisorSession({
+  cdpUrl: args.cdpUrl,
+  maxConnectRetries: 2
+});
+
+try {
+  const adapter = await session.connect();
+  const page = adapter.getActivePage();
+  if (!page) throw new Error("no active browser page");
+
+  const wanted = `${target.origin}${target.pathname}`;
+  if (page.url() !== wanted) {
+    await page.goto(wanted, {
+      waitUntil: "domcontentloaded",
+      timeout: 60_000
+    });
+    await page.waitForTimeout(1500);
+  }
+
+  const result = await runSupervisorStep({
+    session,
+    projectState,
+    dryRun: true
+  });
+
+  console.log(JSON.stringify({
+    status: "PASS",
+    uiState: result.probe.classification.uiState,
+    observation: result.probe.classification.observation,
+    decision: result.decision.action,
+    plannedTarget: result.execution.target || null,
+    executed: result.execution.executed,
+    dryRun: result.execution.dryRun
+  }, null, 2));
+} finally {
+  await session.disconnect();
+}
+
+// connectOverCDP keeps a websocket handle alive even after logical detach.
+// Short-lived CI CLIs must terminate explicitly without closing real Chrome.
+process.exit(process.exitCode ?? 0);

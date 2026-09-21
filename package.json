@@ -1,0 +1,16 @@
+{
+  "name": "magasin-supervisor",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "probe": "node src/ui/probe-cli.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "playwright-core": "1.57.0"
+  }
+}

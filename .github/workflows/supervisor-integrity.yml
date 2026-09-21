@@ -1,0 +1,176 @@
+# MIG-002 extraction-only rewrite: root-native static audit; self-hosted runtime audit hard-disabled.
+name: Supervisor Integrity
+
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "windows/**"
+      - "docs/**"
+      - ".github/scripts/supervisor-*"
+      - ".github/workflows/supervisor-integrity.yml"
+      - ".github/workflows/supervisor-*.yml"
+      - ".github/scripts/supervisor-integrity-*.ps1"
+      - ".github/scripts/supervisor-rbt009-soak.ps1"
+      - ".github/scripts/supervisor-rbt009-soak-lib.ps1"
+      - ".github/scripts/supervisor-rbt009-soak-strictmode-tests.ps1"
+      - ".github/scripts/supervisor-release-event-validator.mjs"
+      - ".github/scripts/supervisor-state-maintenance-regression.ps1"
+      - ".github/scripts/supervisor-rbt009-soak.ps1"
+      - ".github/scripts/supervisor-rbt009-soak-lib.ps1"
+      - ".github/scripts/supervisor-rbt009-soak-strictmode-tests.ps1"
+      - ".github/scripts/supervisor-release-event-validator.mjs"
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "windows/**"
+      - "docs/**"
+      - ".github/scripts/supervisor-*"
+      - ".github/workflows/supervisor-integrity.yml"
+      - ".github/workflows/supervisor-*.yml"
+      - ".github/scripts/supervisor-integrity-*.ps1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-integrity-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  static-audit:
+    name: static-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Supervisor tests
+        working-directory: .
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          npm test
+
+      - name: Run state maintenance gate regressions
+        shell: pwsh
+        run: |
+          & ".github/scripts/supervisor-state-maintenance-regression.ps1" -WorkflowPath ".github/workflows/supervisor-state-maintenance.yml" -HelperPath ".github/scripts/supervisor-integrity-registry.ps1"
+
+      - name: Enforce production cleanup invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -e windows/lifecycle-truth.ps1
+          test -e docs/ROBOT_LIFECYCLE_TRUTH_ARCHITECTURE.md
+          test -e .github/workflows/supervisor-open-control-panel.yml
+          test -e .github/workflows/supervisor-integrity.yml
+          test -e .github/scripts/supervisor-integrity-registry.ps1
+
+          if grep -R -nE 'LANE_RESULT_RELAY_RECONCILE_BLOCKED|stable Brain target changed without matching relay digest'             src/runtime; then
+            echo "Terminal relay blocking path remains"
+            exit 1
+          fi
+
+          if grep -R -nE 'TASK-0[0-9]+'             src             windows             .github/workflows/supervisor-autostart-install.yml             .github/workflows/supervisor-open-control-panel.yml             .github/workflows/supervisor-integrity.yml; then
+            echo "Task-specific production hard-code found"
+            exit 1
+          fi
+
+          grep -q 'PROCESS TRUTH' docs/ROBOT_LIFECYCLE_TRUTH_ARCHITECTURE.md
+          grep -q 'PERSISTED RECOVERY STATE' docs/ROBOT_LIFECYCLE_TRUTH_ARCHITECTURE.md
+          grep -q 'Get-LifecycleProcessTruth' windows/control-panel.ps1
+          grep -q 'OWNER_START_LATCH_CLEAR=True' windows/start-supervisor.ps1
+          grep -q 'RECOVERY_START_BLOCKED_OWNER_STOP=True' windows/start-supervisor.ps1
+
+          echo "STATIC_SUPERVISOR_INTEGRITY=True"
+
+  runtime-audit:
+    name: runtime-audit
+    needs: static-audit
+    if: ${{ false }} # MIG-002: self-hosted runtime audit disabled until MIG-004/MIG-005
+    runs-on: self-hosted
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Audit installed Supervisor lifecycle truth without mutation
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $sourceRuntime = Get-Content "src/runtime/three-lane-cli.mjs" -Raw -Encoding UTF8
+          $versionMatch = [regex]::Match($sourceRuntime, 'SUPERVISOR_RUNTIME_VERSION\s*=\s*"([^"]+)"')
+          if (-not $versionMatch.Success) { throw "Source runtime version not found" }
+          $expectedVersion = $versionMatch.Groups[1].Value
+
+          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          $runtime = Join-Path $root "runtime"
+          $lifecycle = Join-Path $runtime "windows\lifecycle-truth.ps1"
+          $statusFile = Join-Path $root "lane-status.json"
+          $registryFile = Join-Path $root "lane-registry.json"
+          $evidenceDir = Join-Path $root "lane-evidence"
+          $integrityHelper = Join-Path $env:GITHUB_WORKSPACE ".github\scripts\supervisor-integrity-registry.ps1"
+
+          if (-not (Test-Path $lifecycle)) { throw "Installed lifecycle truth helper is missing" }
+          if (-not (Test-Path $integrityHelper)) { throw "Supervisor integrity registry helper is missing" }
+          . $lifecycle
+          . $integrityHelper
+
+          $ownerStop = Get-LifecycleOwnerStopState -Root $root
+          $enabledLaneCount = Get-EnabledLaneCount -Root $root
+          $truth = Get-LifecycleProcessTruth -Root $root
+
+          if ($ownerStop.blocked) {
+            if ($truth.wrapper_alive -or $truth.three_lane_alive -or $truth.chrome_alive) {
+              throw "Owner STOP is present but Robot process truth is still alive"
+            }
+            Write-Host "OWNER_STOP_FAIL_CLOSED=True"
+          } elseif ($enabledLaneCount -lt 1) {
+            Write-Host "ALL_LANES_DISABLED=True"
+          } else {
+            $healthy = $truth.healthy
+            for ($i = 0; -not $healthy -and $i -lt 60; $i++) {
+              Start-Sleep -Seconds 1
+              $truth = Get-LifecycleProcessTruth -Root $root
+              $healthy = $truth.healthy
+            }
+            if (-not $healthy) {
+              throw "Enabled lane runtime did not reach healthy process truth"
+            }
+
+            if (-not (Test-Path $statusFile)) { throw "Three-Lane status is missing" }
+            $status = Get-Content $statusFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ([string]$status.mode -ne "THREE_LANE_V1") { throw "Three-Lane mode is invalid" }
+            if ([string]$status.supervisor_runtime_version -ne $expectedVersion) {
+              throw "Installed runtime version does not match checked-out source"
+            }
+            if ([string]$status.persisted_state_role -ne "RECOVERY_ONLY") {
+              throw "Persisted state role is not RECOVERY_ONLY"
+            }
+            if (-not [bool]$status.process_truth_required) {
+              throw "Status contract does not require process truth"
+            }
+          }
+
+          $registry = $null
+          if (Test-Path $registryFile) {
+            $registry = Get-Content $registryFile -Raw -Encoding UTF8 | ConvertFrom-Json
+          }
+
+          $latchAudit = Assert-SupervisorLatchIntegrity -Registry $registry -EvidenceDir $evidenceDir
+
+          Write-Host "SUPERVISOR_RUNTIME_VERSION_MATCH=True"
+          Write-Host "ENABLED_LANE_COUNT=$enabledLaneCount"
+          Write-Host "OWNER_STOP_LATCH=$([bool]$ownerStop.blocked)"
+          Write-Host "SUPERVISOR_WRAPPER_HEALTHY=$([bool]$truth.wrapper_alive)"
+          Write-Host "THREE_LANE_HEALTHY=$([bool]$truth.three_lane_alive)"
+          Write-Host "ROBOT_CHROME_HEALTHY=$([bool]$truth.chrome_alive)"
+          Write-Host "ROBOT_CDP_HEALTHY=$([bool]$truth.cdp_healthy)"
+          Write-Host "RELAY_BLOCKED_LATCH_COUNT=$([int]$latchAudit.blocked_relay_count)"
+          Write-Host "DISPATCH_BLOCKED_LATCH_COUNT=$([int]$latchAudit.blocked_dispatch_count)"
+          Write-Host "ORPHAN_RELAY_EVIDENCE_COUNT=$([int]$latchAudit.orphan_evidence_count)"
+          Write-Host "RUNTIME_SUPERVISOR_INTEGRITY=True"

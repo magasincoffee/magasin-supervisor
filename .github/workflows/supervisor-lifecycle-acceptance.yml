@@ -1,0 +1,460 @@
+# MIG-002 guard: self-hosted lifecycle mutation job is inert until MIG-004/MIG-005 release gates.
+name: Supervisor Lifecycle Acceptance
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/supervisor-lifecycle-acceptance.yml
+      - 08_INTEGRATIONS/supervisor/src/**
+      - 08_INTEGRATIONS/supervisor/windows/**
+      - 08_INTEGRATIONS/supervisor/package.json
+      - 08_INTEGRATIONS/supervisor/package-lock.json
+      - 08_INTEGRATIONS/supervisor/test/release-integration-matrix.test.mjs
+      - .github/workflows/supervisor-rbt009-soak.yml
+      - .github/scripts/supervisor-rbt009-soak.ps1
+      - .github/scripts/supervisor-rbt009-soak-lib.ps1
+      - .github/scripts/supervisor-rbt009-soak-strictmode-tests.ps1
+      - .github/scripts/supervisor-release-event-validator.mjs
+      - .github/workflows/supervisor-tests.yml
+      - .github/workflows/supervisor-autostart-install.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-lifecycle-acceptance
+  cancel-in-progress: false
+
+jobs:
+  lifecycle-acceptance:
+    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Supervisor tests before lifecycle acceptance
+        shell: powershell
+        working-directory: 08_INTEGRATIONS/supervisor
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          npm test
+
+      - name: Install checked-out Supervisor runtime before lifecycle acceptance
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "08_INTEGRATIONS/supervisor/windows/install-supervisor.ps1"
+          if ($LASTEXITCODE -ne 0) { throw "Lifecycle acceptance install failed" }
+          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          $runtimeThreeLane = Join-Path $root "runtime\src\runtime\three-lane-cli.mjs"
+          $sourceThreeLane = Join-Path $env:GITHUB_WORKSPACE "08_INTEGRATIONS\supervisor\src\runtime\three-lane-cli.mjs"
+          $lifecycle = Join-Path $root "runtime\windows\lifecycle-truth.ps1"
+
+          function Get-SupervisorRuntimeVersion([string]$Path) {
+            if (-not (Test-Path $Path)) { throw "Supervisor runtime source is missing" }
+            $source = Get-Content $Path -Raw -Encoding UTF8
+            $match = [regex]::Match($source, 'SUPERVISOR_RUNTIME_VERSION\s*=\s*"([^"]+)"')
+            if (-not $match.Success) { throw "Supervisor runtime version marker is missing" }
+            return [string]$match.Groups[1].Value
+          }
+
+          $expectedVersion = Get-SupervisorRuntimeVersion -Path $sourceThreeLane
+          $installedVersion = Get-SupervisorRuntimeVersion -Path $runtimeThreeLane
+          if ($installedVersion -ne $expectedVersion) {
+            throw "Lifecycle acceptance installed runtime does not match checked-out source"
+          }
+          if (-not (Test-Path $lifecycle)) { throw "Installed lifecycle truth helper is missing after install" }
+          Write-Host "LIFECYCLE_ACCEPTANCE_RUNTIME_VERSION_MATCH=True"
+          Write-Host "LIFECYCLE_ACCEPTANCE_INSTALL_READY=True"
+
+      - name: Run lifecycle acceptance A-L on installed production runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          $runtime = Join-Path $root "runtime"
+          $configFile = Join-Path $root "lanes.json"
+          $registryFile = Join-Path $root "lane-registry.json"
+          $statusFile = Join-Path $root "lane-status.json"
+          $logFile = Join-Path $root "supervisor.log"
+          $pidFile = Join-Path $root "supervisor.pid"
+          $profile = Join-Path $root "browser_profile"
+          $lifecycle = Join-Path $runtime "windows\lifecycle-truth.ps1"
+          $startScript = Join-Path $runtime "windows\start-supervisor.ps1"
+          $stopScript = Join-Path $runtime "windows\stop-supervisor.ps1"
+          $panelScript = Join-Path $runtime "windows\control-panel.ps1"
+          $integrityHelper = Join-Path $env:GITHUB_WORKSPACE ".github\scripts\supervisor-integrity-registry.ps1"
+
+          function Close-ControlPanels {
+            Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.CommandLine -and $_.CommandLine -like "*control-panel.ps1*" } |
+              ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            Start-Sleep -Milliseconds 500
+          }
+
+          function Stop-TechnicalProcessTree([int]$ProcessId) {
+            if (-not (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) {
+              return
+            }
+
+            & taskkill.exe /PID $ProcessId /T /F | Out-Null
+            $taskkillExit = $LASTEXITCODE
+
+            for ($i = 0; $i -lt 10; $i++) {
+              if (-not (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) {
+                if ($taskkillExit -ne 0) {
+                  Write-Host "LIFECYCLE_TECHNICAL_TASKKILL_RACE_RESOLVED=True"
+                }
+                # GitHub's Windows PowerShell wrapper propagates LASTEXITCODE
+                # after the script. Once root process truth proves the tree is
+                # gone, clear only this native-command residue.
+                $global:LASTEXITCODE = 0
+                return
+              }
+              Start-Sleep -Milliseconds 200
+            }
+
+            throw "Technical lifecycle cleanup refused success because Supervisor wrapper PID $ProcessId is still alive."
+          }
+
+          function Stop-RuntimeTechnical {
+            Close-ControlPanels
+            Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.CommandLine -and
+                $_.CommandLine -like "*run-supervisor.ps1*" -and
+                $_.CommandLine -like "*MAGASIN\BusinessOS\supervisor*"
+              } |
+              ForEach-Object { Stop-TechnicalProcessTree -ProcessId ([int]$_.ProcessId) }
+
+            Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.CommandLine -and $_.CommandLine -match "(supervisor-loop-cli|brain-worker-cli|three-lane-cli)\.mjs" } |
+              ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
+            Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.CommandLine -and $_.CommandLine -like "*$profile*" } |
+              ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
+            Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 1
+          }
+
+          function Open-ControlPanel {
+            Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
+              "-NoLogo","-NoProfile","-ExecutionPolicy","Bypass",
+              "-File",('"' + $panelScript + '"')
+            )
+          }
+
+          function Wait-Healthy([int]$Seconds = 60) {
+            for ($i = 0; $i -lt $Seconds; $i++) {
+              $truth = Get-LifecycleProcessTruth -Root $root
+              if ($truth.healthy) { return $true }
+              Start-Sleep -Seconds 1
+            }
+            return $false
+          }
+
+          function Set-EnabledFlags([bool]$Lane1, [bool]$Lane2, [bool]$Lane3) {
+            $config = Get-Content $configFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            $flags = @($Lane1,$Lane2,$Lane3)
+            for ($i = 0; $i -lt 3; $i++) {
+              $lane = @($config.lanes | Where-Object { [string]$_.lane_id -eq "lane-$($i + 1)" }) | Select-Object -First 1
+              if (-not $lane) { throw "Missing lane-$($i + 1)" }
+              $lane.enabled = $flags[$i]
+            }
+            $tmp = "$configFile.lifecycle.tmp"
+            $config | ConvertTo-Json -Depth 12 | Set-Content -Path $tmp -Encoding UTF8
+            Move-Item -Path $tmp -Destination $configFile -Force
+          }
+
+          function Get-BrainTargetFingerprint {
+            $config = Get-Content $configFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            $text = (@($config.lanes | Sort-Object lane_id | ForEach-Object {
+              "$([string]$_.lane_id)|$([string]$_.brain_url)|$([int]$_.brain_url_revision)"
+            }) -join "`n")
+            $bytes = [Text.Encoding]::UTF8.GetBytes($text)
+            $sha = [Security.Cryptography.SHA256]::Create()
+            try {
+              return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace("-","").ToLowerInvariant()
+            } finally {
+              $sha.Dispose()
+            }
+          }
+
+          if (-not (Test-Path $lifecycle)) { throw "Installed lifecycle truth helper is missing" }
+          if (-not (Test-Path $panelScript)) { throw "Installed Control Panel is missing" }
+          if (-not (Test-Path $integrityHelper)) { throw "Supervisor integrity registry helper is missing" }
+          if (-not (Test-Path $configFile)) { throw "lanes.json is missing" }
+          . $lifecycle
+          . $integrityHelper
+
+          function Get-SupervisorRuntimeVersion([string]$Path) {
+            if (-not (Test-Path $Path)) { return $null }
+            $source = Get-Content $Path -Raw -Encoding UTF8
+            $match = [regex]::Match($source, 'SUPERVISOR_RUNTIME_VERSION\s*=\s*"([^"]+)"')
+            if (-not $match.Success) { return $null }
+            return [string]$match.Groups[1].Value
+          }
+
+          # Wait for the exact checked-out release when install and lifecycle
+          # workflows are triggered concurrently by the same merge.
+          $sourceThreeLane = Join-Path $env:GITHUB_WORKSPACE "08_INTEGRATIONS\supervisor\src\runtime\three-lane-cli.mjs"
+          $expectedVersion = Get-SupervisorRuntimeVersion -Path $sourceThreeLane
+          if (-not $expectedVersion) { throw "Checked-out runtime version marker is missing" }
+          $runtimeReady = $false
+          for ($i = 0; $i -lt 180; $i++) {
+            $runtimeThreeLane = Join-Path $runtime "src\runtime\three-lane-cli.mjs"
+            $installedVersion = Get-SupervisorRuntimeVersion -Path $runtimeThreeLane
+            if ($installedVersion -eq $expectedVersion) {
+              $runtimeReady = $true
+              break
+            }
+            Start-Sleep -Seconds 1
+          }
+          if (-not $runtimeReady) {
+            throw "Installed runtime did not reach the checked-out Supervisor version"
+          }
+          Write-Host "LIFECYCLE_ACCEPTANCE_RUNTIME_VERSION_MATCH=True"
+
+          function Test-KnownRbt006BResidue {
+            $stopPath = Join-Path $root "STOP"
+            $disabledPath = Join-Path $root "AUTOSTART_DISABLED"
+            if (-not (Test-Path $stopPath) -or -not (Test-Path $disabledPath)) {
+              return $false
+            }
+
+            $stopValue = (Get-Content $stopPath -Raw -ErrorAction SilentlyContinue).Trim()
+            $disabledValue = (Get-Content $disabledPath -Raw -ErrorAction SilentlyContinue).Trim()
+            if ($stopValue -ne "STOP" -or $disabledValue -ne "OWNER_STOP") {
+              return $false
+            }
+
+            # One-time closure for the exact residue created by failed
+            # Lifecycle Acceptance #12. A normal/future Owner STOP must not
+            # match this historic UTC write window and remains fail-closed.
+            $windowStart = [DateTime]::Parse(
+              "2026-09-21T00:34:30Z",
+              [Globalization.CultureInfo]::InvariantCulture,
+              [Globalization.DateTimeStyles]::AdjustToUniversal
+            )
+            $windowEnd = [DateTime]::Parse(
+              "2026-09-21T00:35:10Z",
+              [Globalization.CultureInfo]::InvariantCulture,
+              [Globalization.DateTimeStyles]::AdjustToUniversal
+            )
+            $stopTime = (Get-Item $stopPath).LastWriteTimeUtc
+            $disabledTime = (Get-Item $disabledPath).LastWriteTimeUtc
+            return [bool](
+              $stopTime -ge $windowStart -and $stopTime -le $windowEnd -and
+              $disabledTime -ge $windowStart -and $disabledTime -le $windowEnd
+            )
+          }
+
+          $initialOwnerStop = Get-LifecycleOwnerStopState -Root $root
+          if ($initialOwnerStop.blocked) {
+            if (-not (Test-KnownRbt006BResidue)) {
+              throw "Pre-existing Owner STOP is active. Acceptance refuses to clear an Owner latch."
+            }
+
+            Write-Host "RBT006B_KNOWN_ACCEPTANCE_RESIDUE_DETECTED=True"
+            & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $startScript -Hidden
+            if ($LASTEXITCODE -ne 0) {
+              throw "Known acceptance residue recovery explicit START failed"
+            }
+
+            $residueAfterStart = Get-LifecycleOwnerStopState -Root $root
+            if ($residueAfterStart.blocked) {
+              throw "Known acceptance residue remained blocked after explicit Owner START"
+            }
+
+            $enabledBeforeAcceptance = Get-EnabledLaneCount -Root $root
+            if ($enabledBeforeAcceptance -gt 0 -and -not (Wait-Healthy 60)) {
+              throw "Known acceptance residue recovery did not restore healthy runtime"
+            }
+            Write-Host "RBT006B_KNOWN_ACCEPTANCE_RESIDUE_RECOVERED=True"
+          }
+
+          $initialConfig = Get-Content $configFile -Raw -Encoding UTF8 | ConvertFrom-Json
+          $initialEnabled = @{}
+          foreach ($lane in @($initialConfig.lanes)) {
+            $initialEnabled[[string]$lane.lane_id] = [bool]$lane.enabled
+          }
+          $brainFingerprintBefore = Get-BrainTargetFingerprint
+
+          try {
+            # A — all lanes disabled must not auto-start.
+            Set-EnabledFlags $false $false $false
+            Stop-RuntimeTechnical
+            Open-ControlPanel
+            Start-Sleep -Seconds 5
+            $truth = Get-LifecycleProcessTruth -Root $root
+            if ($truth.wrapper_alive -or $truth.three_lane_alive -or $truth.chrome_alive) {
+              throw "A failed: all-disabled Control Panel auto-started runtime"
+            }
+            Write-Host "ACCEPTANCE_A=PASS"
+
+            # B/C/L — enabled lane + dead runtime recovers by reopening panel.
+            Close-ControlPanels
+            Set-EnabledFlags $true $false $false
+            Stop-RuntimeTechnical
+            Open-ControlPanel
+            if (-not (Wait-Healthy 60)) { throw "B/L failed: panel did not recover enabled runtime" }
+            Write-Host "ACCEPTANCE_B=PASS"
+            Write-Host "ACCEPTANCE_C=PASS_STATIC_PLUS_LIVE_PROCESS_GATE"
+            Write-Host "ACCEPTANCE_L=PASS"
+
+            # E — healthy runtime must not restart when panel opens again.
+            $wrapperPid = (Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+            Close-ControlPanels
+            Open-ControlPanel
+            Start-Sleep -Seconds 4
+            $wrapperPidAfter = (Get-LifecycleSupervisorWrapper -Root $root).ProcessId
+            if ($wrapperPidAfter -ne $wrapperPid) { throw "E failed: healthy wrapper restarted" }
+            if (-not (Get-LifecycleProcessTruth -Root $root).healthy) { throw "E failed: healthy process truth degraded" }
+            Write-Host "ACCEPTANCE_E=PASS"
+
+            # G — kill Three-Lane only; wrapper must recover it.
+            $node = Get-LifecycleThreeLaneProcess
+            if (-not $node) { throw "G precondition failed: Three-Lane process missing" }
+            Stop-Process -Id $node.ProcessId -Force
+            $threeRecovered = $false
+            for ($i = 0; $i -lt 45; $i++) {
+              Start-Sleep -Seconds 1
+              $newNode = Get-LifecycleThreeLaneProcess
+              if ($newNode -and $newNode.ProcessId -ne $node.ProcessId) {
+                $threeRecovered = $true
+                break
+              }
+            }
+            if (-not $threeRecovered) { throw "G failed: Three-Lane did not recover" }
+            Write-Host "ACCEPTANCE_G=PASS"
+
+            # H — kill dedicated Chrome; wrapper must recover Chrome + CDP.
+            Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.CommandLine -and $_.CommandLine -like "*$profile*" } |
+              ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            if (-not (Wait-Healthy 60)) { throw "H failed: Chrome/CDP did not recover" }
+            Write-Host "ACCEPTANCE_H=PASS"
+
+            # I — lane-1-only remains a valid operating configuration.
+            $config = Get-Content $configFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            $enabledIds = @($config.lanes | Where-Object { [bool]$_.enabled } | ForEach-Object { [string]$_.lane_id })
+            if ($enabledIds.Count -ne 1 -or $enabledIds[0] -ne "lane-1") {
+              throw "I failed: lane-1-only config not preserved"
+            }
+            if (-not (Get-LifecycleProcessTruth -Root $root).healthy) { throw "I failed: lane-1-only runtime unhealthy" }
+            Write-Host "ACCEPTANCE_I=PASS"
+
+            # D/J — recovery files/latches survive lifecycle restarts; lane registries stay isolated.
+            if (-not (Test-Path $registryFile)) { throw "D/J failed: lane-registry.json missing" }
+            $registry = Get-Content $registryFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            $registryLanes = Get-OptionalPropertyValue -InputObject $registry -Name "lanes"
+            foreach ($laneId in @("lane-1","lane-2","lane-3")) {
+              $laneState = Get-OptionalPropertyValue -InputObject $registryLanes -Name $laneId
+              if ($null -eq $laneState) { throw "J failed: missing registry lane $laneId" }
+
+              $dispatchInflight = Get-OptionalPropertyValue -InputObject $laneState -Name "dispatch_inflight"
+              $dispatchBlocked = [bool](Get-OptionalPropertyValue -InputObject $dispatchInflight -Name "reconcile_blocked" -DefaultValue $false)
+              if ($dispatchBlocked) {
+                throw "D failed: blocked dispatch latch remains"
+              }
+
+              $relayInflight = Get-OptionalPropertyValue -InputObject $laneState -Name "relay_inflight"
+              $relayBlocked = [bool](Get-OptionalPropertyValue -InputObject $relayInflight -Name "reconcile_blocked" -DefaultValue $false)
+              if ($relayBlocked) {
+                throw "D failed: blocked relay latch remains"
+              }
+            }
+            Write-Host "ACCEPTANCE_D=PASS"
+            Write-Host "ACCEPTANCE_J=PASS"
+
+            # K — production panel source must explicitly compose process truth before persisted lane state.
+            $panelSource = Get-Content $panelScript -Raw -Encoding UTF8
+            if ($panelSource -notmatch 'Get-LifecycleProcessTruth') { throw "K failed: panel lacks process truth" }
+            if ($panelSource -notmatch 'elseif \(-not \$processTruth\.healthy\)') { throw "K failed: panel does not gate lane state on process truth" }
+            if ($panelSource -notmatch "'STARTING'") { throw "K failed: STARTING process state missing" }
+            if ($panelSource -notmatch "'RECOVERING'") { throw "K failed: RECOVERING process state missing" }
+            Write-Host "ACCEPTANCE_K=PASS"
+
+            # F — real Owner STOP latches must suppress panel recovery.
+            Close-ControlPanels
+            & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $stopScript
+            if ($LASTEXITCODE -ne 0) { throw "F precondition failed: stop-supervisor failed" }
+            $stopTruth = Get-LifecycleOwnerStopState -Root $root
+            if (-not $stopTruth.blocked) { throw "F failed: Owner STOP latch missing" }
+            Open-ControlPanel
+            Start-Sleep -Seconds 5
+            $stoppedTruth = Get-LifecycleProcessTruth -Root $root
+            if ($stoppedTruth.wrapper_alive -or $stoppedTruth.three_lane_alive -or $stoppedTruth.chrome_alive) {
+              throw "F failed: panel bypassed Owner STOP"
+            }
+            Write-Host "ACCEPTANCE_F=PASS"
+
+            # The STOP above belongs to this explicit Owner-authorized acceptance.
+            # Restore normal operation through the explicit Owner START path only.
+            & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $startScript -Hidden
+            if ($LASTEXITCODE -ne 0) { throw "Acceptance restore explicit START failed" }
+
+            $ownerStartTruth = Get-LifecycleOwnerStopState -Root $root
+            if ($ownerStartTruth.blocked) {
+              throw "Explicit Owner START returned success while Owner STOP remained blocked"
+            }
+            Write-Host "OWNER_START_LATCHES_CLEARED=True"
+
+            if (-not (Wait-Healthy 60)) { throw "Acceptance restore runtime did not recover" }
+
+            $wrapperCount = @(
+              Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+                Where-Object {
+                  $_.CommandLine -and
+                  $_.CommandLine -like "*run-supervisor.ps1*" -and
+                  $_.CommandLine -like "*$root*"
+                }
+            ).Count
+            if ($wrapperCount -ne 1) {
+              throw "Explicit Owner START process duplication check failed: wrapper_count=$wrapperCount"
+            }
+            Write-Host "OWNER_START_SINGLE_WRAPPER=True"
+          } finally {
+            Close-ControlPanels
+
+            if (Test-Path $configFile) {
+              $config = Get-Content $configFile -Raw -Encoding UTF8 | ConvertFrom-Json
+              foreach ($lane in @($config.lanes)) {
+                $laneId = [string]$lane.lane_id
+                if ($initialEnabled.ContainsKey($laneId)) {
+                  $lane.enabled = [bool]$initialEnabled[$laneId]
+                }
+              }
+              $tmp = "$configFile.lifecycle.restore.tmp"
+              $config | ConvertTo-Json -Depth 12 | Set-Content -Path $tmp -Encoding UTF8
+              Move-Item -Path $tmp -Destination $configFile -Force
+            }
+
+            $brainFingerprintAfter = Get-BrainTargetFingerprint
+            if ($brainFingerprintAfter -ne $brainFingerprintBefore) {
+              throw "Brain target URL/revision changed during lifecycle acceptance"
+            }
+
+            $finalOwnerStop = Get-LifecycleOwnerStopState -Root $root
+            if ($finalOwnerStop.blocked) {
+              throw "Acceptance left an Owner STOP latch behind"
+            }
+
+            $finalEnabledCount = Get-EnabledLaneCount -Root $root
+            if ($finalEnabledCount -gt 0) {
+              if (-not (Wait-Healthy 60)) { throw "Restored enabled runtime is not healthy" }
+            } else {
+              Stop-RuntimeTechnical
+            }
+          }
+
+          Write-Host "TARGET_BRAIN_URLS_UNCHANGED=True"
+          Write-Host "OWNER_STOP_FAIL_CLOSED=True"
+          Write-Host "LIFECYCLE_ACCEPTANCE_A_TO_L=PASS"
