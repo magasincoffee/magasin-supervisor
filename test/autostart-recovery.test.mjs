@@ -18,7 +18,7 @@ test("autostart bootstrap resumes canonical runner and Supervisor only when Owne
 test("autostart installer registers HKCU Run and never bypasses Windows login", async () => {
   const source = await read("install-autostart.ps1");
   assert.match(source, /HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run/);
-  assert.match(source, /MAGASINBusinessOSAutostart/);
+  assert.match(source, /MAGASINSupervisorAutostart/);
   assert.match(source, /windows_session_required = \$true/);
   assert.match(source, /bypass_windows_login = \$false/);
   assert.match(source, /AUTOSTART_DISABLED/);
