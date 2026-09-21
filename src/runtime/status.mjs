@@ -1,10 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { resolveSupervisorStateRoot } from "./state-root.mjs";
 
 export function localSupervisorRoot(env = process.env) {
-  const base = env.LOCALAPPDATA || env.HOME || process.cwd();
-  return path.join(base, "MAGASIN", "BusinessOS", "supervisor");
+  return resolveSupervisorStateRoot(env);
 }
 
 export function defaultRuntimeStatusPath(env = process.env) {
@@ -24,8 +24,8 @@ export function buildRuntimeStatus({
 } = {}) {
   return {
     schema_version: 2,
-    project: projectState.project || "MAGASIN Business OS",
-    repository: projectState.repository || "magasincoffee/magasincoffee.github.io",
+    project: projectState.project || projectState.project_id || null,
+    repository: projectState.repository || null,
     project_status: projectState.status || null,
     status,
     current_phase: projectState.current_phase || null,
