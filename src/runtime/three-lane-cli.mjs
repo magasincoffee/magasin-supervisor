@@ -21,6 +21,7 @@ import {
   captureUserTurnTexts
 } from "../ui/message-capture.mjs";
 import { OBSERVATIONS } from "../decision.mjs";
+import { supervisorStateRoot } from "../state-root.mjs";
 import {
   isPersistableConversationUrl,
   pageMatchesTarget,
@@ -117,7 +118,7 @@ import {
   evaluateBrainVerdictTransition
 } from "./brain-planning.mjs";
 
-const SUPERVISOR_RUNTIME_VERSION = "2026-09-20.60";
+const SUPERVISOR_RUNTIME_VERSION = "2026-09-21.61";
 
 let laneEventSink = null;
 let laneEventErrorLogPath = null;
@@ -153,8 +154,7 @@ function parseArgs(argv) {
 }
 
 function localRoot() {
-  const base = process.env.LOCALAPPDATA || process.env.HOME || process.cwd();
-  return path.join(base, "MAGASIN", "BusinessOS", "supervisor");
+  return supervisorStateRoot();
 }
 
 async function atomicJsonWrite(filePath, value) {
