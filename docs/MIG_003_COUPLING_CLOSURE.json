@@ -1,0 +1,233 @@
+{
+  "schema_version": "supervisor-mig003-coupling-closure.v1",
+  "task_id": "MIG-003",
+  "target_repository": "magasincoffee/magasin-supervisor",
+  "exact_base_sha": "64371bedc7b9c976047224152dba820c12a0674c",
+  "implementation_snapshot_sha": "518c84699212d43c150447eaebc88e61a025f90d",
+  "production_cutover": false,
+  "production_authority": "UNCHANGED_EXISTING_SUPERVISOR",
+  "zero_production_mutation": true,
+  "rbt_continuity": {
+    "rbt_001_to_008": "ACCEPTED",
+    "rbt_009": "IMPLEMENTATION_CANDIDATE_FINAL_8H_SOAK_PENDING"
+  },
+  "five_step": {
+    "QUESTION": "Project/business truth stays project-owned; Supervisor owns transport/orchestration contracts only.",
+    "DELETE": "Remove Business OS paths, repository defaults, monorepo fixtures, and project-policy prompt assumptions from platform executable defaults.",
+    "SIMPLIFY": "One project-adapter.v1 boundary and one state-root.v1 contract.",
+    "ACCELERATE": "Root-native helpers and hosted contract tests.",
+    "AUTOMATE": "Hosted-only CI/static checks; production/self-hosted jobs remain inert."
+  },
+  "coupling_closure": [
+    {
+      "id": "PROJECT_STATE_DIRECT_RUNTIME",
+      "before": [
+        "src/runtime/brain-worker-cli.mjs hard-coded raw Business OS 00_PROJECT_STATE.json",
+        "src/runtime/supervisor-loop-cli.mjs hard-coded raw Business OS 00_PROJECT_STATE.json",
+        "src/runtime/dry-run-cli.mjs monorepo-relative PROJECT_STATE fallback",
+        "src/runtime/one-shot-cli.mjs monorepo-relative PROJECT_STATE fallback",
+        "src/runtime/retry-only-cli.mjs monorepo-relative PROJECT_STATE fallback",
+        "src/state.mjs Business OS default path"
+      ],
+      "after": [
+        "src/project-adapter.mjs supervisor-project-adapter.v1",
+        "explicit PATH/URL source only",
+        "--state-url retained only as explicit URL compatibility alias",
+        "missing adapter fails closed"
+      ],
+      "status": "CLOSED"
+    },
+    {
+      "id": "PROJECT_POLICY_PROMPTS",
+      "before": [
+        "src/decision.mjs assumed CURRENT_STATE/PROJECT_STATE/TASK_QUEUE and MAGASIN Five-Step docs",
+        "src/runtime/orchestration.mjs Brain bootstrap assumed Business OS source docs"
+      ],
+      "after": [
+        "bounded project_state.instructions supplied by adapter",
+        "project-neutral fallback instructions",
+        "MAGASIN_LANE_DIRECTIVE_V1 and Brain/Worker serialization markers preserved"
+      ],
+      "status": "CLOSED"
+    },
+    {
+      "id": "OLD_REPOSITORY_IDENTITY",
+      "before": [
+        "magasincoffee/magasincoffee.github.io default in runtime/status/windows"
+      ],
+      "after": [
+        "repository is explicit adapter/config input",
+        "Control Panel repository URL uses SUPERVISOR_PROJECT_REPOSITORY_URL",
+        "runtime status has no project/repository fallback identity"
+      ],
+      "status": "CLOSED"
+    },
+    {
+      "id": "LOCAL_STATE_ROOT",
+      "before": [
+        "%LOCALAPPDATA%\\MAGASIN\\BusinessOS\\supervisor repeated across runtime/windows/workflows/scripts"
+      ],
+      "after": [
+        "src/state-root.mjs supervisor-state-root.v1",
+        "windows/state-root.ps1 shared resolver",
+        "SUPERVISOR_STATE_ROOT explicit override",
+        "legacy-preserve read-path strategy retains current production path without moving/resetting data"
+      ],
+      "status": "CLOSED_WITH_COMPATIBILITY"
+    },
+    {
+      "id": "EMBEDDED_REPOSITORY_ROOT",
+      "before": [
+        "08_INTEGRATIONS/supervisor/** paths in target workflows"
+      ],
+      "after": [
+        "root-native src/** test/** windows/** package.json .github/** paths"
+      ],
+      "status": "CLOSED"
+    },
+    {
+      "id": "BUSINESS_GLOBAL_TASK_FIXTURES",
+      "before": [
+        "generic decision/orchestration/status tests encoded TASK-029/TASK-035/TASK-048/TASK-049 fixtures"
+      ],
+      "after": [
+        "generic WORK-* synthetic fixtures",
+        "historical release/docs remain historical evidence only"
+      ],
+      "status": "CLOSED"
+    },
+    {
+      "id": "MONOREPO_NIGHT_RUN",
+      "before": [
+        "test/night-run.test.mjs read 02_CORE/** and .github/workflows/night-run-hard-stop.yml"
+      ],
+      "after": [
+        "synthetic project-neutral night-run registry/cursor fixtures",
+        "supervisor-project-registry.v1 and supervisor-execution-cursor.v1 generic schemas",
+        "legacy business-os schema names accepted only as compatibility aliases"
+      ],
+      "status": "CLOSED"
+    },
+    {
+      "id": "HOSTED_CI_ROOT_NATIVE",
+      "before": [
+        "MIG-002 extraction-safe subset only"
+      ],
+      "after": [
+        "Supervisor Tests runs MIG-003 adapter/state-root/project-neutral contract tests on GitHub-hosted Windows",
+        "Supervisor Integrity enforces decoupling literals and fail-closed self-hosted guards on GitHub-hosted Linux"
+      ],
+      "status": "READY_FOR_MIG_004_FULL_PARITY"
+    }
+  ],
+  "invariants_preserved": [
+    "MAGASIN_LANE_DIRECTIVE_V1 serialization compatibility",
+    "exact-once dispatch/relay algorithms unchanged",
+    "Owner STOP authority unchanged",
+    "lane isolation unchanged",
+    "browser scheduler/page budget unchanged",
+    "watchdog/recovery semantics unchanged",
+    "privacy metadata-only rules unchanged"
+  ],
+  "workflow_safety": {
+    "self_hosted_jobs_remain_hard_disabled": true,
+    "install_enabled": false,
+    "lifecycle_enabled": false,
+    "control_panel_enabled": false,
+    "state_maintenance_enabled": false,
+    "rbt009_qualification_enabled": false
+  },
+  "mig002_parity_preservation": {
+    "managed_records": 137,
+    "represented_after_mig003": 137,
+    "missing_after_mig003": 0,
+    "changed_mapped_file_count": 34,
+    "changed_mapped_paths": [
+      ".github/scripts/supervisor-rbt009-soak.ps1",
+      ".github/workflows/supervisor-autostart-install.yml",
+      ".github/workflows/supervisor-integrity.yml",
+      ".github/workflows/supervisor-lifecycle-acceptance.yml",
+      ".github/workflows/supervisor-open-control-panel.yml",
+      ".github/workflows/supervisor-rbt009-soak.yml",
+      ".github/workflows/supervisor-state-maintenance.yml",
+      ".github/workflows/supervisor-tests.yml",
+      "src/decision.mjs",
+      "src/runtime/brain-worker-cli.mjs",
+      "src/runtime/dry-run-cli.mjs",
+      "src/runtime/night-run.mjs",
+      "src/runtime/one-shot-cli.mjs",
+      "src/runtime/orchestration.mjs",
+      "src/runtime/retry-only-cli.mjs",
+      "src/runtime/status.mjs",
+      "src/runtime/supervisor-loop-cli.mjs",
+      "src/state.mjs",
+      "test/decision.test.mjs",
+      "test/night-run.test.mjs",
+      "test/orchestration.test.mjs",
+      "test/state.test.mjs",
+      "test/status.test.mjs",
+      "windows/autostart-bootstrap.ps1",
+      "windows/collect-supervisor-diagnostics.ps1",
+      "windows/control-panel.ps1",
+      "windows/install-autostart.ps1",
+      "windows/install-supervisor.ps1",
+      "windows/lifecycle-truth.ps1",
+      "windows/open-supervisor-chat.ps1",
+      "windows/repair-supervisor.ps1",
+      "windows/run-supervisor.ps1",
+      "windows/start-supervisor.ps1",
+      "windows/stop-supervisor.ps1"
+    ],
+    "explanation": "MIG-003 intentionally rewrites mapped coupling surfaces while preserving every mapped target path and MIG-002 frozen provenance manifest."
+  },
+  "changed_files": [
+    ".github/scripts/supervisor-rbt009-soak.ps1",
+    ".github/workflows/supervisor-autostart-install.yml",
+    ".github/workflows/supervisor-integrity.yml",
+    ".github/workflows/supervisor-lifecycle-acceptance.yml",
+    ".github/workflows/supervisor-open-control-panel.yml",
+    ".github/workflows/supervisor-rbt009-soak.yml",
+    ".github/workflows/supervisor-state-maintenance.yml",
+    ".github/workflows/supervisor-tests.yml",
+    "docs/PROJECT_ADAPTER_V1.md",
+    "docs/STATE_ROOT_V1.md",
+    "src/decision.mjs",
+    "src/project-adapter.mjs",
+    "src/runtime/brain-worker-cli.mjs",
+    "src/runtime/dry-run-cli.mjs",
+    "src/runtime/night-run.mjs",
+    "src/runtime/one-shot-cli.mjs",
+    "src/runtime/orchestration.mjs",
+    "src/runtime/retry-only-cli.mjs",
+    "src/runtime/status.mjs",
+    "src/runtime/supervisor-loop-cli.mjs",
+    "src/state-root.mjs",
+    "src/state.mjs",
+    "test/decision.test.mjs",
+    "test/night-run.test.mjs",
+    "test/orchestration.test.mjs",
+    "test/project-adapter.test.mjs",
+    "test/state-root.test.mjs",
+    "test/state.test.mjs",
+    "test/status.test.mjs",
+    "windows/autostart-bootstrap.ps1",
+    "windows/collect-supervisor-diagnostics.ps1",
+    "windows/control-panel.ps1",
+    "windows/install-autostart.ps1",
+    "windows/install-supervisor.ps1",
+    "windows/lifecycle-truth.ps1",
+    "windows/open-supervisor-chat.ps1",
+    "windows/repair-supervisor.ps1",
+    "windows/run-supervisor.ps1",
+    "windows/start-supervisor.ps1",
+    "windows/state-root.ps1",
+    "windows/stop-supervisor.ps1"
+  ],
+  "deferred_to_mig004": [
+    "Full new-repository CI/lifecycle parity across all legacy acceptance surfaces",
+    "Re-enable/validate release workflows only under MIG-004 safety gates as authorized",
+    "Full hosted/full-suite path-assumption cleanup not required for MIG-003 contract closure",
+    "No production authority cutover; remains MIG-005",
+    "No final RBT-009 8h qualification; remains MIG-006"
+  ]
+}
