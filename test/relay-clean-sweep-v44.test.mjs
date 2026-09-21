@@ -148,7 +148,7 @@ test("v44 preserves Owner Brain hot-swap contract while cleaning only relay evid
 
 test("legacy Work dispatch marker envelope remains reconstructable under v60 migration", () => {
   const text = buildWorkDispatchInstruction({
-    taskId: "TASK-049/WORK-DISPATCH-V43-E2E-04",
+    taskId: "WORK-RELAY-E2E-04",
     dispatchId: "17bb5c7442e65d9f6350f61330c595dd",
     instruction: "READ ONLY",
     planningContract: false
@@ -157,7 +157,7 @@ test("legacy Work dispatch marker envelope remains reconstructable under v60 mig
     text,
     [
       "MAGASIN_WORK_DISPATCH_V1",
-      "task_id=TASK-049/WORK-DISPATCH-V43-E2E-04",
+      "task_id=WORK-RELAY-E2E-04",
       "dispatch_id=17bb5c7442e65d9f6350f61330c595dd",
       "",
       "READ ONLY"
