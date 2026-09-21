@@ -82,7 +82,7 @@ $lifecycleScript = Join-Path $runtime 'windows\lifecycle-truth.ps1'
 $observabilityScript = Join-Path $runtime 'windows\control-panel-observability.ps1'
 $openChatScript = Join-Path $runtime 'windows\open-supervisor-chat.ps1'
 $runnerRoot = 'C:\actions-runner-business\actions-runner'
-$repoUrl = 'https://github.com/magasincoffee/magasincoffee.github.io'
+$repoUrl = [string]$env:MAGASIN_SUPERVISOR_PROJECT_REPOSITORY_URL
 $vietnamTimeZone = [TimeZoneInfo]::FindSystemTimeZoneById('SE Asia Standard Time')
 $script:lastRecoveryRequestAt = [DateTimeOffset]::MinValue
 
@@ -573,8 +573,13 @@ $content.Controls.Add($runtimeStartButton)
 $repoButton = New-Object Windows.Forms.Button
 $repoButton.Location = New-Object Drawing.Point(1015, 76)
 $repoButton.Size = New-Object Drawing.Size(170, 42)
-$repoButton.Text = 'MỞ DỰ ÁN'
-$repoButton.Add_Click({ Start-Process $repoUrl })
+if ([string]::IsNullOrWhiteSpace($repoUrl)) {
+    $repoButton.Text = 'CHƯA CẤU HÌNH DỰ ÁN'
+    $repoButton.Enabled = $false
+} else {
+    $repoButton.Text = 'MỞ DỰ ÁN'
+    $repoButton.Add_Click({ Start-Process $repoUrl })
+}
 $content.Controls.Add($repoButton)
 
 $laneUi = @{}
