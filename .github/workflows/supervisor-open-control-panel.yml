@@ -1,4 +1,4 @@
-# MIG-002 guard: production control-panel opener is inert until MIG-004/MIG-005 release gates.
+# MIG-003 guard: production control-panel opener is inert until MIG-004/MIG-005 release gates.
 name: Supervisor Open Control Panel
 
 on:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   open-robot:
-    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
+    if: ${{ false }} # MIG-003: production/self-hosted execution disabled until MIG-004/MIG-005
     runs-on: self-hosted
     timeout-minutes: 7
     steps:
@@ -22,7 +22,8 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $root = Join-Path $env:LOCALAPPDATA "MAGASIN\BusinessOS\supervisor"
+          . (Join-Path $env:GITHUB_WORKSPACE "windows\state-root.ps1")
+          $root = Get-SupervisorStateRoot
           $runtime = Join-Path $root "runtime"
           $lifecycle = Join-Path $runtime "windows\lifecycle-truth.ps1"
           $shortcut = Join-Path ([Environment]::GetFolderPath("Desktop")) "MAGASIN BUSINESS OS CONTROL.lnk"
