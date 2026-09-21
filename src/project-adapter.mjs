@@ -53,7 +53,15 @@ function sanitizeOrchestration(value) {
   if (!Number.isInteger(maxParallelWorkers) || maxParallelWorkers < 1 || maxParallelWorkers > 12) {
     throw new TypeError("project input orchestration.max_parallel_workers must be an integer between 1 and 12");
   }
-  return Object.freeze({ max_parallel_workers: maxParallelWorkers });
+
+  const mode = optionalString(value?.mode, "orchestration.mode");
+  const bootstrapAuthorized = Boolean(value?.brain?.bootstrap_authorized);
+
+  return Object.freeze({
+    mode,
+    brain: Object.freeze({ bootstrap_authorized: bootstrapAuthorized }),
+    max_parallel_workers: maxParallelWorkers
+  });
 }
 
 export function validateProjectInput(value) {
