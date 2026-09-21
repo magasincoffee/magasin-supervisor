@@ -4,13 +4,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$root = Join-Path $env:LOCALAPPDATA 'MAGASIN\BusinessOS\supervisor'
+$root = & (Join-Path $PSScriptRoot 'state-root.ps1')
 $runtime = Join-Path $root 'runtime'
 $bootstrap = Join-Path $runtime 'windows\autostart-bootstrap.ps1'
 $disabled = Join-Path $root 'AUTOSTART_DISABLED'
 $statusPath = Join-Path $root 'autostart-install-status.json'
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-$runName = 'MAGASINBusinessOSAutostart'
+$runName = if ([string]::IsNullOrWhiteSpace([string]$env:MAGASIN_SUPERVISOR_AUTOSTART_NAME)) { 'MAGASINSupervisorAutostart' } else { [string]$env:MAGASIN_SUPERVISOR_AUTOSTART_NAME }
 
 if (-not (Test-Path $bootstrap)) {
     throw "Autostart bootstrap is missing from installed runtime: $bootstrap"
