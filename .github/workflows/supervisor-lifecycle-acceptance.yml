@@ -38,7 +38,7 @@ jobs:
 
       - name: Run Supervisor tests before lifecycle acceptance
         shell: powershell
-        working-directory: 08_INTEGRATIONS/supervisor
+        working-directory: .
         run: |
           npm install --ignore-scripts --no-audit --no-fund
           npm test
@@ -128,7 +128,7 @@ jobs:
               Where-Object {
                 $_.CommandLine -and
                 $_.CommandLine -like "*run-supervisor.ps1*" -and
-                $_.CommandLine -like "*MAGASIN\BusinessOS\supervisor*"
+                $_.CommandLine -like "*$root*"
               } |
               ForEach-Object { Stop-TechnicalProcessTree -ProcessId ([int]$_.ProcessId) }
 
