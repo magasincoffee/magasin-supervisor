@@ -16,6 +16,8 @@ import {
   captureUserTurnDigests
 } from "../ui/message-capture.mjs";
 import { OBSERVATIONS } from "../decision.mjs";
+import { readProjectStateFromAdapter } from "../project-adapter.mjs";
+import { resolveSupervisorStateRoot } from "./state-root.mjs";
 import { pageMatchesTarget, targetFromUrl } from "./recovery.mjs";
 import {
   BRAIN_WORKER_MODE,
@@ -33,21 +35,18 @@ import {
   defaultRuntimeStatusPath
 } from "./status.mjs";
 
-const DEFAULT_STATE_URL =
-  "https://raw.githubusercontent.com/magasincoffee/magasincoffee.github.io/main/01_DOCS/MAGASIN/00_PROJECT_STATE.json";
 const SUPERVISOR_RUNTIME_VERSION = "2026-09-19.29";
 
 function parseArgs(argv) {
   const result = {
     cdpUrl: "http://127.0.0.1:9222",
-    stateUrl: DEFAULT_STATE_URL,
     execute: false,
     pollMs: 5000
   };
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
     if (key === "--cdp-url") result.cdpUrl = argv[++i];
-    else if (key === "--state-url") result.stateUrl = argv[++i];
+    else if (key === "--project-adapter") result.projectAdapter = argv[++i];
     else if (key === "--execute") result.execute = true;
     else if (key === "--poll-ms") result.pollMs = Number(argv[++i]);
     else throw new Error(`unknown argument: ${key}`);
@@ -56,33 +55,23 @@ function parseArgs(argv) {
 }
 
 function localRoot() {
-  const base = process.env.LOCALAPPDATA || process.env.HOME || process.cwd();
-  return path.join(base, "MAGASIN", "BusinessOS", "supervisor");
+  return resolveSupervisorStateRoot(process.env);
 }
 
-class ProjectStateFetchError extends Error {
+class ProjectAdapterFetchError extends Error {
   constructor(message, cause = null) {
     super(message, cause ? { cause } : undefined);
-    this.name = "ProjectStateFetchError";
+    this.name = "ProjectAdapterFetchError";
   }
 }
 
-async function fetchProjectState(url) {
+async function readProjectState(source) {
   try {
-    const response = await fetch(url, {
-      cache: "no-store",
-      headers: { "user-agent": "MAGASIN-Supervisor-BrainWorker/0.4" }
-    });
-    if (!response.ok) {
-      throw new ProjectStateFetchError(
-        `project state fetch failed: HTTP ${response.status}`
-      );
-    }
-    return response.json();
+    return await readProjectStateFromAdapter(source);
   } catch (error) {
-    if (error instanceof ProjectStateFetchError) throw error;
-    throw new ProjectStateFetchError(
-      `project state fetch temporarily unavailable: ${String(error?.message || error)}`,
+    if (error instanceof TypeError || error instanceof SyntaxError) throw error;
+    throw new ProjectAdapterFetchError(
+      `project adapter temporarily unavailable: ${String(error?.message || error)}`,
       error
     );
   }
@@ -1065,6 +1054,7 @@ async function relayWorkerResult({
 }
 
 const args = parseArgs(process.argv.slice(2));
+if (!args.projectAdapter) throw new Error("--project-adapter is required");
 if (!Number.isFinite(args.pollMs) || args.pollMs < 1000) {
   throw new TypeError("poll-ms must be at least 1000");
 }
@@ -1104,10 +1094,10 @@ try {
 
     try {
       try {
-        projectState = await fetchProjectState(args.stateUrl);
+        projectState = await readProjectState(args.projectAdapter);
         projectStateFetchFailures = 0;
       } catch (error) {
-        if (!(error instanceof ProjectStateFetchError)) throw error;
+        if (!(error instanceof ProjectAdapterFetchError)) throw error;
 
         projectStateFetchFailures += 1;
         const retryMs = Math.min(
@@ -1116,7 +1106,7 @@ try {
         );
 
         await safeLog(logPath, {
-          type: "PROJECT_STATE_FETCH_RETRY",
+          type: "PROJECT_ADAPTER_FETCH_RETRY",
           role: "orchestrator",
           errorName: error.name,
           reason: `${error.message}; retrying automatically in ${retryMs}ms`
@@ -1126,7 +1116,7 @@ try {
           brainStatus: registry.brain.awaiting_response ? "THINKING" : "IDLE",
           workers: registry.workers,
           errorName: error.name,
-          reason: "project state temporarily unavailable; retrying automatically"
+          reason: "project adapter temporarily unavailable; retrying automatically"
         }).catch(() => {});
         await delay(retryMs);
         continue;
