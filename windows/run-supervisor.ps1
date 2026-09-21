@@ -4,7 +4,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$root = Join-Path $env:LOCALAPPDATA 'MAGASIN\BusinessOS\supervisor'
+. (Join-Path $PSScriptRoot 'state-root.ps1')
+$root = Get-SupervisorStateRoot
 $runtime = Join-Path $root 'runtime'
 $profile = Join-Path $root 'browser_profile'
 $target = Join-Path $root 'target.json'
@@ -15,7 +16,6 @@ $registryFile = Join-Path $root 'orchestration.json'
 $runtimeStatusFile = Join-Path $root 'runtime-status.json'
 $laneConfigFile = Join-Path $root 'lanes.json'
 $laneStatusFile = Join-Path $root 'lane-status.json'
-$projectStateUrl = 'https://raw.githubusercontent.com/magasincoffee/magasincoffee.github.io/main/01_DOCS/MAGASIN/00_PROJECT_STATE.json'
 $mutexName = 'Local\MAGASIN_BUSINESS_OS_SUPERVISOR'
 $mutex = New-Object System.Threading.Mutex($false, $mutexName)
 $ownsMutex = $false
@@ -145,71 +145,31 @@ try {
             continue
         }
 
-        $runtimeMode = $null
-        try {
-            $projectState = Invoke-RestMethod -Uri $projectStateUrl -TimeoutSec 4 -Headers @{ 'Cache-Control'='no-cache' }
-            if ($projectState -and $projectState.supervisor_orchestration) {
-                $runtimeMode = [string]$projectState.supervisor_orchestration.mode
-            }
-        } catch {
-            # Preserve the last locally verified runtime mode during transient
-            # repository/network failures; never guess a downgrade.
-            try {
-                if (Test-Path $laneStatusFile) {
-                    $laneStatus = Get-Content $laneStatusFile -Raw -Encoding UTF8 | ConvertFrom-Json
-                    if ([string]$laneStatus.mode -eq 'THREE_LANE_V1') {
-                        $runtimeMode = 'THREE_LANE_V1'
-                    }
-                }
-            } catch {}
+        $runtimeMode = if ($env:SUPERVISOR_RUNTIME_MODE) {
+            [string]$env:SUPERVISOR_RUNTIME_MODE
+        } else {
+            'THREE_LANE_V1'
+        }
+        if ($runtimeMode -notin @('THREE_LANE_V1','BRAIN_WORKER_V1','LEGACY_LOOP_V1')) {
+            throw "Unsupported SUPERVISOR_RUNTIME_MODE: $runtimeMode"
+        }
 
-            if (-not $runtimeMode) {
-                try {
-                    if (Test-Path $laneConfigFile) {
-                        $laneConfig = Get-Content $laneConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
-                        if ([string]$laneConfig.mode -eq 'THREE_LANE_V1') {
-                            $runtimeMode = 'THREE_LANE_V1'
-                        }
-                    }
-                } catch {}
-            }
-
-            if (-not $runtimeMode) {
-                try {
-                    if (Test-Path $registryFile) {
-                        $registry = Get-Content $registryFile -Raw -Encoding UTF8 | ConvertFrom-Json
-                        if ([string]$registry.mode -eq 'BRAIN_WORKER_V1') {
-                            $runtimeMode = 'BRAIN_WORKER_V1'
-                        }
-                    }
-                } catch {}
-            }
-
-            if (-not $runtimeMode) {
-                try {
-                    if (Test-Path $runtimeStatusFile) {
-                        $runtimeStatus = Get-Content $runtimeStatusFile -Raw -Encoding UTF8 | ConvertFrom-Json
-                        if ([string]$runtimeStatus.orchestration_mode -eq 'BRAIN_WORKER_V1') {
-                            $runtimeMode = 'BRAIN_WORKER_V1'
-                        }
-                    }
-                } catch {}
-            }
-
-            if (-not $runtimeMode) {
-                Write-Host 'Project state is temporarily unavailable; preserving wrapper and retrying without mode downgrade.'
-                Start-Sleep -Seconds 5
-                continue
+        $projectInputUrl = [string]$env:SUPERVISOR_PROJECT_INPUT_URL
+        $projectInputFile = [string]$env:SUPERVISOR_PROJECT_INPUT_FILE
+        if ($runtimeMode -ne 'THREE_LANE_V1') {
+            if (($projectInputUrl -and $projectInputFile) -or (-not $projectInputUrl -and -not $projectInputFile)) {
+                Write-Host 'Legacy/project-aware runtime requires exactly one explicit SUPERVISOR_PROJECT_INPUT_URL or SUPERVISOR_PROJECT_INPUT_FILE.'
+                exit 76
             }
         }
 
         $entryPoint = switch ($runtimeMode) {
             'THREE_LANE_V1' { 'src/runtime/three-lane-cli.mjs' }
             'BRAIN_WORKER_V1' { 'src/runtime/brain-worker-cli.mjs' }
-            default { 'src/runtime/supervisor-loop-cli.mjs' }
+            'LEGACY_LOOP_V1' { 'src/runtime/supervisor-loop-cli.mjs' }
         }
 
-        if ($runtimeMode -notin @('THREE_LANE_V1','BRAIN_WORKER_V1') -and -not (Test-Path $target)) {
+        if ($runtimeMode -eq 'LEGACY_LOOP_V1' -and -not (Test-Path $target)) {
             Write-Host 'Legacy mode was explicitly selected but no legacy target exists; waiting for authoritative project state instead of terminating.'
             Start-Sleep -Seconds 5
             continue
@@ -220,6 +180,13 @@ try {
         Push-Location $runtime
         try {
             $nodeArgs = @($entryPoint, '--cdp-url', $cdpBaseUrl, '--poll-ms', '5000')
+            if ($runtimeMode -ne 'THREE_LANE_V1') {
+                if ($projectInputUrl) {
+                    $nodeArgs += @('--project-input-url', $projectInputUrl)
+                } else {
+                    $nodeArgs += @('--project-input-file', $projectInputFile)
+                }
+            }
             if (-not $DryRun) { $nodeArgs += '--execute' }
             & node @nodeArgs
             $nodeExitCode = $LASTEXITCODE
@@ -239,7 +206,7 @@ try {
 
         if (-not (Test-Path $stop) -and -not (Test-Path $autostartDisabled) -and $nodeExitCode -eq 76) {
             # Exit code 76 is an intentional autonomy pause. Do not keep an
-            # automation browser open when source-of-truth says there is no
+            # automation browser open when platform runtime entered
             # authorized work to execute.
             Write-Host 'Supervisor entered PAUSED autonomy; closing dedicated Chrome and stopping wrapper.'
             Stop-DedicatedChrome
