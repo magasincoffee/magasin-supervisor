@@ -1,4 +1,4 @@
-# MIG-002 extraction-only integrity: hosted static/core checks; self-hosted runtime audit hard-disabled.
+# MIG-003 hosted integrity: decoupled platform checks; self-hosted runtime audit remains hard-disabled.
 name: Supervisor Integrity
 
 on:
@@ -35,15 +35,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run extraction-safe cross-platform core tests
+      - name: Run decoupled platform core tests
         run: |
           node --test \
+            test/project-adapter.test.mjs \
+            test/state-root.test.mjs \
             test/lane-events.test.mjs \
             test/browser-scheduler.test.mjs \
             test/work-watchdog.test.mjs \
             test/brain-planning-contract.test.mjs
 
-      - name: Enforce root-native extraction invariants
+      - name: Enforce MIG-003 decoupling invariants
         shell: bash
         run: |
           set -euo pipefail
@@ -54,25 +56,31 @@ jobs:
           test -e .github/scripts/supervisor-integrity-registry.ps1
           test -e .github/workflows/supervisor-tests.yml
 
-          ! grep -q '08_INTEGRATIONS/supervisor' .github/workflows/supervisor-tests.yml
-          ! grep -q '01_DOCS/MAGASIN/00_PROJECT_STATE.json' .github/workflows/supervisor-tests.yml
+          ! grep -R -q '08_INTEGRATIONS/supervisor' src windows .github/workflows/supervisor-*.yml
+          ! grep -R -q '01_DOCS/MAGASIN/00_PROJECT_STATE.json' src windows .github/workflows/supervisor-*.yml
+          ! grep -R -q 'magasincoffee/magasincoffee.github.io' src windows .github/workflows/supervisor-*.yml
+          grep -q 'supervisor-project-adapter.v1' src/project-adapter.mjs
+          grep -q 'legacy-preserve' src/state-root.mjs
+          grep -q 'legacy-preserve' windows/state-root.ps1
 
-          grep -q 'MIG-002' .github/workflows/supervisor-autostart-install.yml
-          grep -q 'MIG-002' .github/workflows/supervisor-lifecycle-acceptance.yml
-          grep -q 'MIG-002' .github/workflows/supervisor-open-control-panel.yml
-          grep -q 'MIG-002' .github/workflows/supervisor-rbt009-soak.yml
-          grep -q 'MIG-002' .github/workflows/supervisor-state-maintenance.yml
-          grep -q 'MIG-002' .github/workflows/supervisor-integrity.yml
+          grep -q 'if: ${{ false }}' .github/workflows/supervisor-autostart-install.yml
+          grep -q 'if: ${{ false }}' .github/workflows/supervisor-lifecycle-acceptance.yml
+          grep -q 'if: ${{ false }}' .github/workflows/supervisor-open-control-panel.yml
+          grep -q 'if: ${{ false }}' .github/workflows/supervisor-rbt009-soak.yml
+          grep -q 'if: ${{ false }}' .github/workflows/supervisor-state-maintenance.yml
+          grep -q 'if: ${{ false }}' .github/workflows/supervisor-integrity.yml
 
-          echo "MIG_002_ROOT_NATIVE_STATIC=True"
-          echo "MIG_002_SELF_HOSTED_FAIL_CLOSED=True"
+          echo "MIG_003_PROJECT_ADAPTER_BOUNDARY=True"
+          echo "MIG_003_STATE_ROOT_COMPATIBILITY=True"
+          echo "MIG_003_ROOT_NATIVE_STATIC=True"
+          echo "MIG_003_SELF_HOSTED_FAIL_CLOSED=True"
           echo "ZERO_PRODUCTION_MUTATION=True"
 
   runtime-audit:
     name: runtime-audit
     needs: static-audit
-    if: ${{ false }} # MIG-002: self-hosted runtime audit disabled until MIG-004/MIG-005
+    if: ${{ false }} # MIG-003: self-hosted runtime audit disabled until MIG-004/MIG-005
     runs-on: self-hosted
     timeout-minutes: 7
     steps:
-      - run: echo "MIG-002 blocks self-hosted runtime audit."
+      - run: echo "MIG-003 blocks self-hosted runtime audit."
