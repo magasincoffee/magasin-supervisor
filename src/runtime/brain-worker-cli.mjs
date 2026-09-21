@@ -61,10 +61,10 @@ function localRoot() {
   return resolveSupervisorStateRoot().root;
 }
 
-class ProjectStateFetchError extends Error {
+class ProjectInputLoadError extends Error {
   constructor(message, cause = null) {
     super(message, cause ? { cause } : undefined);
-    this.name = "ProjectStateFetchError";
+    this.name = "ProjectInputLoadError";
   }
 }
 
@@ -72,8 +72,8 @@ async function fetchProjectState({ filePath = null, url = null } = {}) {
   try {
     return await loadProjectInput({ filePath, url });
   } catch (error) {
-    if (error instanceof ProjectStateFetchError) throw error;
-    throw new ProjectStateFetchError(
+    if (error instanceof ProjectInputLoadError) throw error;
+    throw new ProjectInputLoadError(
       `project input temporarily unavailable: ${String(error?.message || error)}`,
       error
     );
@@ -1072,7 +1072,7 @@ const runtimeStatusPath = defaultRuntimeStatusPath();
 let registry = await loadRegistry(registryPath);
 let projectState = {};
 let adapter = null;
-let projectStateFetchFailures = 0;
+let projectInputLoadFailures = 0;
 
 await safeLog(logPath, {
   type: "RUNTIME_BOOT",
@@ -1100,18 +1100,18 @@ try {
           filePath: args.projectInputPath,
           url: args.projectInputUrl
         });
-        projectStateFetchFailures = 0;
+        projectInputLoadFailures = 0;
       } catch (error) {
-        if (!(error instanceof ProjectStateFetchError)) throw error;
+        if (!(error instanceof ProjectInputLoadError)) throw error;
 
-        projectStateFetchFailures += 1;
+        projectInputLoadFailures += 1;
         const retryMs = Math.min(
           30_000,
-          Math.max(args.pollMs, args.pollMs * (2 ** Math.min(projectStateFetchFailures - 1, 3)))
+          Math.max(args.pollMs, args.pollMs * (2 ** Math.min(projectInputLoadFailures - 1, 3)))
         );
 
         await safeLog(logPath, {
-          type: "PROJECT_STATE_FETCH_RETRY",
+          type: "PROJECT_INPUT_LOAD_RETRY",
           role: "orchestrator",
           errorName: error.name,
           reason: `${error.message}; retrying automatically in ${retryMs}ms`
@@ -1121,7 +1121,7 @@ try {
           brainStatus: registry.brain.awaiting_response ? "THINKING" : "IDLE",
           workers: registry.workers,
           errorName: error.name,
-          reason: "project state temporarily unavailable; retrying automatically"
+          reason: "project input temporarily unavailable; retrying automatically"
         }).catch(() => {});
         await delay(retryMs);
         continue;
