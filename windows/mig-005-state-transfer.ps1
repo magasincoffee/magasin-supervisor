@@ -382,12 +382,15 @@ function Assert-NewMachineInactive([string]$Root) {
     }
 }
 
-function Assert-DestinationBootstrapOnly([string]$Root) {
+function Assert-DestinationImportCompatible([string]$Root) {
     if (-not (Test-Path $Root)) { return }
-    $allowed = @('STOP','AUTOSTART_DISABLED')
+    # browser_profile is machine-local authentication/runtime state. It may
+    # already exist on the new host and must be preserved in place, never
+    # copied from the old host as part of canonical lane/latch state.
+    $allowed = @('STOP','AUTOSTART_DISABLED','browser_profile')
     $unexpected = @(Get-ChildItem -Path $Root -Force | Where-Object { $_.Name -notin $allowed })
     if ($unexpected.Count -gt 0) {
-        throw 'Destination state root is not empty/bootstrap-only; refusing overwrite.'
+        throw 'Destination state root contains non-bootstrap/non-profile state; refusing import.'
     }
 }
 
@@ -418,9 +421,10 @@ function Rebase-RelayScreenshotPaths(
 
 function Import-Package([string]$ZipPath,[string]$ExpectedHash,[string]$Root,[string]$Sha) {
     Assert-NewMachineInactive $Root
-    Assert-DestinationBootstrapOnly $Root
+    Assert-DestinationImportCompatible $Root
     $validated = Expand-And-ValidatePackage -ZipPath $ZipPath -ExpectedHash $ExpectedHash -Sha $Sha
     $finalStage = $null
+    $movedPaths = @()
     try {
         $payloadCore = Get-CoreState $validated.payload
         if ($payloadCore.target_fingerprint -ne [string]$validated.manifest.target_fingerprint) {
@@ -452,29 +456,72 @@ function Import-Package([string]$ZipPath,[string]$ExpectedHash,[string]$Root,[st
             throw 'Imported AUTOSTART_DISABLED state does not match preserved pre-stop Owner intent.'
         }
 
-        if (Test-Path $Root) {
-            foreach ($name in @('STOP','AUTOSTART_DISABLED')) {
-                $path = Join-Path $Root $name
-                if (Test-Path $path) { Remove-Item $path -Force }
-            }
-            if (@(Get-ChildItem -Path $Root -Force).Count -ne 0) {
-                throw 'Destination bootstrap root did not become empty.'
-            }
-            Remove-Item $Root -Force
-            Write-Host 'MIG_005_DEFAULT_BLOCKED_BOOTSTRAP_REPLACED=True'
+        New-Item -ItemType Directory -Force -Path $Root | Out-Null
+
+        # Finalize only canonical transferable state. Existing browser_profile
+        # remains untouched. Bootstrap STOP blockers stay present until every
+        # canonical file/directory has been placed successfully.
+        foreach ($name in $RequiredStateFiles) {
+            $dest = Join-Path $Root $name
+            if (Test-Path $dest) { throw "Destination canonical state already exists: $name" }
+            Move-Item -Path (Join-Path $finalStage $name) -Destination $dest
+            $movedPaths += $dest
         }
 
-        Move-Item -Path $finalStage -Destination $Root
-        $finalStage = $null
+        $stageEvidence = Join-Path $finalStage 'lane-evidence'
+        if (Test-Path $stageEvidence) {
+            $destEvidence = Join-Path $Root 'lane-evidence'
+            if (Test-Path $destEvidence) { throw 'Destination lane-evidence already exists.' }
+            Move-Item -Path $stageEvidence -Destination $destEvidence
+            $movedPaths += $destEvidence
+        }
+
+        # Reconcile temporary new-host bootstrap blockers only after canonical
+        # state is durable. Actual pre-existing Owner STOP from the old host is
+        # then restored from the validated package, never cleared implicitly.
+        foreach ($name in @('STOP','AUTOSTART_DISABLED')) {
+            $dest = Join-Path $Root $name
+            if (Test-Path $dest) { Remove-Item $dest -Force }
+        }
+        if ($expectedStop) {
+            Move-Item -Path (Join-Path $finalStage 'STOP') -Destination (Join-Path $Root 'STOP')
+        }
+        if ($expectedDisabled) {
+            Move-Item -Path (Join-Path $finalStage 'AUTOSTART_DISABLED') -Destination (Join-Path $Root 'AUTOSTART_DISABLED')
+        }
+
+        $postCore = Get-CoreState $Root
+        if ($postCore.target_fingerprint -ne [string]$validated.manifest.target_fingerprint) {
+            throw 'Final destination target fingerprint mismatch.'
+        }
+        if ($postCore.registry_continuity_fingerprint -ne [string]$validated.manifest.registry_continuity_fingerprint) {
+            throw 'Final destination registry/latch continuity mismatch.'
+        }
+
         Write-Host 'MIG_005_STATE_IMPORT=PASS'
-        Write-Host "MIG_005_IMPORT_LANE_COUNT=$($finalCore.lane_count)"
-        Write-Host "MIG_005_IMPORT_REGISTRY_LANE_COUNT=$($finalCore.registry_lane_count)"
+        Write-Host "MIG_005_IMPORT_LANE_COUNT=$($postCore.lane_count)"
+        Write-Host "MIG_005_IMPORT_REGISTRY_LANE_COUNT=$($postCore.registry_lane_count)"
         Write-Host 'MIG_005_IMPORT_TARGET_FINGERPRINT_MATCH=True'
         Write-Host 'MIG_005_IMPORT_LATCH_FINGERPRINT_MATCH=True'
         Write-Host "MIG_005_IMPORTED_OWNER_STOP_BLOCKED=$([bool]$validated.manifest.owner_stop_preserved.blocked)"
+        Write-Host 'MIG_005_MACHINE_LOCAL_BROWSER_PROFILE_PRESERVED=True'
+        Write-Host 'MIG_005_BOOTSTRAP_BLOCKERS_RECONCILED=True'
         Write-Host 'MIG_005_NEW_AUTHORITY_STARTED=False'
         Write-Host 'RBT009_TIER_B_480M=NOT_RUN'
-    } finally {
+    }
+    catch {
+        # Import failure must leave the new host non-authoritative and blocked.
+        # Remove only paths placed by this transaction. Never touch browser_profile.
+        foreach ($path in @($movedPaths | Sort-Object Length -Descending)) {
+            if (Test-Path $path) { Remove-Item $path -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+        New-Item -ItemType Directory -Force -Path $Root | Out-Null
+        Set-Content -Path (Join-Path $Root 'STOP') -Value 'MIG005_IMPORT_ABORTED' -Encoding ascii
+        Set-Content -Path (Join-Path $Root 'AUTOSTART_DISABLED') -Value 'MIG005_IMPORT_ABORTED' -Encoding ascii
+        Write-Host 'MIG_005_IMPORT_ABORTED_FAIL_CLOSED=True'
+        throw
+    }
+    finally {
         Remove-Item $validated.stage -Recurse -Force -ErrorAction SilentlyContinue
         if ($finalStage -and (Test-Path $finalStage)) {
             Remove-Item $finalStage -Recurse -Force -ErrorAction SilentlyContinue
