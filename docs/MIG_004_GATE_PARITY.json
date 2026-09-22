@@ -1,0 +1,68 @@
+{
+  "schema_version": "supervisor-mig004-gate-parity.v1",
+  "task_id": "MIG-004",
+  "exact_base_sha": "63b955f59d7558a42311b3d47d58acc60a503dca",
+  "production_cutover": false,
+  "production_authority": "UNCHANGED_EXISTING_SUPERVISOR",
+  "zero_production_mutation": true,
+  "project_adapter_schema": "supervisor-project-adapter.v1",
+  "state_root_schema": "supervisor-state-root.v1",
+  "mig002_provenance": {
+    "records": 137,
+    "represented_exactly_once_required": true
+  },
+  "gates": [
+    {
+      "workflow": "Supervisor Tests",
+      "job": "unit-tests",
+      "mode": "HOSTED_WINDOWS_FULL_REGRESSION",
+      "status": "PENDING"
+    },
+    {
+      "workflow": "Supervisor Integrity",
+      "job": "static-audit",
+      "mode": "HOSTED_UBUNTU_INDEPENDENT_REPO",
+      "status": "PENDING"
+    },
+    {
+      "workflow": "Supervisor Lifecycle Acceptance",
+      "job": "lifecycle-a-l-isolated",
+      "mode": "HOSTED_WINDOWS_ISOLATED_STATE_ROOT",
+      "status": "PENDING"
+    },
+    {
+      "workflow": "Supervisor Autostart Install",
+      "job": "installer-autostart-isolated",
+      "mode": "HOSTED_WINDOWS_CONTRACT_ONLY",
+      "status": "PENDING"
+    },
+    {
+      "workflow": "Supervisor RBT-009 Overnight Soak",
+      "job": "tier-a-isolated-integration",
+      "mode": "HOSTED_WINDOWS_SYNTHETIC_TIER_A",
+      "status": "PENDING"
+    }
+  ],
+  "production_jobs": {
+    "lifecycle_self_hosted": "HARD_DISABLED",
+    "autostart_install_self_hosted": "HARD_DISABLED",
+    "integrity_runtime_audit": "HARD_DISABLED",
+    "state_maintenance": "HARD_DISABLED",
+    "open_control_panel": "HARD_DISABLED",
+    "rbt009_preflight": "HARD_DISABLED",
+    "rbt009_tier_b_480m": "HARD_DISABLED_NOT_RUN"
+  },
+  "invariants": [
+    "Owner STOP authority unchanged",
+    "Brain/Work targets unchanged",
+    "exact-once dispatch/relay semantics unchanged",
+    "lane isolation unchanged",
+    "browser page budget unchanged",
+    "watchdog/recovery/rollover/stale-target semantics unchanged",
+    "privacy metadata-only invariants unchanged",
+    "no direct Business OS PROJECT_STATE/TASK_QUEUE runtime dependency"
+  ],
+  "closure_state": "PR_HEAD_VALIDATION_PENDING",
+  "next_task_on_success": "MIG-005_READY_OWNER_SAFE_GATE",
+  "stop_after_mig004": true
+}
