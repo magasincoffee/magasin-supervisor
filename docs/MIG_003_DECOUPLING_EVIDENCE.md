@@ -1,6 +1,6 @@
 # MIG-003 — Business OS Coupling Decoupling Evidence
 
-Status: **TARGET IMPLEMENTATION DONE / EXACT-MAIN HOSTED GATES GREEN / BUSINESS-OS CLOSURE PENDING**  
+Status: **DONE / CANONICAL**  
 Task: `MIG-003 — Decouple Business OS-specific paths/state`  
 Exact implementation base: `64371bedc7b9c976047224152dba820c12a0674c`
 
@@ -297,3 +297,17 @@ MIG-003 target implementation DoD is satisfied:
 `ZERO_PRODUCTION_MUTATION=true`
 
 Business OS source-of-truth may now close MIG-003 and advance only to `MIG-004 READY / NOT STARTED`. This target-side closure does not start or certify MIG-004.
+
+
+## 17. Business OS canonical closure sync
+
+Business OS source-of-truth closure completed after target-side DoD:
+
+- source closure PR #242 merge: `1e653fac91eaa6b948a96a0b3195bdaa72ac332b`
+- source canonical finalization PR #243 merge: `35e6a9325742ed2ddee90d03c93a88450a703c14`
+- source post-merge Supervisor Tests #1113: run `35671889648`, job `106569961264`: **SUCCESS**
+- full source Supervisor suite: **551 / 551 PASS**
+- canonical source state: `MIG-003 = DONE`
+- canonical next task: `MIG-004 = READY / NOT STARTED`
+
+This synchronization changes documentation/manifest metadata only. No target runtime, production workflow authorization, local state, lane target, latch or production authority changed.
