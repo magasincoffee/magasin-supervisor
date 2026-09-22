@@ -6,9 +6,12 @@ on:
       - '.github/workflows/supervisor-mig005-preflight.yml'
       - 'test/mig-005-preflight-contract.test.mjs'
       - 'test/mig-005-state-transfer-contract.test.mjs'
+      - 'test/mig-005-new-machine-activation-contract.test.mjs'
       - 'test/mig-005-state-transfer-fixture.ps1'
+      - 'test/mig-005-new-machine-activation-fixture.ps1'
       - 'windows/mig-005-state-transfer.ps1'
       - 'windows/mig-005-old-handoff.ps1'
+      - 'windows/mig-005-new-machine-activate.ps1'
       - 'docs/MIG_005_SINGLE_AUTHORITY_CUTOVER_EVIDENCE.md'
       - 'docs/MIG_005_CUTOVER_MANIFEST.json'
   push:
@@ -18,9 +21,12 @@ on:
       - '.github/workflows/supervisor-mig005-preflight.yml'
       - 'test/mig-005-preflight-contract.test.mjs'
       - 'test/mig-005-state-transfer-contract.test.mjs'
+      - 'test/mig-005-new-machine-activation-contract.test.mjs'
       - 'test/mig-005-state-transfer-fixture.ps1'
+      - 'test/mig-005-new-machine-activation-fixture.ps1'
       - 'windows/mig-005-state-transfer.ps1'
       - 'windows/mig-005-old-handoff.ps1'
+      - 'windows/mig-005-new-machine-activate.ps1'
       - 'docs/MIG_005_SINGLE_AUTHORITY_CUTOVER_EVIDENCE.md'
       - 'docs/MIG_005_CUTOVER_MANIFEST.json'
   workflow_dispatch:
@@ -45,11 +51,13 @@ jobs:
       - name: Verify preflight and controlled transfer contracts
         shell: powershell
         run: |
-          node --test test/mig-005-preflight-contract.test.mjs test/mig-005-state-transfer-contract.test.mjs
+          node --test test/mig-005-preflight-contract.test.mjs test/mig-005-state-transfer-contract.test.mjs test/mig-005-new-machine-activation-contract.test.mjs
           node --test test/project-adapter.test.mjs test/state-root.test.mjs test/mig-004-isolated-lifecycle-parity.test.mjs
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File test/mig-005-state-transfer-fixture.ps1
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File test/mig-005-new-machine-activation-fixture.ps1
           Write-Host "MIG_005_PREFLIGHT_HOSTED_CONTRACT=True"
           Write-Host "MIG_005_CONTROLLED_STATE_TRANSFER_CONTRACT=True"
+          Write-Host "MIG_005_NEW_MACHINE_ACTIVATION_CONTRACT=True"
           Write-Host "MIG_005_PREFLIGHT_ONLY_NO_CUTOVER=True"
           Write-Host "RBT009_TIER_B_480M=NOT_RUN"
 
