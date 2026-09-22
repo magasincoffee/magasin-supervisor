@@ -158,7 +158,7 @@ test("lifecycle architecture document locks Five-Step and truth order before imp
 
 
 test("production lifecycle acceptance installs its checked-out runtime before A-L", async () => {
-  const workflow = await read("../../../.github/workflows/supervisor-lifecycle-acceptance.yml");
+  const workflow = await read("../.github/workflows/supervisor-lifecycle-acceptance.yml");
   const installIndex = workflow.indexOf("Install checked-out Supervisor runtime before lifecycle acceptance");
   const acceptanceIndex = workflow.indexOf("Run lifecycle acceptance A-L on installed production runtime");
 
@@ -174,7 +174,7 @@ test("production lifecycle acceptance installs its checked-out runtime before A-
 
 
 test("explicit Owner START maintenance is manual-only and preserves targets", async () => {
-  const workflow = await read("../../../.github/workflows/supervisor-state-maintenance.yml");
+  const workflow = await read("../.github/workflows/supervisor-state-maintenance.yml");
 
   assert.match(workflow, /workflow_dispatch:/);
   assert.doesNotMatch(workflow, /^\s{2}push:/m);
