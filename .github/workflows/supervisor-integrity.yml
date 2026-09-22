@@ -57,6 +57,23 @@ jobs:
             -HelperPath .github/scripts/supervisor-integrity-registry.ps1
           node --test test/control-panel.test.mjs test/control-panel-observability-integration.test.mjs test/supervisor-integrity-optional-latch.test.mjs
 
+      - name: Exercise canonical latch integrity on synthetic registry
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          . "$env:GITHUB_WORKSPACE/.github/scripts/supervisor-integrity-registry.ps1"
+          $evidenceDir = Join-Path $env:RUNNER_TEMP "mig004-integrity-evidence"
+          New-Item -ItemType Directory -Force -Path $evidenceDir | Out-Null
+          $registry = [pscustomobject]@{
+            lanes = [pscustomobject]@{
+              "lane-1" = [pscustomobject]@{ dispatch_inflight = $null; relay_inflight = $null }
+              "lane-2" = [pscustomobject]@{ dispatch_inflight = $null; relay_inflight = $null }
+              "lane-3" = [pscustomobject]@{ dispatch_inflight = $null; relay_inflight = $null }
+            }
+          }
+          Assert-SupervisorLatchIntegrity -Registry $registry -EvidenceDir $evidenceDir | Out-Null
+          Write-Host "MIG_004_SYNTHETIC_LATCH_INTEGRITY=True"
+
       - name: Enforce MIG-004 independent-repo integrity invariants
         shell: bash
         run: |
