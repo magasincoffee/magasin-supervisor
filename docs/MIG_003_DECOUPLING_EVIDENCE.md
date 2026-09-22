@@ -1,6 +1,6 @@
 # MIG-003 — Business OS Coupling Decoupling Evidence
 
-Status: **CANDIDATE / TARGET PR PENDING**  
+Status: **TARGET IMPLEMENTATION DONE / EXACT-MAIN HOSTED GATES GREEN / BUSINESS-OS CLOSURE PENDING**  
 Task: `MIG-003 — Decouple Business OS-specific paths/state`  
 Exact implementation base: `64371bedc7b9c976047224152dba820c12a0674c`
 
@@ -190,7 +190,7 @@ Observed:
 - `SELF_HOSTED_PRODUCTION_WORKFLOWS_INERT=True`
 - `ZERO_PRODUCTION_MUTATION=True`
 
-PR-head and exact-main gates are still required before MIG-003 may be canonical DONE.
+PR-head and exact-main hosted gates have completed successfully. Business OS canonical closure remains required before MIG-003 is canonical DONE.
 
 ## 12. Privacy / production mutation
 
@@ -226,3 +226,74 @@ After target PR/merge/exact-main hosted gates and Business OS canonical closure:
 - MIG-004 = READY / NOT STARTED
 
 MIG-003 must STOP and must not self-start MIG-004.
+
+
+## 15. Target PR / exact-main closure evidence
+
+Canonical implementation PR:
+- PR #5: `refactor(platform): decouple Supervisor from Business OS project state`
+- exact base: `64371bedc7b9c976047224152dba820c12a0674c`
+- final PR head: `f7fe79e22660c8a9fc0c1e3feecfcf90d282298a`
+- merge / exact target main: `aec7db9a715ceb41066af6636a4c91d34553eed5`
+- changed files: **43**
+- superseded alternate PR #4: **CLOSED / NOT MERGED**
+
+PR-head hosted gates:
+- Supervisor Tests run `35645284638`, job `106484118473`: **SUCCESS**
+- Supervisor Integrity run `35645284699`, static job `106484151783`: **SUCCESS**
+- Supervisor Integrity runtime-audit job `106484202256`: **SKIPPED / FAIL-CLOSED**
+
+Exact-main hosted gates on `aec7db9a715ceb41066af6636a4c91d34553eed5`:
+- Supervisor Tests run `35645394216`, job `106484492607`: **SUCCESS**
+  - MIG-003 decoupling contract tests: **50 / 50 PASS**
+  - platform safety/core regressions: **184 / 184 PASS**
+  - `RBT009A_STRICTMODE_MATRIX_A_TO_O=PASS`
+  - `MIG_003_PROJECT_ADAPTER_TESTS=True`
+  - `MIG_003_STATE_ROOT_COMPATIBILITY_TESTS=True`
+  - `MIG_003_PLATFORM_CORE_REGRESSION=True`
+  - `SELF_HOSTED_PRODUCTION_WORKFLOWS_INERT=True`
+  - `ZERO_PRODUCTION_MUTATION=True`
+- Supervisor Integrity run `35645394250`, static job `106484492995`: **SUCCESS**
+  - decoupling/static tests: **82 / 82 PASS**
+  - `MIG_003_PROJECT_ADAPTER_BOUNDARY=True`
+  - `MIG_003_STATE_ROOT_COMPATIBILITY=True`
+  - `MIG_003_ROOT_NATIVE_STATIC=True`
+  - `MIG_003_SELF_HOSTED_FAIL_CLOSED=True`
+  - `ZERO_PRODUCTION_MUTATION=True`
+- Supervisor Integrity runtime-audit job `106484547597`: **SKIPPED**
+
+Exact-main production/self-hosted workflow protection:
+- Lifecycle run `35645394192`, job `106484493476`: **SKIPPED**
+- Autostart Install run `35645394217`, jobs `106484493870` and `106484494405`: **SKIPPED**
+- Open Control Panel run `35645394277`, job `106484493015`: **SKIPPED**
+- RBT-009 run `35645394259`, Tier A/preflight/Tier B jobs `106484513033` / `106484519081` / `106484521238`: **SKIPPED**
+- State Maintenance remains manual-only and hard-disabled for production mutation in MIG-003.
+
+Negative coupling search on exact-main returned zero generic-platform matches for:
+- `magasincoffee/magasincoffee.github.io`
+- `00_PROJECT_STATE.json`
+- `TASK_QUEUE`
+- `CURRENT_STATE`
+- `08_INTEGRATIONS/supervisor`
+- `02_CORE/`
+- executable fixtures `TASK-029`, `TASK-035`, `TASK-048`, `TASK-049`, `TASK-060`
+
+The legacy Business OS state-root string remains only inside the explicit `legacy-preserve` compatibility resolver/documentation boundary; it is no longer a generic platform identity/default contract.
+
+## 16. Target-side conclusion
+
+MIG-003 target implementation DoD is satisfied:
+- explicit project adapter boundary exists and fails closed without configuration;
+- platform core no longer embeds Business OS PROJECT_STATE/TASK_QUEUE/CURRENT_STATE or old repository defaults;
+- state-root is configurable while legacy production state remains preservable without move/reset;
+- root-native CI/workflow paths are in place;
+- generic tests are decoupled from Business OS monorepo fixtures;
+- MIG-002 mapped paths remain 137/137 represented;
+- all target self-hosted production mutation paths remain inert;
+- RBT continuity is unchanged.
+
+`production_cutover=false`  
+`production_authority=UNCHANGED_EXISTING_SUPERVISOR`  
+`ZERO_PRODUCTION_MUTATION=true`
+
+Business OS source-of-truth may now close MIG-003 and advance only to `MIG-004 READY / NOT STARTED`. This target-side closure does not start or certify MIG-004.
