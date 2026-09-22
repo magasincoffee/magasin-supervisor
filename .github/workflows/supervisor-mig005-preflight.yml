@@ -1,0 +1,148 @@
+name: Supervisor MIG-005 Preflight
+
+on:
+  push:
+    branches:
+      - 'mig-005/**'
+    paths:
+      - '.github/workflows/supervisor-mig005-preflight.yml'
+      - 'test/mig-005-preflight-contract.test.mjs'
+      - 'docs/MIG_005_SINGLE_AUTHORITY_CUTOVER_EVIDENCE.md'
+      - 'docs/MIG_005_CUTOVER_MANIFEST.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-mig005-preflight-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  hosted-contract:
+    name: hosted-contract
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Verify preflight workflow is read-only by construction
+        shell: powershell
+        run: |
+          node --test test/mig-005-preflight-contract.test.mjs
+          node --test test/project-adapter.test.mjs test/state-root.test.mjs test/mig-004-isolated-lifecycle-parity.test.mjs
+          Write-Host "MIG_005_PREFLIGHT_HOSTED_CONTRACT=True"
+          Write-Host "MIG_005_PREFLIGHT_ONLY_NO_CUTOVER=True"
+          Write-Host "RBT009_TIER_B_480M=NOT_RUN"
+
+  machine-probe:
+    name: machine-probe-${{ matrix.slot }}
+    needs: hosted-contract
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [1, 2, 3, 4]
+    runs-on: self-hosted
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read-only machine and authority fingerprint
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          Set-StrictMode -Version 2.0
+
+          function Get-StringSha256([string]$Value) {
+            $sha = [Security.Cryptography.SHA256]::Create()
+            try {
+              $bytes = [Text.Encoding]::UTF8.GetBytes($Value)
+              return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace("-", "").ToLowerInvariant()
+            } finally {
+              $sha.Dispose()
+            }
+          }
+
+          function Get-JsonLaneCount([string]$Path) {
+            if (-not (Test-Path $Path)) { return 0 }
+            try {
+              $value = Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+              $container = if ($value.PSObject.Properties.Name -contains "lanes") { $value.lanes } else { $value }
+              if ($null -eq $container) { return 0 }
+              return @($container.PSObject.Properties | Where-Object { $_.Name -match '^lane-[123]$' }).Count
+            } catch {
+              return -1
+            }
+          }
+
+          $nodeVersion = (& node --version).Trim()
+          if ($LASTEXITCODE -ne 0) { throw "node --version failed" }
+          $nodeMajor = [int](($nodeVersion -replace '^v','').Split('.')[0])
+          if ($nodeMajor -lt 20) { throw "Node.js 20+ required" }
+
+          . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
+          . "$env:GITHUB_WORKSPACE\windows\lifecycle-truth.ps1"
+
+          $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
+          $lanesPath = Join-Path $root "lanes.json"
+          $registryPath = Join-Path $root "lane-registry.json"
+          $statusPath = Join-Path $root "lane-status.json"
+          $eventsPath = Join-Path $root "lane-events.ndjson"
+
+          $machineFingerprint = Get-StringSha256 "$env:RUNNER_NAME|$env:COMPUTERNAME|$env:PROCESSOR_ARCHITECTURE"
+          $laneCount = Get-JsonLaneCount $lanesPath
+          $registryLaneCount = Get-JsonLaneCount $registryPath
+          $stateFilesPresent = [bool]((Test-Path $lanesPath) -and (Test-Path $registryPath) -and (Test-Path $statusPath))
+
+          $stateHashes = @()
+          foreach ($path in @($lanesPath, $registryPath, $statusPath, $eventsPath)) {
+            if (Test-Path $path) {
+              $stateHashes += (Get-FileHash -Path $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            } else {
+              $stateHashes += "missing"
+            }
+          }
+          $stateFingerprint = Get-StringSha256 ($stateHashes -join "|")
+
+          $truth = Get-LifecycleProcessTruth -Root $root
+          $ownerStop = Get-LifecycleOwnerStopState -Root $root
+
+          $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+          $runName = "MAGASINBusinessOSAutostart"
+          $autostartPresent = $false
+          if (Test-Path $runKey) {
+            $props = Get-ItemProperty -Path $runKey -ErrorAction SilentlyContinue
+            if ($props -and ($props.PSObject.Properties.Name -contains $runName)) {
+              $autostartPresent = $true
+            }
+          }
+
+          $pendingReboot = [bool](
+            (Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending") -or
+            (Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired")
+          )
+
+          $role = "UNKNOWN_BLOCKED"
+          if ($truth.wrapper_alive -or $truth.three_lane_alive) {
+            $role = "OLD_ACTIVE_AUTHORITY"
+          } elseif ($stateFilesPresent -and $laneCount -eq 3 -and $registryLaneCount -eq 3 -and -not $autostartPresent -and -not $pendingReboot) {
+            $role = "NEW_READY_CANDIDATE"
+          }
+
+          Write-Host "MIG_005_MACHINE_FINGERPRINT=$machineFingerprint"
+          Write-Host "MIG_005_MACHINE_ROLE=$role"
+          Write-Host "MIG_005_NODE_MAJOR=$nodeMajor"
+          Write-Host "MIG_005_STATE_FILES_PRESENT=$stateFilesPresent"
+          Write-Host "MIG_005_LANE_COUNT=$laneCount"
+          Write-Host "MIG_005_REGISTRY_LANE_COUNT=$registryLaneCount"
+          Write-Host "MIG_005_STATE_FINGERPRINT=$stateFingerprint"
+          Write-Host "MIG_005_OWNER_STOP_BLOCKED=$([bool]$ownerStop.blocked)"
+          Write-Host "MIG_005_WRAPPER_ACTIVE=$([bool]$truth.wrapper_alive)"
+          Write-Host "MIG_005_THREE_LANE_ACTIVE=$([bool]$truth.three_lane_alive)"
+          Write-Host "MIG_005_AUTOSTART_PRESENT=$autostartPresent"
+          Write-Host "MIG_005_PENDING_REBOOT=$pendingReboot"
+          Write-Host "MIG_005_READ_ONLY_PROBE=True"
+          Write-Host "ZERO_PRODUCTION_MUTATION=True"
+          Write-Host "RBT009_TIER_B_480M=NOT_RUN"
