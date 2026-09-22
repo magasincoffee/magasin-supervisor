@@ -163,13 +163,17 @@ try {
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
     Set-Content -Path (Join-Path $dest 'STOP') -Value 'BOOTSTRAP_BLOCK' -Encoding ascii
     Set-Content -Path (Join-Path $dest 'AUTOSTART_DISABLED') -Value 'BOOTSTRAP_BLOCK' -Encoding ascii
+    New-Item -ItemType Directory -Force -Path (Join-Path $dest 'browser_profile') | Out-Null
+    Set-Content -Path (Join-Path $dest 'browser_profile\Cookies') -Value 'DESTINATION_KEEP' -Encoding ascii
 
     Invoke-Transfer @('-Mode','Import','-DestinationRoot',$dest,'-PackageZip',$zip,'-ExpectedPackageSha256',$zipHash,'-CandidateSha',$candidate)
     Invoke-Transfer @('-Mode','Verify','-DestinationRoot',$dest,'-PackageZip',$zip,'-ExpectedPackageSha256',$zipHash,'-CandidateSha',$candidate)
 
     if (Test-Path (Join-Path $dest 'STOP')) { throw 'Synthetic handoff STOP leaked into imported canonical state.' }
     if (Test-Path (Join-Path $dest 'AUTOSTART_DISABLED')) { throw 'Synthetic handoff AUTOSTART_DISABLED leaked into imported canonical state.' }
-    if (Test-Path (Join-Path $dest 'browser_profile')) { throw 'browser_profile must not be in canonical transfer payload.' }
+    if (-not (Test-Path (Join-Path $dest 'browser_profile\Cookies'))) { throw 'Existing destination browser_profile was not preserved.' }
+    $destinationCookieSentinel = (Get-Content (Join-Path $dest 'browser_profile\Cookies') -Raw).Trim()
+    if ($destinationCookieSentinel -ne 'DESTINATION_KEEP') { throw 'Source browser_profile leaked into destination.' }
     if (Test-Path (Join-Path $dest 'runtime')) { throw 'runtime must not be in canonical transfer payload.' }
     if (Test-Path (Join-Path $dest 'supervisor.pid')) { throw 'supervisor.pid must not be transferred.' }
     if (Test-Path (Join-Path $dest 'supervisor.log')) { throw 'supervisor.log must not be transferred.' }
@@ -205,6 +209,7 @@ try {
     Write-Host 'MIG_005_RELAY_EVIDENCE_REBASED=True'
     Write-Host 'MIG_005_OWNER_STOP_DISTINCTION=True'
     Write-Host 'MIG_005_BROWSER_PROFILE_EXCLUDED=True'
+    Write-Host 'MIG_005_DESTINATION_BROWSER_PROFILE_PRESERVED=True'
     Write-Host 'RBT009_TIER_B_480M=NOT_RUN'
 }
 finally {
