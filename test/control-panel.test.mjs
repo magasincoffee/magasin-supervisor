@@ -113,7 +113,7 @@ test("control panel uses fixed Vietnam time", async () => {
   assert.doesNotMatch(source, /ToLocalTime\(\)/);
 });
 
-test("control panel integrates the canonical local GitHub Runner", async () => {
+test("control panel integrates an explicitly configured local GitHub Runner", async () => {
   const source = await fs.readFile(
     new URL("../windows/control-panel.ps1", import.meta.url),
     "utf8"
