@@ -1,6 +1,12 @@
 name: Supervisor MIG-005 Preflight
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/supervisor-mig005-preflight.yml'
+      - 'test/mig-005-preflight-contract.test.mjs'
+      - 'docs/MIG_005_SINGLE_AUTHORITY_CUTOVER_EVIDENCE.md'
+      - 'docs/MIG_005_CUTOVER_MANIFEST.json'
   push:
     branches:
       - 'mig-005/**'
