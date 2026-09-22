@@ -391,17 +391,24 @@ function Assert-DestinationBootstrapOnly([string]$Root) {
     }
 }
 
-function Rebase-RelayScreenshotPaths([string]$Root) {
-    $registryPath = Join-Path $Root 'lane-registry.json'
+function Rebase-RelayScreenshotPaths(
+    [string]$PhysicalRoot,
+    [string]$LogicalRoot
+) {
+    $registryPath = Join-Path $PhysicalRoot 'lane-registry.json'
     $registry = Read-JsonStrict $registryPath
     $changed = $false
     foreach ($prop in @($registry.lanes.PSObject.Properties)) {
         $lane = $prop.Value
         if (-not $lane -or -not $lane.relay_inflight -or -not $lane.relay_inflight.screenshot_path) { continue }
         $leaf = [IO.Path]::GetFileName([string]$lane.relay_inflight.screenshot_path)
-        $newPath = Join-Path (Join-Path $Root 'lane-evidence') $leaf
-        if (-not (Test-Path $newPath -PathType Leaf)) { throw "Referenced relay screenshot was not imported: $leaf" }
-        $lane.relay_inflight.screenshot_path = $newPath
+        $physicalPath = Join-Path (Join-Path $PhysicalRoot 'lane-evidence') $leaf
+        if (-not (Test-Path $physicalPath -PathType Leaf)) {
+            throw "Referenced relay screenshot was not imported: $leaf"
+        }
+        # Store the final destination path, not the staging path. The staging
+        # tree is atomically moved to LogicalRoot after all validation passes.
+        $lane.relay_inflight.screenshot_path = Join-Path (Join-Path $LogicalRoot 'lane-evidence') $leaf
         $changed = $true
     }
     if ($changed) {
@@ -426,7 +433,7 @@ function Import-Package([string]$ZipPath,[string]$ExpectedHash,[string]$Root,[st
         $finalStage = "$Root.mig005-stage-" + [guid]::NewGuid().ToString('N')
         New-Item -ItemType Directory -Force -Path $finalStage | Out-Null
         Copy-Item -Path (Join-Path $validated.payload '*') -Destination $finalStage -Recurse -Force
-        Rebase-RelayScreenshotPaths -Root $finalStage
+        Rebase-RelayScreenshotPaths -PhysicalRoot $finalStage -LogicalRoot $Root
 
         $finalCore = Get-CoreState $finalStage
         if ($finalCore.target_fingerprint -ne [string]$validated.manifest.target_fingerprint) {
