@@ -203,7 +203,7 @@ $legacyRoot = Get-SupervisorStateRoot -ExplicitRoot '' -Compatibility 'legacy-pr
 $legacyProfileBefore = Get-DirectoryFingerprint (Join-Path $legacyRoot 'browser_profile')
 $platformProfileBefore = Get-DirectoryFingerprint (Join-Path $destinationRoot 'browser_profile')
 $runnerPidsBefore = Get-RunnerProcessIds
-if ($runnerPidsBefore.Count -lt 1) { throw 'GitHub self-hosted runner is not visible; activation is blocked.' }
+if ($Mode -ne 'Validate' -and $runnerPidsBefore.Count -lt 1) { throw 'GitHub self-hosted runner is not visible; activation is blocked.' }
 
 Write-Host 'MIG_005_PACKAGE_SHA256_VERIFIED=True'
 Write-Host 'MIG_005_SELECTED_STATE_ROOT_PLATFORM_DEFAULT=True'
