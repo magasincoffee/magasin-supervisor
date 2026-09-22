@@ -324,5 +324,21 @@
     "legacy_state_root_exception": "Allowed only inside explicit legacy-preserve compatibility resolver/documentation boundary."
   },
   "target_dod": "SATISFIED",
-  "business_os_closure": "PENDING"
+  "business_os_closure": {
+    "status": "DONE_CANONICAL",
+    "source_repository": "magasincoffee/magasincoffee.github.io",
+    "source_closure_pr": 242,
+    "source_closure_merge_sha": "1e653fac91eaa6b948a96a0b3195bdaa72ac332b",
+    "source_finalization_pr": 243,
+    "source_canonical_main_sha": "35e6a9325742ed2ddee90d03c93a88450a703c14",
+    "source_post_merge_supervisor_tests": {
+      "run_id": 35671889648,
+      "job_id": 106569961264,
+      "conclusion": "SUCCESS",
+      "pass": 551,
+      "fail": 0
+    },
+    "canonical_state": "MIG_003_DONE_MIG_004_READY",
+    "mig_004": "READY_NOT_STARTED"
+  }
 }
