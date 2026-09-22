@@ -1,11 +1,18 @@
-# MIG-003 guard: production/self-hosted execution remains inert until MIG-004/MIG-005 release gates.
+# MIG-004: synthetic Tier A is qualified on hosted Windows; Tier B 480-minute production soak remains hard-disabled.
 name: Supervisor RBT-009 Overnight Soak
 # Final candidate refresh after release-gate concurrency drain.
 
 on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "test/**"
+      - ".github/workflows/supervisor-rbt009-soak.yml"
+      - ".github/scripts/supervisor-rbt009-soak*"
   push:
     branches:
       - main
+      - 'mig-004/**'
     paths:
       - ".github/workflows/supervisor-rbt009-soak.yml"
       - ".github/scripts/supervisor-rbt009-soak.ps1"
@@ -29,7 +36,6 @@ concurrency:
 
 jobs:
   tier-a:
-    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
     name: tier-a-isolated-integration
     runs-on: windows-latest
     timeout-minutes: 15
@@ -79,9 +85,13 @@ jobs:
           Write-Host "SOAK_HOT_SWAP_PRESERVED=True"
           Write-Host "SOAK_STALE_TARGET_ZERO_REOPEN=True"
           Write-Host "SOAK_BRAIN_PLANNING=True"
+          Write-Host "MIG_004_RBT009_TIER_A_SYNTHETIC=True"
+          Write-Host "MIG_004_RBT009_TIER_B_NOT_RUN=True"
+          Write-Host "MIG_004_EXACT_SHA=$env:GITHUB_SHA"
+          Write-Host "ZERO_PRODUCTION_MUTATION=True"
 
   preflight:
-    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
+    if: ${{ false }} # MIG-004: normal release preflight remains structurally defined but inactive until post-merge evidence
     name: normal-release-gates-preflight
     needs: tier-a
     runs-on: ubuntu-latest
@@ -125,7 +135,7 @@ jobs:
           exit 1
 
   tier-b:
-    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
+    if: ${{ false }} # MIG-004: Tier B 480-minute production soak remains hard-disabled
     name: tier-b-production-read-only-8h
     needs: preflight
     runs-on: self-hosted
