@@ -1,6 +1,6 @@
 # MIG-005 — Single-Authority Production Cutover Evidence
 
-Status: **CONTROLLED STATE TRANSFER TOOLING / PRE-CUTOVER / NO AUTHORITY SWITCH**  
+Status: **OLD HANDOFF COMPLETE / NEW-MACHINE ACTIVATION READY / CUTOVER NOT YET COMPLETE**  
 Task: `MIG-005 — Single-Authority Production Cutover`  
 Exact release base: `a67b6ea19e7e10b4b63b56f9e7b5274a94135ca2`  
 Canonical execution: **PR #10 / branch `mig-005/single-authority-cutover`**
@@ -8,8 +8,9 @@ Canonical execution: **PR #10 / branch `mig-005/single-authority-cutover`**
 ## Authority safety
 
 - production_cutover: **false**
-- production_authority: **UNCHANGED_EXISTING_SUPERVISOR**
-- production_mutation_authority_instances: **1**
+- production_authority: **ZERO DURING CONTROLLED HANDOFF**
+- production runtime authority instances: **0**
+- production ownership authority instances: **0**
 - split_brain: **FORBIDDEN**
 - old production state/source: **PRESERVED**
 - new production authority started: **false**
@@ -128,9 +129,57 @@ Autostart ownership transfers only after final export succeeds. The exact prior 
 
 Imported state must preserve `enabled_lane_count=0`; MIG-005 does not enable any lane. The independent autostart bootstrap is required to exit without starting Supervisor in this all-disabled state.
 
-## Production boundary
+## Old-machine controlled handoff checkpoint
 
-No old-machine production capture/STOP/export has been executed by this branch.
+Owner completed the supported old-machine handoff successfully. Sanitized authoritative checkpoint:
+
+- pre-handoff mode: **ALL_DISABLED_QUIESCENT**
+- config lanes: **3**
+- registry lanes: **3**
+- enabled lanes: **0**
+- old runtime authority: **0**
+- final state export: **PASS**
+- package file count: **5**
+- referenced relay evidence count: **1**
+- package SHA256: **b2a67e3c7ae568454c09386b2ceb4f7cc7cfba650e3a37243dea89a2ebfe5753**
+- old state root untouched: **true**
+- old autostart ownership released: **true**
+- old rollback record ready: **true**
+- new authority started: **false**
+- RBT-009 Tier B 480m: **NOT RUN**
+
+The raw state package was privately copied by Owner to the new machine. Owner independently verified the SHA256 above. The raw payload is not stored in Git, Actions artifacts/logs, or ChatGPT.
+
+At this checkpoint, ownership authority is intentionally **0** during the controlled handoff. This is safe because the old host was already all-disabled/quiescent and the new host remains non-authoritative until verified import and ownership activation complete.
+
+## New-machine ownership activation wrapper
+
+Dedicated wrapper:
+
+- `windows/mig-005-new-machine-activate.ps1`
+
+Required sequencing enforced by the wrapper:
+
+1. exact repository HEAD equals requested candidate SHA;
+2. package SHA256 matches before any mutation;
+3. new Supervisor wrapper/Three-Lane process and production autostart ownership are absent;
+4. destination is explicitly `%LOCALAPPDATA%\MAGASIN\Supervisor`, never the legacy BusinessOS root;
+5. transactional Import then Verify through `mig-005-state-transfer.ps1`;
+6. require 3 config lanes, 3 registry lanes, enabled lane count 0, preserved Owner STOP=false;
+7. write private local rollback metadata, then persist `SUPERVISOR_STATE_ROOT` at CurrentUser scope;
+8. install exact candidate runtime without Owner START;
+9. install new autostart ownership only after import/verify/runtime installation succeed;
+10. invoke bootstrap only for bounded all-disabled verification and require the runtime process to remain OFF;
+11. preserve GitHub runner and browser profile fingerprints;
+12. on failure, remove new ownership/transaction artifacts, restore user environment, and instruct Owner to restore old authority from the preserved old-machine rollback record.
+
+Expected successful ownership state:
+
+`NEW_AUTHORITY_OWNERSHIP_ACTIVE_ALL_DISABLED_RUNTIME_QUIESCENT`
+
+No lane is enabled by MIG-005 and normal `start-supervisor.ps1` is not called by the activation wrapper.
+
+## Production boundary
 
 No raw production state is stored in:
 - Git commits;
@@ -138,9 +187,7 @@ No raw production state is stored in:
 - Actions logs;
 - repository evidence.
 
-The raw state package must cross machines only through an Owner-mediated local/offline/private transport.
-
-Because old-machine process/state mutation requires execution on the old host, production handoff remains fail-closed until that boundary is performed and its sanitized output is reconciled.
+The old rollback state/source remains preserved. Production cutover is not complete until Owner runs the exact-candidate new-machine activation wrapper and its sanitized output proves import, preservation, sole ownership and all-disabled runtime quiescence.
 
 `RBT009_TIER_B_480M=NOT_RUN`
 `PRODUCTION_CUTOVER=false`
