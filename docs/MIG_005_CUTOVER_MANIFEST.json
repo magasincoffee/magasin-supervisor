@@ -1,0 +1,20 @@
+{
+  "schema_version": "supervisor-mig005-cutover.v1",
+  "task_id": "MIG-005",
+  "exact_release_base_sha": "a67b6ea19e7e10b4b63b56f9e7b5274a94135ca2",
+  "phase": "PREFLIGHT",
+  "status": "IN_PROGRESS",
+  "production_cutover": false,
+  "production_authority": "UNCHANGED_EXISTING_SUPERVISOR",
+  "production_mutation_authority_instances": 1,
+  "split_brain_forbidden": true,
+  "owner_stop_preserved": true,
+  "brain_work_targets_preserved": true,
+  "lane_state_latches_preserved": true,
+  "new_machine_readiness_verified": false,
+  "read_only_probe": true,
+  "rbt009_tier_b_480m": "NOT_RUN",
+  "zero_production_mutation": true,
+  "next_task_on_success": "MIG-006_READY_NOT_STARTED",
+  "stop_after_mig005": true
+}
