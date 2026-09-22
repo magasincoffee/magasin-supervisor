@@ -46,7 +46,7 @@ test("Windows wrapper closes dedicated Chrome and stops on legacy pause exit cod
 
 test("deployment workflow separates business project state from local process lifecycle truth", async () => {
   const source = await fs.readFile(
-    new URL("../../../.github/workflows/supervisor-autostart-install.yml", import.meta.url),
+    new URL("../.github/workflows/supervisor-autostart-install.yml", import.meta.url),
     "utf8"
   );
 
@@ -62,11 +62,11 @@ test("deployment workflow separates business project state from local process li
 
 test("deployment workflow does not mutate lane intent to manufacture an executable queue", async () => {
   const source = await fs.readFile(
-    new URL("../../../.github/workflows/supervisor-autostart-install.yml", import.meta.url),
+    new URL("../.github/workflows/supervisor-autostart-install.yml", import.meta.url),
     "utf8"
   );
 
-  assert.match(source, /SOURCE_OF_TRUTH_LOCAL_CHECK=True/);
+  assert.match(source, /PROJECT_ADAPTER_LOCAL_CHECK=True/);
   assert.match(source, /TARGET_URLS_UNCHANGED=True/);
   assert.doesNotMatch(source, /lane1Config\.enabled = \$true/);
   assert.doesNotMatch(source, /LIVE_LANE1_RESUMED_BY_SHELL/);
