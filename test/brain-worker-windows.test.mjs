@@ -40,7 +40,7 @@ test("installer kills old Three-Lane node runtime during upgrade without clearin
   assert.doesNotMatch(source, /Remove-Item \$stopFile -Force/);
 });
 
-test("auto-upgrade validates THREE_LANE_V1 and lifecycle truth", async () => {
+test("auto-upgrade validates explicit project adapter THREE_LANE_V1 and lifecycle truth", async () => {
   const source = await fs.readFile(
     new URL("../.github/workflows/supervisor-autostart-install.yml", import.meta.url),
     "utf8"
@@ -49,7 +49,7 @@ test("auto-upgrade validates THREE_LANE_V1 and lifecycle truth", async () => {
   assert.match(source, /THREE_LANE_V1/);
   assert.match(source, /lane_count/);
   assert.match(source, /Brain autodiscovery must be disabled/);
-  assert.match(source, /SOURCE_OF_TRUTH_LOCAL_CHECK=True/);
+  assert.match(source, /PROJECT_ADAPTER_LOCAL_CHECK=True/);
   assert.match(source, /Get-LifecycleOwnerStopState/);
   assert.match(source, /Get-EnabledLaneCount/);
   assert.match(source, /Get-LifecycleProcessTruth/);

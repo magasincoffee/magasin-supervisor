@@ -239,7 +239,9 @@ test("audit output is metadata-only and workflow avoids unsafe optional latch de
   await fsp.rm(result.harness.root, { recursive: true, force: true });
 
   const workflow = await fsp.readFile(workflowPath, "utf8");
-  assert.match(workflow, /Assert-SupervisorLatchIntegrity/);
+  assert.match(workflow, /npm test/);
+  assert.match(workflow, /supervisor-state-maintenance-regression\.ps1/);
+  assert.match(workflow, /supervisor-integrity-registry\.ps1/);
   assert.doesNotMatch(workflow, /relay_inflight\.reconcile_blocked/);
   assert.doesNotMatch(workflow, /dispatch_inflight\.reconcile_blocked/);
   assert.doesNotMatch(workflow, /relay_inflight\.screenshot_path/);

@@ -44,20 +44,24 @@ test("Windows wrapper closes dedicated Chrome and stops on legacy pause exit cod
   assert.match(source.slice(pauseIndex, pauseIndex + 800), /break/);
 });
 
-test("deployment workflow separates business project state from local process lifecycle truth", async () => {
+test("MIG-004 deployment parity separates hosted contract validation from production lifecycle authority", async () => {
   const source = await fs.readFile(
     new URL("../.github/workflows/supervisor-autostart-install.yml", import.meta.url),
     "utf8"
   );
 
-  assert.match(source, /PROJECT_AUTONOMY=/);
-  assert.match(source, /Get-LifecycleOwnerStopState/);
-  assert.match(source, /Get-EnabledLaneCount/);
-  assert.match(source, /START_REASON=OWNER_STOP/);
-  assert.match(source, /START_REASON=ALL_LANES_DISABLED/);
-  assert.match(source, /START_REASON=ENABLED_LANE_RECOVERY/);
-  assert.doesNotMatch(source, /OWNER_ARCHITECTURE_GATE_ENFORCED=True/);
-  assert.doesNotMatch(source, /stop-supervisor\.ps1/);
+  const safeStart = source.indexOf("  safe-validation:");
+  const productionStart = source.indexOf("\n  install:", safeStart);
+  assert.ok(safeStart >= 0 && productionStart > safeStart);
+  const safeValidation = source.slice(safeStart, productionStart);
+
+  assert.match(safeValidation, /runs-on: windows-latest/);
+  assert.match(safeValidation, /MIG_004_INSTALL_CONTRACT_ONLY=True/);
+  assert.match(safeValidation, /MIG_004_AUTOSTART_CONTRACT_ONLY=True/);
+  assert.match(safeValidation, /MIG_004_HKCU_PRODUCTION_WRITE=False/);
+  assert.match(source.slice(productionStart), /if: \$\{\{ false \}\}/);
+  assert.doesNotMatch(safeValidation, /powershell[^\n]+-File "windows\/install-supervisor\.ps1"/);
+  assert.doesNotMatch(safeValidation, /powershell[^\n]+-File "windows\/install-autostart\.ps1"/);
 });
 
 test("deployment workflow does not mutate lane intent to manufacture an executable queue", async () => {
@@ -66,7 +70,7 @@ test("deployment workflow does not mutate lane intent to manufacture an executab
     "utf8"
   );
 
-  assert.match(source, /SOURCE_OF_TRUTH_LOCAL_CHECK=True/);
+  assert.match(source, /PROJECT_ADAPTER_LOCAL_CHECK=True/);
   assert.match(source, /TARGET_URLS_UNCHANGED=True/);
   assert.doesNotMatch(source, /lane1Config\.enabled = \$true/);
   assert.doesNotMatch(source, /LIVE_LANE1_RESUMED_BY_SHELL/);

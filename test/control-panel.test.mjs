@@ -113,16 +113,15 @@ test("control panel uses fixed Vietnam time", async () => {
   assert.doesNotMatch(source, /ToLocalTime\(\)/);
 });
 
-test("control panel integrates the canonical local GitHub Runner", async () => {
+test("control panel does not hard-code the legacy Business OS GitHub Runner identity", async () => {
   const source = await fs.readFile(
     new URL("../windows/control-panel.ps1", import.meta.url),
     "utf8"
   );
 
-  assert.match(source, /C:\\actions-runner-business\\actions-runner/);
-  assert.match(source, /Runner\.Listener\.exe/);
-  assert.match(source, /KẾT NỐI GITHUB/);
-  assert.match(source, /GITHUB ĐANG KẾT NỐI/);
+  assert.doesNotMatch(source, /C:\\actions-runner-business\\actions-runner/);
+  assert.doesNotMatch(source, /Runner\.Listener\.exe/);
+  assert.doesNotMatch(source, /magasincoffee\/magasincoffee\.github\.io/);
 });
 
 test("installer normalizes Vietnamese panel to UTF-8 BOM and syntax-checks it", async () => {

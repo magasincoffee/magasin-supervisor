@@ -205,16 +205,16 @@ test("Worker creation clears one-shot latches only when browser loss occurs befo
 });
 
 
-test("project-state network failures recover automatically instead of escalating to Owner", async () => {
+test("project-adapter load failures recover automatically instead of escalating to Owner", async () => {
   const runtime = await fs.readFile(
     new URL("../src/runtime/brain-worker-cli.mjs", import.meta.url),
     "utf8"
   );
 
-  assert.match(runtime, /class ProjectStateFetchError extends Error/);
-  assert.match(runtime, /PROJECT_STATE_FETCH_RETRY/);
+  assert.match(runtime, /class ProjectAdapterLoadError extends Error/);
+  assert.match(runtime, /PROJECT_ADAPTER_LOAD_RETRY/);
   assert.match(runtime, /status: "RECOVERING"/);
-  assert.match(runtime, /project state temporarily unavailable; retrying automatically/);
+  assert.match(runtime, /project adapter temporarily unavailable; retrying automatically/);
   assert.match(runtime, /Math\.min\(\s*30_000/);
 });
 

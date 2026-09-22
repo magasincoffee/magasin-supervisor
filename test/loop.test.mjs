@@ -5,14 +5,14 @@ import { SupervisorLoopController } from "../src/runtime/loop.mjs";
 
 function state(overrides = {}) {
   return {
-    project: "MAGASIN Business OS",
+    project: "SYNTHETIC PROJECT",
     current_phase: "P1",
-    current_task: "TASK-007",
+    current_task: "WORK-007",
     status: "RUNNING",
     autonomy: "AUTO_CONTINUE",
     blocked: false,
     requires_user: false,
-    next_task: "TASK-008",
+    next_task: "WORK-008",
     ...overrides
   };
 }
@@ -256,9 +256,9 @@ test("Work UI USER_PENDING settles into one handoff reconcile after a stable idl
   const first = await controller.step({
     page: p,
     projectState: state({
-      current_phase: "P1_SCHEDULE_FIRST_CORE_FLOW",
-      current_task: "TASK-029",
-      current_task_title: "Schedule-first canonical flow contract"
+      current_phase: "SYNTHETIC_ACTIVE_PHASE",
+      current_task: "WORK-HANDOFF-001",
+      current_task_title: "Synthetic handoff contract"
     }),
     probe: pendingProbe,
     handoff: true
@@ -296,7 +296,8 @@ test("Work UI USER_PENDING settles into one handoff reconcile after a stable idl
   });
   assert.equal(reconcile.decision.action, "CONTINUE");
   assert.equal(reconcile.execution.executed, true);
-  assert.match(reconcile.decision.instruction, /TIẾP QUẢN PHIÊN ĐANG MỞ/);
+  assert.match(reconcile.decision.instruction, /Take over the already-open project conversation/);
+  assert.doesNotMatch(reconcile.decision.instruction, /CURRENT_STATE|PROJECT_STATE|TASK_QUEUE/);
 
   // Normal duplicate protection still applies immediately after handoff send.
   now += 2000;
@@ -500,7 +501,7 @@ test("WAIT_USER owner reconciliation can execute once after idle confirmation", 
     status: "WAIT_USER",
     autonomy: "MANUAL",
     requires_user: true,
-    current_task: "TASK-032",
+    current_task: "WORK-OWNER-BOUNDARY-001",
     current_task_title: "Owner business-rule boundary"
   });
   const pending = {
@@ -536,7 +537,8 @@ test("WAIT_USER owner reconciliation can execute once after idle confirmation", 
   assert.equal(reconcile.effectiveObservation, "RESPONSE_COMPLETE");
   assert.equal(reconcile.decision.action, "CONTINUE");
   assert.equal(reconcile.execution.executed, true);
-  assert.match(reconcile.decision.instruction, /RECONCILE QUYẾT ĐỊNH OWNER/);
+  assert.match(reconcile.decision.instruction, /Reconcile only an explicit Owner decision/);
+  assert.doesNotMatch(reconcile.decision.instruction, /CURRENT_STATE|PROJECT_STATE|TASK_QUEUE/);
 });
 
 test("semantic Work turn signature ignores unrelated DOM-size churn", () => {
