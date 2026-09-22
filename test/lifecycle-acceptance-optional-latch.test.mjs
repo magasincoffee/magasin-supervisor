@@ -7,10 +7,10 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const helperPath = fileURLToPath(
-  new URL("../../../.github/scripts/supervisor-integrity-registry.ps1", import.meta.url)
+  new URL("../.github/scripts/supervisor-integrity-registry.ps1", import.meta.url)
 );
 const workflowPath = fileURLToPath(
-  new URL("../../../.github/workflows/supervisor-lifecycle-acceptance.yml", import.meta.url)
+  new URL("../.github/workflows/supervisor-lifecycle-acceptance.yml", import.meta.url)
 );
 
 function powershellCommand() {

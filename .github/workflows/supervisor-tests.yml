@@ -1,4 +1,4 @@
-# MIG-003 hosted CI: decoupled platform contracts plus non-production core regressions.
+# MIG-004 hosted CI: full root-native regression; no production authority.
 name: Supervisor Tests
 
 on:
@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - 'mig-003/**'
+      - 'mig-004/**'
     paths:
       - 'src/**'
       - 'test/**'
@@ -43,6 +44,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+
+      - name: Install dependencies without lifecycle side effects
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Run full new-repository regression suite
+        run: npm test
 
       - name: Run MIG-003 decoupling contract tests
         run: |
@@ -85,8 +92,10 @@ jobs:
       - name: Run StrictMode soak-monitor parser matrix only
         run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-rbt009-soak-strictmode-tests.ps1"
 
-      - name: Record MIG-003 safety markers
+      - name: Record MIG-004 CI parity markers
         run: |
+          Write-Host "MIG_004_FULL_ROOT_NATIVE_REGRESSION=True"
+          Write-Host "MIG_004_EXACT_SHA=$env:GITHUB_SHA"
           Write-Host "MIG_003_PROJECT_ADAPTER_TESTS=True"
           Write-Host "MIG_003_STATE_ROOT_COMPATIBILITY_TESTS=True"
           Write-Host "MIG_003_PLATFORM_CORE_REGRESSION=True"

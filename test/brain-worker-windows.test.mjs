@@ -42,14 +42,14 @@ test("installer kills old Three-Lane node runtime during upgrade without clearin
 
 test("auto-upgrade validates THREE_LANE_V1 and lifecycle truth", async () => {
   const source = await fs.readFile(
-    new URL("../../../.github/workflows/supervisor-autostart-install.yml", import.meta.url),
+    new URL("../.github/workflows/supervisor-autostart-install.yml", import.meta.url),
     "utf8"
   );
 
   assert.match(source, /THREE_LANE_V1/);
   assert.match(source, /lane_count/);
   assert.match(source, /Brain autodiscovery must be disabled/);
-  assert.match(source, /SOURCE_OF_TRUTH_LOCAL_CHECK=True/);
+  assert.match(source, /PROJECT_ADAPTER_LOCAL_CHECK=True/);
   assert.match(source, /Get-LifecycleOwnerStopState/);
   assert.match(source, /Get-EnabledLaneCount/);
   assert.match(source, /Get-LifecycleProcessTruth/);
@@ -58,7 +58,7 @@ test("auto-upgrade validates THREE_LANE_V1 and lifecycle truth", async () => {
 
 test("auto-upgrade derives Three-Lane runtime version and requires three local lanes", async () => {
   const source = await fs.readFile(
-    new URL("../../../.github/workflows/supervisor-autostart-install.yml", import.meta.url),
+    new URL("../.github/workflows/supervisor-autostart-install.yml", import.meta.url),
     "utf8"
   );
 
@@ -80,7 +80,7 @@ test("auto-upgrade derives Three-Lane runtime version and requires three local l
 
 test("post-job survival verifies lifecycle truth without mutating lane enable state", async () => {
   const source = await fs.readFile(
-    new URL("../../../.github/workflows/supervisor-autostart-install.yml", import.meta.url),
+    new URL("../.github/workflows/supervisor-autostart-install.yml", import.meta.url),
     "utf8"
   );
 
@@ -122,7 +122,7 @@ test("Control Panel keeps Brain target Owner-editable without autodiscovery", as
 
 test("production state maintenance resets Work state by revision without changing target URLs", async () => {
   const source = await fs.readFile(
-    new URL("../../../.github/workflows/supervisor-state-maintenance.yml", import.meta.url),
+    new URL("../.github/workflows/supervisor-state-maintenance.yml", import.meta.url),
     "utf8"
   );
 

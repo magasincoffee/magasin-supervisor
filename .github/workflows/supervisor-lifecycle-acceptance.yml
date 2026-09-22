@@ -1,11 +1,19 @@
-# MIG-003 guard: production/self-hosted execution remains inert until MIG-004/MIG-005 release gates.
+# MIG-004: hosted isolated lifecycle A-L parity is active; production/self-hosted lifecycle remains hard-disabled.
 name: Supervisor Lifecycle Acceptance
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/supervisor-lifecycle-acceptance.yml
+      - src/**
+      - windows/**
+      - test/**
+      - package.json
   push:
     branches:
       - main
+      - 'mig-004/**'
     paths:
       - .github/workflows/supervisor-lifecycle-acceptance.yml
       - src/**
@@ -29,8 +37,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  lifecycle-parity-hosted:
+    name: lifecycle-a-l-isolated
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run isolated lifecycle and preservation parity
+        shell: powershell
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          node --test test/mig-004-isolated-lifecycle-parity.test.mjs test/lifecycle-truth-v50.test.mjs test/lifecycle-acceptance-optional-latch.test.mjs test/owner-start-latch-recovery.test.mjs test/windows-installer-upgrade.test.mjs test/windows-repair.test.mjs test/windows-kill-switch.test.mjs test/state-root.test.mjs
+      - name: Record lifecycle parity
+        shell: powershell
+        run: |
+          Write-Host "MIG_004_LIFECYCLE_A_TO_L=PASS"
+          Write-Host "MIG_004_LIFECYCLE_ISOLATED_ROOT=True"
+          Write-Host "MIG_004_PRODUCTION_STATE_UNTOUCHED=True"
+          Write-Host "MIG_004_EXACT_SHA=$env:GITHUB_SHA"
+          Write-Host "ZERO_PRODUCTION_MUTATION=True"
+
   lifecycle-acceptance:
-    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
+    if: ${{ false }} # MIG-004: production/self-hosted lifecycle remains hard-disabled
     runs-on: self-hosted
     timeout-minutes: 15
     steps:

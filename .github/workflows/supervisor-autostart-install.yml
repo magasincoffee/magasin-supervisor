@@ -1,10 +1,17 @@
-# MIG-003 guard: production/self-hosted execution remains inert until MIG-004/MIG-005 release gates.
+# MIG-004: hosted installer/autostart contract parity is active; production/self-hosted install remains hard-disabled.
 name: Supervisor Autostart Install
 
 on:
+  pull_request:
+    paths:
+      - src/**
+      - windows/**
+      - test/**
+      - .github/workflows/supervisor-autostart-install.yml
   push:
     branches:
       - main
+      - 'mig-004/**'
     paths:
       - src/**
       - windows/**
@@ -26,8 +33,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  installer-autostart-parity-hosted:
+    name: installer-autostart-isolated
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Verify installer/autostart contracts without production HKCU mutation
+        shell: powershell
+        run: |
+          node --test test/autostart-recovery.test.mjs test/windows-installer-upgrade.test.mjs test/windows-repair.test.mjs test/windows-powershell-syntax.test.mjs test/mig-004-isolated-lifecycle-parity.test.mjs
+          Write-Host "MIG_004_AUTOSTART_CONTRACT_ONLY=True"
+          Write-Host "MIG_004_PRODUCTION_HKCU_UNTOUCHED=True"
+          Write-Host "MIG_004_EXACT_SHA=$env:GITHUB_SHA"
+          Write-Host "ZERO_PRODUCTION_MUTATION=True"
+
   install:
-    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
+    if: ${{ false }} # MIG-004: production/self-hosted install remains hard-disabled
     runs-on: self-hosted
     timeout-minutes: 15
     steps:

@@ -1,0 +1,117 @@
+{
+  "schema_version": "supervisor-mig004-gate-parity.v1",
+  "task_id": "MIG-004",
+  "exact_base_sha": "63b955f59d7558a42311b3d47d58acc60a503dca",
+  "production_cutover": false,
+  "production_authority": "UNCHANGED_EXISTING_SUPERVISOR",
+  "zero_production_mutation": true,
+  "project_adapter_schema": "supervisor-project-adapter.v1",
+  "state_root_schema": "supervisor-state-root.v1",
+  "mig002_provenance": {
+    "records": 137,
+    "represented_exactly_once_required": true
+  },
+  "gates": [
+    {
+      "workflow": "Supervisor Tests",
+      "job": "unit-tests",
+      "mode": "HOSTED_WINDOWS_FULL_REGRESSION",
+      "status": "SUCCESS",
+      "run_id": 35685652188,
+      "job_id": 106611775235,
+      "counts": [
+        "567/567 full root-native",
+        "50/50 adapter-state-root",
+        "184/184 platform safety/core"
+      ],
+      "tested_sha": "320db78c0adbaa0405473e8eac0d642f239fa705"
+    },
+    {
+      "workflow": "Supervisor Integrity",
+      "job": "static-audit",
+      "mode": "HOSTED_UBUNTU_INDEPENDENT_REPO",
+      "status": "SUCCESS",
+      "run_id": 35685652259,
+      "job_id": 106611847548,
+      "counts": [
+        "87/87 independent-repo static/safety",
+        "29/29 maintenance-control-panel safety"
+      ],
+      "runtime_audit_job_id": 106611937594,
+      "runtime_audit": "SKIPPED_FAIL_CLOSED",
+      "tested_sha": "320db78c0adbaa0405473e8eac0d642f239fa705"
+    },
+    {
+      "workflow": "Supervisor Lifecycle Acceptance",
+      "job": "lifecycle-a-l-isolated",
+      "mode": "HOSTED_WINDOWS_ISOLATED_STATE_ROOT",
+      "status": "SUCCESS",
+      "run_id": 35685652240,
+      "job_id": 106611855368,
+      "counts": [
+        "52/52 isolated A-L/state-root"
+      ],
+      "production_job_id": 106611856330,
+      "production_job": "SKIPPED",
+      "tested_sha": "320db78c0adbaa0405473e8eac0d642f239fa705"
+    },
+    {
+      "workflow": "Supervisor Autostart Install",
+      "job": "installer-autostart-isolated",
+      "mode": "HOSTED_WINDOWS_CONTRACT_ONLY",
+      "status": "SUCCESS",
+      "run_id": 35685652159,
+      "job_id": 106612355933,
+      "counts": [
+        "25/25 isolated installer-autostart"
+      ],
+      "production_jobs": "SKIPPED",
+      "tested_sha": "320db78c0adbaa0405473e8eac0d642f239fa705"
+    },
+    {
+      "workflow": "Supervisor RBT-009 Overnight Soak",
+      "job": "tier-a-isolated-integration",
+      "mode": "HOSTED_WINDOWS_SYNTHETIC_TIER_A",
+      "status": "SUCCESS",
+      "run_id": 35685652253,
+      "job_id": 106612299241,
+      "counts": [
+        "9/9 Tier A synthetic"
+      ],
+      "tier_b": "SKIPPED_NOT_RUN",
+      "tested_sha": "320db78c0adbaa0405473e8eac0d642f239fa705"
+    }
+  ],
+  "production_jobs": {
+    "lifecycle_self_hosted": "HARD_DISABLED",
+    "autostart_install_self_hosted": "HARD_DISABLED",
+    "integrity_runtime_audit": "HARD_DISABLED",
+    "state_maintenance": "HARD_DISABLED",
+    "open_control_panel": "HARD_DISABLED",
+    "rbt009_preflight": "HARD_DISABLED",
+    "rbt009_tier_b_480m": "HARD_DISABLED_NOT_RUN"
+  },
+  "invariants": [
+    "Owner STOP authority unchanged",
+    "Brain/Work targets unchanged",
+    "exact-once dispatch/relay semantics unchanged",
+    "lane isolation unchanged",
+    "browser page budget unchanged",
+    "watchdog/recovery/rollover/stale-target semantics unchanged",
+    "privacy metadata-only invariants unchanged",
+    "no direct Business OS PROJECT_STATE/TASK_QUEUE runtime dependency"
+  ],
+  "closure_state": "PR_HEAD_GREEN_EXACT_MAIN_PENDING",
+  "next_task_on_success": "MIG-005_READY_OWNER_SAFE_GATE",
+  "stop_after_mig004": true,
+  "pr_number": 8,
+  "pr_branch": "mig-004/ci-lifecycle-parity",
+  "pr_head_before_evidence_refresh": "e821d826ad209d3ea052393682c0167f14b548bb",
+  "pr_tested_merge_ref_sha": "320db78c0adbaa0405473e8eac0d642f239fa705",
+  "exact_sha_correlation": {
+    "pr_mode": "GITHUB_PULL_REQUEST_MERGE_REF",
+    "tested_sha": "320db78c0adbaa0405473e8eac0d642f239fa705",
+    "all_hosted_gates_same_sha": true,
+    "exact_main_required_before_closure": true
+  }
+}
