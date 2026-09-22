@@ -39,6 +39,12 @@ function Get-FileSha256([string]$Path) {
     return (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Append-Utf8NoBomLines([string]$Path,[object[]]$Lines) {
+    if (-not $Lines -or @($Lines).Count -lt 1) { return }
+    $text = ([string]::Join([Environment]::NewLine,@($Lines))) + [Environment]::NewLine
+    [IO.File]::AppendAllText($Path,$text,(New-Object Text.UTF8Encoding($false)))
+}
+
 function Read-Json([string]$Path) {
     if (-not (Test-Path $Path -PathType Leaf)) { throw 'MIG006_REQUIRED_STATE_FILE_MISSING' }
     return Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -186,6 +192,7 @@ function Stop-CandidateMonitor {
 }
 
 try {
+    $CandidateRoot = [IO.Path]::GetFullPath($CandidateRoot)
     if ($DurationMinutes -ne 480) { throw 'MIG006_DURATION_MUST_BE_480_MINUTES' }
     if ($SampleSeconds -ne 120) { throw 'MIG006_SAMPLE_INTERVAL_MUST_BE_120_SECONDS' }
     if ($RuntimeCandidateSha -ne $ExpectedRuntimeCandidateSha) { throw 'MIG006_RUNTIME_CANDIDATE_NOT_LOCKED_SHA' }
@@ -344,7 +351,7 @@ try {
                 $failureReason='EVENT_STREAM_ROTATED_OR_TRUNCATED'; throw 'MIG006_EVENT_STREAM_ROTATED_OR_TRUNCATED'
             }
             if (@($delta.lines).Count -gt 0) {
-                Add-Content -Path $eventWindowFile -Value @($delta.lines) -Encoding UTF8
+                Append-Utf8NoBomLines -Path $eventWindowFile -Lines @($delta.lines)
             }
             $eventOffset = [int64]$delta.next_offset
             $guardianSamples++
@@ -375,7 +382,7 @@ try {
 
     $deltaEnd = Read-Rbt009BoundedTextDelta -Path $eventFile -StartOffset $eventOffset -MaxBytes 262144
     if ([bool]$deltaEnd.rotated_or_truncated) { $failureReason='EVENT_STREAM_ROTATED_OR_TRUNCATED'; throw 'MIG006_EVENT_STREAM_ROTATED_OR_TRUNCATED_AT_END' }
-    if (@($deltaEnd.lines).Count -gt 0) { Add-Content -Path $eventWindowFile -Value @($deltaEnd.lines) -Encoding UTF8 }
+    if (@($deltaEnd.lines).Count -gt 0) { Append-Utf8NoBomLines -Path $eventWindowFile -Lines @($deltaEnd.lines) }
     $eventOffset = [int64]$deltaEnd.next_offset
 
     if (-not (Test-Path $rawCandidateSummary -PathType Leaf)) { throw 'MIG006_LOCKED_CANDIDATE_SUMMARY_MISSING' }
