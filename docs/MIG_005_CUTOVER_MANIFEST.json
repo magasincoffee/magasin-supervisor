@@ -2,7 +2,7 @@
   "schema_version": "supervisor-mig005-cutover.v1",
   "task_id": "MIG-005",
   "exact_release_base_sha": "a67b6ea19e7e10b4b63b56f9e7b5274a94135ca2",
-  "phase": "CONTROLLED_STATE_TRANSFER_TOOLING",
+  "phase": "CONTROLLED_STATE_TRANSFER_OLD_QUIESCENT_READY",
   "status": "IN_PROGRESS_PRE_CUTOVER",
   "production_cutover": false,
   "production_authority": "UNCHANGED_EXISTING_SUPERVISOR",
@@ -51,5 +51,29 @@
   "private_payload_in_git": false,
   "rbt009_tier_b_480m": "NOT_RUN",
   "next_task_on_success": "MIG-006_READY_NOT_STARTED",
-  "stop_after_mig005": true
+  "stop_after_mig005": true,
+  "old_machine_read_only_checkpoint": {
+    "pre_handoff_mode": "ALL_DISABLED_QUIESCENT",
+    "lane_count": 3,
+    "registry_lane_count": 3,
+    "enabled_lane_count": 0,
+    "wrapper_active": false,
+    "three_lane_active": false,
+    "chrome_active": false,
+    "cdp_healthy": false,
+    "owner_stop_blocked": false,
+    "stop_present": false,
+    "autostart_disabled_present": false,
+    "autostart_registration_present": true,
+    "zero_authority_verified": true,
+    "historical_owner_stop": false
+  },
+  "autostart_ownership_handoff": {
+    "remove_old_registration_only_after_successful_final_export": true,
+    "reversible_private_local_rollback_record": true,
+    "restore_exact_old_registration_on_rollback": true,
+    "raw_registry_value_in_git_or_logs": false,
+    "all_disabled_new_bootstrap_exits_without_runtime_start": true
+  },
+  "new_authority_process_required_while_all_disabled": false
 }
