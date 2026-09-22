@@ -230,5 +230,99 @@
     "No production authority cutover; remains MIG-005",
     "No final RBT-009 8h qualification; remains MIG-006"
   ],
-  "implementation_snapshot_note": "Final implementation/CI-glue snapshot before PR-head gates; later evidence-only commits do not change platform runtime semantics."
+  "implementation_snapshot_note": "Final implementation/CI-glue snapshot before PR-head gates; later evidence-only commits do not change platform runtime semantics.",
+  "target_pr": 5,
+  "target_pr_head_sha": "f7fe79e22660c8a9fc0c1e3feecfcf90d282298a",
+  "target_merge_sha": "aec7db9a715ceb41066af6636a4c91d34553eed5",
+  "target_changed_file_count": 43,
+  "superseded_prs": [
+    {
+      "number": 4,
+      "state": "CLOSED_NOT_MERGED"
+    }
+  ],
+  "pr_head_gates": {
+    "supervisor_tests": {
+      "run_id": 35645284638,
+      "job_id": 106484118473,
+      "conclusion": "SUCCESS"
+    },
+    "supervisor_integrity": {
+      "run_id": 35645284699,
+      "static_job_id": 106484151783,
+      "runtime_job_id": 106484202256,
+      "static_conclusion": "SUCCESS",
+      "runtime_conclusion": "SKIPPED_FAIL_CLOSED"
+    }
+  },
+  "exact_main_gates": {
+    "sha": "aec7db9a715ceb41066af6636a4c91d34553eed5",
+    "supervisor_tests": {
+      "run_id": 35645394216,
+      "job_id": 106484492607,
+      "conclusion": "SUCCESS",
+      "decoupling_contract_tests": {
+        "pass": 50,
+        "fail": 0
+      },
+      "platform_core_tests": {
+        "pass": 184,
+        "fail": 0
+      },
+      "strictmode_a_to_o": "PASS"
+    },
+    "supervisor_integrity": {
+      "run_id": 35645394250,
+      "static_job_id": 106484492995,
+      "runtime_job_id": 106484547597,
+      "static_conclusion": "SUCCESS",
+      "runtime_conclusion": "SKIPPED_FAIL_CLOSED",
+      "static_tests": {
+        "pass": 82,
+        "fail": 0
+      }
+    },
+    "lifecycle": {
+      "run_id": 35645394192,
+      "job_id": 106484493476,
+      "conclusion": "SKIPPED"
+    },
+    "autostart": {
+      "run_id": 35645394217,
+      "install_job_id": 106484493870,
+      "verify_survival_job_id": 106484494405,
+      "conclusion": "SKIPPED"
+    },
+    "control_panel": {
+      "run_id": 35645394277,
+      "job_id": 106484493015,
+      "conclusion": "SKIPPED"
+    },
+    "rbt009": {
+      "run_id": 35645394259,
+      "tier_a_job_id": 106484513033,
+      "preflight_job_id": 106484519081,
+      "tier_b_job_id": 106484521238,
+      "conclusion": "SKIPPED"
+    }
+  },
+  "negative_coupling_search": {
+    "exact_main_sha": "aec7db9a715ceb41066af6636a4c91d34553eed5",
+    "zero_generic_platform_matches": [
+      "magasincoffee/magasincoffee.github.io",
+      "00_PROJECT_STATE.json",
+      "TASK_QUEUE",
+      "CURRENT_STATE",
+      "08_INTEGRATIONS/supervisor",
+      "02_CORE/",
+      "TASK-029",
+      "TASK-035",
+      "TASK-048",
+      "TASK-049",
+      "TASK-060"
+    ],
+    "legacy_state_root_exception": "Allowed only inside explicit legacy-preserve compatibility resolver/documentation boundary."
+  },
+  "target_dod": "SATISFIED",
+  "business_os_closure": "PENDING"
 }
