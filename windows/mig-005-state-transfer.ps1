@@ -168,6 +168,17 @@ function New-Capture([string]$Root,[string]$OutputPath,[string]$Sha) {
     foreach ($name in $RequiredStateFiles) {
         $fileHashes[$name] = Get-FileSha256 (Join-Path $Root $name)
     }
+    $preActive = [bool]($truth.wrapper_alive -or $truth.three_lane_alive)
+    $preOwnerStop = [bool]$ownerStop.blocked
+    $preHandoffMode = if ($preActive) {
+        'ACTIVE'
+    } elseif ($preOwnerStop) {
+        'OWNER_STOPPED'
+    } elseif ($core.enabled_lane_count -eq 0 -and $core.lane_count -eq 3 -and $core.registry_lane_count -eq 3) {
+        'ALL_DISABLED_QUIESCENT'
+    } else {
+        'INVALID_INACTIVE'
+    }
     $capture = [ordered]@{
         schema_version = $CaptureSchema
         candidate_sha = $Sha
@@ -175,6 +186,9 @@ function New-Capture([string]$Root,[string]$OutputPath,[string]$Sha) {
         lane_count = $core.lane_count
         registry_lane_count = $core.registry_lane_count
         enabled_lane_count = $core.enabled_lane_count
+        pre_handoff_mode = $preHandoffMode
+        historical_owner_stop = $preOwnerStop
+        zero_authority_verified = [bool](-not $preActive)
         target_fingerprint = $core.target_fingerprint
         registry_continuity_fingerprint = $core.registry_continuity_fingerprint
         core_file_hashes = $fileHashes
@@ -201,7 +215,9 @@ function New-Capture([string]$Root,[string]$OutputPath,[string]$Sha) {
     Write-Host "MIG_005_CAPTURE_LANE_COUNT=$($core.lane_count)"
     Write-Host "MIG_005_CAPTURE_REGISTRY_LANE_COUNT=$($core.registry_lane_count)"
     Write-Host "MIG_005_CAPTURE_OWNER_STOP_BLOCKED=$([bool]$ownerStop.blocked)"
-    Write-Host "MIG_005_CAPTURE_AUTHORITY_ACTIVE=$([bool]($truth.wrapper_alive -or $truth.three_lane_alive))"
+    Write-Host "MIG_005_CAPTURE_AUTHORITY_ACTIVE=$preActive"
+    Write-Host "MIG_005_CAPTURE_ENABLED_LANE_COUNT=$($core.enabled_lane_count)"
+    Write-Host "MIG_005_CAPTURE_PRE_HANDOFF_MODE=$preHandoffMode"
     Write-Host 'MIG_005_RAW_PRIVATE_VALUES_LOGGED=False'
 }
 
@@ -216,6 +232,9 @@ function New-ExportPackage([string]$Root,[string]$PreStopCapturePath,[string]$Zi
     $truth = Get-LifecycleProcessTruth -Root $Root
     if ($truth.wrapper_alive -or $truth.three_lane_alive) {
         throw 'Old production authority is still active; export is forbidden.'
+    }
+    if ([string]$capture.pre_handoff_mode -notin @('ACTIVE','OWNER_STOPPED','ALL_DISABLED_QUIESCENT')) {
+        throw 'Pre-handoff mode is not eligible for controlled export.'
     }
     $core = Get-CoreState $Root
     if ($core.target_fingerprint -ne [string]$capture.target_fingerprint) {
@@ -275,6 +294,9 @@ function New-ExportPackage([string]$Root,[string]$PreStopCapturePath,[string]$Zi
             lane_count = $core.lane_count
             registry_lane_count = $core.registry_lane_count
             enabled_lane_count = $core.enabled_lane_count
+            pre_handoff_mode = [string]$capture.pre_handoff_mode
+            zero_authority_verified = [bool](-not $truth.wrapper_alive -and -not $truth.three_lane_alive)
+            historical_owner_stop = [bool]$capture.historical_owner_stop
             target_fingerprint = $core.target_fingerprint
             registry_continuity_fingerprint = $core.registry_continuity_fingerprint
             owner_stop_preserved = [ordered]@{
@@ -501,6 +523,7 @@ function Import-Package([string]$ZipPath,[string]$ExpectedHash,[string]$Root,[st
         Write-Host 'MIG_005_STATE_IMPORT=PASS'
         Write-Host "MIG_005_IMPORT_LANE_COUNT=$($postCore.lane_count)"
         Write-Host "MIG_005_IMPORT_REGISTRY_LANE_COUNT=$($postCore.registry_lane_count)"
+        Write-Host "MIG_005_IMPORT_ENABLED_LANE_COUNT=$($postCore.enabled_lane_count)"
         Write-Host 'MIG_005_IMPORT_TARGET_FINGERPRINT_MATCH=True'
         Write-Host 'MIG_005_IMPORT_LATCH_FINGERPRINT_MATCH=True'
         Write-Host "MIG_005_IMPORTED_OWNER_STOP_BLOCKED=$([bool]$validated.manifest.owner_stop_preserved.blocked)"
@@ -559,6 +582,7 @@ function Verify-ImportedState([string]$ZipPath,[string]$ExpectedHash,[string]$Ro
         Write-Host 'MIG_005_STATE_VERIFY=PASS'
         Write-Host "MIG_005_VERIFY_LANE_COUNT=$($core.lane_count)"
         Write-Host "MIG_005_VERIFY_REGISTRY_LANE_COUNT=$($core.registry_lane_count)"
+        Write-Host "MIG_005_VERIFY_ENABLED_LANE_COUNT=$($core.enabled_lane_count)"
         Write-Host 'MIG_005_VERIFY_TARGETS_PRESERVED=True'
         Write-Host 'MIG_005_VERIFY_LATCHES_PRESERVED=True'
         Write-Host "MIG_005_VERIFY_OWNER_STOP_BLOCKED=$([bool]$owner.blocked)"
