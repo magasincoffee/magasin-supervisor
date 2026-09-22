@@ -45,6 +45,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -110,6 +112,11 @@ jobs:
           . "$env:GITHUB_WORKSPACE\windows\lifecycle-truth.ps1"
 
           $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
+          $platformRoot = Get-SupervisorStateRoot -ExplicitRoot "" -Compatibility "platform-default"
+          $platformLanesPath = Join-Path $platformRoot "lanes.json"
+          $platformRegistryPath = Join-Path $platformRoot "lane-registry.json"
+          $platformStatusPath = Join-Path $platformRoot "lane-status.json"
+          $platformEventsPath = Join-Path $platformRoot "lane-events.ndjson"
           $lanesPath = Join-Path $root "lanes.json"
           $registryPath = Join-Path $root "lane-registry.json"
           $statusPath = Join-Path $root "lane-status.json"
@@ -120,6 +127,10 @@ jobs:
           $registryLaneCount = Get-JsonLaneCount $registryPath
           $stateFilesPresent = [bool]((Test-Path $lanesPath) -and (Test-Path $registryPath) -and (Test-Path $statusPath))
           $browserProfilePresent = Test-Path (Join-Path $root "browser_profile")
+          $platformLaneCount = Get-JsonLaneCount $platformLanesPath
+          $platformRegistryLaneCount = Get-JsonLaneCount $platformRegistryPath
+          $platformStateFilesPresent = [bool]((Test-Path $platformLanesPath) -and (Test-Path $platformRegistryPath) -and (Test-Path $platformStatusPath) -and (Test-Path $platformEventsPath))
+          $platformRuntimePresent = Test-Path (Join-Path $platformRoot "runtime")
           $bootstrapOnly = $false
           $destinationImportCompatible = $false
           if ((Test-Path $root) -and -not $stateFilesPresent) {
@@ -141,6 +152,8 @@ jobs:
 
           $truth = Get-LifecycleProcessTruth -Root $root
           $ownerStop = Get-LifecycleOwnerStopState -Root $root
+          $platformTruth = Get-LifecycleProcessTruth -Root $platformRoot
+          $platformOwnerStop = Get-LifecycleOwnerStopState -Root $platformRoot
 
           $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
           $runName = "MAGASINBusinessOSAutostart"
@@ -163,6 +176,13 @@ jobs:
           } elseif ($stateFilesPresent -and $laneCount -eq 3 -and $registryLaneCount -eq 3 -and -not $autostartPresent -and -not $pendingReboot) {
             $role = "NEW_READY_CANDIDATE"
           }
+          $platformRetryClean = [bool](
+            -not $platformStateFilesPresent -and
+            -not $platformRuntimePresent -and
+            -not $platformTruth.wrapper_alive -and
+            -not $platformTruth.three_lane_alive -and
+            -not $autostartPresent
+          )
 
           Write-Host "MIG_005_MACHINE_FINGERPRINT=$machineFingerprint"
           Write-Host "MIG_005_MACHINE_ROLE=$role"
@@ -179,6 +199,14 @@ jobs:
           Write-Host "MIG_005_THREE_LANE_ACTIVE=$([bool]$truth.three_lane_alive)"
           Write-Host "MIG_005_AUTOSTART_PRESENT=$autostartPresent"
           Write-Host "MIG_005_PENDING_REBOOT=$pendingReboot"
+          Write-Host "MIG_005_PLATFORM_STATE_FILES_PRESENT=$platformStateFilesPresent"
+          Write-Host "MIG_005_PLATFORM_RUNTIME_PRESENT=$platformRuntimePresent"
+          Write-Host "MIG_005_PLATFORM_LANE_COUNT=$platformLaneCount"
+          Write-Host "MIG_005_PLATFORM_REGISTRY_LANE_COUNT=$platformRegistryLaneCount"
+          Write-Host "MIG_005_PLATFORM_OWNER_STOP_BLOCKED=$([bool]$platformOwnerStop.blocked)"
+          Write-Host "MIG_005_PLATFORM_WRAPPER_ACTIVE=$([bool]$platformTruth.wrapper_alive)"
+          Write-Host "MIG_005_PLATFORM_THREE_LANE_ACTIVE=$([bool]$platformTruth.three_lane_alive)"
+          Write-Host "MIG_005_PLATFORM_RETRY_CLEAN=$platformRetryClean"
           Write-Host "MIG_005_READ_ONLY_PROBE=True"
           Write-Host "ZERO_PRODUCTION_MUTATION=True"
           Write-Host "RBT009_TIER_B_480M=NOT_RUN"
