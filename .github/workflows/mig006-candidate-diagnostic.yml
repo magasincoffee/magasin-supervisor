@@ -1,0 +1,91 @@
+name: MIG-006 Locked Candidate Diagnostic
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/mig006-candidate-diagnostic.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-mig006-diagnostic
+  cancel-in-progress: false
+
+env:
+  MIG006_RUNTIME_CANDIDATE_SHA: "218f330ee86eea4f0fb79ef9293bd43cf96a45de"
+  MIG006_EXPECTED_RUNNER_NAME: "DESKTOP-4K7IM13"
+
+jobs:
+  diagnostic:
+    if: ${{ github.head_ref == 'mig-006/rbt009-exact-runtime-8h' }}
+    name: locked-candidate-read-only-1m
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout control plane
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - name: Checkout exact locked runtime candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 218f330ee86eea4f0fb79ef9293bd43cf96a45de
+          path: .mig006-runtime-candidate
+          fetch-depth: 1
+
+      - name: Run sanitized read-only candidate diagnostic
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ([string]$env:RUNNER_NAME -ne $env:MIG006_EXPECTED_RUNNER_NAME) {
+            throw "MIG006_DIAGNOSTIC_RUNNER_MISMATCH"
+          }
+
+          $env:SUPERVISOR_STATE_ROOT = Join-Path ([string]$env:LOCALAPPDATA) "MAGASIN\Supervisor"
+          $env:GITHUB_SHA = $env:MIG006_RUNTIME_CANDIDATE_SHA
+          $summary = Join-Path $env:RUNNER_TEMP "mig006-candidate-diag-summary.json"
+          $reason = "NONE"
+
+          try {
+            & ".mig006-runtime-candidate\.github\scripts\supervisor-rbt009-soak.ps1" -DurationMinutes 1 -SampleSeconds 30 -OutputPath $summary
+          } catch {
+            $message = [string]$_.Exception.Message
+            $reason = switch -Regex ($message) {
+              "Owner STOP" { "OWNER_STOP_OBSERVED"; break }
+              "target identity|production targets changed" { "TARGET_CHANGED"; break }
+              "Supervisor/Chrome/CDP remained unhealthy" { "RUNTIME_HEALTH_FAILED"; break }
+              "ChatGPT page budget exceeded" { "PAGE_BUDGET_EXCEEDED"; break }
+              "Repeated identical ERROR/RECOVERY" { "EVENT_FLOOD"; break }
+              "Continuous soak duration" { "DURATION_CHECK_FAILED"; break }
+              default { "UNCLASSIFIED_CANDIDATE_EXCEPTION" }
+            }
+          }
+
+          $summaryPresent = Test-Path $summary -PathType Leaf
+          $duration = 0
+          $maxPages = -1
+          $registryEvolved = $false
+          $ownerStopObserved = $false
+          if ($summaryPresent) {
+            $s = Get-Content $summary -Raw -Encoding UTF8 | ConvertFrom-Json
+            $duration = [int64]$s.duration_seconds
+            $maxPages = [int]$s.max_page_count
+            $registryEvolved = [bool]$s.registry_target_evolved
+            $ownerStopObserved = [bool]$s.owner_stop_observed
+          }
+
+          Write-Host "MIG006_DIAGNOSTIC_RESULT=$([string]$(if ($reason -eq 'NONE' -and $summaryPresent) { 'PASS' } else { 'FAIL' }))"
+          Write-Host "MIG006_DIAGNOSTIC_REASON=$reason"
+          Write-Host "MIG006_DIAGNOSTIC_SUMMARY_PRESENT=$summaryPresent"
+          Write-Host "MIG006_DIAGNOSTIC_DURATION_SECONDS=$duration"
+          Write-Host "MIG006_DIAGNOSTIC_MAX_PAGE_COUNT=$maxPages"
+          Write-Host "MIG006_DIAGNOSTIC_REGISTRY_TARGET_EVOLVED=$registryEvolved"
+          Write-Host "MIG006_DIAGNOSTIC_OWNER_STOP_OBSERVED=$ownerStopObserved"
+          Write-Host "MIG006_DIAGNOSTIC_RUNTIME_CANDIDATE_SHA=$env:MIG006_RUNTIME_CANDIDATE_SHA"
+
+          Remove-Item $summary -Force -ErrorAction SilentlyContinue
