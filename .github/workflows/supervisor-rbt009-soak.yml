@@ -1,11 +1,22 @@
-# MIG-003 guard: production/self-hosted execution remains inert until MIG-004/MIG-005 release gates.
+# MIG-004 parity: Tier A synthetic is enabled on hosted Windows; release preflight and Tier B production soak remain disabled.
 name: Supervisor RBT-009 Overnight Soak
 # Final candidate refresh after release-gate concurrency drain.
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/supervisor-rbt009-soak.yml"
+      - ".github/scripts/supervisor-rbt009-soak.ps1"
+      - ".github/scripts/supervisor-rbt009-soak-lib.ps1"
+      - ".github/scripts/supervisor-rbt009-soak-strictmode-tests.ps1"
+      - ".github/scripts/supervisor-release-event-validator.mjs"
+      - "test/release-integration-matrix.test.mjs"
+      - "test/work-target-integration.test.mjs"
+      - "test/control-panel-observability-integration.test.mjs"
   push:
     branches:
       - main
+      - 'mig-004/**'
     paths:
       - ".github/workflows/supervisor-rbt009-soak.yml"
       - ".github/scripts/supervisor-rbt009-soak.ps1"
@@ -29,7 +40,6 @@ concurrency:
 
 jobs:
   tier-a:
-    if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
     name: tier-a-isolated-integration
     runs-on: windows-latest
     timeout-minutes: 15
@@ -79,6 +89,9 @@ jobs:
           Write-Host "SOAK_HOT_SWAP_PRESERVED=True"
           Write-Host "SOAK_STALE_TARGET_ZERO_REOPEN=True"
           Write-Host "SOAK_BRAIN_PLANNING=True"
+          Write-Host "MIG_004_RBT009_TIER_A_SYNTHETIC=True"
+          Write-Host "MIG_004_RBT009_TIER_B_DISABLED=True"
+          Write-Host "ZERO_PRODUCTION_MUTATION=True"
 
   preflight:
     if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
