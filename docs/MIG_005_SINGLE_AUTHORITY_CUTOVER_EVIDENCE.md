@@ -107,6 +107,27 @@ The implementation was corrected so physical validation occurs in staging while 
 
 Final hosted run IDs are recorded only after the corrected candidate completes all gates.
 
+## Old-machine quiescent authority reconciliation
+
+Owner read-only truth proves the old host is a legitimate **ALL_DISABLED_QUIESCENT** state:
+- config lanes: **3**
+- registry lanes: **3**
+- enabled lanes: **0**
+- wrapper / Three-Lane / Chrome / CDP: **inactive**
+- Owner STOP: **false**
+- STOP / AUTOSTART_DISABLED: **absent**
+- HKCU autostart registration: **present**
+- supported start/stop scripts: **present**
+- zero runtime authority: **verified**
+
+This state must not be forced through Owner START. `autostart-bootstrap.ps1` exits successfully when enabled-lane count is less than one, so a registered old autostart entry does not create runtime authority while all three lanes remain disabled.
+
+The bounded handoff classifier recognizes exactly four modes: `ACTIVE`, `OWNER_STOPPED`, `ALL_DISABLED_QUIESCENT`, and `INVALID_INACTIVE`. Only the first three are eligible; all other inactive/non-Owner-stopped states fail closed. For `ALL_DISABLED_QUIESCENT`, no STOP is called and no synthetic historical STOP/AUTOSTART_DISABLED is created.
+
+Autostart ownership transfers only after final export succeeds. The exact prior HKCU registration value is stored only in a private local rollback record, never Git or Actions logs. Rollback restores the exact old registration; runtime restart occurs only when the recorded pre-handoff mode was `ACTIVE`. `OWNER_STOPPED` and `ALL_DISABLED_QUIESCENT` remain inactive.
+
+Imported state must preserve `enabled_lane_count=0`; MIG-005 does not enable any lane. The independent autostart bootstrap is required to exit without starting Supervisor in this all-disabled state.
+
 ## Production boundary
 
 No old-machine production capture/STOP/export has been executed by this branch.
