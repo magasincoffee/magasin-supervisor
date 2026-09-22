@@ -1,11 +1,20 @@
-# MIG-003 guard: production/self-hosted execution remains inert until MIG-004/MIG-005 release gates.
+# MIG-004 parity: hosted safe-validation is active; production/self-hosted lifecycle execution remains inert until MIG-005.
 name: Supervisor Lifecycle Acceptance
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/supervisor-lifecycle-acceptance.yml
+      - .github/scripts/supervisor-mig004-lifecycle-sandbox.ps1
+      - src/**
+      - test/**
+      - windows/**
+      - package.json
   push:
     branches:
       - main
+      - 'mig-004/**'
     paths:
       - .github/workflows/supervisor-lifecycle-acceptance.yml
       - src/**
@@ -29,6 +38,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  safe-validation:
+    name: safe-validation-a-l
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: .
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install test dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Validate lifecycle A-L and permanent safety contracts
+        run: |
+          node --test `
+            test/lifecycle-truth-v50.test.mjs `
+            test/lifecycle-acceptance-optional-latch.test.mjs `
+            test/owner-start-latch-recovery.test.mjs `
+            test/windows-kill-switch.test.mjs `
+            test/windows-repair.test.mjs `
+            test/state-root.test.mjs `
+            test/supervisor-integrity-optional-latch.test.mjs
+
+      - name: Exercise isolated lifecycle/state-root sandbox
+        run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-mig004-lifecycle-sandbox.ps1"
+
+      - name: Record safe lifecycle parity markers
+        run: |
+          Write-Host "MIG_004_LIFECYCLE_A_TO_L_SAFE_VALIDATION=True"
+          Write-Host "MIG_004_OWNER_STOP_AUTHORITY=True"
+          Write-Host "MIG_004_TARGET_PRESERVATION=True"
+          Write-Host "MIG_004_PROCESS_PID_LATCH_CONTRACT=True"
+          Write-Host "MIG_004_PRODUCTION_LIFECYCLE_JOB_SKIPPED=True"
+          Write-Host "ZERO_PRODUCTION_MUTATION=True"
+
   lifecycle-acceptance:
     if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
     runs-on: self-hosted
