@@ -1,0 +1,303 @@
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version 2.0
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$transfer = Join-Path $repoRoot 'windows\mig-005-state-transfer.ps1'
+$handoff = Join-Path $repoRoot 'windows\mig-005-old-handoff.ps1'
+$candidate = '1111111111111111111111111111111111111111'
+$tempRoot = Join-Path $env:RUNNER_TEMP ('mig005-transfer-fixture-' + [guid]::NewGuid().ToString('N'))
+
+function Write-Json([string]$Path, $Value) {
+    $parent = Split-Path -Parent $Path
+    if ($parent -and -not (Test-Path $parent)) {
+        New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    }
+    [System.IO.File]::WriteAllText(
+        $Path,
+        (($Value | ConvertTo-Json -Depth 40) + [Environment]::NewLine),
+        (New-Object System.Text.UTF8Encoding($false))
+    )
+}
+
+function New-StateFixture([string]$Root, [bool]$OwnerStop, [bool]$Enabled = $true) {
+    New-Item -ItemType Directory -Force -Path $Root | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $Root 'lane-evidence') | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $Root 'browser_profile') | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $Root 'runtime') | Out-Null
+
+    $lanes = @()
+    foreach ($i in 1..3) {
+        $lanes += [ordered]@{
+            lane_id = "lane-$i"
+            project_name = "Fixture $i"
+            brain_url = "https://chatgpt.com/c/fixture-brain-$i"
+            brain_url_revision = 1
+            work_url = "https://chatgpt.com/c/fixture-work-$i"
+            work_url_revision = 1
+            work_url_saved_at = '2026-09-22T00:00:00Z'
+            work_mode = 'OWNER'
+            work_state_reset_revision = 2
+            relay_retry_rearm_revision = 0
+            relay_retry_rearm_requested_at = $null
+            enabled = $Enabled
+        }
+    }
+
+    $config = [ordered]@{
+        schema_version = 'three-lane-config.v1'
+        mode = 'THREE_LANE_V1'
+        lanes = $lanes
+    }
+    Write-Json (Join-Path $Root 'lanes.json') $config
+
+    $shot = Join-Path $Root 'lane-evidence\lane-1-fixture-relay.png'
+    [IO.File]::WriteAllBytes($shot, [byte[]](1,2,3,4,5,6,7,8))
+
+    $registryLanes = [ordered]@{}
+    foreach ($i in 1..3) {
+        $relay = $null
+        if ($i -eq 1) {
+            $relay = [ordered]@{
+                relay_id = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+                response_digest = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+                text_digest = 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
+                screenshot_path = $shot
+                attempt_count = 1
+                retry_not_before = $null
+                retry_exhausted = $false
+                last_attempt_state = 'READY'
+            }
+        }
+
+        $registryLanes["lane-$i"] = [ordered]@{
+            lane_id = "lane-$i"
+            brain_url = "https://chatgpt.com/c/fixture-brain-$i"
+            applied_brain_url_revision = 1
+            work_url = "https://chatgpt.com/c/fixture-work-$i"
+            work_generation = 1
+            applied_work_mode = 'OWNER'
+            applied_work_saved_at = '2026-09-22T00:00:00Z'
+            pending_work_url = ''
+            pending_work_url_revision = 0
+            pending_work_saved_at = $null
+            pending_work_mode = $null
+            applied_work_state_reset_revision = 2
+            task_id = "FIXTURE-$i"
+            instruction_digest = ('d' * 64)
+            last_brain_directive_digest = ('e' * 64)
+            last_work_result_digest = $null
+            last_result_relay_id = $null
+            last_result_verdict = $null
+            last_dispatch_id = "dispatch-$i"
+            dispatch_inflight = if ($i -eq 2) { [ordered]@{ dispatch_id = 'fixture-dispatch'; send_state = 'SEND_CLICKED' } } else { $null }
+            relay_inflight = $relay
+            applied_relay_retry_rearm_revision = 0
+            brain_request_inflight = $null
+            brain_request_sent = $false
+            awaiting_work = $true
+            task_timing = [ordered]@{}
+            work_watchdog = [ordered]@{}
+            work_rollover = $null
+            brain_target_health = [ordered]@{}
+            work_target_health = [ordered]@{}
+            applied_work_url_revision = 1
+        }
+    }
+
+    $registry = [ordered]@{
+        schema_version = 'three-lane-registry.v1'
+        mode = 'THREE_LANE_V1'
+        lanes = $registryLanes
+    }
+    Write-Json (Join-Path $Root 'lane-registry.json') $registry
+
+    $status = [ordered]@{
+        schema_version = 'three-lane-status.v1'
+        mode = 'THREE_LANE_V1'
+        supervisor_runtime_version = 'fixture'
+        lanes = @(
+            [ordered]@{ lane_id='lane-1'; state='WORKING' },
+            [ordered]@{ lane_id='lane-2'; state='WORKING' },
+            [ordered]@{ lane_id='lane-3'; state='READY' }
+        )
+    }
+    Write-Json (Join-Path $Root 'lane-status.json') $status
+    Set-Content -Path (Join-Path $Root 'lane-events.ndjson') -Value '{"event_type":"FIXTURE"}' -Encoding ascii
+
+    Set-Content -Path (Join-Path $Root 'browser_profile\Cookies') -Value 'DO_NOT_TRANSFER' -Encoding ascii
+    Set-Content -Path (Join-Path $Root 'runtime\machine-local.txt') -Value 'DO_NOT_TRANSFER' -Encoding ascii
+    Set-Content -Path (Join-Path $Root 'supervisor.log') -Value 'DO_NOT_TRANSFER' -Encoding ascii
+    Set-Content -Path (Join-Path $Root 'supervisor.pid') -Value '99999' -Encoding ascii
+
+    if ($OwnerStop) {
+        Set-Content -Path (Join-Path $Root 'STOP') -Value 'STOP' -Encoding ascii
+        Set-Content -Path (Join-Path $Root 'AUTOSTART_DISABLED') -Value 'OWNER_STOP' -Encoding ascii
+    }
+}
+
+function Invoke-Transfer([string[]]$Arguments) {
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $transfer @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Transfer command failed: $($Arguments -join ' ')"
+    }
+}
+
+
+function Write-HandoffCaptureFixture(
+    [string]$Path,
+    [bool]$Active,
+    [bool]$OwnerStop,
+    [int]$EnabledLaneCount,
+    [int]$LaneCount,
+    [int]$RegistryLaneCount
+) {
+    $captureValue = [ordered]@{
+        schema_version = 'supervisor-mig005-prestop-capture.v1'
+        candidate_sha = $candidate
+        lane_count = $LaneCount
+        registry_lane_count = $RegistryLaneCount
+        enabled_lane_count = $EnabledLaneCount
+        owner_stop_before = [ordered]@{
+            stop_present = $OwnerStop
+            autostart_disabled_present = $OwnerStop
+            blocked = $OwnerStop
+        }
+        authority_before = [ordered]@{
+            wrapper_alive = $Active
+            three_lane_alive = $false
+            chrome_alive = $false
+            healthy = $Active
+        }
+    }
+    Write-Json $Path $captureValue
+}
+
+function Assert-HandoffMode(
+    [string]$Name,
+    [bool]$Active,
+    [bool]$OwnerStop,
+    [int]$EnabledLaneCount,
+    [int]$LaneCount,
+    [int]$RegistryLaneCount,
+    [string]$ExpectedMode,
+    [bool]$ExpectSuccess
+) {
+    $capturePath = Join-Path $tempRoot ("capture-classify-" + $Name + ".json")
+    $sourceRoot = Join-Path $tempRoot ("source-classify-" + $Name)
+    New-Item -ItemType Directory -Force -Path $sourceRoot | Out-Null
+    Write-HandoffCaptureFixture -Path $capturePath -Active $Active -OwnerStop $OwnerStop -EnabledLaneCount $EnabledLaneCount -LaneCount $LaneCount -RegistryLaneCount $RegistryLaneCount
+    $args = @(
+        '-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',$handoff,
+        '-Mode','Handoff',
+        '-PackageZip',(Join-Path $tempRoot ($Name + '.zip')),
+        '-CandidateSha',$candidate,
+        '-SourceRoot',$sourceRoot,
+        '-CapturePath',$capturePath,
+        '-ValidateOnly'
+    )
+    $previousErrorPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = & powershell.exe @args 2>&1
+        $code = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorPreference
+    }
+    $joined = ($output | Out-String)
+    if ($ExpectSuccess -and $code -ne 0) { throw "Expected $Name classification to pass: $joined" }
+    if (-not $ExpectSuccess -and $code -eq 0) { throw "Expected $Name classification to fail." }
+    if ($joined -notmatch ("MIG_005_PRE_HANDOFF_MODE=" + [regex]::Escape($ExpectedMode))) {
+        throw "Expected $Name mode $ExpectedMode; output: $joined"
+    }
+}
+
+try {
+    New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
+
+    Assert-HandoffMode -Name 'active' -Active $true -OwnerStop $false -EnabledLaneCount 1 -LaneCount 3 -RegistryLaneCount 3 -ExpectedMode 'ACTIVE' -ExpectSuccess $true
+    Assert-HandoffMode -Name 'owner-stopped' -Active $false -OwnerStop $true -EnabledLaneCount 1 -LaneCount 3 -RegistryLaneCount 3 -ExpectedMode 'OWNER_STOPPED' -ExpectSuccess $true
+    Assert-HandoffMode -Name 'all-disabled' -Active $false -OwnerStop $false -EnabledLaneCount 0 -LaneCount 3 -RegistryLaneCount 3 -ExpectedMode 'ALL_DISABLED_QUIESCENT' -ExpectSuccess $true
+    Assert-HandoffMode -Name 'invalid-inactive' -Active $false -OwnerStop $false -EnabledLaneCount 1 -LaneCount 3 -RegistryLaneCount 3 -ExpectedMode 'INVALID_INACTIVE' -ExpectSuccess $false
+
+    # Scenario 1: production was running without an actual Owner STOP. The handoff
+    # STOP creates temporary blockers, but import must not misclassify them as Owner intent.
+    $source = Join-Path $tempRoot 'source-normal'
+    $capture = Join-Path $tempRoot 'capture-normal.json'
+    $zip = Join-Path $tempRoot 'normal.zip'
+    $dest = Join-Path $tempRoot 'dest-normal'
+
+    New-StateFixture -Root $source -OwnerStop $false -Enabled $false
+    Invoke-Transfer @('-Mode','Capture','-SourceRoot',$source,'-CapturePath',$capture,'-CandidateSha',$candidate)
+
+    Set-Content -Path (Join-Path $source 'STOP') -Value 'STOP' -Encoding ascii
+    Set-Content -Path (Join-Path $source 'AUTOSTART_DISABLED') -Value 'OWNER_STOP' -Encoding ascii
+    Invoke-Transfer @('-Mode','Export','-SourceRoot',$source,'-CapturePath',$capture,'-PackageZip',$zip,'-CandidateSha',$candidate)
+
+    $zipHash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+
+    New-Item -ItemType Directory -Force -Path $dest | Out-Null
+    Set-Content -Path (Join-Path $dest 'STOP') -Value 'BOOTSTRAP_BLOCK' -Encoding ascii
+    Set-Content -Path (Join-Path $dest 'AUTOSTART_DISABLED') -Value 'BOOTSTRAP_BLOCK' -Encoding ascii
+    New-Item -ItemType Directory -Force -Path (Join-Path $dest 'browser_profile') | Out-Null
+    Set-Content -Path (Join-Path $dest 'browser_profile\Cookies') -Value 'DESTINATION_KEEP' -Encoding ascii
+
+    Invoke-Transfer @('-Mode','Import','-DestinationRoot',$dest,'-PackageZip',$zip,'-ExpectedPackageSha256',$zipHash,'-CandidateSha',$candidate)
+    Invoke-Transfer @('-Mode','Verify','-DestinationRoot',$dest,'-PackageZip',$zip,'-ExpectedPackageSha256',$zipHash,'-CandidateSha',$candidate)
+
+    if (Test-Path (Join-Path $dest 'STOP')) { throw 'Synthetic handoff STOP leaked into imported canonical state.' }
+    if (Test-Path (Join-Path $dest 'AUTOSTART_DISABLED')) { throw 'Synthetic handoff AUTOSTART_DISABLED leaked into imported canonical state.' }
+    if (-not (Test-Path (Join-Path $dest 'browser_profile\Cookies'))) { throw 'Existing destination browser_profile was not preserved.' }
+    $destinationCookieSentinel = (Get-Content (Join-Path $dest 'browser_profile\Cookies') -Raw).Trim()
+    if ($destinationCookieSentinel -ne 'DESTINATION_KEEP') { throw 'Source browser_profile leaked into destination.' }
+    if (Test-Path (Join-Path $dest 'runtime')) { throw 'runtime must not be in canonical transfer payload.' }
+    if (Test-Path (Join-Path $dest 'supervisor.pid')) { throw 'supervisor.pid must not be transferred.' }
+    if (Test-Path (Join-Path $dest 'supervisor.log')) { throw 'supervisor.log must not be transferred.' }
+
+    $importedConfig = Get-Content (Join-Path $dest 'lanes.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (@($importedConfig.lanes | Where-Object { [bool]$_.enabled }).Count -ne 0) {
+        throw 'All-disabled quiescent import unexpectedly enabled a lane.'
+    }
+
+    $importedRegistry = Get-Content (Join-Path $dest 'lane-registry.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $rebasedShot = [string]$importedRegistry.lanes.'lane-1'.relay_inflight.screenshot_path
+    $expectedEvidenceRoot = [IO.Path]::GetFullPath((Join-Path $dest 'lane-evidence')).TrimEnd('\') + '\'
+    if (-not ([IO.Path]::GetFullPath($rebasedShot).StartsWith($expectedEvidenceRoot,[StringComparison]::OrdinalIgnoreCase))) {
+        throw 'Relay screenshot path was not rebased to destination lane-evidence.'
+    }
+    if (-not (Test-Path $rebasedShot -PathType Leaf)) { throw 'Rebased relay screenshot is missing.' }
+
+    # Scenario 2: an actual pre-existing Owner STOP must remain preserved.
+    $sourceStop = Join-Path $tempRoot 'source-owner-stop'
+    $captureStop = Join-Path $tempRoot 'capture-owner-stop.json'
+    $zipStop = Join-Path $tempRoot 'owner-stop.zip'
+    $destStop = Join-Path $tempRoot 'dest-owner-stop'
+
+    New-StateFixture -Root $sourceStop -OwnerStop $true
+    Invoke-Transfer @('-Mode','Capture','-SourceRoot',$sourceStop,'-CapturePath',$captureStop,'-CandidateSha',$candidate)
+    Invoke-Transfer @('-Mode','Export','-SourceRoot',$sourceStop,'-CapturePath',$captureStop,'-PackageZip',$zipStop,'-CandidateSha',$candidate)
+    $zipStopHash = (Get-FileHash $zipStop -Algorithm SHA256).Hash.ToLowerInvariant()
+
+    Invoke-Transfer @('-Mode','Import','-DestinationRoot',$destStop,'-PackageZip',$zipStop,'-ExpectedPackageSha256',$zipStopHash,'-CandidateSha',$candidate)
+    Invoke-Transfer @('-Mode','Verify','-DestinationRoot',$destStop,'-PackageZip',$zipStop,'-ExpectedPackageSha256',$zipStopHash,'-CandidateSha',$candidate)
+
+    if (-not (Test-Path (Join-Path $destStop 'STOP'))) { throw 'Actual pre-existing STOP was not preserved.' }
+    if (-not (Test-Path (Join-Path $destStop 'AUTOSTART_DISABLED'))) { throw 'Actual pre-existing AUTOSTART_DISABLED was not preserved.' }
+
+    Write-Host 'MIG_005_STATE_TRANSFER_FIXTURE=PASS'
+    Write-Host 'MIG_005_HASH_ROUNDTRIP=True'
+    Write-Host 'MIG_005_THREE_LANE_PRESERVED=True'
+    Write-Host 'MIG_005_ALL_DISABLED_PRESERVED=True'
+    Write-Host 'MIG_005_RELAY_EVIDENCE_REBASED=True'
+    Write-Host 'MIG_005_OWNER_STOP_DISTINCTION=True'
+    Write-Host 'MIG_005_BROWSER_PROFILE_EXCLUDED=True'
+    Write-Host 'MIG_005_DESTINATION_BROWSER_PROFILE_PRESERVED=True'
+    Write-Host 'MIG_005_PRE_HANDOFF_MODE_REGRESSION_ACTIVE=True'
+    Write-Host 'MIG_005_PRE_HANDOFF_MODE_REGRESSION_OWNER_STOPPED=True'
+    Write-Host 'MIG_005_PRE_HANDOFF_MODE_REGRESSION_ALL_DISABLED_QUIESCENT=True'
+    Write-Host 'MIG_005_PRE_HANDOFF_MODE_REGRESSION_INVALID_INACTIVE=True'
+    Write-Host 'RBT009_TIER_B_480M=NOT_RUN'
+}
+finally {
+    Remove-Item $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
