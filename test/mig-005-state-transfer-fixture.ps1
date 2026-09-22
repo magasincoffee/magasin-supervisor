@@ -195,8 +195,15 @@ function Assert-HandoffMode(
         '-CapturePath',$capturePath,
         '-ValidateOnly'
     )
-    $output = & powershell.exe @args 2>&1
-    $code = $LASTEXITCODE
+    $previousErrorPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = & powershell.exe @args 2>&1
+        $code = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorPreference
+    }
     $joined = ($output | Out-String)
     if ($ExpectSuccess -and $code -ne 0) { throw "Expected $Name classification to pass: $joined" }
     if (-not $ExpectSuccess -and $code -eq 0) { throw "Expected $Name classification to fail." }
