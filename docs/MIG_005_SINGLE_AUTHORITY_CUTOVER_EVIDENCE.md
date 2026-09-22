@@ -152,6 +152,32 @@ The raw state package was privately copied by Owner to the new machine. Owner in
 
 At this checkpoint, ownership authority is intentionally **0** during the controlled handoff. This is safe because the old host was already all-disabled/quiescent and the new host remains non-authoritative until verified import and ownership activation complete.
 
+## Package/runtime provenance compatibility
+
+The first new-machine activation attempt failed closed on the original single-SHA contract with `Transfer manifest candidate SHA mismatch`. The wrapper rollback completed with new autostart ownership absent and new runtime authority inactive. The old host remains `ALL_DISABLED_QUIESCENT`; its preserved rollback record is untouched and was not restored.
+
+Root cause is a safe provenance split, not a state-transfer implementation change:
+
+- package-export candidate: `dc0b5f369f6a9c3ae89d821f1ddf603e1135f51e`
+- package SHA256: `b2a67e3c7ae568454c09386b2ceb4f7cc7cfba650e3a37243dea89a2ebfe5753`
+- transfer implementation blob at package candidate: `abf72af4ee51a06bf49af669cd4f590bd68a9aa7`
+- runtime/install candidate: dynamic final PR #10 head
+- required relation: package candidate must be an ancestor of runtime candidate
+- required compatibility: `windows/mig-005-state-transfer.ps1` Git blob must be exactly identical at both candidates
+
+The activation wrapper now accepts two explicit SHAs:
+- `PackageCandidateSha` — must equal the package manifest candidate and is passed to transfer Import/Verify.
+- `CandidateSha` — must equal repository HEAD and remains the runtime/install candidate.
+
+Before any platform-state or ownership mutation, the wrapper verifies package SHA256, manifest candidate, local git existence, ancestry, and exact transfer-blob identity. Any mismatch fails closed. The transfer manifest guard remains unchanged; `windows/mig-005-state-transfer.ps1` is intentionally not modified.
+
+Sanitized success markers:
+- `MIG_005_PACKAGE_CANDIDATE_SHA_VERIFIED=True`
+- `MIG_005_RUNTIME_CANDIDATE_SHA_VERIFIED=True`
+- `MIG_005_PACKAGE_RUNTIME_ANCESTRY_VERIFIED=True`
+- `MIG_005_TRANSFER_BLOB_IDENTITY_VERIFIED=True`
+- `MIG_005_PACKAGE_RUNTIME_PROVENANCE_COMPATIBLE=True`
+
 ## New-machine ownership activation wrapper
 
 Dedicated wrapper:
