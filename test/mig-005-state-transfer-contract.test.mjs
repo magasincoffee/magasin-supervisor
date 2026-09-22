@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 const transfer = readFileSync(new URL("../windows/mig-005-state-transfer.ps1", import.meta.url), "utf8");
 const handoff = readFileSync(new URL("../windows/mig-005-old-handoff.ps1", import.meta.url), "utf8");
+const bootstrap = readFileSync(new URL("../windows/autostart-bootstrap.ps1", import.meta.url), "utf8");
 
 test("MIG-005 transfer tooling inventories canonical continuity state", () => {
   for (const required of [
@@ -73,4 +74,39 @@ test("MIG-005 tooling never starts the new authority or runs Tier B", () => {
   assert.match(transfer, /RBT009_TIER_B_480M=NOT_RUN/);
   assert.match(handoff, /MIG_005_NEW_AUTHORITY_STARTED=False/);
   assert.match(handoff, /RBT009_TIER_B_480M=NOT_RUN/);
+});
+
+
+test("MIG-005 classifies all four old-authority pre-handoff modes fail-closed", () => {
+  for (const mode of ["ACTIVE","OWNER_STOPPED","ALL_DISABLED_QUIESCENT","INVALID_INACTIVE"]) {
+    assert.equal(handoff.includes("'" + mode + "'"), true, "missing mode: " + mode);
+  }
+  assert.match(handoff, /enabled_lane_count -eq 0/);
+  assert.match(handoff, /lane_count -eq 3/);
+  assert.match(handoff, /registry_lane_count -eq 3/);
+  assert.match(handoff, /MIG_005_OLD_STOP=NOT_REQUIRED_ALL_DISABLED_QUIESCENT/);
+});
+
+test("MIG-005 transfers old autostart ownership only after export and retains reversible private rollback", () => {
+  const exportPos = handoff.indexOf("MIG-005 final state export failed.");
+  const rollbackRecordPos = handoff.indexOf("Write-AutostartRollbackRecord -Path");
+  const removeAutostartPos = handoff.indexOf("Remove-ItemProperty -Path $runKey -Name $runName -ErrorAction Stop");
+  assert.ok(exportPos >= 0);
+  assert.ok(rollbackRecordPos > exportPos);
+  assert.ok(removeAutostartPos > rollbackRecordPos);
+  assert.match(handoff, /Restore-OldAuthority/);
+  assert.match(handoff, /MIG_005_OLD_AUTOSTART_REGISTRATION_RESTORED=True/);
+  assert.match(handoff, /MIG_005_RAW_AUTOSTART_VALUE_LOGGED=False/);
+});
+
+test("independent autostart bootstrap stays inactive when every lane is disabled", () => {
+  const countPos = bootstrap.indexOf("Get-EnabledLaneCount -Root $root");
+  const disabledPos = bootstrap.indexOf("$enabledLaneCount -lt 1");
+  const exitPos = bootstrap.indexOf("exit 0", disabledPos);
+  const invokeStartPos = bootstrap.indexOf("& powershell.exe", disabledPos);
+  assert.ok(countPos >= 0);
+  assert.ok(disabledPos > countPos);
+  assert.ok(exitPos > disabledPos);
+  assert.ok(invokeStartPos < 0 || exitPos < invokeStartPos);
+  assert.match(bootstrap, /AUTOSTART_ALL_LANES_DISABLED/);
 });
