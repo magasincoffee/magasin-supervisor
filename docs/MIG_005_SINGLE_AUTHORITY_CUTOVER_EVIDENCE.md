@@ -40,3 +40,6 @@ No controlled handoff is authorized by this preflight commit. Production handoff
 Rollback must always stop/verify the new authority before restoring the old authority.
 
 `ZERO_PRODUCTION_MUTATION=true`
+
+
+MIG-005 runner-registration checkpoint: new repository runner connected; fresh preflight re-trigger requested. No production mutation.
