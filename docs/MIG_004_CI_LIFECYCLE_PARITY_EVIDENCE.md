@@ -1,6 +1,6 @@
 # MIG-004 — New-repo CI / Lifecycle Parity Evidence
 
-Status: **PR-HEAD GREEN / EXACT-MAIN VALIDATION PENDING**  
+Status: **TARGET DONE / BUSINESS OS CANONICAL CLOSURE PENDING**  
 Task: `MIG-004 — New-repo CI / Lifecycle Parity`  
 Exact implementation base: `63b955f59d7558a42311b3d47d58acc60a503dca`
 
@@ -95,6 +95,40 @@ Hosted gates on that same tested merge-ref:
   - normal-release preflight and Tier B 480-minute jobs: **SKIPPED**
 
 The pull-request workflows use GitHub's tested merge ref for `GITHUB_SHA`; therefore PR-head correlation is recorded as one common tested merge-ref plus the corresponding branch head. Exact post-merge validation on target `main` remains mandatory before canonical closure.
+
+## Exact-main closure evidence
+
+Canonical implementation PR:
+- PR #8: `ci(migration): qualify MIG-004 new-repo lifecycle parity`
+- exact implementation base: `63b955f59d7558a42311b3d47d58acc60a503dca`
+- final implementation head: `98f4abdb2b55d52acfe7773d789b351cf66ed05e`
+- merge / exact target main: `19e0cab9318f9293409ebbc8237aeb299c548d77`
+- changed files: **20**
+
+Exact-main hosted gates all correlate to SHA `19e0cab9318f9293409ebbc8237aeb299c548d77`:
+- Supervisor Tests run `35686650024`, job `106614800236`: **SUCCESS**
+  - full root-native suite: **567 / 567 PASS**
+  - adapter/state-root contract subset: **50 / 50 PASS**
+  - platform safety/core subset: **184 / 184 PASS**
+- Supervisor Integrity run `35686650049`, static job `106614801646`: **SUCCESS**
+  - independent-repo static/safety: **87 / 87 PASS**
+  - maintenance/control-panel safety: **29 / 29 PASS**
+  - MIG-002 provenance: **137 / 137**
+  - runtime-audit job `106614880182`: **SKIPPED / fail-closed**
+- Supervisor Lifecycle Acceptance run `35686650107`, isolated job `106614800266`: **SUCCESS**
+  - lifecycle A-L/state-root suite: **52 / 52 PASS**
+  - production lifecycle job `106614801153`: **SKIPPED**
+- Supervisor Autostart Install run `35686650035`, isolated job `106614800199`: **SUCCESS**
+  - installer/autostart contract suite: **25 / 25 PASS**
+  - production install/verify jobs `106614801441` / `106614801752`: **SKIPPED**
+- Supervisor RBT-009 Overnight Soak run `35686650070`, Tier A job `106614804896`: **SUCCESS**
+  - synthetic Tier A: **9 / 9 PASS**
+  - release preflight `106614921175`: **SKIPPED**
+  - Tier B 480-minute job `106614921608`: **SKIPPED / NOT RUN**
+
+All exact-main hosted jobs emitted `MIG_004_EXACT_SHA=19e0cab9318f9293409ebbc8237aeb299c548d77` and `ZERO_PRODUCTION_MUTATION=True`.
+
+Target-side MIG-004 DoD is satisfied. Business OS source-of-truth must still record `MIG-004=DONE` and `MIG-005=READY_OWNER_SAFE_GATE` before MIG-004 becomes canonical complete.
 
 ## Deferred
 

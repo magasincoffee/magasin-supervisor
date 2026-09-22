@@ -101,7 +101,7 @@
     "privacy metadata-only invariants unchanged",
     "no direct Business OS PROJECT_STATE/TASK_QUEUE runtime dependency"
   ],
-  "closure_state": "PR_HEAD_GREEN_EXACT_MAIN_PENDING",
+  "closure_state": "TARGET_DONE_BUSINESS_OS_CANONICAL_CLOSURE_PENDING",
   "next_task_on_success": "MIG-005_READY_OWNER_SAFE_GATE",
   "stop_after_mig004": true,
   "pr_number": 8,
@@ -113,5 +113,45 @@
     "tested_sha": "320db78c0adbaa0405473e8eac0d642f239fa705",
     "all_hosted_gates_same_sha": true,
     "exact_main_required_before_closure": true
+  },
+  "final_implementation_head": "98f4abdb2b55d52acfe7773d789b351cf66ed05e",
+  "implementation_merge_sha": "19e0cab9318f9293409ebbc8237aeb299c548d77",
+  "exact_main": {
+    "sha": "19e0cab9318f9293409ebbc8237aeb299c548d77",
+    "all_hosted_gates_same_sha": true,
+    "gates": {
+      "supervisor_tests": {
+        "run_id": 35686650024,
+        "job_id": 106614800236,
+        "status": "SUCCESS"
+      },
+      "supervisor_integrity": {
+        "run_id": 35686650049,
+        "job_id": 106614801646,
+        "status": "SUCCESS",
+        "runtime_audit_job_id": 106614880182,
+        "runtime_audit": "SKIPPED_FAIL_CLOSED"
+      },
+      "lifecycle_acceptance": {
+        "run_id": 35686650107,
+        "job_id": 106614800266,
+        "status": "SUCCESS",
+        "production_job_id": 106614801153,
+        "production_job": "SKIPPED"
+      },
+      "autostart_install": {
+        "run_id": 35686650035,
+        "job_id": 106614800199,
+        "status": "SUCCESS",
+        "production_jobs": "SKIPPED"
+      },
+      "rbt009_tier_a": {
+        "run_id": 35686650070,
+        "job_id": 106614804896,
+        "status": "SUCCESS",
+        "tier_b_job_id": 106614921608,
+        "tier_b": "SKIPPED_NOT_RUN"
+      }
+    }
   }
 }
