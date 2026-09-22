@@ -1,8 +1,9 @@
 # MIG-005 — Single-Authority Production Cutover Evidence
 
-Status: **PREFLIGHT IN PROGRESS / NO CUTOVER**  
+Status: **CONTROLLED STATE TRANSFER TOOLING / PRE-CUTOVER / NO AUTHORITY SWITCH**  
 Task: `MIG-005 — Single-Authority Production Cutover`  
-Exact release base: `a67b6ea19e7e10b4b63b56f9e7b5274a94135ca2`
+Exact release base: `a67b6ea19e7e10b4b63b56f9e7b5274a94135ca2`  
+Canonical execution: **PR #10 / branch `mig-005/single-authority-cutover`**
 
 ## Authority safety
 
@@ -10,36 +11,115 @@ Exact release base: `a67b6ea19e7e10b4b63b56f9e7b5274a94135ca2`
 - production_authority: **UNCHANGED_EXISTING_SUPERVISOR**
 - production_mutation_authority_instances: **1**
 - split_brain: **FORBIDDEN**
-- Owner STOP: **PRESERVE**
-- Brain/Work targets: **PRESERVE**
-- lane state/latches: **PRESERVE**
+- old production state/source: **PRESERVED**
+- new production authority started: **false**
 - RBT-009 Tier B 480m: **NOT RUN**
 
-## Phase 1 preflight
+## Owner authorization
 
-This branch adds only a read-only MIG-005 preflight workflow and its static safety contract. It does not install, start, stop, repair, register autostart, clear Owner STOP, or modify live Supervisor state.
+Business OS canonical authorization permits controlled state preservation/transfer for MIG-005, but not overlapping authorities.
 
-The self-hosted probe emits sanitized hashes/counts/booleans only. Raw machine names, Brain/Work URLs, messages, cookies, tokens, screenshots, browser profiles and private state values are not written to Git evidence.
+Required ordering remains:
 
-Preflight requires evidence for:
-1. an active old authority or preserved rollback identity;
-2. a distinct new-machine candidate with no active Supervisor authority;
-3. preserved three-lane state/registry visibility on the new candidate;
-4. no new-machine production autostart registration before handoff;
-5. Node 20+ and no detected pending reboot;
-6. exact candidate release gates before any production handoff.
+`old capture -> old STOP -> verify authority=0 -> final export -> private transfer -> import/hash verify -> new activation -> verify authority=1`
 
-If no distinct `NEW_READY_CANDIDATE` is observed, MIG-005 remains `PREFLIGHT_BLOCKED / WAIT_OWNER` and the old authority is left unchanged.
+Rollback ordering remains:
 
-## Cutover boundary
+`stop new -> verify new inactive -> restore old -> verify authority=1`
 
-No controlled handoff is authorized by this preflight commit. Production handoff tooling, if required, must be separately reviewable and must prove the ordering:
+## New-machine preflight checkpoint
 
-`old authority STOP -> verify zero authority -> new authority START -> verify exactly one authority`
+A repository self-hosted runner accepted the read-only probe after the PowerShell ExecutionPolicy correction.
 
-Rollback must always stop/verify the new authority before restoring the old authority.
+Sanitized result:
+- Node major: **24**
+- Supervisor wrapper: **OFF**
+- Three-Lane process: **OFF**
+- production autostart: **OFF**
+- pending reboot: **false**
+- canonical state files: **absent**
+- lane count: **0**
+- registry lane count: **0**
+- role: **BLOCKED PENDING PRESERVED STATE**
+- RBT-009 Tier B: **NOT RUN**
 
-`ZERO_PRODUCTION_MUTATION=true`
+The observed STOP-blocked state while canonical state was absent is treated only as a fail-closed/bootstrap condition. It is not accepted as proof of historical Owner STOP intent.
 
+## Canonical continuity inventory from runtime/lifecycle code
 
-MIG-005 runner-registration checkpoint: new repository runner connected; fresh preflight re-trigger requested. No production mutation.
+The bounded transferable state set is derived from executable runtime/lifecycle code, not guessed:
+
+1. `lanes.json`
+2. `lane-registry.json` — includes durable dispatch/relay latches and target/application state
+3. `lane-status.json`
+4. `lane-events.ndjson`
+5. pre-existing `STOP` and/or `AUTOSTART_DISABLED` only when they existed **before** the controlled handoff STOP
+6. only relay screenshots currently referenced by a durable `relay_inflight.screenshot_path` under `lane-evidence/`
+
+Explicitly excluded from the canonical state payload:
+- `runtime/`
+- `supervisor.pid`
+- `runtime-status.json`
+- `supervisor.log`
+- `browser_profile/`
+- `autostart-install-status.json`
+- unreferenced relay evidence
+
+Machine-local runtime/auth surfaces remain activation gates and are not blindly copied as business/lane state.
+
+## Controlled transfer tooling
+
+Files:
+- `windows/mig-005-state-transfer.ps1`
+- `windows/mig-005-old-handoff.ps1`
+- `test/mig-005-state-transfer-contract.test.mjs`
+- `test/mig-005-state-transfer-fixture.ps1`
+
+Transfer schema:
+- `supervisor-mig005-state-transfer.v1`
+- pre-stop capture: `supervisor-mig005-prestop-capture.v1`
+
+Properties:
+- explicit source/destination state roots;
+- pre-stop sanitized capture;
+- supported STOP then hard zero-authority verification before final export;
+- staging directory;
+- package SHA256;
+- per-file SHA256 + size + relative path;
+- exact candidate SHA binding;
+- 3-lane and 3-registry-lane validation;
+- hashed Brain/Work target preservation proof;
+- registry/latch continuity fingerprint;
+- referenced relay evidence only;
+- final relay screenshot path rebased to the logical destination, not a temporary staging path;
+- atomic destination finalization only after validation;
+- actual pre-existing Owner STOP distinguished from temporary handoff/bootstrap blockers;
+- no new-authority start in transfer tooling;
+- old-machine handoff wrapper attempts old-authority rollback if a post-stop export failure occurs.
+
+Raw target URLs, message bodies, screenshots, cookies, tokens and browser-profile contents are not written to Git evidence.
+
+## Hosted transfer validation
+
+The first hosted round-trip exposed a real staging-path defect: relay screenshot path was written against the temporary staging root. Import/latch fingerprints passed, but the final path would have become stale after atomic directory move.
+
+The implementation was corrected so physical validation occurs in staging while the registry stores the final logical destination path. This defect was caught **before any production mutation**.
+
+Final hosted run IDs are recorded only after the corrected candidate completes all gates.
+
+## Production boundary
+
+No old-machine production capture/STOP/export has been executed by this branch.
+
+No raw production state is stored in:
+- Git commits;
+- Actions artifacts;
+- Actions logs;
+- repository evidence.
+
+The raw state package must cross machines only through an Owner-mediated local/offline/private transport.
+
+Because old-machine process/state mutation requires execution on the old host, production handoff remains fail-closed until that boundary is performed and its sanitized output is reconciled.
+
+`RBT009_TIER_B_480M=NOT_RUN`
+`PRODUCTION_CUTOVER=false`
