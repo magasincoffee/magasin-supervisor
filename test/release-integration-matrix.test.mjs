@@ -25,7 +25,7 @@ import {
   TARGET_HEALTH_REASONS
 } from "../src/runtime/target-health.mjs";
 import { evaluateBrainVerdictTransition } from "../src/runtime/brain-planning.mjs";
-import { validateReleaseEvents } from "../../../.github/scripts/supervisor-release-event-validator.mjs";
+import { validateReleaseEvents } from "../.github/scripts/supervisor-release-event-validator.mjs";
 
 const iso = (minutes) => new Date(Date.parse("2026-09-21T00:00:00.000Z") + minutes * 60_000).toISOString();
 
