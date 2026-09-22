@@ -296,7 +296,7 @@ test("Work UI USER_PENDING settles into one handoff reconcile after a stable idl
   });
   assert.equal(reconcile.decision.action, "CONTINUE");
   assert.equal(reconcile.execution.executed, true);
-  assert.match(reconcile.decision.instruction, /TIẾP QUẢN PHIÊN ĐANG MỞ/);
+  assert.match(reconcile.decision.instruction, /Take over the already-open project conversation/);
 
   // Normal duplicate protection still applies immediately after handoff send.
   now += 2000;
@@ -536,7 +536,7 @@ test("WAIT_USER owner reconciliation can execute once after idle confirmation", 
   assert.equal(reconcile.effectiveObservation, "RESPONSE_COMPLETE");
   assert.equal(reconcile.decision.action, "CONTINUE");
   assert.equal(reconcile.execution.executed, true);
-  assert.match(reconcile.decision.instruction, /RECONCILE QUYẾT ĐỊNH OWNER/);
+  assert.match(reconcile.decision.instruction, /Reconcile only an explicit Owner decision/);
 });
 
 test("semantic Work turn signature ignores unrelated DOM-size churn", () => {
