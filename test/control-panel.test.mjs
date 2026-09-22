@@ -119,7 +119,7 @@ test("control panel integrates an explicitly configured local GitHub Runner", as
     "utf8"
   );
 
-  assert.match(source, /C:\\actions-runner-business\\actions-runner/);
+  assert.match(source, /SUPERVISOR_RUNNER_ROOT/);
   assert.match(source, /Runner\.Listener\.exe/);
   assert.match(source, /KẾT NỐI GITHUB/);
   assert.match(source, /GITHUB ĐANG KẾT NỐI/);
