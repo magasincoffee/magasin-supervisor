@@ -165,7 +165,7 @@ test("Control Panel runtime-start button invokes explicit Owner START, not Recov
 });
 
 test("Lifecycle technical cleanup classifies taskkill race from root process truth", async () => {
-  const workflow = await read("../../../.github/workflows/supervisor-lifecycle-acceptance.yml");
+  const workflow = await read("../.github/workflows/supervisor-lifecycle-acceptance.yml");
   const start = workflow.indexOf("function Stop-TechnicalProcessTree");
   const end = workflow.indexOf("function Stop-RuntimeTechnical", start);
   assert.ok(start >= 0 && end > start);
@@ -181,7 +181,7 @@ test("Lifecycle technical cleanup classifies taskkill race from root process tru
 });
 
 test("Lifecycle acceptance keeps final Owner STOP assertion and verifies clear before healthy wait", async () => {
-  const workflow = await read("../../../.github/workflows/supervisor-lifecycle-acceptance.yml");
+  const workflow = await read("../.github/workflows/supervisor-lifecycle-acceptance.yml");
   const explicitStart = workflow.indexOf("-File $startScript -Hidden");
   const immediateTruth = workflow.indexOf("$ownerStartTruth = Get-LifecycleOwnerStopState", explicitStart);
   const healthy = workflow.indexOf("Wait-Healthy 60", immediateTruth);
@@ -196,7 +196,7 @@ test("Lifecycle acceptance keeps final Owner STOP assertion and verifies clear b
 });
 
 test("Lifecycle residue migration is one-time historical and still uses explicit Owner START", async () => {
-  const workflow = await read("../../../.github/workflows/supervisor-lifecycle-acceptance.yml");
+  const workflow = await read("../.github/workflows/supervisor-lifecycle-acceptance.yml");
   const start = workflow.indexOf("function Test-KnownRbt006BResidue");
   const end = workflow.indexOf("$initialConfig =", start);
   const residue = workflow.slice(start, end);
