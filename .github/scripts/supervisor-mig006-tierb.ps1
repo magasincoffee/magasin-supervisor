@@ -107,14 +107,22 @@ function Assert-SleepSafe {
 
 function Assert-NoScheduledUpdateReboot([DateTimeOffset]$Deadline) {
     try {
-        $tasks = @(Get-ScheduledTask -TaskPath '\Microsoft\Windows\UpdateOrchestrator\' -ErrorAction Stop |
-            Where-Object { $_.TaskName -match 'Reboot' -and [string]$_.State -ne 'Disabled' })
+        $now = Get-Date
+        $tasks = @(Get-ScheduledTask -ErrorAction Stop |
+            Where-Object {
+                (
+                    [string]$_.TaskPath -match '(?i)UpdateOrchestrator' -or
+                    [string]$_.TaskName -match '(?i)reboot|restart'
+                ) -and [string]$_.State -ne 'Disabled'
+            })
         foreach ($task in $tasks) {
             $info = Get-ScheduledTaskInfo -InputObject $task -ErrorAction Stop
-            if ($info.NextRunTime -and $info.NextRunTime -gt (Get-Date) -and $info.NextRunTime -le $Deadline.LocalDateTime) {
+            if ($info.NextRunTime -and $info.NextRunTime -gt $now -and $info.NextRunTime -le $Deadline.LocalDateTime) {
                 throw 'MIG006_UPDATE_REBOOT_SCHEDULED_WITHIN_WINDOW'
             }
         }
+        Write-Host "MIG_006_REBOOT_RELATED_TASKS_CHECKED=$($tasks.Count)"
+        Write-Host 'MIG_006_UPDATE_REBOOT_WINDOW_CLEAR=True'
     } catch {
         if ($_.Exception.Message -eq 'MIG006_UPDATE_REBOOT_SCHEDULED_WITHIN_WINDOW') { throw }
         throw 'MIG006_UPDATE_REBOOT_QUERY_UNPROVEN'
