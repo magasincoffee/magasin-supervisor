@@ -45,7 +45,17 @@ jobs:
             test/lane-events.test.mjs \
             test/browser-scheduler.test.mjs \
             test/work-watchdog.test.mjs \
-            test/brain-planning-contract.test.mjs
+            test/brain-planning-contract.test.mjs \
+            test/mig-004-isolated-lifecycle-parity.test.mjs
+
+      - name: Validate state-maintenance and Control Panel safety contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          pwsh -NoLogo -NoProfile -File .github/scripts/supervisor-state-maintenance-regression.ps1 \
+            -WorkflowPath .github/workflows/supervisor-state-maintenance.yml \
+            -HelperPath .github/scripts/supervisor-integrity-registry.ps1
+          node --test test/control-panel.test.mjs test/control-panel-observability-integration.test.mjs test/supervisor-integrity-optional-latch.test.mjs
 
       - name: Enforce MIG-004 independent-repo integrity invariants
         shell: bash
@@ -55,6 +65,7 @@ jobs:
           test -e windows/lifecycle-truth.ps1
           test -e docs/ROBOT_LIFECYCLE_TRUTH_ARCHITECTURE.md
           test -e docs/MIG_002_PARITY_PROVENANCE.json
+          node -e "const p=require('./docs/MIG_002_PARITY_PROVENANCE.json'); if(!Array.isArray(p.records)||p.records.length!==137||p.records.some(x=>x.represented_exactly_once!==true)) process.exit(1); console.log('MIG_002_PROVENANCE_137_OF_137=True')"
           test -e .github/scripts/supervisor-integrity-registry.ps1
           test -e .github/workflows/supervisor-tests.yml
 
