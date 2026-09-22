@@ -9,11 +9,11 @@ $oldLocalAppData = $env:LOCALAPPDATA
 $oldProcessStateRoot = [string]$env:SUPERVISOR_STATE_ROOT
 $oldUserStateRoot = [Environment]::GetEnvironmentVariable('SUPERVISOR_STATE_ROOT','User')
 
-function Invoke-ExpectedFailure([string[]]$Args) {
+function Invoke-ExpectedFailure([string[]]$CommandArgs) {
     $previous = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $output = & powershell.exe @Args 2>&1
+        $output = & powershell.exe @CommandArgs 2>&1
         $code = $LASTEXITCODE
     }
     finally {
@@ -57,7 +57,7 @@ try {
     $wrongHash = '0' * 64
     if ($wrongHash -eq $zipHash) { $wrongHash = 'f' * 64 }
     $failureArgs = @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',$wrapper,'-Mode','Validate','-PackageZip',$zip,'-ExpectedPackageSha256',$wrongHash,'-CandidateSha',$sha)
-    $failure = Invoke-ExpectedFailure -Args $failureArgs
+    $failure = Invoke-ExpectedFailure -CommandArgs $failureArgs
     if ($failure.code -eq 0) { throw 'Package hash mismatch unexpectedly succeeded.' }
     if ($failure.output -notmatch 'package SHA256 mismatch') { throw 'Expected package hash mismatch was not reported.' }
     if (Test-Path $platformRoot) { throw 'Hash mismatch mutated the platform state root.' }
