@@ -62,7 +62,9 @@ test("MIG-004 isolated root resolves explicitly and never falls back to producti
     ].join("; ");
     const result = runPowerShell(script, { SUPERVISOR_STATE_ROOT: root });
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(path.resolve(result.stdout.trim()).toLowerCase(), path.resolve(root).toLowerCase());
+    const expectedRoot = await fsp.realpath(root);
+    const actualRoot = await fsp.realpath(result.stdout.trim());
+    assert.equal(actualRoot.toLowerCase(), expectedRoot.toLowerCase());
   } finally {
     await fsp.rm(root, { recursive:true, force:true });
   }
@@ -128,14 +130,14 @@ test("MIG-004 production-capable workflows remain fail-closed while hosted parit
     fsp.readFile(ps(".github","workflows","supervisor-integrity.yml"),"utf8")
   ]);
   assert.match(life, /lifecycle-parity-hosted/);
-  assert.match(life, /lifecycle-acceptance:\n\s+if: \$\{\{ false \}\}/);
+  assert.match(life, /lifecycle-acceptance:\r?\n\s+if: \$\{\{ false \}\}/);
   assert.match(auto, /installer-autostart-parity-hosted/);
-  assert.match(auto, /install:\n\s+if: \$\{\{ false \}\}/);
-  assert.match(state, /maintenance:\n\s+if: \$\{\{ false \}\}/);
-  assert.match(panel, /open-robot:\n\s+if: \$\{\{ false \}\}/);
-  assert.match(integrity, /runtime-audit:\n[\s\S]*?if: \$\{\{ false \}\}/);
+  assert.match(auto, /install:\r?\n\s+if: \$\{\{ false \}\}/);
+  assert.match(state, /maintenance:\r?\n\s+if: \$\{\{ false \}\}/);
+  assert.match(panel, /open-robot:\r?\n\s+if: \$\{\{ false \}\}/);
+  assert.match(integrity, /runtime-audit:\r?\n[\s\S]*?if: \$\{\{ false \}\}/);
   assert.match(rbt, /tier-a-isolated-integration/);
-  assert.match(rbt, /tier-b:\n\s+if: \$\{\{ false \}\}/);
+  assert.match(rbt, /tier-b:\r?\n\s+if: \$\{\{ false \}\}/);
   assert.match(rbt, /DurationMinutes 480/);
 });
 
