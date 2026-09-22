@@ -143,3 +143,15 @@ test("Tier B depends on exact-head normal gates and production-mutating sibling 
   assert.match(lifecycle, /if: \$\{\{ false \}\} # MIG-004: production\/self-hosted lifecycle remains hard-disabled/);
   assert.match(autostart, /if: \$\{\{ false \}\} # MIG-004: production\/self-hosted install remains hard-disabled/);
 });
+
+
+test("reboot continuity scan is global, read-only and fail-closed without exact UpdateOrchestrator path dependency", () => {
+  assert.match(controller, /Get-ScheduledTask -ErrorAction Stop/);
+  assert.doesNotMatch(controller, /Get-ScheduledTask -TaskPath '\\Microsoft\\Windows\\UpdateOrchestrator\\'/);
+  assert.match(controller, /TaskPath -match '\(\?i\)UpdateOrchestrator'/);
+  assert.match(controller, /TaskName -match '\(\?i\)reboot\|restart'/);
+  assert.match(controller, /State -ne 'Disabled'/);
+  assert.match(controller, /MIG006_UPDATE_REBOOT_SCHEDULED_WITHIN_WINDOW/);
+  assert.match(controller, /MIG006_UPDATE_REBOOT_QUERY_UNPROVEN/);
+  assert.match(controller, /MIG_006_UPDATE_REBOOT_WINDOW_CLEAR=True/);
+});
