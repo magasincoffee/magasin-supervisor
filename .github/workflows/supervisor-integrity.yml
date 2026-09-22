@@ -1,4 +1,4 @@
-# MIG-003 hosted integrity: decoupled platform checks; self-hosted runtime audit remains hard-disabled.
+# MIG-004 hosted integrity: independent-repo static/runtime-contract parity; production runtime audit remains hard-disabled.
 name: Supervisor Integrity
 
 on:
@@ -6,6 +6,7 @@ on:
     paths:
       - "src/**"
       - "windows/**"
+      - "test/**"
       - "docs/**"
       - ".github/scripts/supervisor-*"
       - ".github/workflows/supervisor-*.yml"
@@ -15,6 +16,7 @@ on:
     paths:
       - "src/**"
       - "windows/**"
+      - "test/**"
       - "docs/**"
       - ".github/scripts/supervisor-*"
       - ".github/workflows/supervisor-*.yml"
@@ -45,7 +47,7 @@ jobs:
             test/work-watchdog.test.mjs \
             test/brain-planning-contract.test.mjs
 
-      - name: Enforce MIG-003 decoupling invariants
+      - name: Enforce MIG-004 independent-repo integrity invariants
         shell: bash
         run: |
           set -euo pipefail
@@ -63,13 +65,15 @@ jobs:
           grep -q 'legacy-preserve' src/state-root.mjs
           grep -q 'legacy-preserve' windows/state-root.ps1
 
-          grep -q 'MIG-003 guard' .github/workflows/supervisor-autostart-install.yml
-          grep -q 'MIG-003 guard' .github/workflows/supervisor-lifecycle-acceptance.yml
+          grep -q 'production/self-hosted install remains hard-disabled' .github/workflows/supervisor-autostart-install.yml
+          grep -q 'production/self-hosted lifecycle remains hard-disabled' .github/workflows/supervisor-lifecycle-acceptance.yml
           grep -q 'production control-panel workflow remains inert' .github/workflows/supervisor-open-control-panel.yml
-          grep -q 'MIG-003 guard' .github/workflows/supervisor-rbt009-soak.yml
+          grep -q 'Tier B 480-minute production soak remains hard-disabled' .github/workflows/supervisor-rbt009-soak.yml
           grep -q 'MIG-003 guard' .github/workflows/supervisor-state-maintenance.yml
-          grep -q 'self-hosted runtime audit disabled until MIG-004/MIG-005' .github/workflows/supervisor-integrity.yml
+          grep -q 'production runtime audit remains hard-disabled' .github/workflows/supervisor-integrity.yml
 
+          echo "MIG_004_INDEPENDENT_REPO_INTEGRITY=True"
+          echo "MIG_004_EXACT_SHA=$GITHUB_SHA"
           echo "MIG_003_PROJECT_ADAPTER_BOUNDARY=True"
           echo "MIG_003_STATE_ROOT_COMPATIBILITY=True"
           echo "MIG_003_ROOT_NATIVE_STATIC=True"
@@ -79,8 +83,8 @@ jobs:
   runtime-audit:
     name: runtime-audit
     needs: static-audit
-    if: ${{ false }} # MIG-003: self-hosted runtime audit disabled until MIG-004/MIG-005
+    if: ${{ false }} # MIG-004: production runtime audit remains hard-disabled
     runs-on: self-hosted
     timeout-minutes: 7
     steps:
-      - run: echo "MIG-003 blocks self-hosted runtime audit."
+      - run: echo "MIG-004 validates integrity on hosted runners; production runtime audit remains inert."
