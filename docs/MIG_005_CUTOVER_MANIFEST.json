@@ -113,5 +113,25 @@
     "runner_untouched": true,
     "browser_profile_untouched": true,
     "rollback_new_then_owner_restore_old": true
+  },
+  "new_machine_failed_activation_checkpoint": {
+    "result": "FAIL_CLOSED_ROLLED_BACK",
+    "error_class": "TRANSFER_MANIFEST_CANDIDATE_SHA_MISMATCH",
+    "new_autostart_ownership_present": false,
+    "new_runtime_authority_active": false,
+    "old_authority_restore_performed": false,
+    "rbt009_tier_b_480m": "NOT_RUN"
+  },
+  "package_runtime_provenance": {
+    "package_candidate_sha": "dc0b5f369f6a9c3ae89d821f1ddf603e1135f51e",
+    "package_sha256": "b2a67e3c7ae568454c09386b2ceb4f7cc7cfba650e3a37243dea89a2ebfe5753",
+    "transfer_path": "windows/mig-005-state-transfer.ps1",
+    "package_transfer_blob": "abf72af4ee51a06bf49af669cd4f590bd68a9aa7",
+    "runtime_candidate_dynamic_final_head": true,
+    "require_package_candidate_ancestor_of_runtime_candidate": true,
+    "require_transfer_blob_identity": true,
+    "import_verify_manifest_candidate": "PACKAGE_CANDIDATE_SHA",
+    "runtime_install_candidate": "RUNTIME_CANDIDATE_SHA",
+    "regenerate_package_required_if_compatible": false
   }
 }
