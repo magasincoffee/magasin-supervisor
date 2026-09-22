@@ -1,0 +1,92 @@
+# MIG-004 hosted-only safety parity for Control Panel and State Maintenance.
+name: Supervisor MIG-004 Safety Parity
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'test/**'
+      - 'windows/**'
+      - '.github/scripts/supervisor-*'
+      - '.github/workflows/supervisor-*.yml'
+  push:
+    branches:
+      - main
+      - 'mig-004/**'
+    paths:
+      - 'src/**'
+      - 'test/**'
+      - 'windows/**'
+      - '.github/scripts/supervisor-*'
+      - '.github/workflows/supervisor-*.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  control-panel-parity:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: .
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install test dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Run Control Panel contract and observability tests
+        run: |
+          node --test `
+            test/control-panel.test.mjs `
+            test/control-panel-status-projection.test.mjs `
+            test/control-panel-observability-integration.test.mjs `
+            test/control-panel-viewport.test.mjs
+      - name: Run isolated Control Panel observability fixture
+        run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\windows\control-panel-observability-fixture.ps1"
+      - name: Record Control Panel parity
+        run: |
+          Write-Host "MIG_004_CONTROL_PANEL_PROCESS_TRUTH=True"
+          Write-Host "MIG_004_CONTROL_PANEL_PAGE_BUDGET=True"
+          Write-Host "MIG_004_CONTROL_PANEL_PRIVACY=True"
+          Write-Host "MIG_004_CONTROL_PANEL_NO_BROWSER_MUTATION=True"
+          Write-Host "ZERO_PRODUCTION_MUTATION=True"
+
+  state-maintenance-parity:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: .
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install test dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Run optional-latch and lifecycle safety tests
+        run: |
+          node --test `
+            test/supervisor-integrity-optional-latch.test.mjs `
+            test/lifecycle-acceptance-optional-latch.test.mjs `
+            test/owner-start-latch-recovery.test.mjs
+      - name: Run state-maintenance regression harness
+        run: |
+          & "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-state-maintenance-regression.ps1" `
+            -WorkflowPath "$env:GITHUB_WORKSPACE\.github\workflows\supervisor-state-maintenance.yml" `
+            -HelperPath "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-integrity-registry.ps1"
+      - name: Record State Maintenance parity
+        run: |
+          Write-Host "MIG_004_STATE_MAINTENANCE_READ_ONLY_AUDIT=True"
+          Write-Host "MIG_004_STATE_MAINTENANCE_OPTIONAL_LATCH=True"
+          Write-Host "MIG_004_STATE_MAINTENANCE_TRUE_BLOCKED_FAIL_CLOSED=True"
+          Write-Host "MIG_004_STATE_MAINTENANCE_TARGET_PRESERVATION=True"
+          Write-Host "MIG_004_STATE_MAINTENANCE_PRIVACY=True"
+          Write-Host "MIG_004_PRODUCTION_STATE_MAINTENANCE_JOB_SKIPPED=True"
+          Write-Host "ZERO_PRODUCTION_MUTATION=True"
