@@ -72,3 +72,40 @@ test("MIG-005 rollback removes new ownership and transaction artifacts without s
 test("MIG-005 wrapper never runs final Tier B", () => {
   assert.match(activate, /RBT009_TIER_B_480M=NOT_RUN/);
 });
+
+
+test("MIG-005 separates package-export candidate from runtime/install candidate without weakening manifest validation", () => {
+  assert.match(activate, /\[string\]\$PackageCandidateSha/);
+  assert.match(activate, /Get-PackageManifestCandidate/);
+  assert.match(activate, /Package manifest candidate SHA does not match PackageCandidateSha/);
+  assert.match(activate, /Assert-PackageRuntimeProvenance -PackageSha \$PackageCandidateSha -RuntimeSha \$CandidateSha/);
+  assert.match(activate, /-Mode Import[^\n]+-CandidateSha \$PackageCandidateSha/);
+  assert.match(activate, /-Mode Verify[^\n]+-CandidateSha \$PackageCandidateSha/);
+  assert.match(activate, /Assert-InstalledRuntimeExact -Root \$destinationRoot -Sha \$CandidateSha/);
+});
+
+test("MIG-005 provenance proof is fail-closed on ancestry or transfer-blob mismatch", () => {
+  const packageHashPos = activate.indexOf("$actualPackageSha = Get-FileSha256 $PackageZip");
+  const manifestPos = activate.indexOf("$manifestCandidateSha = Get-PackageManifestCandidate");
+  const provenancePos = activate.indexOf("Assert-PackageRuntimeProvenance -PackageSha $PackageCandidateSha -RuntimeSha $CandidateSha");
+  const destinationPos = activate.indexOf("$destinationRoot = Get-PlatformStateRoot");
+  assert.ok(packageHashPos >= 0);
+  assert.ok(manifestPos > packageHashPos);
+  assert.ok(provenancePos > manifestPos);
+  assert.ok(destinationPos > provenancePos);
+  assert.match(activate, /merge-base --is-ancestor/);
+  assert.match(activate, /PackageCandidateSha is not an ancestor of CandidateSha/);
+  assert.match(activate, /Package\/runtime transfer blob identity mismatch/);
+});
+
+test("MIG-005 emits sanitized package-runtime provenance markers only", () => {
+  for (const marker of [
+    "MIG_005_PACKAGE_CANDIDATE_SHA_VERIFIED=True",
+    "MIG_005_RUNTIME_CANDIDATE_SHA_VERIFIED=True",
+    "MIG_005_PACKAGE_RUNTIME_ANCESTRY_VERIFIED=True",
+    "MIG_005_TRANSFER_BLOB_IDENTITY_VERIFIED=True",
+    "MIG_005_PACKAGE_RUNTIME_PROVENANCE_COMPATIBLE=True",
+  ]) {
+    assert.match(activate, new RegExp(marker));
+  }
+});
