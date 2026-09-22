@@ -3,6 +3,7 @@ Set-StrictMode -Version 2.0
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $transfer = Join-Path $repoRoot 'windows\mig-005-state-transfer.ps1'
+$handoff = Join-Path $repoRoot 'windows\mig-005-old-handoff.ps1'
 $candidate = '1111111111111111111111111111111111111111'
 $tempRoot = Join-Path $env:RUNNER_TEMP ('mig005-transfer-fixture-' + [guid]::NewGuid().ToString('N'))
 
@@ -141,8 +142,76 @@ function Invoke-Transfer([string[]]$Arguments) {
     }
 }
 
+
+function Write-HandoffCaptureFixture(
+    [string]$Path,
+    [bool]$Active,
+    [bool]$OwnerStop,
+    [int]$EnabledLaneCount,
+    [int]$LaneCount,
+    [int]$RegistryLaneCount
+) {
+    $captureValue = [ordered]@{
+        schema_version = 'supervisor-mig005-prestop-capture.v1'
+        candidate_sha = $candidate
+        lane_count = $LaneCount
+        registry_lane_count = $RegistryLaneCount
+        enabled_lane_count = $EnabledLaneCount
+        owner_stop_before = [ordered]@{
+            stop_present = $OwnerStop
+            autostart_disabled_present = $OwnerStop
+            blocked = $OwnerStop
+        }
+        authority_before = [ordered]@{
+            wrapper_alive = $Active
+            three_lane_alive = $false
+            chrome_alive = $false
+            healthy = $Active
+        }
+    }
+    Write-Json $Path $captureValue
+}
+
+function Assert-HandoffMode(
+    [string]$Name,
+    [bool]$Active,
+    [bool]$OwnerStop,
+    [int]$EnabledLaneCount,
+    [int]$LaneCount,
+    [int]$RegistryLaneCount,
+    [string]$ExpectedMode,
+    [bool]$ExpectSuccess
+) {
+    $capturePath = Join-Path $tempRoot ("capture-classify-" + $Name + ".json")
+    $sourceRoot = Join-Path $tempRoot ("source-classify-" + $Name)
+    New-Item -ItemType Directory -Force -Path $sourceRoot | Out-Null
+    Write-HandoffCaptureFixture -Path $capturePath -Active $Active -OwnerStop $OwnerStop -EnabledLaneCount $EnabledLaneCount -LaneCount $LaneCount -RegistryLaneCount $RegistryLaneCount
+    $args = @(
+        '-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',$handoff,
+        '-Mode','Handoff',
+        '-PackageZip',(Join-Path $tempRoot ($Name + '.zip')),
+        '-CandidateSha',$candidate,
+        '-SourceRoot',$sourceRoot,
+        '-CapturePath',$capturePath,
+        '-ValidateOnly'
+    )
+    $output = & powershell.exe @args 2>&1
+    $code = $LASTEXITCODE
+    $joined = ($output | Out-String)
+    if ($ExpectSuccess -and $code -ne 0) { throw "Expected $Name classification to pass: $joined" }
+    if (-not $ExpectSuccess -and $code -eq 0) { throw "Expected $Name classification to fail." }
+    if ($joined -notmatch ("MIG_005_PRE_HANDOFF_MODE=" + [regex]::Escape($ExpectedMode))) {
+        throw "Expected $Name mode $ExpectedMode; output: $joined"
+    }
+}
+
 try {
     New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
+
+    Assert-HandoffMode -Name 'active' -Active $true -OwnerStop $false -EnabledLaneCount 1 -LaneCount 3 -RegistryLaneCount 3 -ExpectedMode 'ACTIVE' -ExpectSuccess $true
+    Assert-HandoffMode -Name 'owner-stopped' -Active $false -OwnerStop $true -EnabledLaneCount 1 -LaneCount 3 -RegistryLaneCount 3 -ExpectedMode 'OWNER_STOPPED' -ExpectSuccess $true
+    Assert-HandoffMode -Name 'all-disabled' -Active $false -OwnerStop $false -EnabledLaneCount 0 -LaneCount 3 -RegistryLaneCount 3 -ExpectedMode 'ALL_DISABLED_QUIESCENT' -ExpectSuccess $true
+    Assert-HandoffMode -Name 'invalid-inactive' -Active $false -OwnerStop $false -EnabledLaneCount 1 -LaneCount 3 -RegistryLaneCount 3 -ExpectedMode 'INVALID_INACTIVE' -ExpectSuccess $false
 
     # Scenario 1: production was running without an actual Owner STOP. The handoff
     # STOP creates temporary blockers, but import must not misclassify them as Owner intent.
@@ -210,6 +279,10 @@ try {
     Write-Host 'MIG_005_OWNER_STOP_DISTINCTION=True'
     Write-Host 'MIG_005_BROWSER_PROFILE_EXCLUDED=True'
     Write-Host 'MIG_005_DESTINATION_BROWSER_PROFILE_PRESERVED=True'
+    Write-Host 'MIG_005_PRE_HANDOFF_MODE_REGRESSION_ACTIVE=True'
+    Write-Host 'MIG_005_PRE_HANDOFF_MODE_REGRESSION_OWNER_STOPPED=True'
+    Write-Host 'MIG_005_PRE_HANDOFF_MODE_REGRESSION_ALL_DISABLED_QUIESCENT=True'
+    Write-Host 'MIG_005_PRE_HANDOFF_MODE_REGRESSION_INVALID_INACTIVE=True'
     Write-Host 'RBT009_TIER_B_480M=NOT_RUN'
 }
 finally {
