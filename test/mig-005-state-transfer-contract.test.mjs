@@ -42,8 +42,10 @@ test("MIG-005 import validates hashes before atomic destination finalization", (
   const finalPos = transfer.indexOf("Move-Item -Path $finalStage -Destination $Root");
   assert.ok(validatePos >= 0);
   assert.ok(finalPos > validatePos);
-  assert.match(transfer, /Destination state root is not empty\/bootstrap-only/);
-  assert.match(transfer, /MIG_005_DEFAULT_BLOCKED_BOOTSTRAP_REPLACED=True/);
+  assert.match(transfer, /Destination state root contains non-bootstrap\/non-profile state/);
+  assert.match(transfer, /MIG_005_MACHINE_LOCAL_BROWSER_PROFILE_PRESERVED=True/);
+  assert.match(transfer, /MIG_005_BOOTSTRAP_BLOCKERS_RECONCILED=True/);
+  assert.match(transfer, /MIG_005_IMPORT_ABORTED_FAIL_CLOSED=True/);
 });
 
 test("MIG-005 preserves semantic relay latch identity while rebasing only screenshot path", () => {
