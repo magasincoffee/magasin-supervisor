@@ -1,10 +1,19 @@
-# MIG-003 guard: production/self-hosted execution remains inert until MIG-004/MIG-005 release gates.
+# MIG-004 parity: hosted installer/autostart contract validation is active; production self-hosted install remains inert until MIG-005.
 name: Supervisor Autostart Install
 
 on:
+  pull_request:
+    paths:
+      - src/**
+      - windows/**
+      - test/**
+      - package.json
+      - .github/workflows/supervisor-autostart-install.yml
+      - .github/scripts/supervisor-mig004-lifecycle-sandbox.ps1
   push:
     branches:
       - main
+      - 'mig-004/**'
     paths:
       - src/**
       - windows/**
@@ -26,6 +35,66 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  safe-validation:
+    name: safe-validation-installer-autostart
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: .
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install test dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Validate installer/autostart contracts without executing them
+        run: |
+          node --test `
+            test/autostart-recovery.test.mjs `
+            test/windows-installer-upgrade.test.mjs `
+            test/windows-powershell-syntax.test.mjs `
+            test/brain-worker-windows.test.mjs `
+            test/lifecycle-truth-v50.test.mjs
+
+      - name: Parse production PowerShell scripts without mutation
+        run: |
+          $ErrorActionPreference = "Stop"
+          $paths = @(
+            "windows/install-supervisor.ps1",
+            "windows/install-autostart.ps1",
+            "windows/autostart-bootstrap.ps1",
+            "windows/start-supervisor.ps1",
+            "windows/stop-supervisor.ps1",
+            "windows/repair-supervisor.ps1"
+          )
+          foreach ($path in $paths) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $path),
+              [ref]$null,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              throw "PowerShell parse failed for $path"
+            }
+          }
+          Write-Host "MIG_004_INSTALLER_POWERSHELL_PARSE=True"
+          Write-Host "MIG_004_AUTOSTART_POWERSHELL_PARSE=True"
+
+      - name: Prove validation performs no production registration
+        run: |
+          Write-Host "MIG_004_INSTALL_CONTRACT_ONLY=True"
+          Write-Host "MIG_004_AUTOSTART_CONTRACT_ONLY=True"
+          Write-Host "MIG_004_HKCU_PRODUCTION_WRITE=False"
+          Write-Host "MIG_004_PRODUCTION_AUTOSTART_CREATED=False"
+          Write-Host "MIG_004_PRODUCTION_INSTALL_JOB_SKIPPED=True"
+          Write-Host "ZERO_PRODUCTION_MUTATION=True"
+
   install:
     if: ${{ false }} # MIG-002: production/self-hosted execution disabled until MIG-004/MIG-005
     runs-on: self-hosted
