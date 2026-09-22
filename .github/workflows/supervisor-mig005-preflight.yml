@@ -113,9 +113,12 @@ jobs:
           $stateFilesPresent = [bool]((Test-Path $lanesPath) -and (Test-Path $registryPath) -and (Test-Path $statusPath))
           $browserProfilePresent = Test-Path (Join-Path $root "browser_profile")
           $bootstrapOnly = $false
+          $destinationImportCompatible = $false
           if ((Test-Path $root) -and -not $stateFilesPresent) {
             $unexpectedBootstrapEntries = @(Get-ChildItem -Path $root -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @("STOP","AUTOSTART_DISABLED") })
             $bootstrapOnly = [bool]($unexpectedBootstrapEntries.Count -eq 0)
+            $unexpectedImportEntries = @(Get-ChildItem -Path $root -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @("STOP","AUTOSTART_DISABLED","browser_profile") })
+            $destinationImportCompatible = [bool]($unexpectedImportEntries.Count -eq 0)
           }
 
           $stateHashes = @()
@@ -158,6 +161,7 @@ jobs:
           Write-Host "MIG_005_NODE_MAJOR=$nodeMajor"
           Write-Host "MIG_005_STATE_FILES_PRESENT=$stateFilesPresent"
           Write-Host "MIG_005_BOOTSTRAP_ONLY=$bootstrapOnly"
+          Write-Host "MIG_005_DESTINATION_IMPORT_COMPATIBLE=$destinationImportCompatible"
           Write-Host "MIG_005_BROWSER_PROFILE_PRESENT=$browserProfilePresent"
           Write-Host "MIG_005_LANE_COUNT=$laneCount"
           Write-Host "MIG_005_REGISTRY_LANE_COUNT=$registryLaneCount"
