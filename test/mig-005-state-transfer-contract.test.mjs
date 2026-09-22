@@ -39,7 +39,7 @@ test("MIG-005 transfer excludes machine runtime and auth surfaces from canonical
 
 test("MIG-005 import validates hashes before atomic destination finalization", () => {
   const validatePos = transfer.indexOf("Transfer payload hash mismatch");
-  const finalPos = transfer.indexOf("Move-Item -Path $finalStage -Destination $Root");
+  const finalPos = transfer.indexOf("Move-Item -Path (Join-Path $finalStage $name) -Destination $dest");
   assert.ok(validatePos >= 0);
   assert.ok(finalPos > validatePos);
   assert.match(transfer, /Destination state root contains non-bootstrap\/non-profile state/);
