@@ -19,7 +19,7 @@ function Write-Json([string]$Path, $Value) {
     )
 }
 
-function New-StateFixture([string]$Root, [bool]$OwnerStop) {
+function New-StateFixture([string]$Root, [bool]$OwnerStop, [bool]$Enabled = $true) {
     New-Item -ItemType Directory -Force -Path $Root | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $Root 'lane-evidence') | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $Root 'browser_profile') | Out-Null
@@ -39,7 +39,7 @@ function New-StateFixture([string]$Root, [bool]$OwnerStop) {
             work_state_reset_revision = 2
             relay_retry_rearm_revision = 0
             relay_retry_rearm_requested_at = $null
-            enabled = $true
+            enabled = $Enabled
         }
     }
 
@@ -227,7 +227,7 @@ try {
     $zip = Join-Path $tempRoot 'normal.zip'
     $dest = Join-Path $tempRoot 'dest-normal'
 
-    New-StateFixture -Root $source -OwnerStop $false
+    New-StateFixture -Root $source -OwnerStop $false -Enabled $false
     Invoke-Transfer @('-Mode','Capture','-SourceRoot',$source,'-CapturePath',$capture,'-CandidateSha',$candidate)
 
     Set-Content -Path (Join-Path $source 'STOP') -Value 'STOP' -Encoding ascii
@@ -253,6 +253,11 @@ try {
     if (Test-Path (Join-Path $dest 'runtime')) { throw 'runtime must not be in canonical transfer payload.' }
     if (Test-Path (Join-Path $dest 'supervisor.pid')) { throw 'supervisor.pid must not be transferred.' }
     if (Test-Path (Join-Path $dest 'supervisor.log')) { throw 'supervisor.log must not be transferred.' }
+
+    $importedConfig = Get-Content (Join-Path $dest 'lanes.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (@($importedConfig.lanes | Where-Object { [bool]$_.enabled }).Count -ne 0) {
+        throw 'All-disabled quiescent import unexpectedly enabled a lane.'
+    }
 
     $importedRegistry = Get-Content (Join-Path $dest 'lane-registry.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     $rebasedShot = [string]$importedRegistry.lanes.'lane-1'.relay_inflight.screenshot_path
@@ -282,6 +287,7 @@ try {
     Write-Host 'MIG_005_STATE_TRANSFER_FIXTURE=PASS'
     Write-Host 'MIG_005_HASH_ROUNDTRIP=True'
     Write-Host 'MIG_005_THREE_LANE_PRESERVED=True'
+    Write-Host 'MIG_005_ALL_DISABLED_PRESERVED=True'
     Write-Host 'MIG_005_RELAY_EVIDENCE_REBASED=True'
     Write-Host 'MIG_005_OWNER_STOP_DISTINCTION=True'
     Write-Host 'MIG_005_BROWSER_PROFILE_EXCLUDED=True'
