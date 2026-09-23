@@ -8,6 +8,7 @@ on:
       - ".github/workflows/mig006-candidate-diagnostic.yml"
       - ".github/workflows/supervisor-rbt009-soak.yml"
       - ".github/scripts/supervisor-mig006-tierb.ps1"
+      - ".github/scripts/supervisor-mig006-safe-probe-wrapper.ps1"
       - "test/mig-006-rbt009-control-plane.test.mjs"
 
 permissions:
@@ -51,33 +52,11 @@ jobs:
 
           $env:SUPERVISOR_STATE_ROOT = Join-Path ([string]$env:LOCALAPPDATA) "MAGASIN\Supervisor"
           $candidate = [IO.Path]::GetFullPath(".mig006-runtime-candidate\.github\scripts\supervisor-rbt009-soak.ps1")
+          $wrapper = [IO.Path]::GetFullPath(".github\scripts\supervisor-mig006-safe-probe-wrapper.ps1")
           $summary = Join-Path $env:RUNNER_TEMP "mig006-safe-probe-summary.json"
           $stdout = Join-Path $env:RUNNER_TEMP "mig006-safe-probe.stdout.log"
           $stderr = Join-Path $env:RUNNER_TEMP "mig006-safe-probe.stderr.log"
-          $wrapper = Join-Path $env:RUNNER_TEMP "mig006-safe-probe-wrapper.ps1"
-          Remove-Item $summary,$stdout,$stderr,$wrapper -Force -ErrorAction SilentlyContinue
-
-          @'
-param(
-  [Parameter(Mandatory=$true)][string]$CandidateScript,
-  [Parameter(Mandatory=$true)][string]$SummaryPath
-)
-$ErrorActionPreference = "Stop"
-try {
-  & $CandidateScript -DurationMinutes 1 -SampleSeconds 30 -OutputPath $SummaryPath
-  exit 0
-} catch {
-  $type = ($_.Exception.GetType().FullName -replace '[^A-Za-z0-9_.-]','_')
-  $fqid = ([string]$_.FullyQualifiedErrorId -replace '[^A-Za-z0-9_.-]','_')
-  $line = [int]$_.InvocationInfo.ScriptLineNumber
-  $command = ([string]$_.InvocationInfo.MyCommand.Name -replace '[^A-Za-z0-9_.-]','_')
-  Write-Output "SAFE_EXCEPTION_TYPE=$type"
-  Write-Output "SAFE_FQID=$fqid"
-  Write-Output "SAFE_SCRIPT_LINE=$line"
-  Write-Output "SAFE_COMMAND=$command"
-  exit 97
-}
-'@ | Set-Content -Path $wrapper -Encoding UTF8
+          Remove-Item $summary,$stdout,$stderr -Force -ErrorAction SilentlyContinue
 
           $originalGithubSha = [string]$env:GITHUB_SHA
           $env:GITHUB_SHA = $env:MIG006_RUNTIME_CANDIDATE_SHA
@@ -86,7 +65,9 @@ try {
               "-NoLogo","-NoProfile","-ExecutionPolicy","Bypass",
               "-File",('"' + $wrapper + '"'),
               "-CandidateScript",('"' + $candidate + '"'),
-              "-SummaryPath",('"' + $summary + '"')
+              "-SummaryPath",('"' + $summary + '"'),
+              "-DurationMinutes","1",
+              "-SampleSeconds","30"
             )
             $p = Start-Process powershell.exe -ArgumentList $args -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
             $p.WaitForExit()
@@ -115,7 +96,7 @@ try {
             Write-Host "MIG006_DIAGNOSTIC_FQID=$safeFqid"
             Write-Host "MIG006_DIAGNOSTIC_EXCEPTION_TYPE=$safeType"
             Write-Host "MIG006_DIAGNOSTIC_COMMAND=$safeCommand"
-            Remove-Item $summary,$stdout,$stderr,$wrapper -Force -ErrorAction SilentlyContinue
+            Remove-Item $summary,$stdout,$stderr -Force -ErrorAction SilentlyContinue
             throw "MIG006_DIAGNOSTIC_CHILD_PROCESS_FAILED"
           }
 
@@ -130,4 +111,4 @@ try {
           Write-Host "MIG006_DIAGNOSTIC_RESULT=PASS"
           Write-Host "MIG006_DIAGNOSTIC_DURATION_SECONDS=$([int64]$s.duration_seconds)"
           Write-Host "MIG006_DIAGNOSTIC_RUNTIME_CANDIDATE_SHA=$env:MIG006_RUNTIME_CANDIDATE_SHA"
-          Remove-Item $summary,$stdout,$stderr,$wrapper -Force -ErrorAction SilentlyContinue
+          Remove-Item $summary,$stdout,$stderr -Force -ErrorAction SilentlyContinue
