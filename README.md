@@ -373,3 +373,10 @@ npm test
 Relevant root-native Supervisor changes under `src/**`, `test/**`, `windows/**`, `docs/**`, `package.json`, and guarded workflow/script paths trigger safe hosted Supervisor checks. Runtime/self-hosted mutation acceptance remains disabled during MIG-002. Runtime/self-hosted mutation acceptance remains reserved for implementation releases.
 
 Production/private data, authenticated browser profiles, target conversation identifiers and local logs remain outside Git.
+
+
+## Planned executor extension
+
+JEV-001 planning is available in `docs/JEV_001_FAST_BROWSER_EXECUTOR_ARCHITECTURE.md` with a machine-readable plan in `docs/JEV_001_FAST_BROWSER_EXECUTOR_PLAN.json`.
+
+Status: planning-only. Do not merge/install/deploy JEV-001 while MIG-006 is qualifying the locked production runtime.
