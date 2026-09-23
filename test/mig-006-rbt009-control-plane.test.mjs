@@ -98,7 +98,7 @@ test("480-minute attempt starts from zero and interruptions receive zero credit"
   assert.match(controller, /MIG_006_PARTIAL_DURATION_CREDIT_SECONDS=0/);
   assert.match(controller, /qualification = 'NON_QUALIFYING'/);
   assert.match(workflow, /timeout-minutes: 510/);
-  assert.match(workflow, /cancel-in-progress: true/);
+  assert.match(workflow, /cancel-in-progress: false/);
 });
 
 test("target and latch state are fingerprinted and enforced for the full all-disabled window", () => {
@@ -145,6 +145,14 @@ test("Tier B depends on exact-head normal gates and production-mutating sibling 
   assert.match(autostart, /if: \$\{\{ false \}\} # MIG-004: production\/self-hosted install remains hard-disabled/);
 });
 
+
+
+test("MIG-006 candidate completion is proven by a fresh locked-SHA summary, not nullable Start-Process ExitCode", () => {
+  assert.match(controller, /MIG_006_CANDIDATE_COMPLETION_ARTIFACT=True/);
+  assert.match(controller, /candidateSummary\.release_sha -ne \$RuntimeCandidateSha/);
+  assert.doesNotMatch(controller, /candidateProcess\.ExitCode/);
+  assert.match(controller, /LOCKED_CANDIDATE_SUMMARY_INVALID/);
+});
 
 test("reboot continuity scan is global, read-only and fail-closed without exact UpdateOrchestrator path dependency", () => {
   assert.match(controller, /Get-ScheduledTask -ErrorAction Stop/);

@@ -27,7 +27,7 @@ permissions:
 
 concurrency:
   group: supervisor-production-soak
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   MIG006_RUNTIME_CANDIDATE_SHA: "218f330ee86eea4f0fb79ef9293bd43cf96a45de"
@@ -166,8 +166,7 @@ jobs:
           exit 1
 
   tier-b:
-    # MIG-006 repair mode: do not spend another 8h until diagnostic evidence is reconciled.
-    if: ${{ false }}
+    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'mig-006/rbt009-exact-runtime-8h' }}
     name: tier-b-production-read-only-8h
     needs: preflight
     runs-on: [self-hosted, Windows, X64]
