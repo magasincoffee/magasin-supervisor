@@ -401,17 +401,23 @@ try {
 
     $candidateProcess.WaitForExit()
     $candidateProcess.Refresh()
-    $candidateExitCode = $candidateProcess.ExitCode
-    if ($null -eq $candidateExitCode) {
-        $failureReason = 'LOCKED_CANDIDATE_EXIT_CODE_UNAVAILABLE'
-        throw 'MIG006_LOCKED_CANDIDATE_EXIT_CODE_UNAVAILABLE'
-    }
-    Write-Host "MIG_006_CANDIDATE_EXIT_CODE=$candidateExitCode"
-    if ([int]$candidateExitCode -ne 0) {
+
+    if (-not (Test-Path $rawCandidateSummary -PathType Leaf)) {
         $failureReason = Get-SanitizedCandidateFailureReason -StdoutPath $candidateStdout -StderrPath $candidateStderr
         Write-Host "MIG_006_CANDIDATE_FAILURE_CODE=$failureReason"
-        throw 'MIG006_LOCKED_CANDIDATE_MONITOR_FAILED'
+        throw 'MIG006_LOCKED_CANDIDATE_SUMMARY_MISSING'
     }
+    try {
+        $candidateSummary = Read-Json $rawCandidateSummary
+    } catch {
+        $failureReason = 'LOCKED_CANDIDATE_SUMMARY_INVALID'
+        throw 'MIG006_LOCKED_CANDIDATE_SUMMARY_INVALID'
+    }
+    if ([string]$candidateSummary.release_sha -ne $RuntimeCandidateSha) {
+        $failureReason = 'LOCKED_CANDIDATE_SUMMARY_SHA_MISMATCH'
+        throw 'MIG006_LOCKED_CANDIDATE_SUMMARY_SHA_MISMATCH'
+    }
+    Write-Host 'MIG_006_CANDIDATE_COMPLETION_ARTIFACT=True'
 
     $failureReason='FINAL_STATE_SAFETY_CHECK_FAILED'
     $ownerStopEnd = Get-LifecycleOwnerStopState -Root $root
@@ -430,8 +436,6 @@ try {
     if (@($deltaEnd.lines).Count -gt 0) { Append-Utf8NoBomLines -Path $eventWindowFile -Lines @($deltaEnd.lines) }
     $eventOffset = [int64]$deltaEnd.next_offset
 
-    if (-not (Test-Path $rawCandidateSummary -PathType Leaf)) { throw 'MIG006_LOCKED_CANDIDATE_SUMMARY_MISSING' }
-    $candidateSummary = Read-Json $rawCandidateSummary
     if ([int64]$candidateSummary.duration_seconds -lt 28800) {
         $failureReason='CONTINUOUS_DURATION_LT_480_MINUTES'; throw 'MIG006_DURATION_SHORT'
     }
