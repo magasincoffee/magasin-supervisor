@@ -27,7 +27,7 @@ permissions:
 
 concurrency:
   group: supervisor-production-soak
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   MIG006_RUNTIME_CANDIDATE_SHA: "218f330ee86eea4f0fb79ef9293bd43cf96a45de"
@@ -137,6 +137,7 @@ jobs:
             "Supervisor Integrity"
             "Supervisor Autostart Install"
             "Supervisor Lifecycle Acceptance"
+            "MIG-006 Locked Candidate Diagnostic"
           )
           for attempt in $(seq 1 90); do
             runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${control}&per_page=100")"

@@ -98,7 +98,7 @@ test("480-minute attempt starts from zero and interruptions receive zero credit"
   assert.match(controller, /MIG_006_PARTIAL_DURATION_CREDIT_SECONDS=0/);
   assert.match(controller, /qualification = 'NON_QUALIFYING'/);
   assert.match(workflow, /timeout-minutes: 510/);
-  assert.match(workflow, /cancel-in-progress: false/);
+  assert.match(workflow, /cancel-in-progress: true/);
 });
 
 test("target and latch state are fingerprinted and enforced for the full all-disabled window", () => {
@@ -139,6 +139,7 @@ test("Tier B depends on exact-head normal gates and production-mutating sibling 
     "Supervisor Autostart Install",
     "Supervisor Lifecycle Acceptance",
   ]) assert.match(workflow, new RegExp(name));
+  assert.match(workflow, /MIG-006 Locked Candidate Diagnostic/);
   assert.match(workflow, /needs: preflight/);
   assert.match(lifecycle, /if: \$\{\{ false \}\} # MIG-004: production\/self-hosted lifecycle remains hard-disabled/);
   assert.match(autostart, /if: \$\{\{ false \}\} # MIG-004: production\/self-hosted install remains hard-disabled/);
