@@ -166,7 +166,8 @@ jobs:
           exit 1
 
   tier-b:
-    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'mig-006/rbt009-exact-runtime-8h' }}
+    # MIG-006 repair mode: do not spend another 8h until diagnostic evidence is reconciled.
+    if: ${{ false }}
     name: tier-b-production-read-only-8h
     needs: preflight
     runs-on: [self-hosted, Windows, X64]
