@@ -91,11 +91,40 @@ jobs:
             $m = [regex]::Match($safeText, "(?m)^SAFE_COMMAND=([A-Za-z0-9_.-]+)\s*$")
             if ($m.Success) { $safeCommand = [string]$m.Groups[1].Value }
 
+            $summaryPresent = Test-Path $summary -PathType Leaf
+            $summaryDuration = 0
+            $summaryReleaseMatch = $false
+            if ($summaryPresent) {
+              try {
+                $probeSummary = Get-Content $summary -Raw -Encoding UTF8 | ConvertFrom-Json
+                $summaryDuration = [int64]$probeSummary.duration_seconds
+                $summaryReleaseMatch = ([string]$probeSummary.release_sha -eq $env:MIG006_RUNTIME_CANDIDATE_SHA)
+              } catch {
+                $summaryDuration = -1
+              }
+            }
+            $stdoutDuration = 0
+            $m = [regex]::Match($safeText, "(?m)^SOAK_DURATION_SECONDS=(\d+)\s*$")
+            if ($m.Success) { $stdoutDuration = [int64]$m.Groups[1].Value }
+            $stdoutSuccessMarkers = (
+              $safeText -match "(?m)^SOAK_PRODUCTION_TARGETS_UNCHANGED=True\s*$" -and
+              $safeText -match "(?m)^SOAK_MONITOR_ZERO_BROWSER_MUTATION=True\s*$" -and
+              $safeText -match "(?m)^SOAK_TIMELINE_PRIVACY_SAFE=True\s*$"
+            )
+            $stderrBytes = if (Test-Path $stderr -PathType Leaf) { [int64](Get-Item $stderr).Length } else { -1 }
+
             Write-Host "MIG006_DIAGNOSTIC_RESULT=FAIL"
+            Write-Host "MIG006_DIAGNOSTIC_PROCESS_EXIT_CODE=$($p.ExitCode)"
             Write-Host "MIG006_DIAGNOSTIC_SCRIPT_LINE=$safeLine"
             Write-Host "MIG006_DIAGNOSTIC_FQID=$safeFqid"
             Write-Host "MIG006_DIAGNOSTIC_EXCEPTION_TYPE=$safeType"
             Write-Host "MIG006_DIAGNOSTIC_COMMAND=$safeCommand"
+            Write-Host "MIG006_DIAGNOSTIC_SUMMARY_PRESENT=$summaryPresent"
+            Write-Host "MIG006_DIAGNOSTIC_SUMMARY_DURATION_SECONDS=$summaryDuration"
+            Write-Host "MIG006_DIAGNOSTIC_SUMMARY_RELEASE_MATCH=$summaryReleaseMatch"
+            Write-Host "MIG006_DIAGNOSTIC_STDOUT_DURATION_SECONDS=$stdoutDuration"
+            Write-Host "MIG006_DIAGNOSTIC_STDOUT_SUCCESS_MARKERS=$stdoutSuccessMarkers"
+            Write-Host "MIG006_DIAGNOSTIC_STDERR_BYTES=$stderrBytes"
             Remove-Item $summary,$stdout,$stderr -Force -ErrorAction SilentlyContinue
             throw "MIG006_DIAGNOSTIC_CHILD_PROCESS_FAILED"
           }
