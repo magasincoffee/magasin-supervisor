@@ -99,9 +99,24 @@ jobs:
               $p.WaitForExit()
               if ($p.ExitCode -ne 0) {
                 $reason = Get-SafeReason -StdoutPath $stdout -StderrPath $stderr
+                $safeLine = 0
+                $safeFqid = "UNKNOWN"
+                if (Test-Path $stderr -PathType Leaf) {
+                  try {
+                    $diagnosticText = Get-Content $stderr -Raw -Encoding UTF8 -ErrorAction Stop
+                    $lineMatch = [regex]::Match($diagnosticText, 'supervisor-rbt009-soak\.ps1:(\d+)')
+                    if ($lineMatch.Success) { $safeLine = [int]$lineMatch.Groups[1].Value }
+                    $fqidMatch = [regex]::Match($diagnosticText, 'FullyQualifiedErrorId\s*:\s*([A-Za-z0-9_.-]+)')
+                    if ($fqidMatch.Success) { $safeFqid = [string]$fqidMatch.Groups[1].Value }
+                  } catch {
+                    $safeFqid = "DIAGNOSTIC_METADATA_READ_FAILED"
+                  }
+                }
                 Write-Host "MIG006_DIAGNOSTIC_RESULT=FAIL"
                 Write-Host "MIG006_DIAGNOSTIC_ROUND=$round"
                 Write-Host "MIG006_DIAGNOSTIC_REASON=$reason"
+                Write-Host "MIG006_DIAGNOSTIC_SCRIPT_LINE=$safeLine"
+                Write-Host "MIG006_DIAGNOSTIC_FQID=$safeFqid"
                 throw ("MIG006_DIAGNOSTIC_FAILED_" + $reason)
               }
               if (-not (Test-Path $summary -PathType Leaf)) { throw "MIG006_DIAGNOSTIC_SUMMARY_MISSING" }
