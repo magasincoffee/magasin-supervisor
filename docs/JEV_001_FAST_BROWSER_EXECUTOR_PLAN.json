@@ -1,0 +1,51 @@
+{
+  "schema_version": "magasin-supervisor.jev-fast-executor-plan.v1",
+  "task_id": "JEV-001",
+  "title": "Optional Fast Browser Executor",
+  "status": "PLANNING_ONLY_NOT_RELEASED",
+  "owner_approved": true,
+  "merge_install_deploy_allowed_before_mig006_closure": false,
+  "production_runtime_under_current_soak": "218f330ee86eea4f0fb79ef9293bd43cf96a45de",
+  "upstream": {
+    "repository": "browser-use/jev-ultrafast",
+    "reference_commit": "1231850a0bf1a0c0341fe408ef1668dbbfdfac46",
+    "license": "MIT",
+    "python_requires": ">=3.12",
+    "package_version": "0.1.0",
+    "tracking_policy": "PIN_REVIEWED_COMMIT_OR_RELEASE_NO_FLOATING_MAIN"
+  },
+  "architecture": {
+    "authority": "SUPERVISOR",
+    "jev_role": "OPTIONAL_FAST_BROWSER_EXECUTOR",
+    "existing_executor_role": "FALLBACK_AND_REFERENCE_EXECUTOR",
+    "verifier": "INDEPENDENT_SUPERVISOR_POSTCONDITION_VERIFIER",
+    "invariant": "JEV_DONE_IS_NOT_TASK_DONE",
+    "preferred_integration": "LOCAL_PYTHON_SIDECAR_OVER_BOUNDED_IPC",
+    "registry_mutation_by_jev": false,
+    "owner_stop_clear_by_jev": false,
+    "brain_target_creation_by_jev": false
+  },
+  "preserved_invariants": [
+    "PROCESS_TRUTH_OVER_LANE_TRUTH_OVER_RECOVERY_STATE",
+    "OWNER_STOP_AUTHORITATIVE",
+    "GLOBAL_MUTATION_SINGLETON",
+    "EXACT_ONCE_DISPATCH",
+    "EXACT_ONCE_RELAY",
+    "THREE_LANE_ISOLATION",
+    "PAGE_BUDGET",
+    "STALE_TARGET_QUARANTINE",
+    "WATCHDOG_AND_ROLLOVER_STATE",
+    "NO_PRIVATE_DATA_IN_GIT"
+  ],
+  "acceptance": {
+    "functional_parity_required": true,
+    "independent_verification_required": true,
+    "unsupported_fallback_matrix_required": true,
+    "protected_boundary_tests_required": true,
+    "exact_once_regression_required": true,
+    "scheduler_fairness_regression_required": true,
+    "comparative_benchmark_required": true,
+    "bounded_production_canary_required": true
+  },
+  "release_gate": "MIG_006_CLOSED_BEFORE_IMPLEMENTATION_MERGE_OR_PRODUCTION_DEPLOY"
+}
