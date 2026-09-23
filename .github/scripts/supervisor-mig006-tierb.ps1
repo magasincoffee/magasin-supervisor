@@ -400,7 +400,14 @@ try {
     }
 
     $candidateProcess.WaitForExit()
-    if ($candidateProcess.ExitCode -ne 0) {
+    $candidateProcess.Refresh()
+    $candidateExitCode = $candidateProcess.ExitCode
+    if ($null -eq $candidateExitCode) {
+        $failureReason = 'LOCKED_CANDIDATE_EXIT_CODE_UNAVAILABLE'
+        throw 'MIG006_LOCKED_CANDIDATE_EXIT_CODE_UNAVAILABLE'
+    }
+    Write-Host "MIG_006_CANDIDATE_EXIT_CODE=$candidateExitCode"
+    if ([int]$candidateExitCode -ne 0) {
         $failureReason = Get-SanitizedCandidateFailureReason -StdoutPath $candidateStdout -StderrPath $candidateStderr
         Write-Host "MIG_006_CANDIDATE_FAILURE_CODE=$failureReason"
         throw 'MIG006_LOCKED_CANDIDATE_MONITOR_FAILED'
