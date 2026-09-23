@@ -160,6 +160,35 @@ function Assert-ExactRuntimeIdentity([string]$Root,[string]$Candidate) {
     }
 }
 
+function Get-SanitizedCandidateFailureReason([string]$StdoutPath,[string]$StderrPath) {
+    $text = ''
+    foreach ($path in @($StdoutPath,$StderrPath)) {
+        if (Test-Path $path -PathType Leaf) {
+            try {
+                $chunk = Get-Content $path -Raw -Encoding UTF8 -ErrorAction Stop
+                if ($chunk.Length -gt 65536) { $chunk = $chunk.Substring($chunk.Length - 65536) }
+                $text += [Environment]::NewLine + $chunk
+            } catch {
+                return 'LOCKED_CANDIDATE_DIAGNOSTIC_READ_FAILED'
+            }
+        }
+    }
+
+    if ($text -match 'Owner STOP became active during soak') { return 'LOCKED_CANDIDATE_OWNER_STOP_OBSERVED' }
+    if ($text -match 'Owner-configured Brain/Work target identity or revision changed during soak|Owner-configured production targets changed by end of soak|TARGET_CHANGED_EXTERNALLY=True') { return 'LOCKED_CANDIDATE_TARGET_CHANGED' }
+    if ($text -match 'Supervisor/Chrome/CDP remained unhealthy beyond bounded recovery window') { return 'LOCKED_CANDIDATE_RUNTIME_HEALTH_FAILED' }
+    if ($text -match 'ChatGPT page budget exceeded 3') { return 'LOCKED_CANDIDATE_PAGE_BUDGET_EXCEEDED' }
+    if ($text -match 'Repeated identical ERROR/RECOVERY event flood detected during soak window') { return 'LOCKED_CANDIDATE_EVENT_FLOOD' }
+    if ($text -match 'Continuous soak duration was shorter than requested') { return 'LOCKED_CANDIDATE_DURATION_SHORT' }
+    if ($text -match 'Installed lifecycle truth helper is missing') { return 'LOCKED_CANDIDATE_LIFECYCLE_HELPER_MISSING' }
+    if ($text -match 'ConvertFrom-Json') { return 'LOCKED_CANDIDATE_JSON_PARSE_FAILED' }
+    if ($text -match 'cannot access the file|being used by another process|sharing violation') { return 'LOCKED_CANDIDATE_FILE_ACCESS_FAILED' }
+    if ($text -match 'Cannot find path|does not exist') { return 'LOCKED_CANDIDATE_REQUIRED_PATH_MISSING' }
+    if ($text -match 'Property .* cannot be found') { return 'LOCKED_CANDIDATE_STRICTMODE_PROPERTY_FAILED' }
+    if ($text -match 'Cannot convert value|Invalid cast') { return 'LOCKED_CANDIDATE_TYPE_CONVERSION_FAILED' }
+    return 'LOCKED_CANDIDATE_MONITOR_FAILED_UNCLASSIFIED'
+}
+
 function Write-FailureSummary([string]$Reason) {
     $now = [DateTimeOffset]::UtcNow
     $duration = 0
@@ -372,7 +401,8 @@ try {
 
     $candidateProcess.WaitForExit()
     if ($candidateProcess.ExitCode -ne 0) {
-        $failureReason='LOCKED_CANDIDATE_MONITOR_FAILED'
+        $failureReason = Get-SanitizedCandidateFailureReason -StdoutPath $candidateStdout -StderrPath $candidateStderr
+        Write-Host "MIG_006_CANDIDATE_FAILURE_CODE=$failureReason"
         throw 'MIG006_LOCKED_CANDIDATE_MONITOR_FAILED'
     }
 
