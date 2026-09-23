@@ -395,3 +395,17 @@ TASK-RBT release additionally requires:
 - Owner STOP authoritative.
 
 See `docs/ROBOT_BROWSER_SCHEDULER_OBSERVABILITY_ARCHITECTURE.md` for the TASK-RBT-002 → TASK-RBT-009 dependency-correct roadmap and production soak matrix.
+
+
+## Planned optional fast executor — JEV-001
+
+Owner-approved planning has been added for an optional Jev Ultrafast fast-path executor. This is **not released** and does not change the production runtime while MIG-006 is qualifying the locked runtime candidate.
+
+Canonical planning artifacts:
+
+- `docs/JEV_001_FAST_BROWSER_EXECUTOR_ARCHITECTURE.md`
+- `docs/JEV_001_FAST_BROWSER_EXECUTOR_PLAN.json`
+
+JEV-001 is subordinate to all existing Three-Lane invariants. Supervisor retains authority, the current CDP executor remains the fallback/reference executor, and independent Supervisor verification remains mandatory. `JEV DONE` is never sufficient to accept a task.
+
+Hard gate: do not merge/install/deploy JEV-001 until MIG-006 is canonically closed.
