@@ -6,13 +6,16 @@ on:
       - main
     paths:
       - ".github/workflows/mig006-candidate-diagnostic.yml"
+      - ".github/workflows/supervisor-rbt009-soak.yml"
+      - ".github/scripts/supervisor-mig006-tierb.ps1"
+      - "test/mig-006-rbt009-control-plane.test.mjs"
 
 permissions:
   contents: read
 
 concurrency:
-  group: supervisor-mig006-diagnostic
-  cancel-in-progress: false
+  group: supervisor-mig006-diagnostic-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: true
 
 env:
   MIG006_RUNTIME_CANDIDATE_SHA: "218f330ee86eea4f0fb79ef9293bd43cf96a45de"
@@ -21,9 +24,9 @@ env:
 jobs:
   diagnostic:
     if: ${{ github.head_ref == 'mig-006/rbt009-exact-runtime-8h' }}
-    name: locked-candidate-read-only-1m
+    name: locked-candidate-read-only-stress
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout control plane
         uses: actions/checkout@v4
@@ -38,7 +41,7 @@ jobs:
           path: .mig006-runtime-candidate
           fetch-depth: 1
 
-      - name: Run sanitized read-only candidate diagnostic
+      - name: Run five sanitized read-only finalization probes
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
@@ -46,46 +49,76 @@ jobs:
             throw "MIG006_DIAGNOSTIC_RUNNER_MISMATCH"
           }
 
-          $env:SUPERVISOR_STATE_ROOT = Join-Path ([string]$env:LOCALAPPDATA) "MAGASIN\Supervisor"
-          $env:GITHUB_SHA = $env:MIG006_RUNTIME_CANDIDATE_SHA
-          $summary = Join-Path $env:RUNNER_TEMP "mig006-candidate-diag-summary.json"
-          $reason = "NONE"
-
-          try {
-            & ".mig006-runtime-candidate\.github\scripts\supervisor-rbt009-soak.ps1" -DurationMinutes 1 -SampleSeconds 30 -OutputPath $summary
-          } catch {
-            $message = [string]$_.Exception.Message
-            $reason = switch -Regex ($message) {
-              "Owner STOP" { "OWNER_STOP_OBSERVED"; break }
-              "target identity|production targets changed" { "TARGET_CHANGED"; break }
-              "Supervisor/Chrome/CDP remained unhealthy" { "RUNTIME_HEALTH_FAILED"; break }
-              "ChatGPT page budget exceeded" { "PAGE_BUDGET_EXCEEDED"; break }
-              "Repeated identical ERROR/RECOVERY" { "EVENT_FLOOD"; break }
-              "Continuous soak duration" { "DURATION_CHECK_FAILED"; break }
-              default { "UNCLASSIFIED_CANDIDATE_EXCEPTION" }
+          function Get-SafeReason([string]$StdoutPath,[string]$StderrPath) {
+            $text = ""
+            foreach ($path in @($StdoutPath,$StderrPath)) {
+              if (Test-Path $path -PathType Leaf) {
+                try {
+                  $chunk = Get-Content $path -Raw -Encoding UTF8 -ErrorAction Stop
+                  if ($chunk.Length -gt 65536) { $chunk = $chunk.Substring($chunk.Length - 65536) }
+                  $text += [Environment]::NewLine + $chunk
+                } catch {
+                  return "DIAGNOSTIC_READ_FAILED"
+                }
+              }
             }
+            if ($text -match "Owner STOP became active during soak") { return "OWNER_STOP_OBSERVED" }
+            if ($text -match "Owner-configured Brain/Work target identity or revision changed during soak|Owner-configured production targets changed by end of soak|TARGET_CHANGED_EXTERNALLY=True") { return "TARGET_CHANGED" }
+            if ($text -match "Supervisor/Chrome/CDP remained unhealthy beyond bounded recovery window") { return "RUNTIME_HEALTH_FAILED" }
+            if ($text -match "ChatGPT page budget exceeded 3") { return "PAGE_BUDGET_EXCEEDED" }
+            if ($text -match "Repeated identical ERROR/RECOVERY event flood detected during soak window") { return "EVENT_FLOOD" }
+            if ($text -match "Continuous soak duration was shorter than requested") { return "DURATION_SHORT" }
+            if ($text -match "Installed lifecycle truth helper is missing") { return "LIFECYCLE_HELPER_MISSING" }
+            if ($text -match "ConvertFrom-Json") { return "JSON_PARSE_FAILED" }
+            if ($text -match "cannot access the file|being used by another process|sharing violation") { return "FILE_ACCESS_FAILED" }
+            if ($text -match "Cannot find path|does not exist") { return "REQUIRED_PATH_MISSING" }
+            if ($text -match "Property .* cannot be found") { return "STRICTMODE_PROPERTY_FAILED" }
+            if ($text -match "Cannot convert value|Invalid cast") { return "TYPE_CONVERSION_FAILED" }
+            return "UNCLASSIFIED_CANDIDATE_EXCEPTION"
           }
 
-          $summaryPresent = Test-Path $summary -PathType Leaf
-          $duration = 0
-          $maxPages = -1
-          $registryEvolved = $false
-          $ownerStopObserved = $false
-          if ($summaryPresent) {
-            $s = Get-Content $summary -Raw -Encoding UTF8 | ConvertFrom-Json
-            $duration = [int64]$s.duration_seconds
-            $maxPages = [int]$s.max_page_count
-            $registryEvolved = [bool]$s.registry_target_evolved
-            $ownerStopObserved = [bool]$s.owner_stop_observed
+          $env:SUPERVISOR_STATE_ROOT = Join-Path ([string]$env:LOCALAPPDATA) "MAGASIN\Supervisor"
+          $candidate = [IO.Path]::GetFullPath(".mig006-runtime-candidate\.github\scripts\supervisor-rbt009-soak.ps1")
+          $originalGithubSha = [string]$env:GITHUB_SHA
+          $env:GITHUB_SHA = $env:MIG006_RUNTIME_CANDIDATE_SHA
+          try {
+            for ($round = 1; $round -le 5; $round++) {
+              $summary = Join-Path $env:RUNNER_TEMP ("mig006-diag-summary-" + $round + ".json")
+              $stdout = Join-Path $env:RUNNER_TEMP ("mig006-diag-" + $round + ".stdout.log")
+              $stderr = Join-Path $env:RUNNER_TEMP ("mig006-diag-" + $round + ".stderr.log")
+              Remove-Item $summary,$stdout,$stderr -Force -ErrorAction SilentlyContinue
+
+              $args = @(
+                "-NoLogo","-NoProfile","-ExecutionPolicy","Bypass",
+                "-File",('"' + $candidate + '"'),
+                "-DurationMinutes","1",
+                "-SampleSeconds","30",
+                "-OutputPath",('"' + $summary + '"')
+              )
+              $p = Start-Process powershell.exe -ArgumentList $args -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+              $p.WaitForExit()
+              if ($p.ExitCode -ne 0) {
+                $reason = Get-SafeReason -StdoutPath $stdout -StderrPath $stderr
+                Write-Host "MIG006_DIAGNOSTIC_RESULT=FAIL"
+                Write-Host "MIG006_DIAGNOSTIC_ROUND=$round"
+                Write-Host "MIG006_DIAGNOSTIC_REASON=$reason"
+                throw ("MIG006_DIAGNOSTIC_FAILED_" + $reason)
+              }
+              if (-not (Test-Path $summary -PathType Leaf)) { throw "MIG006_DIAGNOSTIC_SUMMARY_MISSING" }
+              $s = Get-Content $summary -Raw -Encoding UTF8 | ConvertFrom-Json
+              if ([string]$s.release_sha -ne $env:MIG006_RUNTIME_CANDIDATE_SHA) { throw "MIG006_DIAGNOSTIC_RUNTIME_SHA_MISMATCH" }
+              if ([int64]$s.duration_seconds -lt 30) { throw "MIG006_DIAGNOSTIC_DURATION_SHORT" }
+              if ([bool]$s.owner_stop_observed) { throw "MIG006_DIAGNOSTIC_OWNER_STOP" }
+              if ([bool]$s.registry_target_evolved) { throw "MIG006_DIAGNOSTIC_REGISTRY_EVOLVED" }
+              if ([int]$s.max_page_count -gt 3) { throw "MIG006_DIAGNOSTIC_PAGE_BUDGET" }
+              Write-Host ("MIG006_DIAGNOSTIC_ROUND_" + $round + "=PASS")
+              Remove-Item $summary,$stdout,$stderr -Force -ErrorAction SilentlyContinue
+              Start-Sleep -Seconds 3
+            }
+          } finally {
+            $env:GITHUB_SHA = $originalGithubSha
           }
 
-          Write-Host "MIG006_DIAGNOSTIC_RESULT=$([string]$(if ($reason -eq 'NONE' -and $summaryPresent) { 'PASS' } else { 'FAIL' }))"
-          Write-Host "MIG006_DIAGNOSTIC_REASON=$reason"
-          Write-Host "MIG006_DIAGNOSTIC_SUMMARY_PRESENT=$summaryPresent"
-          Write-Host "MIG006_DIAGNOSTIC_DURATION_SECONDS=$duration"
-          Write-Host "MIG006_DIAGNOSTIC_MAX_PAGE_COUNT=$maxPages"
-          Write-Host "MIG006_DIAGNOSTIC_REGISTRY_TARGET_EVOLVED=$registryEvolved"
-          Write-Host "MIG006_DIAGNOSTIC_OWNER_STOP_OBSERVED=$ownerStopObserved"
+          Write-Host "MIG006_DIAGNOSTIC_RESULT=PASS"
+          Write-Host "MIG006_DIAGNOSTIC_FINALIZATION_PROBES=5"
           Write-Host "MIG006_DIAGNOSTIC_RUNTIME_CANDIDATE_SHA=$env:MIG006_RUNTIME_CANDIDATE_SHA"
-
-          Remove-Item $summary -Force -ErrorAction SilentlyContinue
