@@ -79,6 +79,28 @@ jobs:
 
           $env:SUPERVISOR_STATE_ROOT = Join-Path ([string]$env:LOCALAPPDATA) "MAGASIN\Supervisor"
           $candidate = [IO.Path]::GetFullPath(".mig006-runtime-candidate\.github\scripts\supervisor-rbt009-soak.ps1")
+          $probeWrapper = Join-Path $env:RUNNER_TEMP "mig006-safe-probe-wrapper.ps1"
+          @'
+param(
+  [Parameter(Mandatory=$true)][string]$CandidateScript,
+  [Parameter(Mandatory=$true)][string]$SummaryPath
+)
+$ErrorActionPreference = "Stop"
+try {
+  & $CandidateScript -DurationMinutes 1 -SampleSeconds 30 -OutputPath $SummaryPath
+  exit 0
+} catch {
+  $type = $_.Exception.GetType().FullName -replace '[^A-Za-z0-9_.-]','_'
+  $fqid = [string]$_.FullyQualifiedErrorId -replace '[^A-Za-z0-9_.-]','_'
+  $line = [int]$_.InvocationInfo.ScriptLineNumber
+  $command = [string]$_.InvocationInfo.MyCommand.Name -replace '[^A-Za-z0-9_.-]','_'
+  Write-Output "SAFE_EXCEPTION_TYPE=$type"
+  Write-Output "SAFE_FQID=$fqid"
+  Write-Output "SAFE_SCRIPT_LINE=$line"
+  Write-Output "SAFE_COMMAND=$command"
+  exit 97
+}
+'@ | Set-Content -Path $probeWrapper -Encoding UTF8
           $originalGithubSha = [string]$env:GITHUB_SHA
           $env:GITHUB_SHA = $env:MIG006_RUNTIME_CANDIDATE_SHA
           try {
@@ -90,33 +112,116 @@ jobs:
 
               $args = @(
                 "-NoLogo","-NoProfile","-ExecutionPolicy","Bypass",
-                "-File",('"' + $candidate + '"'),
-                "-DurationMinutes","1",
-                "-SampleSeconds","30",
-                "-OutputPath",('"' + $summary + '"')
+                "-File",('"' + $probeWrapper + '"'),
+                "-CandidateScript",('"' + $candidate + '"'),
+                "-SummaryPath",('"' + $summary + '"')
               )
               $p = Start-Process powershell.exe -ArgumentList $args -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
               $p.WaitForExit()
               if ($p.ExitCode -ne 0) {
-                $reason = Get-SafeReason -StdoutPath $stdout -StderrPath $stderr
+                $reason = "CHILD_PROCESS_FAILED"
                 $safeLine = 0
                 $safeFqid = "UNKNOWN"
-                if (Test-Path $stderr -PathType Leaf) {
-                  try {
-                    $diagnosticText = Get-Content $stderr -Raw -Encoding UTF8 -ErrorAction Stop
-                    $lineMatch = [regex]::Match($diagnosticText, 'supervisor-rbt009-soak\.ps1:(\d+)')
-                    if ($lineMatch.Success) { $safeLine = [int]$lineMatch.Groups[1].Value }
-                    $fqidMatch = [regex]::Match($diagnosticText, 'FullyQualifiedErrorId\s*:\s*([A-Za-z0-9_.-]+)')
-                    if ($fqidMatch.Success) { $safeFqid = [string]$fqidMatch.Groups[1].Value }
-                  } catch {
-                    $safeFqid = "DIAGNOSTIC_METADATA_READ_FAILED"
-                  }
+                $safeType = "UNKNOWN"
+                $safeCommand = "UNKNOWN"
+                if (Test-Path $stdout -PathType Leaf) {
+                  $safeText = Get-Content $stdout -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+                  $m = [regex]::Match($safeText, '(?m)^SAFE_SCRIPT_LINE=(\d+)\s*                throw ("MIG006_DIAGNOSTIC_FAILED_" + $reason)
+              }
+              if (-not (Test-Path $summary -PathType Leaf)) { throw "MIG006_DIAGNOSTIC_SUMMARY_MISSING" }
+              $s = Get-Content $summary -Raw -Encoding UTF8 | ConvertFrom-Json
+              if ([string]$s.release_sha -ne $env:MIG006_RUNTIME_CANDIDATE_SHA) { throw "MIG006_DIAGNOSTIC_RUNTIME_SHA_MISMATCH" }
+              if ([int64]$s.duration_seconds -lt 30) { throw "MIG006_DIAGNOSTIC_DURATION_SHORT" }
+              if ([bool]$s.owner_stop_observed) { throw "MIG006_DIAGNOSTIC_OWNER_STOP" }
+              if ([bool]$s.registry_target_evolved) { throw "MIG006_DIAGNOSTIC_REGISTRY_EVOLVED" }
+              if ([int]$s.max_page_count -gt 3) { throw "MIG006_DIAGNOSTIC_PAGE_BUDGET" }
+              Write-Host ("MIG006_DIAGNOSTIC_ROUND_" + $round + "=PASS")
+              Remove-Item $summary,$stdout,$stderr -Force -ErrorAction SilentlyContinue
+              Start-Sleep -Seconds 3
+            }
+          } finally {
+            $env:GITHUB_SHA = $originalGithubSha
+          }
+
+          Write-Host "MIG006_DIAGNOSTIC_RESULT=PASS"
+          Write-Host "MIG006_DIAGNOSTIC_FINALIZATION_PROBES=5"
+          Write-Host "MIG006_DIAGNOSTIC_RUNTIME_CANDIDATE_SHA=$env:MIG006_RUNTIME_CANDIDATE_SHA"
+)
+                  if ($m.Success) { $safeLine = [int]$m.Groups[1].Value }
+                  $m = [regex]::Match($safeText, '(?m)^SAFE_FQID=([A-Za-z0-9_.-]+)\s*                throw ("MIG006_DIAGNOSTIC_FAILED_" + $reason)
+              }
+              if (-not (Test-Path $summary -PathType Leaf)) { throw "MIG006_DIAGNOSTIC_SUMMARY_MISSING" }
+              $s = Get-Content $summary -Raw -Encoding UTF8 | ConvertFrom-Json
+              if ([string]$s.release_sha -ne $env:MIG006_RUNTIME_CANDIDATE_SHA) { throw "MIG006_DIAGNOSTIC_RUNTIME_SHA_MISMATCH" }
+              if ([int64]$s.duration_seconds -lt 30) { throw "MIG006_DIAGNOSTIC_DURATION_SHORT" }
+              if ([bool]$s.owner_stop_observed) { throw "MIG006_DIAGNOSTIC_OWNER_STOP" }
+              if ([bool]$s.registry_target_evolved) { throw "MIG006_DIAGNOSTIC_REGISTRY_EVOLVED" }
+              if ([int]$s.max_page_count -gt 3) { throw "MIG006_DIAGNOSTIC_PAGE_BUDGET" }
+              Write-Host ("MIG006_DIAGNOSTIC_ROUND_" + $round + "=PASS")
+              Remove-Item $summary,$stdout,$stderr -Force -ErrorAction SilentlyContinue
+              Start-Sleep -Seconds 3
+            }
+          } finally {
+            $env:GITHUB_SHA = $originalGithubSha
+          }
+
+          Write-Host "MIG006_DIAGNOSTIC_RESULT=PASS"
+          Write-Host "MIG006_DIAGNOSTIC_FINALIZATION_PROBES=5"
+          Write-Host "MIG006_DIAGNOSTIC_RUNTIME_CANDIDATE_SHA=$env:MIG006_RUNTIME_CANDIDATE_SHA"
+)
+                  if ($m.Success) { $safeFqid = [string]$m.Groups[1].Value }
+                  $m = [regex]::Match($safeText, '(?m)^SAFE_EXCEPTION_TYPE=([A-Za-z0-9_.-]+)\s*                throw ("MIG006_DIAGNOSTIC_FAILED_" + $reason)
+              }
+              if (-not (Test-Path $summary -PathType Leaf)) { throw "MIG006_DIAGNOSTIC_SUMMARY_MISSING" }
+              $s = Get-Content $summary -Raw -Encoding UTF8 | ConvertFrom-Json
+              if ([string]$s.release_sha -ne $env:MIG006_RUNTIME_CANDIDATE_SHA) { throw "MIG006_DIAGNOSTIC_RUNTIME_SHA_MISMATCH" }
+              if ([int64]$s.duration_seconds -lt 30) { throw "MIG006_DIAGNOSTIC_DURATION_SHORT" }
+              if ([bool]$s.owner_stop_observed) { throw "MIG006_DIAGNOSTIC_OWNER_STOP" }
+              if ([bool]$s.registry_target_evolved) { throw "MIG006_DIAGNOSTIC_REGISTRY_EVOLVED" }
+              if ([int]$s.max_page_count -gt 3) { throw "MIG006_DIAGNOSTIC_PAGE_BUDGET" }
+              Write-Host ("MIG006_DIAGNOSTIC_ROUND_" + $round + "=PASS")
+              Remove-Item $summary,$stdout,$stderr -Force -ErrorAction SilentlyContinue
+              Start-Sleep -Seconds 3
+            }
+          } finally {
+            $env:GITHUB_SHA = $originalGithubSha
+          }
+
+          Write-Host "MIG006_DIAGNOSTIC_RESULT=PASS"
+          Write-Host "MIG006_DIAGNOSTIC_FINALIZATION_PROBES=5"
+          Write-Host "MIG006_DIAGNOSTIC_RUNTIME_CANDIDATE_SHA=$env:MIG006_RUNTIME_CANDIDATE_SHA"
+)
+                  if ($m.Success) { $safeType = [string]$m.Groups[1].Value }
+                  $m = [regex]::Match($safeText, '(?m)^SAFE_COMMAND=([A-Za-z0-9_.-]+)\s*                throw ("MIG006_DIAGNOSTIC_FAILED_" + $reason)
+              }
+              if (-not (Test-Path $summary -PathType Leaf)) { throw "MIG006_DIAGNOSTIC_SUMMARY_MISSING" }
+              $s = Get-Content $summary -Raw -Encoding UTF8 | ConvertFrom-Json
+              if ([string]$s.release_sha -ne $env:MIG006_RUNTIME_CANDIDATE_SHA) { throw "MIG006_DIAGNOSTIC_RUNTIME_SHA_MISMATCH" }
+              if ([int64]$s.duration_seconds -lt 30) { throw "MIG006_DIAGNOSTIC_DURATION_SHORT" }
+              if ([bool]$s.owner_stop_observed) { throw "MIG006_DIAGNOSTIC_OWNER_STOP" }
+              if ([bool]$s.registry_target_evolved) { throw "MIG006_DIAGNOSTIC_REGISTRY_EVOLVED" }
+              if ([int]$s.max_page_count -gt 3) { throw "MIG006_DIAGNOSTIC_PAGE_BUDGET" }
+              Write-Host ("MIG006_DIAGNOSTIC_ROUND_" + $round + "=PASS")
+              Remove-Item $summary,$stdout,$stderr -Force -ErrorAction SilentlyContinue
+              Start-Sleep -Seconds 3
+            }
+          } finally {
+            $env:GITHUB_SHA = $originalGithubSha
+          }
+
+          Write-Host "MIG006_DIAGNOSTIC_RESULT=PASS"
+          Write-Host "MIG006_DIAGNOSTIC_FINALIZATION_PROBES=5"
+          Write-Host "MIG006_DIAGNOSTIC_RUNTIME_CANDIDATE_SHA=$env:MIG006_RUNTIME_CANDIDATE_SHA"
+)
+                  if ($m.Success) { $safeCommand = [string]$m.Groups[1].Value }
                 }
                 Write-Host "MIG006_DIAGNOSTIC_RESULT=FAIL"
                 Write-Host "MIG006_DIAGNOSTIC_ROUND=$round"
                 Write-Host "MIG006_DIAGNOSTIC_REASON=$reason"
                 Write-Host "MIG006_DIAGNOSTIC_SCRIPT_LINE=$safeLine"
                 Write-Host "MIG006_DIAGNOSTIC_FQID=$safeFqid"
+                Write-Host "MIG006_DIAGNOSTIC_EXCEPTION_TYPE=$safeType"
+                Write-Host "MIG006_DIAGNOSTIC_COMMAND=$safeCommand"
                 throw ("MIG006_DIAGNOSTIC_FAILED_" + $reason)
               }
               if (-not (Test-Path $summary -PathType Leaf)) { throw "MIG006_DIAGNOSTIC_SUMMARY_MISSING" }
