@@ -505,7 +505,10 @@ async function waitForConversationUrl(page) {
     !isPersistableConversationUrl(String(page.url()))
   ) {
     await assertPageNotRateLimited(page);
-    await page.waitForTimeout(1_000);
+    await page.waitForURL(
+      (value) => isPersistableConversationUrl(String(value)),
+      { timeout: 1_000 }
+    ).catch(() => {});
   }
   await assertPageNotRateLimited(page);
   if (!isPersistableConversationUrl(String(page.url()))) {
