@@ -1,5 +1,0 @@
-SUP-SELFHEAL-P2-LIVE-LOG-CAPTURE
-semantic_head=a52dca82d08c554e9f156a8777702e4af2899bf9
-single_attempt=true
-fixture_reuse_first=true
-execution_policy_safe=true
