@@ -53,6 +53,15 @@ async function exactFixtureDirective(page) {
   return null;
 }
 
+function hasConversationIdentity(value) {
+  try {
+    targetFromUrl(String(value || ""));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function readFixtureCache() {
   if (!cacheFile) return null;
   try {
@@ -197,13 +206,13 @@ try {
   const conversationDeadline = Date.now() + 45_000;
   while (
     Date.now() < conversationDeadline &&
-    !isPersistableConversationUrl(String(page.url()))
+    !hasConversationIdentity(page.url())
   ) {
     await assertNotRateLimited(page);
     await page.waitForTimeout(1_000);
   }
   await assertNotRateLimited(page);
-  if (!isPersistableConversationUrl(String(page.url()))) {
+  if (!hasConversationIdentity(page.url())) {
     const error = new Error("P2_FIXTURE_CONVERSATION_NOT_CONFIRMED");
     error.code = "P2_FIXTURE_CONVERSATION_NOT_CONFIRMED";
     throw error;
