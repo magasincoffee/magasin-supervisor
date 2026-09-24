@@ -350,7 +350,14 @@ try {
     $status = Read-JsonSafe (Join-Path $tempRoot "lane-status.json")
     $statusLane = @($status.lanes | Where-Object { [string]$_.lane_id -eq "lane-1" }) | Select-Object -First 1
     Write-Host "LIVE_P2_DIAG_LANE_STATUS=$(if ($statusLane) { [string]$statusLane.status } else { "MISSING" })"
-    Write-Host "LIVE_P2_DIAG_LANE_ERROR_NAME=$(if ($statusLane -and $statusLane.error_name) { [string]$statusLane.error_name } else { "NONE" })"
+    $statusLaneErrorName = "NONE"
+    if ($statusLane) {
+      $errorNameProperty = $statusLane.PSObject.Properties["error_name"]
+      if ($errorNameProperty -and -not [string]::IsNullOrWhiteSpace([string]$errorNameProperty.Value)) {
+        $statusLaneErrorName = [string]$errorNameProperty.Value
+      }
+    }
+    Write-Host "LIVE_P2_DIAG_LANE_ERROR_NAME=$statusLaneErrorName"
     throw "P2_LIVE_RUNTIME_ACCEPTANCE_NOT_REACHED"
   }
 
