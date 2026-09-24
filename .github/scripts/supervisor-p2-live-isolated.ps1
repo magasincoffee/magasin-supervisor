@@ -787,6 +787,28 @@ try {
   Write-Host "LIVE_P2_PRODUCTION_REGISTRY_UNCHANGED=True"
   $acceptancePassed = $true
 }
+catch {
+  if ($p3ReplacementMode -and -not (Test-Path $p3DiagArtifact)) {
+    $rawFailure = [string]$_.Exception.Message
+    $failureCode = "UNCLASSIFIED"
+    $match = [regex]::Match(
+      $rawFailure,
+      '(P[23]_[A-Z0-9_]+|LIVE_[A-Z0-9_]+|AUTO_WORK_[A-Z0-9_]+|CHATGPT_RATE_LIMITED)'
+    )
+    if ($match.Success) { $failureCode = [string]$match.Groups[1].Value }
+    $fallbackPayload = [ordered]@{
+      schema_version = "p3-live-diagnostics.v1"
+      runner_name = [string]$env:COMPUTERNAME
+      stage = "PRE_REPLACEMENT_OR_UNCLASSIFIED"
+      failure_code = $failureCode
+      error_type = [string]$_.Exception.GetType().Name
+    }
+    $fallbackPayload | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $p3DiagArtifact -Encoding UTF8
+    Write-Host "LIVE_P3_FALLBACK_DIAGNOSTIC_WRITTEN=True"
+    Write-Host ("LIVE_P3_FALLBACK_FAILURE_CODE=" + $failureCode)
+  }
+  throw
+}
 finally {
   $env:LOCALAPPDATA = $savedLocalAppData
   if ($testNode -and -not $testNode.HasExited) {
