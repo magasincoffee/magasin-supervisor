@@ -1,6 +1,6 @@
 SUP-SELFHEAL-P3-LIVE-WORK-REPLACEMENT
 single_attempt=true
 runner=DESKTOP-4K7IM13
-diagnostic=bounded-sanitized-v5
-retry_reason=fallback_diagnostic_all_failure_paths
-pause_for_runner_smoke=true
+diagnostic=bounded-sanitized-v6
+retry_reason=reenable_live_acceptance_after_runner_migration
+pause_for_runner_smoke=false
