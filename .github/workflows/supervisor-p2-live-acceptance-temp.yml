@@ -1,7 +1,9 @@
 name: Supervisor P2 Live Acceptance Temp
 
 on:
-  pull_request:
+  push:
+    branches:
+      - hotfix/supervisor-autonomy-selfheal-v1
     paths:
       - .github/workflows/supervisor-p2-live-acceptance-temp.yml
       - .github/scripts/supervisor-p2-live-brain-fixture.mjs
@@ -15,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: supervisor-p2-live-acceptance-temp
@@ -28,6 +31,16 @@ jobs:
       P2_LIVE_ENABLED: "false"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Publish sanitized run beacon
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $target = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          gh api --method POST "repos/$env:GITHUB_REPOSITORY/statuses/$env:GITHUB_SHA" -f state=pending -f context="supervisor/p2-h4a16il-live" -f description="run_id=$env:GITHUB_RUN_ID" -f target_url="$target" | Out-Null
+          Write-Host "LIVE_P2_RUN_BEACON=True"
 
       - name: Enforce canonical H4A16IL runner identity
         shell: powershell
@@ -205,3 +218,16 @@ jobs:
         if: ${{ env.P2_LIVE_ENABLED == 'true' }}
         shell: cmd
         run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-p2-live-isolated.ps1"
+
+      - name: Finalize sanitized run beacon
+        if: ${{ always() }}
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $state = if ($env:JOB_STATUS -eq "success") { "success" } else { "failure" }
+          $target = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          gh api --method POST "repos/$env:GITHUB_REPOSITORY/statuses/$env:GITHUB_SHA" -f state="$state" -f context="supervisor/p2-h4a16il-live" -f description="run_id=$env:GITHUB_RUN_ID" -f target_url="$target" | Out-Null
+          Write-Host "LIVE_P2_RUN_BEACON_FINAL=$state"
