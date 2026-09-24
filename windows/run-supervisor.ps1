@@ -16,6 +16,7 @@ $registryFile = Join-Path $root 'orchestration.json'
 $runtimeStatusFile = Join-Path $root 'runtime-status.json'
 $laneConfigFile = Join-Path $root 'lanes.json'
 $laneStatusFile = Join-Path $root 'lane-status.json'
+$wrapperLogFile = Join-Path $root 'wrapper.log'
 $projectAdapterPath = [string]$env:SUPERVISOR_PROJECT_ADAPTER_PATH
 $projectAdapterUrl = [string]$env:SUPERVISOR_PROJECT_ADAPTER_URL
 if (-not [string]::IsNullOrWhiteSpace($projectAdapterPath) -and -not [string]::IsNullOrWhiteSpace($projectAdapterUrl)) {
@@ -38,6 +39,79 @@ function Read-ConfiguredProjectAdapterState {
     }
     return $adapter.project_state
 }
+
+function Write-WrapperLog(
+    [string]$Type,
+    [hashtable]$Fields = @{}
+) {
+    try {
+        if (Test-Path $wrapperLogFile) {
+            $item = Get-Item $wrapperLogFile -ErrorAction SilentlyContinue
+            if ($item -and $item.Length -gt 2097152) {
+                $tail = @(Get-Content $wrapperLogFile -Tail 500 -ErrorAction SilentlyContinue)
+                [System.IO.File]::WriteAllLines(
+                    $wrapperLogFile,
+                    $tail,
+                    (New-Object System.Text.UTF8Encoding($false))
+                )
+            }
+        }
+        $record = [ordered]@{
+            timestamp = [DateTimeOffset]::UtcNow.ToString('o')
+            type = $Type
+        }
+        foreach ($key in $Fields.Keys) {
+            $record[$key] = $Fields[$key]
+        }
+        Add-Content -Path $wrapperLogFile -Value ($record | ConvertTo-Json -Compress) -Encoding UTF8
+    } catch {
+        # Observability must never become runtime authority.
+    }
+}
+
+function Resolve-LocalRuntimeMode {
+    # Platform-local orchestration truth is allowed to select the runtime
+    # even when no project adapter is configured. It does not provide project
+    # business state and therefore does not violate the explicit adapter boundary.
+    try {
+        if (Test-Path $laneStatusFile) {
+            $laneStatus = Get-Content $laneStatusFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ([string]$laneStatus.mode -eq 'THREE_LANE_V1') {
+                return 'THREE_LANE_V1'
+            }
+        }
+    } catch {}
+
+    try {
+        if (Test-Path $laneConfigFile) {
+            $laneConfig = Get-Content $laneConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ([string]$laneConfig.mode -eq 'THREE_LANE_V1') {
+                return 'THREE_LANE_V1'
+            }
+        }
+    } catch {}
+
+    try {
+        if (Test-Path $registryFile) {
+            $registry = Get-Content $registryFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ([string]$registry.mode -eq 'BRAIN_WORKER_V1') {
+                return 'BRAIN_WORKER_V1'
+            }
+        }
+    } catch {}
+
+    try {
+        if (Test-Path $runtimeStatusFile) {
+            $runtimeStatus = Get-Content $runtimeStatusFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ([string]$runtimeStatus.orchestration_mode -eq 'BRAIN_WORKER_V1') {
+                return 'BRAIN_WORKER_V1'
+            }
+        }
+    } catch {}
+
+    return $null
+}
+
 $mutexName = 'Local\MAGASIN_BUSINESS_OS_SUPERVISOR'
 $mutex = New-Object System.Threading.Mutex($false, $mutexName)
 $ownsMutex = $false
@@ -168,61 +242,42 @@ try {
         }
 
         $runtimeMode = $null
+        $adapterFailure = $null
         try {
             $projectState = Read-ConfiguredProjectAdapterState
             if ($projectState -and $projectState.supervisor_orchestration) {
-                $runtimeMode = [string]$projectState.supervisor_orchestration.mode
-            }
-        } catch {
-            # Preserve the last locally verified runtime mode during transient
-            # repository/network failures; never guess a downgrade.
-            try {
-                if (Test-Path $laneStatusFile) {
-                    $laneStatus = Get-Content $laneStatusFile -Raw -Encoding UTF8 | ConvertFrom-Json
-                    if ([string]$laneStatus.mode -eq 'THREE_LANE_V1') {
-                        $runtimeMode = 'THREE_LANE_V1'
+                $candidateMode = [string]$projectState.supervisor_orchestration.mode
+                if (-not [string]::IsNullOrWhiteSpace($candidateMode)) {
+                    $runtimeMode = $candidateMode
+                    Write-WrapperLog 'RUNTIME_MODE_FROM_PROJECT_ADAPTER' @{
+                        mode = $runtimeMode
                     }
                 }
-            } catch {}
-
-            if (-not $runtimeMode) {
-                try {
-                    if (Test-Path $laneConfigFile) {
-                        $laneConfig = Get-Content $laneConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
-                        if ([string]$laneConfig.mode -eq 'THREE_LANE_V1') {
-                            $runtimeMode = 'THREE_LANE_V1'
-                        }
-                    }
-                } catch {}
             }
-
-            if (-not $runtimeMode) {
-                try {
-                    if (Test-Path $registryFile) {
-                        $registry = Get-Content $registryFile -Raw -Encoding UTF8 | ConvertFrom-Json
-                        if ([string]$registry.mode -eq 'BRAIN_WORKER_V1') {
-                            $runtimeMode = 'BRAIN_WORKER_V1'
-                        }
-                    }
-                } catch {}
+        } catch {
+            $adapterFailure = $_.Exception.GetType().Name
+            Write-WrapperLog 'PROJECT_ADAPTER_UNAVAILABLE' @{
+                error_name = $adapterFailure
             }
+        }
 
-            if (-not $runtimeMode) {
-                try {
-                    if (Test-Path $runtimeStatusFile) {
-                        $runtimeStatus = Get-Content $runtimeStatusFile -Raw -Encoding UTF8 | ConvertFrom-Json
-                        if ([string]$runtimeStatus.orchestration_mode -eq 'BRAIN_WORKER_V1') {
-                            $runtimeMode = 'BRAIN_WORKER_V1'
-                        }
-                    }
-                } catch {}
+        if (-not $runtimeMode) {
+            $runtimeMode = Resolve-LocalRuntimeMode
+            if ($runtimeMode) {
+                Write-WrapperLog 'RUNTIME_MODE_FROM_LOCAL_PLATFORM_TRUTH' @{
+                    mode = $runtimeMode
+                    adapter_state = $(if ($adapterFailure) { 'ERROR' } else { 'NOT_CONFIGURED_OR_NO_MODE' })
+                }
             }
+        }
 
-            if (-not $runtimeMode) {
-                Write-Host 'Project adapter is unavailable; preserving wrapper and retrying without mode downgrade.'
-                Start-Sleep -Seconds 5
-                continue
+        if (-not $runtimeMode) {
+            Write-WrapperLog 'RUNTIME_MODE_UNRESOLVED' @{
+                adapter_state = $(if ($adapterFailure) { 'ERROR' } else { 'NOT_CONFIGURED_OR_NO_MODE' })
             }
+            Write-Host 'No authoritative runtime mode is available; preserving wrapper and retrying fail-closed.'
+            Start-Sleep -Seconds 5
+            continue
         }
 
         $entryPoint = switch ($runtimeMode) {
@@ -238,6 +293,12 @@ try {
         }
 
         Write-Host "Supervisor entry point: $entryPoint"
+        Write-WrapperLog 'NODE_LAUNCH' @{
+            mode = $runtimeMode
+            entry_point = $entryPoint
+            cdp_port = $cdpPort
+            dry_run = [bool]$DryRun
+        }
 
         Push-Location $runtime
         try {
@@ -256,6 +317,12 @@ try {
             if (-not $DryRun) { $nodeArgs += '--execute' }
             & node @nodeArgs
             $nodeExitCode = $LASTEXITCODE
+            Write-WrapperLog 'NODE_EXIT' @{
+                mode = $runtimeMode
+                entry_point = $entryPoint
+                exit_code = $nodeExitCode
+                cdp_port = $cdpPort
+            }
         } finally {
             Pop-Location
         }
@@ -265,6 +332,10 @@ try {
             # recovery. Kill only the dedicated Supervisor Chrome profile even
             # when /json/version still answers, then let the outer gate relaunch it.
             Write-Host 'Supervisor requested dedicated Chrome restart after repeated CDP failures.'
+            Write-WrapperLog 'CDP_RECYCLE_REQUESTED' @{
+                exit_code = $nodeExitCode
+                cdp_port = $cdpPort
+            }
             Stop-DedicatedChrome
             Start-Sleep -Milliseconds 750
             continue
