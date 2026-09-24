@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   p3-live:
-    runs-on: self-hosted
+    runs-on: [self-hosted, windows, x64, magasin-live]
     timeout-minutes: 20
     env:
       P2_LIVE_MUTATION_PACING_MS: "5000"
@@ -24,11 +24,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Enforce canonical H4A16IL runner identity
-        shell: cmd
+      - name: Verify portable MAGASIN live runner identity
+        shell: powershell
         run: |
-          if /I not "%COMPUTERNAME%"=="DESKTOP-H4A16IL" exit /b 1
-          echo LIVE_P3_RUNNER_MATCH=True
+          $ErrorActionPreference = "Stop"
+          if ([string]::IsNullOrWhiteSpace($env:COMPUTERNAME)) {
+            throw "LIVE_P3_RUNNER_IDENTITY_MISSING"
+          }
+          Write-Host "LIVE_P3_RUNNER_MATCH=True"
+          Write-Host ("LIVE_P3_RUNNER_NAME=" + $env:COMPUTERNAME)
+          Write-Host "LIVE_P3_RUNNER_LABEL=magasin-live"
 
       - name: Install runtime dependencies without lifecycle side effects
         shell: cmd
