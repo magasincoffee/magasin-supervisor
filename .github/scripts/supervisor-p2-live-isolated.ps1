@@ -499,6 +499,15 @@ try {
     }
     $testNode = $null
 
+    # P3 evidence must be phase-local. The initial P2 bootstrap intentionally
+    # creates and dispatches a Work target, so retaining those events would
+    # make replacement diagnostics indistinguishable from bootstrap events.
+    $safeLogP3 = Join-Path $tempRoot "supervisor.log"
+    if (Test-Path $safeLogP3) {
+      Clear-Content -LiteralPath $safeLogP3 -Encoding UTF8
+    }
+    Write-Host "LIVE_P3_PHASE_LOG_RESET=True"
+
     $registryPath = Join-Path $tempRoot "lane-registry.json"
     $beforeReplacement = Read-JsonSafe $registryPath
     $beforeLanes = Get-OptionalPropertyValue $beforeReplacement "lanes"
@@ -599,6 +608,7 @@ try {
 
       $safeLogP3 = Join-Path $tempRoot "supervisor.log"
       $p3Counts = @{}
+      $p3ErrorNames = @{}
       if (Test-Path $safeLogP3) {
         foreach ($line in Get-Content $safeLogP3 -Encoding UTF8) {
           try { $event = $line | ConvertFrom-Json } catch { continue }
@@ -613,11 +623,21 @@ try {
             if (-not $p3Counts.ContainsKey($type)) { $p3Counts[$type] = 0 }
             $p3Counts[$type] += 1
           }
+          if ($type -eq "LANE_ERROR") {
+            $name = [string](Get-OptionalPropertyValue $event "error_name")
+            if ([string]::IsNullOrWhiteSpace($name)) { $name = "UNKNOWN" }
+            if (-not $p3ErrorNames.ContainsKey($name)) { $p3ErrorNames[$name] = 0 }
+            $p3ErrorNames[$name] += 1
+          }
         }
       }
       foreach ($key in @($p3Counts.Keys | Sort-Object)) {
         $safeKey = ($key -replace '[^A-Za-z0-9_]','_').ToUpperInvariant()
         Write-Host ("LIVE_P3_DIAG_EVENT_" + $safeKey + "=" + $p3Counts[$key])
+      }
+      foreach ($key in @($p3ErrorNames.Keys | Sort-Object)) {
+        $safeKey = ($key -replace '[^A-Za-z0-9_]','_').ToUpperInvariant()
+        Write-Host ("LIVE_P3_DIAG_ERROR_" + $safeKey + "=" + $p3ErrorNames[$key])
       }
 
       $statusP3 = Read-JsonSafe (Join-Path $tempRoot "lane-status.json")
