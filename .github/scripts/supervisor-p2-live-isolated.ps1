@@ -613,6 +613,7 @@ try {
       $safeLogP3 = Join-Path $tempRoot "supervisor.log"
       $p3Counts = @{}
       $p3ErrorNames = @{}
+      $p3ErrorReasons = @{}
       if (Test-Path $safeLogP3) {
         foreach ($line in Get-Content $safeLogP3 -Encoding UTF8) {
           try { $event = $line | ConvertFrom-Json } catch { continue }
@@ -632,6 +633,16 @@ try {
             if ([string]::IsNullOrWhiteSpace($name)) { $name = "UNKNOWN" }
             if (-not $p3ErrorNames.ContainsKey($name)) { $p3ErrorNames[$name] = 0 }
             $p3ErrorNames[$name] += 1
+
+            $reason = [string](Get-OptionalPropertyValue $event "reason")
+            if ([string]::IsNullOrWhiteSpace($reason)) { $reason = "UNKNOWN" }
+            $reason = $reason -replace 'https?://\S+','<URL>'
+            $reason = $reason -replace '\b[0-9a-fA-F]{8}-[0-9a-fA-F-]{27,}\b','<GUID>'
+            $reason = $reason -replace '\b[0-9a-fA-F]{40,64}\b','<HEX>'
+            $reason = ($reason -replace '[\r\n\t]+',' ' -replace '\s+',' ').Trim()
+            if ($reason.Length -gt 180) { $reason = $reason.Substring(0,180) }
+            if (-not $p3ErrorReasons.ContainsKey($reason)) { $p3ErrorReasons[$reason] = 0 }
+            $p3ErrorReasons[$reason] += 1
           }
         }
       }
@@ -642,6 +653,12 @@ try {
       foreach ($key in @($p3ErrorNames.Keys | Sort-Object)) {
         $safeKey = ($key -replace '[^A-Za-z0-9_]','_').ToUpperInvariant()
         Write-Host ("LIVE_P3_DIAG_ERROR_" + $safeKey + "=" + $p3ErrorNames[$key])
+      }
+      $reasonIndex = 0
+      foreach ($key in @($p3ErrorReasons.Keys | Sort-Object)) {
+        $reasonIndex += 1
+        Write-Host ("LIVE_P3_DIAG_REASON_" + $reasonIndex + "_COUNT=" + $p3ErrorReasons[$key])
+        Write-Host ("LIVE_P3_DIAG_REASON_" + $reasonIndex + "=" + $key)
       }
 
       $statusP3 = Read-JsonSafe (Join-Path $tempRoot "lane-status.json")
