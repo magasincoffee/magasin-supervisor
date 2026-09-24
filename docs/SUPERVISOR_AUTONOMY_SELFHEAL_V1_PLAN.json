@@ -53,12 +53,26 @@
     {
       "id": "P1",
       "name": "Brain stale-handshake reconciliation",
-      "state": "READY"
+      "state": "DONE",
+      "acceptance": "PASS",
+      "closure_evidence": {
+        "exact_head": "7d6661cacf60f8c43129431b313557a71e8f3659",
+        "deterministic_run": 35950880387,
+        "integrity_run": 35950880302,
+        "lifecycle_run": 35950880309,
+        "autostart_run": 35950880311,
+        "live_run": 35950875993,
+        "live_job": 107479236107,
+        "task_id": "SCHED-06",
+        "duplicate_brain_handshake_count": 0,
+        "stale_handshake_retry_count": 0,
+        "brain_to_work_acceptance": "PASS"
+      }
     },
     {
       "id": "P2",
       "name": "Owner/AUTO Work target policy",
-      "state": "BLOCKED_BY_P1"
+      "state": "READY"
     },
     {
       "id": "P3",
@@ -105,5 +119,5 @@
     "NO_SECRET_OR_CHAT_BODY_LOGGING",
     "FAIL_CLOSED_ON_IDENTITY_CONFLICT"
   ],
-  "next_task": "P1_BRAIN_STALE_HANDSHAKE_RECONCILIATION"
+  "next_task": "P2"
 }
