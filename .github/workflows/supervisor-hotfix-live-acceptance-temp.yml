@@ -1,0 +1,134 @@
+name: Supervisor Hotfix Live Acceptance Temp
+
+on:
+  push:
+    branches:
+      - hotfix/supervisor-autonomy-selfheal-v1
+    paths:
+      - .github/workflows/supervisor-hotfix-live-acceptance-temp.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-hotfix-live-acceptance-temp
+  cancel-in-progress: false
+
+jobs:
+  install-and-observe:
+    runs-on: self-hosted
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install branch runtime preserving Owner truth
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
+          $configFile = Join-Path $root "lanes.json"
+          $registryFile = Join-Path $root "lane-registry.json"
+          $stopFile = Join-Path $root "STOP"
+          $autostartDisabled = Join-Path $root "AUTOSTART_DISABLED"
+
+          function Read-JsonSafe([string]$Path) {
+            if (-not (Test-Path $Path)) { return $null }
+            try { return Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json } catch { return $null }
+          }
+
+          $configBefore = Read-JsonSafe $configFile
+          $registryBefore = Read-JsonSafe $registryFile
+          $ownerStopBefore = [bool]((Test-Path $stopFile) -or (Test-Path $autostartDisabled))
+          $configHashBefore = if (Test-Path $configFile) { (Get-FileHash $configFile -Algorithm SHA256).Hash } else { "" }
+
+          Write-Host "PRE_OWNER_STOP=$ownerStopBefore"
+          Write-Host "PRE_CONFIG_SHA256=$configHashBefore"
+          if ($configBefore) {
+            foreach ($lane in $configBefore.lanes) {
+              Write-Host "PRE_$($lane.lane_id)_ENABLED=$([bool]$lane.enabled)"
+              Write-Host "PRE_$($lane.lane_id)_WORK_MODE=$([string]$lane.work_mode)"
+              Write-Host "PRE_$($lane.lane_id)_WORK_REV=$([int]$lane.work_url_revision)"
+            }
+          }
+
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\windows\install-supervisor.ps1" -SourceRoot "$env:GITHUB_WORKSPACE"
+          if ($LASTEXITCODE -ne 0) { throw "install-supervisor failed: $LASTEXITCODE" }
+
+          $runtime = Join-Path $root "runtime"
+          $start = Join-Path $runtime "windows\start-supervisor.ps1"
+
+          if (-not $ownerStopBefore) {
+            & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $start -Hidden -Recovery
+            if ($LASTEXITCODE -ne 0) { throw "recovery start failed: $LASTEXITCODE" }
+          } else {
+            Write-Host "RECOVERY_START_SKIPPED_OWNER_STOP=True"
+          }
+
+          $configHashAfter = if (Test-Path $configFile) { (Get-FileHash $configFile -Algorithm SHA256).Hash } else { "" }
+          Write-Host "POST_CONFIG_SHA256=$configHashAfter"
+          Write-Host "CONFIG_PRESERVED=$([bool]($configHashBefore -eq $configHashAfter))"
+
+      - name: Observe Brain adoption and Work dispatch
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
+          $statusFile = Join-Path $root "lane-status.json"
+          $registryFile = Join-Path $root "lane-registry.json"
+          $logFile = Join-Path $root "supervisor.log"
+
+          function Read-JsonSafe([string]$Path) {
+            if (-not (Test-Path $Path)) { return $null }
+            try { return Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json } catch { return $null }
+          }
+          function Get-Optional($Object, [string]$Name, $Default=$null) {
+            if ($null -eq $Object) { return $Default }
+            $p = $Object.PSObject.Properties[$Name]
+            if ($null -eq $p) { return $Default }
+            return $p.Value
+          }
+
+          $success = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep -Seconds 3
+            $status = Read-JsonSafe $statusFile
+            $registry = Read-JsonSafe $registryFile
+            if (-not $status -or -not $registry) { continue }
+
+            $statusAge = [int]([DateTimeOffset]::UtcNow - [DateTimeOffset](Get-Item $statusFile).LastWriteTimeUtc).TotalSeconds
+            $scheduler = Get-Optional $status "scheduler"
+            $pages = if ($scheduler) { [int](Get-Optional $scheduler "resident_chatgpt_pages" -1) } else { -1 }
+            $lane = Get-Optional (Get-Optional $registry "lanes") "lane-1"
+            $task = [string](Get-Optional $lane "task_id" "")
+            $brainSent = [bool](Get-Optional $lane "brain_request_sent" $false)
+            $dispatch = [bool](Get-Optional $lane "dispatch_inflight" $null)
+            $awaiting = [bool](Get-Optional $lane "awaiting_work" $false)
+            $lastDirective = [string](Get-Optional $lane "last_brain_directive_digest" "")
+
+            Write-Host "OBS[$i] STATUS_AGE=$statusAge PAGES=$pages TASK=$task BRAIN_SENT=$brainSent DISPATCH=$dispatch AWAITING=$awaiting LAST_DIRECTIVE=$([bool]$lastDirective)"
+
+            if (
+              $statusAge -le 20 -and
+              $pages -ge 1 -and
+              $task -eq "SCHED-06" -and
+              ($dispatch -or $awaiting -or [bool]$lastDirective)
+            ) {
+              $success = $true
+              break
+            }
+          }
+
+          Write-Host "--- SAFE_LOG_TAIL_BEGIN ---"
+          if (Test-Path $logFile) {
+            Get-Content $logFile -Tail 80 -Encoding UTF8 | ForEach-Object { Write-Host $_ }
+          }
+          Write-Host "--- SAFE_LOG_TAIL_END ---"
+
+          if (-not $success) {
+            throw "LIVE_ACCEPTANCE_NOT_REACHED: Brain SCHED-06 was not durably adopted/dispatched within bounded observation window."
+          }
+
+          Write-Host "LIVE_BRAIN_TO_WORK_ACCEPTANCE=PASS"
