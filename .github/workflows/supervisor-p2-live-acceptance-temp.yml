@@ -25,7 +25,7 @@ concurrency:
 jobs:
   p2-live:
     runs-on: self-hosted
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
