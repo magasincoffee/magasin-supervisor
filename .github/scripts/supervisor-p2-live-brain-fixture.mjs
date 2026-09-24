@@ -7,6 +7,10 @@ import { parseLaneDirective } from "../../src/runtime/three-lane.mjs";
 
 const cdpUrl = String(process.env.P2_CDP_URL || "").trim();
 const outputFile = String(process.env.P2_FIXTURE_FILE || "").trim();
+const mutationPacingMs = Math.max(
+  5_000,
+  Number.parseInt(process.env.P2_LIVE_MUTATION_PACING_MS || "5000", 10) || 5_000
+);
 if (!cdpUrl || !outputFile) throw new Error("P2 live fixture environment is incomplete");
 
 const taskId = "SUP-SELFHEAL-P2-LIVE-FIXTURE";
@@ -20,6 +24,18 @@ const prompt = [
 
 const adapter = new ChatGptUiAdapter({ cdpUrl, timeoutMs: 60_000, settleMs: 800 });
 await adapter.open();
+
+function rateLimitError() {
+  const error = new Error("CHATGPT_RATE_LIMITED");
+  error.code = "CHATGPT_RATE_LIMITED";
+  return error;
+}
+
+async function assertNotRateLimited(page) {
+  const probe = await adapter.probePage(page).catch(() => null);
+  if (probe?.snapshot?.rateLimited) throw rateLimitError();
+  return probe;
+}
 
 async function exactFixtureDirective(page) {
   const captured = await captureCompletedAssistantTurn(page).catch(() => null);
@@ -80,17 +96,6 @@ async function finishFixtureSuccess(page, directive, reused) {
 try {
   const candidatePages = [...adapter.getChatGptPages()];
   const active = adapter.getActivePage();
-  const recentUrls = active
-    ? await adapter.listRecentConversationUrls(active, { limit: 16 }).catch(() => [])
-    : [];
-  for (const url of recentUrls) {
-    if (candidatePages.length >= 24) break;
-    let target = null;
-    try { target = targetFromUrl(url); } catch { continue; }
-    if (adapter.findPageForTarget(target)) continue;
-    const page = await adapter.newChatPage(url).catch(() => null);
-    if (page) candidatePages.push(page);
-  }
   for (const page of candidatePages) {
     if (!isPersistableConversationUrl(page.url())) continue;
     const directive = await exactFixtureDirective(page);
@@ -99,7 +104,16 @@ try {
     }
   }
 
-  const page = await adapter.newChatPage("https://chatgpt.com/");
+  let page = active;
+  if (!page || page.isClosed() || !String(page.url()).startsWith("https://chatgpt.com/")) {
+    await new Promise((resolve) => setTimeout(resolve, mutationPacingMs));
+    page = await adapter.newChatPage("https://chatgpt.com/", {
+      allowTransientRetry: false
+    });
+  }
+  await assertNotRateLimited(page);
+  await page.waitForTimeout(mutationPacingMs);
+  await assertNotRateLimited(page);
   const sent = await sendComposerInstruction(page, prompt, { dryRun: false });
   if (!sent?.executed) throw new Error("P2 Brain fixture prompt was not executed");
 
@@ -112,7 +126,7 @@ try {
   let directive = null;
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
-    const probe = await adapter.probePage(page).catch(() => null);
+    const probe = await assertNotRateLimited(page);
     if (
       probe &&
       !probe.snapshot?.responseRunning &&
@@ -136,6 +150,13 @@ try {
   }
 
   await finishFixtureSuccess(page, directive, false);
+} catch (error) {
+  if (error?.code === "CHATGPT_RATE_LIMITED") {
+    console.log("LIVE_P2_RATE_LIMIT_DETECTED=True");
+    process.exitCode = 75;
+  } else {
+    throw error;
+  }
 } finally {
   await closeAdapterBounded();
 }
