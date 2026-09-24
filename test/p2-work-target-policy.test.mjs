@@ -11,6 +11,10 @@ import {
   markBlankTargetCreating,
   markRolloverTargetPersisted
 } from "../src/runtime/work-rollover.mjs";
+import {
+  LANE_EVENT_TYPES,
+  serializeLaneEvent
+} from "../src/runtime/lane-events.mjs";
 
 const TASK="SUP-SELFHEAL-P2";
 const DIRECTIVE="a".repeat(64);
@@ -159,11 +163,28 @@ test("P2 Owner STOP/lane disable is rechecked before both create and send",async
 
 test("P2 AUTO lifecycle events are sanitized and machine-readable",async()=>{
   const events=await source("../src/runtime/lane-events.mjs");
-  for(const name of [
-    "AUTO_WORK_CREATE_REQUESTED",
-    "AUTO_WORK_TARGET_PERSISTED",
-    "AUTO_WORK_DISPATCH_CONFIRMED",
-    "AUTO_WORK_CREATE_AMBIGUOUS"
-  ]) assert.match(events,new RegExp(name));
+  for(const [event_type,reason_code] of [
+    [LANE_EVENT_TYPES.AUTO_WORK_CREATE_REQUESTED,"AUTO_WORK_CREATE_REQUESTED"],
+    [LANE_EVENT_TYPES.AUTO_WORK_TARGET_PERSISTED,"AUTO_WORK_TARGET_PERSISTED"],
+    [LANE_EVENT_TYPES.AUTO_WORK_DISPATCH_CONFIRMED,"AUTO_WORK_DISPATCH_CONFIRMED"],
+    [LANE_EVENT_TYPES.AUTO_WORK_CREATE_AMBIGUOUS,"AUTO_WORK_CREATE_RESTART_AMBIGUOUS"]
+  ]){
+    const event=serializeLaneEvent({
+      timestamp:T0,
+      lane_id:"lane-1",
+      actor:"SUPERVISOR",
+      event_type,
+      task_id:TASK,
+      phase:event_type===LANE_EVENT_TYPES.AUTO_WORK_CREATE_AMBIGUOUS?"ERROR":"ROLLOVER",
+      reason_code,
+      work_generation:5,
+      work_url_revision:2,
+      target_role:event_type===LANE_EVENT_TYPES.AUTO_WORK_TARGET_PERSISTED?"WORK":undefined,
+      target_digest:event_type===LANE_EVENT_TYPES.AUTO_WORK_TARGET_PERSISTED?TARGET:undefined
+    });
+    const line=JSON.stringify(event);
+    assert.equal(line.includes("chatgpt.com"),false);
+    assert.equal(line.includes("private"),false);
+  }
   assert.doesNotMatch(events,/"work_url",/);
 });
