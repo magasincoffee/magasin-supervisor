@@ -1876,13 +1876,15 @@ async function primeBlankWorkConversation({
     } catch {}
 
     if (transientTarget?.pathname?.startsWith("/c/")) {
-      const recentUrls = await adapter.listRecentConversationUrls(page, { limit: 20 })
-        .catch(() => []);
-      const matched = recentUrls.find((url) =>
-        isPersistableConversationUrl(String(url)) &&
-        pageMatchesTarget(String(url), transientTarget)
-      );
-      if (matched) {
+      const matched = await adapter.findExactConversationUrlByPath(
+        page,
+        transientTarget.pathname
+      ).catch(() => null);
+      if (
+        matched &&
+        isPersistableConversationUrl(String(matched)) &&
+        pageMatchesTarget(String(matched), transientTarget)
+      ) {
         const target = targetFromUrl(matched);
         canonicalUrl = `${target.origin}${target.pathname}`;
         break;
