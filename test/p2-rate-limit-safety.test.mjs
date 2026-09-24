@@ -104,3 +104,31 @@ test("P2 fixture reuses at most one recent conversation and never blind-retries 
   assert.match(fixture, /mutationPacingMs/);
   assert.match(fixture, /LIVE_P2_RATE_LIMIT_DETECTED=True/);
 });
+
+
+test("P2 AUTO Work bootstrap waits for exact assistant readiness before canonical reload", async () => {
+  const runtime = await source("../src/runtime/three-lane-cli.mjs");
+  const start = runtime.indexOf("async function primeBlankWorkConversation");
+  const end = runtime.indexOf("async function createBlankWorkTarget", start);
+  assert.ok(start >= 0 && end > start);
+  const bootstrap = runtime.slice(start, end);
+
+  const send = bootstrap.indexOf("sendComposerInstruction");
+  const response = bootstrap.indexOf("AUTO_WORK_BOOTSTRAP_RESPONSE_NOT_CONFIRMED");
+  const reload = bootstrap.indexOf("page.goto(canonicalUrl");
+  assert.ok(send >= 0);
+  assert.ok(response > send);
+  assert.ok(reload > response);
+  assert.match(bootstrap, /MAGASIN_WORK_READY/);
+  assert.match(bootstrap, /captureCompletedAssistantTurn/);
+  assert.match(bootstrap, /captured\?\.text\?\.trim\(\) === readyText/);
+  assert.match(bootstrap, /AUTO_WORK_BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED/);
+});
+
+test("P2 sanitized diagnostics read safe-log snake_case error names and classify bootstrap failures", async () => {
+  const harness = await source("../.github/scripts/supervisor-p2-live-isolated.ps1");
+  assert.match(harness, /Get-OptionalPropertyValue \$event "error_name"/);
+  assert.match(harness, /BOOTSTRAP_RESPONSE_NOT_CONFIRMED/);
+  assert.match(harness, /BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED/);
+  assert.match(harness, /TARGET_CREATE_NOT_CONFIRMED/);
+});
