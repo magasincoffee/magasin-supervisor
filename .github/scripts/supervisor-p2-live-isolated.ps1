@@ -145,7 +145,13 @@ Write-Host "LIVE_P2_OWNER_STOP=False"
 $existingChrome = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
   Where-Object { $_.CommandLine -and $_.CommandLine -like "*$profile*" } |
   Select-Object -First 1
-$chromeExe = [string]$existingChrome.ExecutablePath
+$chromeExe = ""
+if ($null -ne $existingChrome) {
+  $executablePathProperty = $existingChrome.PSObject.Properties["ExecutablePath"]
+  if ($executablePathProperty -and -not [string]::IsNullOrWhiteSpace([string]$executablePathProperty.Value)) {
+    $chromeExe = [string]$executablePathProperty.Value
+  }
+}
 if ([string]::IsNullOrWhiteSpace($chromeExe) -or -not (Test-Path $chromeExe)) {
   $programFilesX86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
   $chromeExe = @(
