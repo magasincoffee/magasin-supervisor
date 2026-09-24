@@ -290,6 +290,7 @@ try {
     $createRequested = 0
     $targetPersisted = 0
     $createErrors = 0
+    $createErrorClasses = @{}
     $ambiguous = 0
     if (Test-Path $safeLog) {
       foreach ($line in Get-Content $safeLog -Encoding UTF8) {
@@ -297,7 +298,22 @@ try {
         switch ([string]$event.type) {
           "LANE_AUTO_WORK_CREATE_REQUESTED" { $createRequested += 1 }
           "LANE_AUTO_WORK_TARGET_PERSISTED" { $targetPersisted += 1 }
-          "LANE_WORK_ROLLOVER_BLANK_CREATE_ERROR" { $createErrors += 1 }
+          "LANE_WORK_ROLLOVER_BLANK_CREATE_ERROR" {
+            $createErrors += 1
+            $errorName = [string]$event.errorName
+            $reason = [string]$event.reason
+            $class = if ($errorName -match "Timeout" -or $reason -match "Timeout") {
+              "TIMEOUT"
+            } elseif ($reason -match "AUTO_WORK_TARGET_NOT_CANONICAL_C" -or $reason -match "canonical /c/ identity") {
+              "NON_CANONICAL_C"
+            } elseif ($errorName) {
+              ("ERROR_" + ($errorName -replace '[^A-Za-z0-9_]','_'))
+            } else {
+              "UNKNOWN"
+            }
+            if (-not $createErrorClasses.ContainsKey($class)) { $createErrorClasses[$class] = 0 }
+            $createErrorClasses[$class] += 1
+          }
           "LANE_AUTO_WORK_CREATE_AMBIGUOUS" { $ambiguous += 1 }
         }
       }
@@ -305,6 +321,9 @@ try {
     Write-Host "LIVE_P2_DIAG_CREATE_REQUESTED_COUNT=$createRequested"
     Write-Host "LIVE_P2_DIAG_TARGET_PERSISTED_COUNT=$targetPersisted"
     Write-Host "LIVE_P2_DIAG_CREATE_ERROR_COUNT=$createErrors"
+    foreach ($class in @($createErrorClasses.Keys | Sort-Object)) {
+      Write-Host ("LIVE_P2_DIAG_CREATE_ERROR_" + $class + "=" + $createErrorClasses[$class])
+    }
     Write-Host "LIVE_P2_DIAG_CREATE_AMBIGUOUS_COUNT=$ambiguous"
 
     $brainAdopted = 0
