@@ -7,6 +7,7 @@ export const SEND_REJECTION_CLASSES = Object.freeze({
   NONE: "NONE",
   CAPACITY_REJECTED: "CAPACITY_REJECTED",
   NETWORK_TRANSIENT: "NETWORK_TRANSIENT",
+  RATE_LIMITED: "RATE_LIMITED",
   AUTH_SECURITY: "AUTH_SECURITY",
   TRANSIENT: "TRANSIENT",
   COMPOSER_NOT_READY: "COMPOSER_NOT_READY",
@@ -20,6 +21,9 @@ export function classifyComposerSendRejection(snapshot = {}) {
     snapshot.conversationAccessDenied
   ) {
     return SEND_REJECTION_CLASSES.AUTH_SECURITY;
+  }
+  if (snapshot.rateLimited) {
+    return SEND_REJECTION_CLASSES.RATE_LIMITED;
   }
   if (snapshot.hasNetworkError) {
     return SEND_REJECTION_CLASSES.NETWORK_TRANSIENT;
