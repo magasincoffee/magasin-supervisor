@@ -309,10 +309,19 @@ try {
     if (Test-Path $safeLog) {
       foreach ($line in @(Get-Content -LiteralPath $safeLog -Tail 80 -Encoding UTF8)) {
         try { $safeEvent = $line | ConvertFrom-Json } catch { continue }
+        $safeType = ""
+        $safeReasonCode = ""
+        $safeReason = ""
+        $typeProperty = $safeEvent.PSObject.Properties["type"]
+        $reasonCodeProperty = $safeEvent.PSObject.Properties["reason_code"]
+        $reasonProperty = $safeEvent.PSObject.Properties["reason"]
+        if ($typeProperty) { $safeType = [string]$typeProperty.Value }
+        if ($reasonCodeProperty) { $safeReasonCode = [string]$reasonCodeProperty.Value }
+        if ($reasonProperty) { $safeReason = [string]$reasonProperty.Value }
         if (
-          [string]$safeEvent.type -eq "LANE_CHATGPT_RATE_LIMIT_DETECTED" -or
-          [string]$safeEvent.reason_code -eq "CHATGPT_RATE_LIMITED" -or
-          [string]$safeEvent.reason -eq "CHATGPT_RATE_LIMITED"
+          $safeType -eq "LANE_CHATGPT_RATE_LIMIT_DETECTED" -or
+          $safeReasonCode -eq "CHATGPT_RATE_LIMITED" -or
+          $safeReason -eq "CHATGPT_RATE_LIMITED"
         ) {
           $rateLimitDetected = $true
           break
