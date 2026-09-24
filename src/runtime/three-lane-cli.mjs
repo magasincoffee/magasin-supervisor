@@ -72,7 +72,8 @@ import {
 import {
   WORK_TARGET_MODES,
   acceptOwnerWorkTargetRevision,
-  applyPendingWorkTargetIfSafe
+  applyPendingWorkTargetIfSafe,
+  resolveWorkTargetPolicy
 } from "./work-target-state.mjs";
 import {
   BrowserScheduler,
@@ -495,6 +496,11 @@ async function waitForConversationUrl(page) {
   // future reopen. Persist only the final canonical conversation URL emitted
   // by ChatGPT itself; never synthesize it from a transient WEB route.
   const target = targetFromUrl(page.url());
+  if (!/^\/c\/[A-Za-z0-9:_-]+$/.test(target.pathname)) {
+    const error = new Error("AUTO Work target did not resolve to canonical /c/ identity");
+    error.code = "AUTO_WORK_TARGET_NOT_CANONICAL_C";
+    throw error;
+  }
   return `${target.origin}${target.pathname}`;
 }
 
@@ -954,6 +960,20 @@ async function finalizeConfirmedDispatch({
       work_generation: Number(registryLane.work_generation || 0),
       dispatch_id: latch.dispatch_id
     });
+    if (rollover?.reason === "NO_WORK_TARGET") {
+      await emitLaneEvent({
+        timestamp: startedAt,
+        lane_id: registryLane.lane_id,
+        actor: "SUPERVISOR",
+        event_type: LANE_EVENT_TYPES.AUTO_WORK_DISPATCH_CONFIRMED,
+        task_id: latch.task_id,
+        phase: "ROLLOVER",
+        reason_code: "AUTO_WORK_DISPATCH_CONFIRMED",
+        work_generation: Number(registryLane.work_generation || 0),
+        work_url_revision: Number(registryLane.applied_work_url_revision || 0),
+        dispatch_id: latch.dispatch_id
+      });
+    }
   }
 }
 
@@ -1908,6 +1928,22 @@ async function dispatchWork({
       throw new Error("Work rollover old target/generation identity mismatch");
     }
 
+    const workTargetPolicy = resolveWorkTargetPolicy(registryLane);
+    if (
+      rollover.reason === "NO_WORK_TARGET" &&
+      workTargetPolicy.mode !== WORK_TARGET_MODES.AUTO
+    ) {
+      await safeLog(logPath, {
+        type: "LANE_OWNER_WORK_TARGET_REQUIRED",
+        laneId: lane.lane_id,
+        taskId: directive.task_id,
+        digest: directive.digest,
+        reasonCode: "OWNER_WORK_TARGET_REQUIRED"
+      });
+      return;
+    }
+
+    let autoCreationClaimedThisTurn = false;
     if (rollover.stage === WORK_ROLLOVER_STAGES.INTENT_PERSISTED) {
       registryLane.work_rollover = markBlankTargetCreating(rollover, {
         at: new Date().toISOString()
@@ -1915,9 +1951,51 @@ async function dispatchWork({
       await atomicJsonWrite(registryPath, registry);
       await emitAssigned();
       rollover = normalizeWorkRollover(registryLane.work_rollover);
+      if (rollover.reason === "NO_WORK_TARGET") {
+        autoCreationClaimedThisTurn = true;
+        await emitLaneEvent({
+          lane_id: lane.lane_id,
+          actor: "SUPERVISOR",
+          event_type: LANE_EVENT_TYPES.AUTO_WORK_CREATE_REQUESTED,
+          task_id: directive.task_id,
+          phase: "ROLLOVER",
+          reason_code: "AUTO_WORK_CREATE_REQUESTED",
+          work_generation: Number(registryLane.work_generation || 0),
+          work_url_revision: Number(registryLane.applied_work_url_revision || 0)
+        });
+        await safeLog(logPath, {
+          type: "LANE_AUTO_WORK_CREATE_REQUESTED",
+          laneId: lane.lane_id,
+          taskId: directive.task_id,
+          digest: directive.digest,
+          reasonCode: "AUTO_WORK_CREATE_REQUESTED"
+        });
+      }
+    } else if (rollover.reason === "NO_WORK_TARGET") {
+      await emitLaneEvent({
+        lane_id: lane.lane_id,
+        actor: "SUPERVISOR",
+        event_type: LANE_EVENT_TYPES.AUTO_WORK_CREATE_AMBIGUOUS,
+        task_id: directive.task_id,
+        phase: "ERROR",
+        reason_code: "AUTO_WORK_CREATE_RESTART_AMBIGUOUS",
+        work_generation: Number(registryLane.work_generation || 0),
+        work_url_revision: Number(registryLane.applied_work_url_revision || 0)
+      });
+      await safeLog(logPath, {
+        type: "LANE_AUTO_WORK_CREATE_AMBIGUOUS",
+        laneId: lane.lane_id,
+        taskId: directive.task_id,
+        digest: directive.digest,
+        reasonCode: "AUTO_WORK_CREATE_RESTART_AMBIGUOUS"
+      });
+      return;
     }
 
     if (!execute) return;
+    if (rollover.reason === "NO_WORK_TARGET" && !autoCreationClaimedThisTurn) {
+      return;
+    }
     if (!await isLaneMutationAllowed({
       stopPath,
       configPath,
@@ -1972,6 +2050,28 @@ async function dispatchWork({
       work_generation: expectedGeneration,
       work_url_revision: Number(registryLane.applied_work_url_revision || 0)
     });
+    if (rollover.reason === "NO_WORK_TARGET") {
+      await emitLaneEvent({
+        lane_id: lane.lane_id,
+        actor: "SUPERVISOR",
+        event_type: LANE_EVENT_TYPES.AUTO_WORK_TARGET_PERSISTED,
+        task_id: directive.task_id,
+        phase: "ROLLOVER",
+        reason_code: "AUTO_WORK_TARGET_PERSISTED",
+        work_generation: expectedGeneration,
+        work_url_revision: Number(registryLane.applied_work_url_revision || 0),
+        target_role: "WORK",
+        target_digest: sha256(canonicalUrl)
+      });
+      await safeLog(logPath, {
+        type: "LANE_AUTO_WORK_TARGET_PERSISTED",
+        laneId: lane.lane_id,
+        taskId: directive.task_id,
+        digest: sha256(canonicalUrl),
+        reasonCode: "AUTO_WORK_TARGET_PERSISTED",
+        revision: Number(registryLane.applied_work_url_revision || 0)
+      });
+    }
     await safeLog(logPath, {
       type: "LANE_WORK_ROLLOVER_TARGET_PERSISTED",
       laneId: lane.lane_id,
@@ -1989,6 +2089,17 @@ async function dispatchWork({
 
   let page = null;
   if (!rollover && !registryLane.work_url) {
+    const workTargetPolicy = resolveWorkTargetPolicy(registryLane);
+    if (!workTargetPolicy.auto_create_allowed) {
+      await safeLog(logPath, {
+        type: "LANE_OWNER_WORK_TARGET_REQUIRED",
+        laneId: lane.lane_id,
+        taskId: directive.task_id,
+        digest: directive.digest,
+        reasonCode: "OWNER_WORK_TARGET_REQUIRED"
+      });
+      return;
+    }
     registryLane.work_rollover = beginWorkRollover({
       reason: "NO_WORK_TARGET",
       taskId: directive.task_id,
