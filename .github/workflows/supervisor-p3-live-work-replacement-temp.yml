@@ -1,0 +1,39 @@
+name: Supervisor P3 Live Work Replacement Temp
+
+on:
+  pull_request:
+    paths:
+      - .github/p3-live-trigger.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-p3-live-work-replacement
+  cancel-in-progress: false
+
+jobs:
+  p3-live:
+    runs-on: self-hosted
+    timeout-minutes: 20
+    env:
+      P2_LIVE_MUTATION_PACING_MS: "5000"
+      P2_LIVE_RATE_LIMIT_COOLDOWN_MINUTES: "5"
+      P3_LIVE_REPLACEMENT_MODE: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enforce canonical H4A16IL runner identity
+        shell: cmd
+        run: |
+          if /I not "%COMPUTERNAME%"=="DESKTOP-H4A16IL" exit /b 1
+          echo LIVE_P3_RUNNER_MATCH=True
+
+      - name: Install runtime dependencies without lifecycle side effects
+        shell: cmd
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Run isolated P3 Work replacement live acceptance
+        shell: cmd
+        run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-p2-live-isolated.ps1"
