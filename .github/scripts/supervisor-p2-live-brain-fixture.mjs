@@ -101,12 +101,22 @@ async function confirmDurableFixture(page, directive) {
     error.code = "P2_FIXTURE_CANONICAL_URL_NOT_PERSISTED";
     throw error;
   }
-  const confirmed = await exactFixtureDirective(page);
-  if (
-    !confirmed ||
-    confirmed.digest !== directive.digest ||
-    confirmed.instruction_digest !== directive.instruction_digest
-  ) {
+  let confirmed = null;
+  const confirmDeadline = Date.now() + 45_000;
+  while (Date.now() < confirmDeadline) {
+    await assertNotRateLimited(page);
+    confirmed = await exactFixtureDirective(page);
+    if (
+      confirmed &&
+      confirmed.digest === directive.digest &&
+      confirmed.instruction_digest === directive.instruction_digest
+    ) {
+      break;
+    }
+    confirmed = null;
+    await page.waitForTimeout(1_000);
+  }
+  if (!confirmed) {
     const error = new Error("P2_FIXTURE_CANONICAL_RELOAD_NOT_CONFIRMED");
     error.code = "P2_FIXTURE_CANONICAL_RELOAD_NOT_CONFIRMED";
     throw error;
