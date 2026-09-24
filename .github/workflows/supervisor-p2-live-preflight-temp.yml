@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Inspect local Supervisor P2 preconditions read-only
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = "Stop"
           . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
