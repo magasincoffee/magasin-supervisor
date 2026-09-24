@@ -4385,26 +4385,33 @@ async function processLaneTurn({
     );
   }
 
-  const captured = await captureCompletedAssistantTurn(brainPage);
-  if (!captured) {
-    return laneStatus(
-      lane,
-      registryLane,
-      "WAITING_BRAIN",
-      "Đang chờ Bộ não trả lệnh."
-    );
-  }
+  let directive = await recoverPersistedAdoptedBrainDirective({
+    page: brainPage,
+    lane,
+    registryLane
+  });
 
-  let directive = null;
-  try {
-    directive = parseLaneDirective(captured.text);
-  } catch {
-    return laneStatus(
-      lane,
-      registryLane,
-      "WAITING_BRAIN",
-      "Bộ não chưa trả block MAGASIN_LANE_DIRECTIVE_V1 hợp lệ."
-    );
+  if (!directive) {
+    const captured = await captureCompletedAssistantTurn(brainPage);
+    if (!captured) {
+      return laneStatus(
+        lane,
+        registryLane,
+        "WAITING_BRAIN",
+        "Đang chờ Bộ não trả lệnh."
+      );
+    }
+
+    try {
+      directive = parseLaneDirective(captured.text);
+    } catch {
+      return laneStatus(
+        lane,
+        registryLane,
+        "WAITING_BRAIN",
+        "Bộ não chưa trả block MAGASIN_LANE_DIRECTIVE_V1 hợp lệ."
+      );
+    }
   }
 
   await applyBrainVerdictDirective({
