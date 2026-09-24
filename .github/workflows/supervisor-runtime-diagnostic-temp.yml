@@ -6,6 +6,7 @@ on:
       - hotfix/supervisor-autonomy-selfheal-v1
     paths:
       - .github/workflows/supervisor-runtime-diagnostic-temp.yml
+      - .github/scripts/supervisor-live-parser-probe.mjs
   workflow_dispatch:
 
 permissions:
