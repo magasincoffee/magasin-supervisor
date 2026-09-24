@@ -2,7 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ChatGptUiAdapter } from "../../src/ui/playwright-adapter.mjs";
 import { sendComposerInstruction } from "../../src/ui/actions.mjs";
-import { captureCompletedAssistantTurn } from "../../src/ui/message-capture.mjs";
+import {
+  captureCompletedAssistantTurn,
+  captureRecentConversationTurns
+} from "../../src/ui/message-capture.mjs";
 import { isPersistableConversationUrl, targetFromUrl } from "../../src/runtime/recovery.mjs";
 import { parseLaneDirective } from "../../src/runtime/three-lane.mjs";
 
@@ -40,6 +43,26 @@ async function assertNotRateLimited(page) {
 }
 
 async function exactFixtureDirective(page) {
+  const turns = await captureRecentConversationTurns(page, { limit: 16 })
+    .catch(() => []);
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index];
+    if (turn.role !== "assistant" || !turn.text) continue;
+    try {
+      const directive = parseLaneDirective(turn.text);
+      if (
+        directive.action === "WORK" &&
+        directive.task_id === taskId &&
+        directive.instruction === instruction
+      ) {
+        const newerUserTurn = turns
+          .slice(index + 1)
+          .some((item) => item.role === "user");
+        if (!newerUserTurn) return directive;
+      }
+    } catch {}
+  }
+
   const captured = await captureCompletedAssistantTurn(page).catch(() => null);
   if (!captured?.text) return null;
   try {
