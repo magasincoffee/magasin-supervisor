@@ -971,6 +971,49 @@ async function reconcileBrainRequest({
   if (!latch) return "NONE";
 
   if (latch.reconcile_blocked) return "BLOCKED";
+
+  let currentBrainUrl = "";
+  let configuredBrainUrl = "";
+  try {
+    currentBrainUrl = normalizeChatGptConversationUrl(registryLane.brain_url);
+    configuredBrainUrl = normalizeChatGptConversationUrl(lane.brain_url);
+  } catch {
+    latch.reconcile_blocked = true;
+    await atomicJsonWrite(registryPath, registry);
+    await safeLog(logPath, {
+      type: "LANE_BRAIN_SEND_RECONCILE_BLOCKED",
+      laneId: lane.lane_id,
+      digest: latch.digest,
+      reasonCode: "BRAIN_TARGET_IDENTITY_AMBIGUOUS"
+    });
+    return "BLOCKED";
+  }
+
+  const currentTargetDigest = sha256(currentBrainUrl);
+  const configuredTargetDigest = sha256(configuredBrainUrl);
+  const appliedRevision = Number(registryLane.applied_brain_url_revision || 0);
+  const configuredRevision = Number(lane.brain_url_revision || 0);
+  const identityMismatch =
+    currentTargetDigest !== configuredTargetDigest ||
+    configuredRevision !== appliedRevision ||
+    (latch.brain_target_digest &&
+      latch.brain_target_digest !== currentTargetDigest) ||
+    (latch.brain_url_revision !== undefined &&
+      latch.brain_url_revision !== null &&
+      Number(latch.brain_url_revision) !== appliedRevision);
+
+  if (identityMismatch) {
+    latch.reconcile_blocked = true;
+    await atomicJsonWrite(registryPath, registry);
+    await safeLog(logPath, {
+      type: "LANE_BRAIN_SEND_RECONCILE_BLOCKED",
+      laneId: lane.lane_id,
+      digest: latch.digest,
+      reasonCode: "BRAIN_HANDSHAKE_IDENTITY_MISMATCH",
+      revision: appliedRevision
+    });
+    return "BLOCKED";
+  }
   const reload = !latch.reconcile_reloaded;
   if (reload) {
     latch.reconcile_reloaded = true;
