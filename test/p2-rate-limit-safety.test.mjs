@@ -131,6 +131,7 @@ test("P2 sanitized diagnostics read safe-log snake_case error names and classify
   const harness = await source("../.github/scripts/supervisor-p2-live-isolated.ps1");
   assert.match(harness, /Get-OptionalPropertyValue \$event "error_name"/);
   assert.match(harness, /BOOTSTRAP_RESPONSE_NOT_CONFIRMED/);
+  assert.match(harness, /BOOTSTRAP_CANONICAL_IDENTITY_NOT_CONFIRMED/);
   assert.match(harness, /BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED/);
   assert.match(harness, /TARGET_CREATE_NOT_CONFIRMED/);
 });
