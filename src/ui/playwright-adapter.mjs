@@ -331,14 +331,21 @@ export class ChatGptUiAdapter {
     return page;
   }
 
-  async newChatPage(url = "https://chatgpt.com/") {
+  async newChatPage(
+    url = "https://chatgpt.com/",
+    { allowTransientRetry = true } = {}
+  ) {
     if (!this.context) throw new Error("adapter is not open");
 
     let page = null;
     try {
       page = await this.context.newPage();
     } catch (error) {
-      if (!this.cdpUrl || !isTransientNavigationError(error)) throw error;
+      if (
+        !allowTransientRetry ||
+        !this.cdpUrl ||
+        !isTransientNavigationError(error)
+      ) throw error;
       await this.reconnectOverCdp();
       page = await this.context.newPage();
     }
@@ -349,7 +356,11 @@ export class ChatGptUiAdapter {
         timeout: this.timeoutMs
       });
     } catch (error) {
-      if (!this.cdpUrl || !isTransientNavigationError(error)) throw error;
+      if (
+        !allowTransientRetry ||
+        !this.cdpUrl ||
+        !isTransientNavigationError(error)
+      ) throw error;
       await this.reconnectOverCdp();
       page = await this.context.newPage();
       await page.goto(url, {
