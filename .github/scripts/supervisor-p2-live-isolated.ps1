@@ -30,10 +30,31 @@ function Resolve-CanonicalSupervisorRoot {
 
   $fallback = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
   if ((Test-Path (Join-Path $fallback "lanes.json")) -and
-      (Test-Path (Join-Path $fallback "lane-registry.json"))) {
+      (Test-Path (Join-Path $fallback "lane-registry.json")) -and
+      (Test-Path (Join-Path $fallback "runtime\\windows\\start-supervisor.ps1"))) {
     Write-Host "LIVE_P2_ROOT_FALLBACK=RUNNER_PROFILE"
     return [System.IO.Path]::GetFullPath($fallback)
   }
+
+  $profileCandidates = @(
+    Get-CimInstance Win32_UserProfile -ErrorAction SilentlyContinue |
+      Where-Object { $_.LocalPath -and -not $_.Special } |
+      ForEach-Object {
+        Join-Path ([string]$_.LocalPath) "AppData\\Local\\MAGASIN\\BusinessOS\\supervisor"
+      } |
+      Where-Object {
+        (Test-Path (Join-Path $_ "lanes.json")) -and
+        (Test-Path (Join-Path $_ "lane-registry.json")) -and
+        (Test-Path (Join-Path $_ "runtime\\windows\\start-supervisor.ps1"))
+      } |
+      Select-Object -Unique
+  )
+  Write-Host "LIVE_P2_PROFILE_ROOT_COUNT=$($profileCandidates.Count)"
+  if ($profileCandidates.Count -eq 1) {
+    Write-Host "LIVE_P2_ROOT_FALLBACK=WINDOWS_PROFILE_INVENTORY"
+    return [System.IO.Path]::GetFullPath([string]$profileCandidates[0])
+  }
+  if ($profileCandidates.Count -gt 1) { throw "P2_LIVE_PROFILE_ROOT_AMBIGUOUS" }
   throw "P2_LIVE_STATE_ROOT_MISSING"
 }
 function Stop-ProcessTree([int]$ProcessId) {
