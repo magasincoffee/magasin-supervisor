@@ -41,3 +41,12 @@ jobs:
       - name: Run isolated P3 Work replacement live acceptance
         shell: cmd
         run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-p2-live-isolated.ps1"
+
+      - name: Upload sanitized P3 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p3-live-diagnostics
+          path: ${{ runner.temp }}\magasin-p3-live-diagnostics.json
+          if-no-files-found: ignore
+          retention-days: 1
