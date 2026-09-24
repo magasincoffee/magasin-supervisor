@@ -6,6 +6,13 @@ on:
       - hotfix/supervisor-autonomy-selfheal-v1
     paths:
       - .github/workflows/supervisor-hotfix-live-acceptance-temp.yml
+      - src/ui/message-capture.mjs
+      - src/ui/snapshot.mjs
+      - src/runtime/three-lane-cli.mjs
+      - src/runtime/work-rollover.mjs
+      - windows/run-supervisor.ps1
+      - windows/control-panel.ps1
+      - windows/control-panel-observability.ps1
   workflow_dispatch:
 
 permissions:
@@ -79,6 +86,7 @@ jobs:
           $statusFile = Join-Path $root "lane-status.json"
           $registryFile = Join-Path $root "lane-registry.json"
           $logFile = Join-Path $root "supervisor.log"
+          $wrapperLogFile = Join-Path $root "wrapper.log"
 
           function Read-JsonSafe([string]$Path) {
             if (-not (Test-Path $Path)) { return $null }
@@ -126,6 +134,11 @@ jobs:
             Get-Content $logFile -Tail 80 -Encoding UTF8 | ForEach-Object { Write-Host $_ }
           }
           Write-Host "--- SAFE_LOG_TAIL_END ---"
+          Write-Host "--- WRAPPER_LOG_TAIL_BEGIN ---"
+          if (Test-Path $wrapperLogFile) {
+            Get-Content $wrapperLogFile -Tail 80 -Encoding UTF8 | ForEach-Object { Write-Host $_ }
+          }
+          Write-Host "--- WRAPPER_LOG_TAIL_END ---"
 
           if (-not $success) {
             throw "LIVE_ACCEPTANCE_NOT_REACHED: Brain SCHED-06 was not durably adopted/dispatched within bounded observation window."
