@@ -19,6 +19,9 @@ const three = await import(
 const capture = await import(
   pathToFileURL(path.join(sourceRoot, "src", "ui", "message-capture.mjs")).href
 );
+const sourceSnapshot = await import(
+  pathToFileURL(path.join(sourceRoot, "src", "ui", "snapshot.mjs")).href
+);
 const adapterMod = await import(
   pathToFileURL(path.join(runtime, "src", "ui", "playwright-adapter.mjs")).href
 );
@@ -241,6 +244,15 @@ for (const page of pages) {
       deepIndex += 1;
       console.log("LIVE_PAGE_" + pageIndex + "_DEEP_LEAF_" + deepIndex + "=" + JSON.stringify(meta));
     }
+  }
+
+  const fixedSnapshot = await sourceSnapshot.collectSafeUiSnapshot(page).catch(() => null);
+  if (fixedSnapshot) {
+    console.log("LIVE_PAGE_" + pageIndex + "_SOURCE_SNAPSHOT_ASSISTANT_COUNT=" + Number(fixedSnapshot.assistantMessageCount || 0));
+    console.log("LIVE_PAGE_" + pageIndex + "_SOURCE_SNAPSHOT_USER_COUNT=" + Number(fixedSnapshot.userMessageCount || 0));
+    console.log("LIVE_PAGE_" + pageIndex + "_SOURCE_SNAPSHOT_MAX_TURN=" + Number(fixedSnapshot.maxConversationTurnOrdinal || 0));
+    console.log("LIVE_PAGE_" + pageIndex + "_SOURCE_SNAPSHOT_LAST_ROLE=" + String(fixedSnapshot.lastMessageRole || ""));
+    console.log("LIVE_PAGE_" + pageIndex + "_SOURCE_SNAPSHOT_RESPONSE_RUNNING=" + Boolean(fixedSnapshot.responseRunning));
   }
 
   const userDigests = await capture.captureUserTurnDigests(page).catch(() => []);
