@@ -209,6 +209,24 @@ jobs:
           }
           Write-Host "--- LANE_EVENTS_TAIL_END ---"
 
+      - name: Static installed runtime syntax check
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
+          $runtime = Join-Path $root "runtime"
+          foreach ($relative in @(
+            "src\ui\message-capture.mjs",
+            "src\ui\snapshot.mjs",
+            "src\runtime\three-lane-cli.mjs"
+          )) {
+            $file = Join-Path $runtime $relative
+            Write-Host "NODE_CHECK_FILE=$relative"
+            & node --check $file
+            Write-Host "NODE_CHECK_EXIT_$($relative.Replace('\\','_'))=$LASTEXITCODE"
+          }
+
       - name: Live Brain parser probe
         shell: powershell
         run: |
