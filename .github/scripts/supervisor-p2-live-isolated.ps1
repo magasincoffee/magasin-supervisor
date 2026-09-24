@@ -216,7 +216,35 @@ try {
       break
     }
   }
-  if (-not $liveReached) { throw "P2_LIVE_RUNTIME_ACCEPTANCE_NOT_REACHED" }
+  if (-not $liveReached) {
+    $diag = Read-JsonSafe (Join-Path $tempRoot "lane-registry.json")
+    $diagLane = $diag.lanes.'lane-1'
+    $diagStage = if ($diagLane -and $diagLane.work_rollover) { [string]$diagLane.work_rollover.stage } else { "" }
+    Write-Host "LIVE_P2_DIAG_ROLLOVER_STAGE=$diagStage"
+    Write-Host "LIVE_P2_DIAG_WORK_PRESENT=$([bool]($diagLane -and -not [string]::IsNullOrWhiteSpace([string]$diagLane.work_url)))"
+    Write-Host "LIVE_P2_DIAG_DISPATCH_ID_PRESENT=$([bool]($diagLane -and -not [string]::IsNullOrWhiteSpace([string]$diagLane.last_dispatch_id)))"
+    $safeLog = Join-Path $tempRoot "supervisor.log"
+    $createRequested = 0
+    $targetPersisted = 0
+    $createErrors = 0
+    $ambiguous = 0
+    if (Test-Path $safeLog) {
+      foreach ($line in Get-Content $safeLog -Encoding UTF8) {
+        try { $event = $line | ConvertFrom-Json } catch { continue }
+        switch ([string]$event.type) {
+          "LANE_AUTO_WORK_CREATE_REQUESTED" { $createRequested += 1 }
+          "LANE_AUTO_WORK_TARGET_PERSISTED" { $targetPersisted += 1 }
+          "LANE_WORK_ROLLOVER_BLANK_CREATE_ERROR" { $createErrors += 1 }
+          "LANE_AUTO_WORK_CREATE_AMBIGUOUS" { $ambiguous += 1 }
+        }
+      }
+    }
+    Write-Host "LIVE_P2_DIAG_CREATE_REQUESTED_COUNT=$createRequested"
+    Write-Host "LIVE_P2_DIAG_TARGET_PERSISTED_COUNT=$targetPersisted"
+    Write-Host "LIVE_P2_DIAG_CREATE_ERROR_COUNT=$createErrors"
+    Write-Host "LIVE_P2_DIAG_CREATE_AMBIGUOUS_COUNT=$ambiguous"
+    throw "P2_LIVE_RUNTIME_ACCEPTANCE_NOT_REACHED"
+  }
 
   if ($testNode -and -not $testNode.HasExited) {
     Stop-Process -Id $testNode.Id -Force -ErrorAction SilentlyContinue
