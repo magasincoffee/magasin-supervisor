@@ -124,6 +124,39 @@ function Write-JsonFile([string]$Path,$Value) {
   $Value | ConvertTo-Json -Depth 20 | Set-Content -Path $Path -Encoding UTF8
 }
 
+$mutationPacingMs = 5000
+$parsedPacing = 0
+if ([int]::TryParse([string]$env:P2_LIVE_MUTATION_PACING_MS,[ref]$parsedPacing)) {
+  $mutationPacingMs = [Math]::Max(5000,$parsedPacing)
+}
+$cooldownMinutes = 5
+$parsedCooldown = 0
+if ([int]::TryParse([string]$env:P2_LIVE_RATE_LIMIT_COOLDOWN_MINUTES,[ref]$parsedCooldown)) {
+  $cooldownMinutes = [Math]::Max(5,$parsedCooldown)
+}
+$cooldownFile = Join-Path $env:USERPROFILE ".magasin-supervisor\p2-live-rate-limit-cooldown.json"
+$cooldownState = Read-JsonSafe $cooldownFile
+if ($cooldownState -and $cooldownState.until_utc) {
+  $until = [DateTimeOffset]::MinValue
+  if ([DateTimeOffset]::TryParse([string]$cooldownState.until_utc,[ref]$until)) {
+    if ([DateTimeOffset]::UtcNow -lt $until) {
+      Write-Host "LIVE_P2_RATE_LIMIT_COOLDOWN_ACTIVE=True"
+      throw "P2_LIVE_RATE_LIMIT_COOLDOWN_ACTIVE"
+    }
+  }
+  Remove-Item -LiteralPath $cooldownFile -Force -ErrorAction SilentlyContinue
+}
+
+function Set-RateLimitCooldown {
+  $until = [DateTimeOffset]::UtcNow.AddMinutes($cooldownMinutes).ToString("o")
+  Write-JsonFile $cooldownFile ([pscustomobject]@{
+    schema_version = "p2-rate-limit-cooldown.v1"
+    until_utc = $until
+  })
+  Write-Host "LIVE_P2_RATE_LIMIT_DETECTED=True"
+  Write-Host "LIVE_P2_RATE_LIMIT_COOLDOWN_SET=True"
+}
+
 $root = Resolve-CanonicalSupervisorRoot
 $configFile = Join-Path $root "lanes.json"
 $registryFile = Join-Path $root "lane-registry.json"
@@ -220,6 +253,10 @@ try {
   $env:P2_CDP_URL = "http://127.0.0.1:$cdpPort"
   $env:P2_FIXTURE_FILE = $fixtureFile
   & node "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-p2-live-brain-fixture.mjs"
+  if ($LASTEXITCODE -eq 75) {
+    Set-RateLimitCooldown
+    throw "P2_LIVE_RATE_LIMITED_NON_SEMANTIC"
+  }
   if ($LASTEXITCODE -ne 0) { throw "P2_LIVE_BRAIN_FIXTURE_FAILED" }
 
   $fixture = Read-JsonSafe $fixtureFile
@@ -261,13 +298,28 @@ try {
   $env:LOCALAPPDATA = $tempBase
   $runtimeCli = Join-Path $env:GITHUB_WORKSPACE "src\runtime\three-lane-cli.mjs"
   $testNode = Start-Process -FilePath "node.exe" -ArgumentList @(
-    $runtimeCli,"--cdp-url",$env:P2_CDP_URL,"--poll-ms","1000","--execute"
+    $runtimeCli,"--cdp-url",$env:P2_CDP_URL,"--poll-ms","5000","--execute"
   ) -PassThru -RedirectStandardOutput $nodeOut -RedirectStandardError $nodeErr
 
   $liveReached = $false
+  $rateLimitDetected = $false
   for ($i=0; $i -lt 150; $i++) {
     Start-Sleep -Seconds 1
-    if ($testNode.HasExited) { break }
+    $safeLog = Join-Path $tempRoot "supervisor.log"
+    if (Test-Path $safeLog) {
+      foreach ($line in @(Get-Content -LiteralPath $safeLog -Tail 80 -Encoding UTF8)) {
+        try { $safeEvent = $line | ConvertFrom-Json } catch { continue }
+        if (
+          [string]$safeEvent.type -eq "LANE_CHATGPT_RATE_LIMIT_DETECTED" -or
+          [string]$safeEvent.reason_code -eq "CHATGPT_RATE_LIMITED" -or
+          [string]$safeEvent.reason -eq "CHATGPT_RATE_LIMITED"
+        ) {
+          $rateLimitDetected = $true
+          break
+        }
+      }
+    }
+    if ($rateLimitDetected -or $testNode.HasExited) { break }
     $reg = Read-JsonSafe (Join-Path $tempRoot "lane-registry.json")
     $lane = $reg.lanes.'lane-1'
     if (
@@ -279,6 +331,16 @@ try {
       break
     }
   }
+  if ($rateLimitDetected) {
+    if ($testNode -and -not $testNode.HasExited) {
+      Stop-Process -Id $testNode.Id -Force -ErrorAction SilentlyContinue
+      $testNode.WaitForExit()
+    }
+    $testNode = $null
+    Set-RateLimitCooldown
+    throw "P2_LIVE_RATE_LIMITED_NON_SEMANTIC"
+  }
+
   if (-not $liveReached) {
     $diag = Read-JsonSafe (Join-Path $tempRoot "lane-registry.json")
     $diagLane = $diag.lanes.'lane-1'
@@ -302,7 +364,9 @@ try {
             $createErrors += 1
             $errorName = [string]$event.errorName
             $reason = [string]$event.reason
-            $class = if ($errorName -match "Timeout" -or $reason -match "Timeout") {
+            $class = if ($reason -match "CHATGPT_RATE_LIMITED") {
+              "RATE_LIMITED"
+            } elseif ($errorName -match "Timeout" -or $reason -match "Timeout") {
               "TIMEOUT"
             } elseif ($reason -match "AUTO_WORK_TARGET_NOT_CANONICAL_C" -or $reason -match "canonical /c/ identity") {
               "NON_CANONICAL_C"
@@ -453,5 +517,6 @@ finally {
 
 if ($restoreError) { throw $restoreError }
 if (-not $acceptancePassed) { throw "P2_LIVE_ACCEPTANCE_FAILED" }
+Write-Host "LIVE_P2_RATE_LIMIT_DETECTED=False"
 Write-Host "LIVE_P2_ISOLATED_PRODUCTION_STATE=True"
 Write-Host "LIVE_P2_ACCEPTANCE=PASS"
