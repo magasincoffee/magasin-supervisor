@@ -35,6 +35,7 @@ await adapter.open();
 
 try {
   let brainPage = null;
+  let createdBrainPage = false;
   for (const page of adapter.getChatGptPages()) {
     try {
       if (three.normalizeChatGptConversationUrl(page.url()) === exactBrain) {
@@ -43,7 +44,13 @@ try {
       }
     } catch {}
   }
-  if (!brainPage) throw new Error("exact configured Brain page is not open");
+  if (!brainPage) {
+    brainPage = await adapter.newChatPage(exactBrain);
+    createdBrainPage = true;
+  }
+  if (three.normalizeChatGptConversationUrl(brainPage.url()) !== exactBrain) {
+    throw new Error("exact configured Brain target did not open");
+  }
 
   const turns = await capture.captureRecentConversationTurns(brainPage, { limit: 30 });
   let directive = null;
@@ -128,5 +135,8 @@ try {
       Boolean(registryLane.brain_directive_adopted?.directive_digest)
   );
 } finally {
+  if (typeof createdBrainPage !== "undefined" && createdBrainPage && brainPage) {
+    await adapter.closePage(brainPage).catch(() => {});
+  }
   await adapter.close().catch(() => {});
 }
