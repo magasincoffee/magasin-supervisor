@@ -1,0 +1,4 @@
+SUP-SELFHEAL-P2-LIVE-INTERACTIVE-RUNNER
+single_attempt=true
+interactive_runner=true
+requested_after_runner_run_cmd=true
