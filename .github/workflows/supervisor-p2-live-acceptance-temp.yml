@@ -3,7 +3,7 @@ name: Supervisor P2 Live Acceptance Temp
 on:
   pull_request:
     paths:
-      - .github/p2-live-request.txt
+      - .github/p2-live-trigger-v2.txt
   workflow_dispatch:
 
 permissions:
