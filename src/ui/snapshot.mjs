@@ -20,6 +20,9 @@ const EXPLICIT_RETRY_CONTROL_RE =
 const TRANSIENT_ERROR_ALERT_RE =
   /something went wrong|đã xảy ra lỗi/i;
 
+const RATE_LIMIT_RE =
+  /too many requests|quá nhiều yêu cầu|requests?.{0,30}too quickly|sending requests too quickly|gửi yêu cầu quá nhanh|please wait.{0,40}(?:few|several) minutes|vui lòng đợi.{0,40}phút/i;
+
 export function matchesConversationFullText(value) {
   return CONVERSATION_FULL_RE.test(String(value || ""));
 }
@@ -44,6 +47,10 @@ export function matchesTransientErrorAlert(value) {
   return TRANSIENT_ERROR_ALERT_RE.test(String(value || ""));
 }
 
+export function matchesRateLimitText(value) {
+  return RATE_LIMIT_RE.test(String(value || ""));
+}
+
 export function matchesStopControlMetadata(control = {}) {
   const testId = String(control.testId || "").trim().toLowerCase();
   const text = String(control.text || "").trim().toLowerCase();
@@ -63,7 +70,8 @@ export async function collectSafeUiSnapshot(page) {
       conversationAccessDeniedPattern,
       modelSwitchingPattern,
       explicitRetryControlPattern,
-      transientErrorAlertPattern
+      transientErrorAlertPattern,
+      rateLimitPattern
     }) => {
       const normalize = eval(normalizeSource);
       const visible = (el) => {
@@ -113,6 +121,8 @@ export async function collectSafeUiSnapshot(page) {
         .toLowerCase();
 
       const recoveryHaystack = `${haystack} | ${nonMessageSurface}`;
+      const rateLimited =
+        new RegExp(rateLimitPattern, "i").test(recoveryHaystack);
 
       const composer = [
         document.querySelector("#prompt-textarea"),
@@ -365,6 +375,7 @@ export async function collectSafeUiSnapshot(page) {
         assistantBusy,
         modelSwitching,
         hasNetworkError,
+        rateLimited,
         hasTransientError,
         hasContinueControl:
           /continue generating|tiếp tục tạo|continue response/.test(haystack),
@@ -381,7 +392,8 @@ export async function collectSafeUiSnapshot(page) {
       conversationAccessDeniedPattern: CONVERSATION_ACCESS_DENIED_RE.source,
       modelSwitchingPattern: MODEL_SWITCHING_RE.source,
       explicitRetryControlPattern: EXPLICIT_RETRY_CONTROL_RE.source,
-      transientErrorAlertPattern: TRANSIENT_ERROR_ALERT_RE.source
+      transientErrorAlertPattern: TRANSIENT_ERROR_ALERT_RE.source,
+      rateLimitPattern: RATE_LIMIT_RE.source
     }
   );
 }
