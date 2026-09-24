@@ -1,6 +1,33 @@
 # MIG-006 — RBT-009 Final Exact-Runtime-SHA Tier B Evidence
 
-Status: **OWNER RELEASED / PREP / TIER B NOT STARTED**
+Status: **QUALIFIED / COMPLETE — RBT-009 TIER B PASS**
+
+## Canonical qualification result
+
+- workflow run: `35860156388` — **success**
+- Tier B job: `107180300345` — **success**
+- control-plane SHA: `3fee892fb9677ab5ea5f60d265858d752d9f9bef`
+- locked runtime candidate: `218f330ee86eea4f0fb79ef9293bd43cf96a45de`
+- verified duration: **28,843 seconds (8h00m43s)**
+- sample count: **240**
+- `MIG_006_TIER_B_QUALIFIED=True`
+- `RBT009_TIER_B_480M=PASS`
+- `SOAK_CONTINUOUS_DURATION_8H=True`
+- `SOAK_NO_DUPLICATE_DISPATCH=True`
+- `SOAK_NO_DUPLICATE_RELAY=True`
+- `SOAK_EVENT_ORDER_VALID=True`
+- `SOAK_PRODUCTION_TARGETS_UNCHANGED=True`
+- `SOAK_REGISTRY_LATCHES_UNCHANGED=True`
+- `SOAK_ARTIFACT_PRIVACY_SAFE=True`
+- runtime mode: `ALL_DISABLED_QUIESCENT`
+- production ownership authority instances: **1**
+- production runtime authority active: **false**
+
+MIG-005 cutover is independently supported by PR #10 and canonical merge `cca403faf0704d52ca488d7fecf3c72809a52291`; it is not inferred from Tier B.
+
+The release-request and pre-run manifest values such as `NOT_STARTED`, `PENDING`, and `NOT_RUN` are historical pre-run checkpoints. This closure result is the later verified current state.
+
+No repository-authoritative next task is defined here, so no next task is invented.
 
 ## Locked certification target
 
@@ -76,4 +103,8 @@ Machine sleep, runner interruption, cancellation, reboot risk, target/latch muta
 
 The only uploaded artifact is a sanitized summary. It contains no raw URLs, messages, cookies, tokens, screenshots, browser-profile paths, raw state, raw events, user email, or account identifiers.
 
-`RBT009_TIER_B_480M=NOT_RUN`
+`RBT009_TIER_B_480M=PASS`
+
+## Canonical closure
+
+MIG-006 and RBT-009 are **COMPLETE** using the existing successful Tier B evidence. This closure did not rerun the soak or mutate the production runtime, targets, latches, browser profile, runner configuration, autostart, or local production files.
