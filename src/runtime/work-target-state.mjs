@@ -23,6 +23,27 @@ export function normalizeWorkTargetMode(value, url = "") {
     : WORK_TARGET_MODES.AUTO;
 }
 
+export function resolveWorkTargetPolicy(lane = {}) {
+  const url = String(lane.work_url || "").trim();
+  const mode = normalizeWorkTargetMode(lane.applied_work_mode, url);
+  if (mode === WORK_TARGET_MODES.OWNER) {
+    return Object.freeze({
+      mode,
+      work_url: url,
+      has_usable_configured_target: Boolean(url),
+      auto_create_allowed: false,
+      reason_code: url ? "OWNER_PINNED_TARGET" : "OWNER_WORK_TARGET_REQUIRED"
+    });
+  }
+  return Object.freeze({
+    mode,
+    work_url: url,
+    has_usable_configured_target: Boolean(url),
+    auto_create_allowed: !url,
+    reason_code: url ? "AUTO_PERSISTED_TARGET_REUSE" : "AUTO_WORK_CREATE_REQUIRED"
+  });
+}
+
 export function normalizeWorkTargetIntent(value = {}) {
   const rawUrl = String(value.url || "").trim();
   const mode = normalizeWorkTargetMode(value.mode, rawUrl);
