@@ -27,7 +27,7 @@ permissions:
 
 concurrency:
   group: supervisor-production-soak
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   MIG006_RUNTIME_CANDIDATE_SHA: "218f330ee86eea4f0fb79ef9293bd43cf96a45de"
@@ -166,7 +166,9 @@ jobs:
           exit 1
 
   tier-b:
-    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'mig-006/rbt009-exact-runtime-8h' }}
+    # MIG-006 canonical closure: the qualifying Tier B already passed on run 35860156388.
+    # Keep the job definition as historical/reproducible release tooling, but prohibit another 8h run.
+    if: ${{ false }}
     name: tier-b-production-read-only-8h
     needs: preflight
     runs-on: [self-hosted, Windows, X64]
