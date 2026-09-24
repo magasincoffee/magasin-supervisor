@@ -13,6 +13,16 @@ on:
       - src/runtime/work-target-state.mjs
       - src/runtime/work-rollover.mjs
       - src/runtime/lane-events.mjs
+  pull_request:
+    paths:
+      - .github/workflows/supervisor-p2-live-acceptance-temp.yml
+      - .github/scripts/supervisor-p2-live-brain-fixture.mjs
+      - .github/scripts/supervisor-p2-live-isolated-evidence.mjs
+      - .github/scripts/supervisor-p2-live-isolated.ps1
+      - src/runtime/three-lane-cli.mjs
+      - src/runtime/work-target-state.mjs
+      - src/runtime/work-rollover.mjs
+      - src/runtime/lane-events.mjs
   workflow_dispatch:
 
 permissions:
@@ -25,6 +35,7 @@ concurrency:
 
 jobs:
   p2-live:
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     runs-on: self-hosted
     timeout-minutes: 15
     env:
