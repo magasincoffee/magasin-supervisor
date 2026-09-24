@@ -349,3 +349,4 @@ for (const page of pages) {
 
 await adapter.close().catch(() => {});
 process.exit(0);
+// diagnostic retrigger: post-install lifecycle truth
