@@ -1,17 +1,16 @@
-> **Canonical migration state:** MIG-005 production cutover is complete; MIG-006 / TASK-RBT-009 qualification is complete and released; MIG-007 cleanup authority is **AUTHORIZED / READY FOR EXECUTION / NOT EXECUTED**. No legacy cleanup has been performed by the authority closure.
+> **Canonical migration state:** `MAGASIN_SUPERVISOR_INDEPENDENT_REPOSITORY_V1` is **COMPLETE**. MIG-005 production cutover is complete; MIG-006 / TASK-RBT-009 is complete and released; MIG-007 final cleanup removed the authorized legacy Business OS Supervisor surface and closed the active source-code rollback window.
 
-Current machine-readable migration authority:
+Current machine-readable Source of Truth:
 
-`docs/MIG_007_AUTHORITY_MANIFEST.json`
+`docs/MIG_007_FINAL_CLEANUP_CLOSURE.json`
 
-Authority plan and evidence:
+Final evidence:
 
-- `docs/MIG_007_FINAL_CLEANUP_PLAN.md`
-- `docs/MIG_007_AUTHORITY_EVIDENCE.md`
+- `docs/MIG_007_FINAL_CLEANUP_EVIDENCE.md`
 
-Predecessor qualification Source of Truth remains `docs/MIG_006_RBT009_CANONICAL_CLOSURE.json`. Historical MIG-005/MIG-006 snapshots retain their original pre-activation/pre-run values and are not rewritten as current state.
+The earlier MIG-007 authority manifest/plan/evidence remain historical pre-execution authority records. MIG-005/MIG-006 historical snapshots retain their original values and are not rewritten as current state.
 
-Exact next task: `MIG-007-EXECUTION-FINAL-CLEANUP` — **READY / NOT STARTED**.
+No additional migration task is canonically defined.
 
 # MAGASIN Supervisor
 
