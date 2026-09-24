@@ -1,21 +1,6 @@
 name: Supervisor P2 Live Acceptance Temp
 
 on:
-  push:
-    branches:
-      - hotfix/supervisor-autonomy-selfheal-v1
-    paths:
-      - .github/workflows/supervisor-p2-live-acceptance-temp.yml
-      - .github/scripts/supervisor-p2-live-brain-fixture.mjs
-      - .github/scripts/supervisor-p2-live-isolated-evidence.mjs
-      - .github/scripts/supervisor-p2-live-isolated.ps1
-      - .github/scripts/supervisor-p2-live-launcher.ps1
-      - .github/scripts/supervisor-p2-live-runner-isolated.ps1
-      - .github/scripts/supervisor-p2-runtime-diagnostic.ps1
-      - src/runtime/three-lane-cli.mjs
-      - src/runtime/work-target-state.mjs
-      - src/runtime/work-rollover.mjs
-      - src/runtime/lane-events.mjs
   pull_request:
     paths:
       - .github/workflows/supervisor-p2-live-acceptance-temp.yml
