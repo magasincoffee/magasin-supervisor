@@ -27,9 +27,9 @@ function Get-FreeCdpPort {
   }
   throw "P2_RUNNER_ISOLATED_NO_FREE_CDP_PORT"
 }
-function Stop-Tree([int]$Pid) {
-  if (Get-Process -Id $Pid -ErrorAction SilentlyContinue) {
-    & taskkill.exe /PID $Pid /T /F | Out-Null
+function Stop-Tree([int]$ProcessId) {
+  if (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) {
+    & taskkill.exe /PID $ProcessId /T /F | Out-Null
   }
 }
 function Get-ChatPageCount([int]$Port) {
