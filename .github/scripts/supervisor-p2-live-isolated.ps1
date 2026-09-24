@@ -440,7 +440,7 @@ try {
           "LANE_BRAIN_REQUEST_SENT" { $brainRequestSent += 1 }
           "LANE_BRAIN_SEND_PENDING_CONFIRMATION" { $brainSendPending += 1 }
           "LANE_BRAIN_DIRECTIVE_ADOPTION_BLOCKED" {
-            $reason = [string](Get-OptionalPropertyValue $event "reasonCode")
+            $reason = [string](Get-OptionalPropertyValue $event "reason_code")
             if ([string]::IsNullOrWhiteSpace($reason)) { $reason = "UNKNOWN" }
             if (-not $brainAdoptionBlocked.ContainsKey($reason)) { $brainAdoptionBlocked[$reason] = 0 }
             $brainAdoptionBlocked[$reason] += 1
