@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: supervisor-p3-live-work-replacement
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   p3-live:
