@@ -138,19 +138,19 @@ test("P2 rate-limit event scan is StrictMode-safe when optional fields are absen
 
 test("P2 live diagnostic optional properties are uniformly StrictMode-safe", { skip: process.platform !== "win32" }, () => {
   assert.match(harness, /function Get-OptionalPropertyValue\(\$Object,\[string\]\$Name\)/);
-  assert.match(harness, /Get-OptionalPropertyValue \$event "errorName"/);
-  assert.match(harness, /Get-OptionalPropertyValue \$event "reasonCode"/);
+  assert.match(harness, /Get-OptionalPropertyValue \$event "error_name"/);
+  assert.match(harness, /Get-OptionalPropertyValue \$event "reason_code"/);
   assert.match(harness, /Get-OptionalPropertyValue \$event "reason"/);
   assert.match(harness, /Get-OptionalPropertyValue \$diagLane "work_url"/);
   assert.match(harness, /Get-OptionalPropertyValue \$diagLane "last_dispatch_id"/);
-  assert.doesNotMatch(harness, /\$event\.(?:errorName|reasonCode|reason)/);
+  assert.doesNotMatch(harness, /\$event\.(?:error_name|reason_code|reason)/);
 
   const probe = [
     "Set-StrictMode -Version 2.0",
     "function Get-OptionalPropertyValue($Object,[string]$Name) { if ($null -eq $Object) { return $null }; $property = $Object.PSObject.Properties[$Name]; if ($property) { return $property.Value }; return $null }",
     "$event = [pscustomobject]@{ type = 'LANE_AUTO_WORK_CREATE_REQUESTED' }",
-    "$errorName = [string](Get-OptionalPropertyValue $event 'errorName')",
-    "$reasonCode = [string](Get-OptionalPropertyValue $event 'reasonCode')",
+    "$errorName = [string](Get-OptionalPropertyValue $event 'error_name')",
+    "$reasonCode = [string](Get-OptionalPropertyValue $event 'reason_code')",
     "$reason = [string](Get-OptionalPropertyValue $event 'reason')",
     "if ($errorName -or $reasonCode -or $reason) { throw 'unexpected optional property value' }",
     "Write-Output 'P2_OPTIONAL_EVENT_PROPERTIES_STRICTMODE=PASS'"
