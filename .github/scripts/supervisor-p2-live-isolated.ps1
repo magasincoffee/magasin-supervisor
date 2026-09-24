@@ -385,10 +385,22 @@ try {
           "LANE_AUTO_WORK_TARGET_PERSISTED" { $targetPersisted += 1 }
           "LANE_WORK_ROLLOVER_BLANK_CREATE_ERROR" {
             $createErrors += 1
-            $errorName = [string](Get-OptionalPropertyValue $event "errorName")
+            $errorName = [string](Get-OptionalPropertyValue $event "error_name")
             $reason = [string](Get-OptionalPropertyValue $event "reason")
             $class = if ($reason -match "CHATGPT_RATE_LIMITED") {
               "RATE_LIMITED"
+            } elseif ($reason -match "AUTO_WORK_BOOTSTRAP_NOT_EXECUTED") {
+              "BOOTSTRAP_NOT_EXECUTED"
+            } elseif ($reason -match "AUTO_WORK_BOOTSTRAP_SEND_NOT_CONFIRMED") {
+              "BOOTSTRAP_SEND_NOT_CONFIRMED"
+            } elseif ($reason -match "AUTO_WORK_BOOTSTRAP_RESPONSE_NOT_CONFIRMED") {
+              "BOOTSTRAP_RESPONSE_NOT_CONFIRMED"
+            } elseif ($reason -match "AUTO_WORK_BOOTSTRAP_CONVERSATION_NOT_CONFIRMED") {
+              "BOOTSTRAP_CONVERSATION_NOT_CONFIRMED"
+            } elseif ($reason -match "AUTO_WORK_BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED") {
+              "BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED"
+            } elseif ($reason -match "AUTO_WORK_TARGET_CREATE_NOT_CONFIRMED") {
+              "TARGET_CREATE_NOT_CONFIRMED"
             } elseif ($errorName -match "Timeout" -or $reason -match "Timeout") {
               "TIMEOUT"
             } elseif ($reason -match "AUTO_WORK_TARGET_NOT_CANONICAL_C" -or $reason -match "canonical /c/ identity") {
@@ -435,7 +447,7 @@ try {
           }
           "LANE_ERROR" {
             $laneErrorCount += 1
-            $name = [string](Get-OptionalPropertyValue $event "errorName")
+            $name = [string](Get-OptionalPropertyValue $event "error_name")
             if ([string]::IsNullOrWhiteSpace($name)) { $name = "UNKNOWN" }
             if (-not $laneErrorNames.ContainsKey($name)) { $laneErrorNames[$name] = 0 }
             $laneErrorNames[$name] += 1
