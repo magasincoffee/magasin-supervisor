@@ -120,7 +120,7 @@ test("MIG-004 install/start/stop/repair contracts retain explicit state-root bou
   assert.match(autostart, /OWNER_STOP_PRESERVED_DURING_AUTOSTART_INSTALL=True/);
 });
 
-test("production-capable workflows remain fail-closed except owner-released MIG-006 exact-runtime Tier B", async () => {
+test("production-capable workflows remain fail-closed after MIG-006 Tier B qualification", async () => {
   const [life,auto,state,panel,rbt,integrity] = await Promise.all([
     fsp.readFile(ps(".github","workflows","supervisor-lifecycle-acceptance.yml"),"utf8"),
     fsp.readFile(ps(".github","workflows","supervisor-autostart-install.yml"),"utf8"),
@@ -137,7 +137,7 @@ test("production-capable workflows remain fail-closed except owner-released MIG-
   assert.match(panel, /open-robot:\r?\n\s+if: \$\{\{ false \}\}/);
   assert.match(integrity, /runtime-audit:\r?\n[\s\S]*?if: \$\{\{ false \}\}/);
   assert.match(rbt, /tier-a-isolated-integration/);
-  assert.match(rbt, /tier-b:\r?\n\s+if: \$\{\{ github\.event_name == 'pull_request' && github\.head_ref == 'mig-006\/rbt009-exact-runtime-8h' \}\}/);
+  assert.match(rbt, /tier-b:\r?\n(?:\s+#.*\r?\n)*\s+if: \$\{\{ false \}\}/);
   assert.match(rbt, /needs: preflight/);
   assert.match(rbt, /218f330ee86eea4f0fb79ef9293bd43cf96a45de/);
   assert.match(rbt, /DurationMinutes 480/);
