@@ -94,10 +94,13 @@ test("P2 live harness emits sanitized rate-limit marker and persists multi-minut
   assert.match(harness, /"--poll-ms","5000"/);
 });
 
-test("P2 fixture does not fan out across recent conversations and does not blind-retry create", async () => {
+test("P2 fixture reuses at most one recent conversation and never blind-retries create", async () => {
   const fixture = await source("../.github/scripts/supervisor-p2-live-brain-fixture.mjs");
-  assert.doesNotMatch(fixture, /listRecentConversationUrls/);
-  assert.match(fixture, /allowTransientRetry:\s*false/);
+  assert.match(fixture, /listRecentConversationUrls\(page, \{ limit: 1 \}\)/);
+  assert.doesNotMatch(fixture, /for \(const url of recentUrls\)/);
+  assert.match(fixture, /P2_FIXTURE_CACHE_FILE/);
+  assert.match(fixture, /LIVE_P2_FIXTURE_CACHE_REUSED=True/);
+  assert.match(fixture, /LIVE_P2_FIXTURE_RECENT_SINGLE_REUSED=True/);
   assert.match(fixture, /mutationPacingMs/);
   assert.match(fixture, /LIVE_P2_RATE_LIMIT_DETECTED=True/);
 });
