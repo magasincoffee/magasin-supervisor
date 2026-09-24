@@ -110,6 +110,63 @@ for (const page of pages) {
     }
   }
 
+  const structuralMeta = await page.evaluate(() => {
+    const main = document.querySelector("main");
+    if (!main) return null;
+    const out = [];
+    const datasetNodes = [];
+    const queue = [{ node: main, depth: 0 }];
+    while (queue.length && out.length < 140) {
+      const { node, depth } = queue.shift();
+      if (!(node instanceof Element)) continue;
+      const textLen = String(node.innerText || node.textContent || "").trim().length;
+      const attrs = Array.from(node.attributes || [])
+        .map((attr) => String(attr.name || ""))
+        .filter((name) => name.startsWith("data-") || name === "role" || name === "aria-label")
+        .slice(0, 20);
+      const datasetKeys = Object.keys(node.dataset || {}).slice(0, 20);
+      if (depth > 0 && (textLen >= 40 || attrs.length || datasetKeys.length)) {
+        out.push({
+          depth,
+          tag: String(node.tagName || "").toLowerCase(),
+          className: typeof node.className === "string" ? node.className.slice(0, 180) : "",
+          role: String(node.getAttribute("role") || ""),
+          ariaLen: String(node.getAttribute("aria-label") || "").length,
+          textLen,
+          childCount: node.children.length,
+          attrs,
+          datasetKeys
+        });
+      }
+      if (datasetKeys.length && datasetNodes.length < 80) {
+        datasetNodes.push({
+          depth,
+          tag: String(node.tagName || "").toLowerCase(),
+          className: typeof node.className === "string" ? node.className.slice(0, 180) : "",
+          textLen,
+          childCount: node.children.length,
+          datasetKeys
+        });
+      }
+      if (depth < 7) {
+        for (const child of node.children) queue.push({ node: child, depth: depth + 1 });
+      }
+    }
+    return { nodes: out, datasetNodes };
+  }).catch(() => null);
+  if (structuralMeta) {
+    let structuralIndex = 0;
+    for (const meta of structuralMeta.nodes || []) {
+      structuralIndex += 1;
+      console.log("LIVE_PAGE_" + pageIndex + "_STRUCT_" + structuralIndex + "=" + JSON.stringify(meta));
+    }
+    let datasetIndex = 0;
+    for (const meta of structuralMeta.datasetNodes || []) {
+      datasetIndex += 1;
+      console.log("LIVE_PAGE_" + pageIndex + "_DATASET_" + datasetIndex + "=" + JSON.stringify(meta));
+    }
+  }
+
   const userDigests = await capture.captureUserTurnDigests(page).catch(() => []);
   console.log("LIVE_PAGE_" + pageIndex + "_USER_TURN_COUNT=" + userDigests.length);
   console.log(
