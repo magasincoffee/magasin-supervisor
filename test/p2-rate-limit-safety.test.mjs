@@ -106,7 +106,7 @@ test("P2 fixture reuses at most one recent conversation and never blind-retries 
 });
 
 
-test("P2 AUTO Work bootstrap waits for exact assistant readiness before canonical reload", async () => {
+test("P2 AUTO Work bootstrap waits for stable assistant completion before canonical reload", async () => {
   const runtime = await source("../src/runtime/three-lane-cli.mjs");
   const start = runtime.indexOf("async function primeBlankWorkConversation");
   const end = runtime.indexOf("async function createBlankWorkTarget", start);
@@ -121,7 +121,8 @@ test("P2 AUTO Work bootstrap waits for exact assistant readiness before canonica
   assert.ok(reload > response);
   assert.match(bootstrap, /MAGASIN_WORK_READY/);
   assert.match(bootstrap, /captureCompletedAssistantTurn/);
-  assert.match(bootstrap, /captured\?\.text\?\.trim\(\) === readyText/);
+  assert.match(bootstrap, /OBSERVATIONS\.RESPONSE_COMPLETE/);
+  assert.match(bootstrap, /captured\?\.text\?\.trim\(\)/);
   assert.match(bootstrap, /AUTO_WORK_BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED/);
 });
 
