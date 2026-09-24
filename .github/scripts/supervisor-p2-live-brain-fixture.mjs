@@ -85,6 +85,36 @@ function hasConversationIdentity(value) {
   }
 }
 
+async function confirmDurableFixture(page, directive) {
+  const target = targetFromUrl(page.url());
+  const canonicalUrl = `${target.origin}${target.pathname}`;
+  await new Promise((resolve) => setTimeout(resolve, mutationPacingMs));
+  await assertNotRateLimited(page);
+  await page.goto(canonicalUrl, {
+    waitUntil: "domcontentloaded",
+    timeout: 60_000
+  });
+  await page.waitForTimeout(1_000);
+  await assertNotRateLimited(page);
+  if (!isPersistableConversationUrl(page.url())) {
+    const error = new Error("P2_FIXTURE_CANONICAL_URL_NOT_PERSISTED");
+    error.code = "P2_FIXTURE_CANONICAL_URL_NOT_PERSISTED";
+    throw error;
+  }
+  const confirmed = await exactFixtureDirective(page);
+  if (
+    !confirmed ||
+    confirmed.digest !== directive.digest ||
+    confirmed.instruction_digest !== directive.instruction_digest
+  ) {
+    const error = new Error("P2_FIXTURE_CANONICAL_RELOAD_NOT_CONFIRMED");
+    error.code = "P2_FIXTURE_CANONICAL_RELOAD_NOT_CONFIRMED";
+    throw error;
+  }
+  console.log("LIVE_P2_FIXTURE_CANONICAL_RELOAD_CONFIRMED=True");
+  return confirmed;
+}
+
 async function readFixtureCache() {
   if (!cacheFile) return null;
   try {
@@ -254,6 +284,7 @@ try {
     throw new Error("P2 Brain fixture did not produce the exact valid WORK directive");
   }
 
+  directive = await confirmDurableFixture(page, directive);
   await finishFixtureSuccess(page, directive, false);
 } catch (error) {
   if (error?.code === "CHATGPT_RATE_LIMITED") {
