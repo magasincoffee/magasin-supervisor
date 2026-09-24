@@ -33,9 +33,9 @@ if (!exactBrain) throw new Error("lane-1 exact Brain target is missing");
 const adapter = new adapterMod.ChatGptUiAdapter({ cdpUrl, settleMs: 250 });
 await adapter.open();
 
+let brainPage = null;
+let createdBrainPage = false;
 try {
-  let brainPage = null;
-  let createdBrainPage = false;
   for (const page of adapter.getChatGptPages()) {
     try {
       if (three.normalizeChatGptConversationUrl(page.url()) === exactBrain) {
@@ -135,7 +135,7 @@ try {
       Boolean(registryLane.brain_directive_adopted?.directive_digest)
   );
 } finally {
-  if (typeof createdBrainPage !== "undefined" && createdBrainPage && brainPage) {
+  if (createdBrainPage && brainPage) {
     await adapter.closePage(brainPage).catch(() => {});
   }
   await adapter.close().catch(() => {});
