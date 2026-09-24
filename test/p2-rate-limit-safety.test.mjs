@@ -115,13 +115,15 @@ test("P2 AUTO Work bootstrap waits for durable canonical conversation identity b
 
   const send = bootstrap.indexOf("sendComposerInstruction");
   const marker = bootstrap.indexOf("waitForUserTurnMarker");
-  const recent = bootstrap.indexOf("listRecentConversationUrls");
+  const exactLookup = bootstrap.indexOf("findExactConversationUrlByPath");
   const reload = bootstrap.indexOf("page.goto(canonicalUrl");
   assert.ok(send >= 0);
   assert.ok(marker > send);
-  assert.ok(recent > marker);
-  assert.ok(reload > recent);
+  assert.ok(exactLookup > marker);
+  assert.ok(reload > exactLookup);
   assert.match(bootstrap, /MAGASIN_WORK_READY/);
+  assert.match(bootstrap, /findExactConversationUrlByPath/);
+  assert.doesNotMatch(bootstrap, /listRecentConversationUrls/);
   assert.match(bootstrap, /AUTO_WORK_BOOTSTRAP_CANONICAL_IDENTITY_NOT_CONFIRMED/);
   assert.match(bootstrap, /AUTO_WORK_BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED/);
   assert.doesNotMatch(bootstrap, /AUTO_WORK_BOOTSTRAP_RESPONSE_NOT_CONFIRMED/);
