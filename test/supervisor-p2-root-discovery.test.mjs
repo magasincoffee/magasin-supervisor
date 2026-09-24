@@ -74,3 +74,32 @@ test("P2 Brain fixture shutdown is bounded after persisted success", () => {
   assert.match(brainFixture, /finally \{\s*await closeAdapterBounded\(\);\s*\}/m);
   assert.doesNotMatch(brainFixture, /await adapter\.close\(\)\.catch\(\(\) => \{\}\);/);
 });
+
+
+test("P2 diagnostic error_name access is StrictMode-safe when property is absent", { skip: process.platform !== "win32" }, () => {
+  assert.match(harness, /\$errorNameProperty = \$statusLane\.PSObject\.Properties\["error_name"\]/);
+  assert.match(harness, /LIVE_P2_DIAG_LANE_ERROR_NAME=\$statusLaneErrorName/);
+
+  const probe = [
+    "Set-StrictMode -Version 2.0",
+    "$statusLane = [pscustomobject]@{ status = 'STARTING' }",
+    "$statusLaneErrorName = 'NONE'",
+    "if ($statusLane) {",
+    "  $errorNameProperty = $statusLane.PSObject.Properties['error_name']",
+    "  if ($errorNameProperty -and -not [string]::IsNullOrWhiteSpace([string]$errorNameProperty.Value)) {",
+    "    $statusLaneErrorName = [string]$errorNameProperty.Value",
+    "  }",
+    "}",
+    "if ($statusLaneErrorName -ne 'NONE') { throw 'unexpected error_name value' }",
+    "Write-Output 'P2_DIAG_ERROR_NAME_STRICTMODE=PASS'"
+  ].join("; ");
+
+  const run = spawnSync(
+    "powershell.exe",
+    ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", probe],
+    { cwd: repoRoot, encoding: "utf8", windowsHide: true }
+  );
+
+  assert.equal(run.status, 0, `PowerShell StrictMode diagnostic regression failed:\n${run.stderr || run.stdout}`);
+  assert.match(run.stdout, /P2_DIAG_ERROR_NAME_STRICTMODE=PASS/);
+});
