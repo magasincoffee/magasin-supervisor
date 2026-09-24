@@ -167,6 +167,81 @@ for (const page of pages) {
     }
   }
 
+  const deepMeta = await page.evaluate(() => {
+    const main = document.querySelector("main");
+    if (!main) return null;
+    const all = Array.from(main.querySelectorAll("*"));
+    const interesting = all
+      .filter((node) => {
+        const cls = typeof node.className === "string" ? node.className : "";
+        const attrs = Array.from(node.attributes || []).map((a) => a.name).join(" ");
+        return /turn|message|thread|response|assistant|user|conversation|markdown|prose/i.test(cls + " " + attrs);
+      })
+      .slice(-120)
+      .map((node) => ({
+        tag: String(node.tagName || "").toLowerCase(),
+        className: typeof node.className === "string" ? node.className.slice(0, 220) : "",
+        role: String(node.getAttribute("role") || ""),
+        textLen: String(node.innerText || node.textContent || "").trim().length,
+        childCount: node.children.length,
+        attrNames: Array.from(node.attributes || []).map((a) => a.name).filter((n) => n.startsWith("data-") || n === "role").slice(0, 20)
+      }));
+
+    const groups = new Map();
+    for (const node of all) {
+      const textLen = String(node.innerText || node.textContent || "").trim().length;
+      if (textLen < 80) continue;
+      const cls = typeof node.className === "string" ? node.className.trim() : "";
+      if (!cls) continue;
+      const key = String(node.tagName || "").toLowerCase() + "|" + cls.slice(0, 220);
+      if (!groups.has(key)) groups.set(key, { count: 0, min: Number.POSITIVE_INFINITY, max: 0, childCounts: [] });
+      const g = groups.get(key);
+      g.count += 1;
+      g.min = Math.min(g.min, textLen);
+      g.max = Math.max(g.max, textLen);
+      if (g.childCounts.length < 8) g.childCounts.push(node.children.length);
+    }
+    const repeated = Array.from(groups.entries())
+      .filter(([, g]) => g.count >= 2)
+      .sort((a, b) => b[1].count - a[1].count || b[1].max - a[1].max)
+      .slice(0, 80)
+      .map(([key, g]) => ({ key, ...g }));
+
+    const leafish = all
+      .filter((node) => {
+        const len = String(node.innerText || node.textContent || "").trim().length;
+        return len >= 80 && len <= 12000 && node.children.length <= 8;
+      })
+      .slice(-120)
+      .map((node) => ({
+        tag: String(node.tagName || "").toLowerCase(),
+        className: typeof node.className === "string" ? node.className.slice(0, 220) : "",
+        role: String(node.getAttribute("role") || ""),
+        textLen: String(node.innerText || node.textContent || "").trim().length,
+        childCount: node.children.length,
+        attrNames: Array.from(node.attributes || []).map((a) => a.name).filter((n) => n.startsWith("data-") || n === "role").slice(0, 20)
+      }));
+
+    return { interesting, repeated, leafish };
+  }).catch(() => null);
+  if (deepMeta) {
+    let deepIndex = 0;
+    for (const meta of deepMeta.interesting || []) {
+      deepIndex += 1;
+      console.log("LIVE_PAGE_" + pageIndex + "_DEEP_INTEREST_" + deepIndex + "=" + JSON.stringify(meta));
+    }
+    deepIndex = 0;
+    for (const meta of deepMeta.repeated || []) {
+      deepIndex += 1;
+      console.log("LIVE_PAGE_" + pageIndex + "_DEEP_GROUP_" + deepIndex + "=" + JSON.stringify(meta));
+    }
+    deepIndex = 0;
+    for (const meta of deepMeta.leafish || []) {
+      deepIndex += 1;
+      console.log("LIVE_PAGE_" + pageIndex + "_DEEP_LEAF_" + deepIndex + "=" + JSON.stringify(meta));
+    }
+  }
+
   const userDigests = await capture.captureUserTurnDigests(page).catch(() => []);
   console.log("LIVE_PAGE_" + pageIndex + "_USER_TURN_COUNT=" + userDigests.length);
   console.log(
