@@ -101,6 +101,12 @@ test("P1 E newer non-Robot user or assistant activity invalidates adoption", () 
   assert.equal(newerAssistant.reason_code, "NEWER_NON_ROBOT_ACTIVITY");
 });
 
+test("P1 exact-once unresolved state blocks adoption without mutation authority", () => {
+  const result = evidence({ activeExactOnce: true });
+  assert.equal(result.adopt, false);
+  assert.equal(result.reason_code, "ACTIVE_EXACT_ONCE_TRANSACTION");
+});
+
 test("P1 F duplicate Robot handshake after directive remains recoverable", () => {
   const result = evidence({
     turns: [
@@ -173,5 +179,5 @@ test("P1 runtime persists sanitized adoption identity and suppresses duplicate h
   assert.match(source, /LANE_BRAIN_DIRECTIVE_ADOPTED/);
   assert.match(source, /recoverPersistedAdoptedBrainDirective/);
   assert.match(source, /if \(registryLane\.brain_request_sent\) return null/);
-  assert.match(source, /ACTIVE_EXACT_ONCE_TRANSACTION/);
+  assert.match(source, /activeExactOnce: Boolean\(/);
 });
