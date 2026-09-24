@@ -20,6 +20,7 @@ import {
   captureUserTurnDigests,
   captureUserTurnTexts
 } from "../ui/message-capture.mjs";
+import { collectSafeUiSnapshot } from "../ui/snapshot.mjs";
 import { OBSERVATIONS } from "../decision.mjs";
 import {
   isPersistableConversationUrl,
@@ -485,11 +486,33 @@ async function runBrowserMutation(
   );
 }
 
+function chatGptRateLimitError() {
+  const error = new Error("CHATGPT_RATE_LIMITED");
+  error.code = "CHATGPT_RATE_LIMITED";
+  return error;
+}
+
+async function assertPageNotRateLimited(page) {
+  const snapshot = await collectSafeUiSnapshot(page).catch(() => null);
+  if (snapshot?.rateLimited) throw chatGptRateLimitError();
+  return snapshot;
+}
+
 async function waitForConversationUrl(page) {
-  await page.waitForURL(
-    (value) => isPersistableConversationUrl(String(value)),
-    { timeout: 45_000 }
-  );
+  const deadline = Date.now() + 45_000;
+  while (
+    Date.now() <= deadline &&
+    !isPersistableConversationUrl(String(page.url()))
+  ) {
+    await assertPageNotRateLimited(page);
+    await page.waitForTimeout(1_000);
+  }
+  await assertPageNotRateLimited(page);
+  if (!isPersistableConversationUrl(String(page.url()))) {
+    const error = new Error("AUTO_WORK_TARGET_CREATE_NOT_CONFIRMED");
+    error.code = "AUTO_WORK_TARGET_CREATE_NOT_CONFIRMED";
+    throw error;
+  }
 
   // ChatGPT may briefly expose an internal /c/WEB:<uuid> route while a new
   // conversation is still being created. That route is not authoritative for
@@ -552,6 +575,9 @@ async function assertConversationSafe(adapter, page, {
   allowFull = false
 } = {}) {
   const probe = await adapter.probePage(page);
+  if (probe.snapshot.rateLimited) {
+    throw chatGptRateLimitError();
+  }
   if (hardStopObservation(probe.classification.observation)) {
     throw new Error("Owner/security boundary detected");
   }
@@ -1795,7 +1821,9 @@ async function createBlankWorkTarget({
   expectedGeneration
 }) {
   if (!scheduler) {
-    const page = await adapter.newChatPage("https://chatgpt.com/");
+    const page = await adapter.newChatPage("https://chatgpt.com/", {
+      allowTransientRetry: false
+    });
     const url = await waitForConversationUrl(page);
     return { page, url, generation: expectedGeneration };
   }
@@ -2015,6 +2043,15 @@ async function dispatchWork({
         expectedGeneration
       });
     } catch (error) {
+      if (error?.code === "CHATGPT_RATE_LIMITED") {
+        await safeLog(logPath, {
+          type: "LANE_CHATGPT_RATE_LIMIT_DETECTED",
+          laneId: lane.lane_id,
+          taskId: directive.task_id,
+          digest: directive.digest,
+          reasonCode: "CHATGPT_RATE_LIMITED"
+        });
+      }
       await safeLog(logPath, {
         type: "LANE_WORK_ROLLOVER_BLANK_CREATE_ERROR",
         laneId: lane.lane_id,
@@ -2369,6 +2406,21 @@ async function dispatchWork({
     );
     latch.last_send_rejection = rejectionClass;
 
+    if (rejectionClass === SEND_REJECTION_CLASSES.RATE_LIMITED) {
+      latch.reconcile_blocked = true;
+      latch.send_state = "RATE_LIMITED";
+      latch.send_attempted_at = null;
+      await atomicJsonWrite(registryPath, registry);
+      await safeLog(logPath, {
+        type: "LANE_CHATGPT_RATE_LIMIT_DETECTED",
+        laneId: lane.lane_id,
+        taskId: directive.task_id,
+        digest: instructionDigest,
+        reasonCode: "CHATGPT_RATE_LIMITED"
+      });
+      return;
+    }
+
     if (
       !rollover &&
       rejectionClass === SEND_REJECTION_CLASSES.CAPACITY_REJECTED
@@ -2412,6 +2464,21 @@ async function dispatchWork({
       rejectionProbe?.snapshot || {}
     );
     latch.last_send_rejection = rejectionClass;
+
+    if (rejectionClass === SEND_REJECTION_CLASSES.RATE_LIMITED) {
+      latch.reconcile_blocked = true;
+      latch.send_state = "RATE_LIMITED";
+      latch.send_attempted_at = null;
+      await atomicJsonWrite(registryPath, registry);
+      await safeLog(logPath, {
+        type: "LANE_CHATGPT_RATE_LIMIT_DETECTED",
+        laneId: lane.lane_id,
+        taskId: directive.task_id,
+        digest: instructionDigest,
+        reasonCode: "CHATGPT_RATE_LIMITED"
+      });
+      return;
+    }
 
     if (rejectionClass === SEND_REJECTION_CLASSES.CAPACITY_REJECTED) {
       const capacity = await probeStableWorkCapacity({
@@ -4672,10 +4739,18 @@ await emitLaneEvent({
 try {
   adapter = new ChatGptUiAdapter({ cdpUrl: args.cdpUrl });
   await adapter.open();
+  const liveMutationPacingMs = Number.parseInt(
+    process.env.P2_LIVE_MUTATION_PACING_MS || "0",
+    10
+  );
   scheduler = new BrowserScheduler({
     adapter,
     pageBudget: args.pageBudget,
-    laneOrder: LANE_IDS
+    laneOrder: LANE_IDS,
+    mutationMinIntervalMs: Number.isInteger(liveMutationPacingMs) &&
+      liveMutationPacingMs >= 0
+      ? liveMutationPacingMs
+      : 0
   });
   await scheduler.reconstructFromBrowser();
 
