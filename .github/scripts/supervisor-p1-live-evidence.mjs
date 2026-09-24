@@ -52,14 +52,20 @@ try {
     throw new Error("exact configured Brain target did not open");
   }
 
-  const turns = await capture.captureRecentConversationTurns(brainPage, { limit: 30 });
+  let turns = [];
   let directive = null;
-  for (let index = turns.length - 1; index >= 0; index -= 1) {
-    if (turns[index].role !== "assistant") continue;
-    try {
-      directive = three.parseLaneDirective(turns[index].text);
-      break;
-    } catch {}
+  for (let attempt = 0; attempt < 24 && !directive; attempt += 1) {
+    if (attempt > 0) await brainPage.waitForTimeout(500);
+    turns = await capture
+      .captureRecentConversationTurns(brainPage, { limit: 30 })
+      .catch(() => []);
+    for (let index = turns.length - 1; index >= 0; index -= 1) {
+      if (turns[index].role !== "assistant") continue;
+      try {
+        directive = three.parseLaneDirective(turns[index].text);
+        break;
+      } catch {}
+    }
   }
   if (!directive) throw new Error("no valid completed Brain directive found");
   if (directive.action !== "WORK" || directive.task_id !== "SCHED-06") {
