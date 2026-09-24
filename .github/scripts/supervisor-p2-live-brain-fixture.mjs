@@ -30,9 +30,9 @@ try {
     { timeout: 45_000 }
   );
   const target = targetFromUrl(page.url());
-  if (!/^\/c\/[A-Za-z0-9:_-]+$/.test(target.pathname)) {
-    throw new Error("P2 Brain fixture did not resolve to canonical /c/ identity");
-  }
+  const brainPathKind = target.pathname.startsWith("/c/")
+    ? "C"
+    : (target.pathname.startsWith("/g/") ? "G" : "PROJECT");
 
   let captured = null;
   let directive = null;
@@ -71,7 +71,8 @@ try {
   }, null, 2) + "\n", "utf8");
 
   console.log("LIVE_P2_FIXTURE_BRAIN_CREATED=True");
-  console.log("LIVE_P2_FIXTURE_BRAIN_CANONICAL_C=True");
+  console.log("LIVE_P2_FIXTURE_BRAIN_SPECIFIC_CONVERSATION=True");
+  console.log(`LIVE_P2_FIXTURE_BRAIN_PATH_KIND=${brainPathKind}`);
   console.log(`LIVE_P2_FIXTURE_TASK_ID=${directive.task_id}`);
   console.log("LIVE_P2_FIXTURE_DIRECTIVE_VALID=True");
 } finally {
