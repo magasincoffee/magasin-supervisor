@@ -7,6 +7,7 @@ export const UI_STATES = Object.freeze({
   LOGIN_REQUIRED: "LOGIN_REQUIRED",
   CAPTCHA: "CAPTCHA",
   NETWORK_ERROR: "NETWORK_ERROR",
+  RATE_LIMITED: "RATE_LIMITED",
   TRANSIENT_ERROR: "TRANSIENT_ERROR",
   UNKNOWN: "UNKNOWN"
 });
@@ -24,6 +25,13 @@ export function classifyUiSnapshot(snapshot) {
     return {
       uiState: UI_STATES.LOGIN_REQUIRED,
       observation: OBSERVATIONS.AUTH_REQUIRED
+    };
+  }
+
+  if (snapshot.rateLimited) {
+    return {
+      uiState: UI_STATES.RATE_LIMITED,
+      observation: OBSERVATIONS.TRANSIENT_ERROR
     };
   }
 
