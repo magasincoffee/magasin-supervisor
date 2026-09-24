@@ -562,6 +562,64 @@ try {
     }
 
     if (-not $replacementReached) {
+      $diagRegistry = Read-JsonSafe $registryPath
+      $diagLanes = Get-OptionalPropertyValue $diagRegistry "lanes"
+      $diagLane = if ($diagLanes) { Get-OptionalPropertyValue $diagLanes "lane-1" } else { $null }
+      $diagHealth = if ($diagLane) { Get-OptionalPropertyValue $diagLane "work_target_health" } else { $null }
+      $diagRollover = if ($diagLane) { Get-OptionalPropertyValue $diagLane "work_rollover" } else { $null }
+      Write-Host ("LIVE_P3_DIAG_WORK_HEALTH_STATE=" + $(if ($diagHealth) { [string](Get-OptionalPropertyValue $diagHealth "state") } else { "MISSING" }))
+      Write-Host ("LIVE_P3_DIAG_WORK_HEALTH_REASON=" + $(if ($diagHealth) { [string](Get-OptionalPropertyValue $diagHealth "reason_code") } else { "MISSING" }))
+      Write-Host ("LIVE_P3_DIAG_ROLLOVER_STAGE=" + $(if ($diagRollover) { [string](Get-OptionalPropertyValue $diagRollover "stage") } else { "NONE" }))
+      Write-Host ("LIVE_P3_DIAG_ROLLOVER_REASON=" + $(if ($diagRollover) { [string](Get-OptionalPropertyValue $diagRollover "reason") } else { "NONE" }))
+      Write-Host ("LIVE_P3_DIAG_AWAITING_WORK=" + $(if ($diagLane) { [bool](Get-OptionalPropertyValue $diagLane "awaiting_work") } else { $false }))
+      Write-Host ("LIVE_P3_DIAG_GENERATION=" + $(if ($diagLane) { [int](Get-OptionalPropertyValue $diagLane "work_generation") } else { -1 }))
+
+      $safeLogP3 = Join-Path $tempRoot "supervisor.log"
+      $p3Counts = @{}
+      if (Test-Path $safeLogP3) {
+        foreach ($line in Get-Content $safeLogP3 -Encoding UTF8) {
+          try { $event = $line | ConvertFrom-Json } catch { continue }
+          $type = [string](Get-OptionalPropertyValue $event "type")
+          if ([string]::IsNullOrWhiteSpace($type)) { continue }
+          if (
+            $type -like "LANE_WORK_REPLACEMENT*" -or
+            $type -like "LANE_TARGET*" -or
+            $type -like "LANE_ERROR*" -or
+            $type -like "LANE_WORK_ROLLOVER*"
+          ) {
+            if (-not $p3Counts.ContainsKey($type)) { $p3Counts[$type] = 0 }
+            $p3Counts[$type] += 1
+          }
+        }
+      }
+      foreach ($key in @($p3Counts.Keys | Sort-Object)) {
+        $safeKey = ($key -replace '[^A-Za-z0-9_]','_').ToUpperInvariant()
+        Write-Host ("LIVE_P3_DIAG_EVENT_" + $safeKey + "=" + $p3Counts[$key])
+      }
+
+      $statusP3 = Read-JsonSafe (Join-Path $tempRoot "lane-status.json")
+      $statusLanesP3 = @(Get-OptionalPropertyValue $statusP3 "lanes")
+      $statusLaneP3 = @($statusLanesP3 | Where-Object {
+        [string](Get-OptionalPropertyValue $_ "lane_id") -eq "lane-1"
+      }) | Select-Object -First 1
+      if ($statusLaneP3) {
+        Write-Host ("LIVE_P3_DIAG_LANE_STATUS=" + [string](Get-OptionalPropertyValue $statusLaneP3 "status"))
+      }
+
+      if (Test-Path $nodeErr) {
+        $nodeErrText = [string](Get-Content -LiteralPath $nodeErr -Raw -Encoding UTF8 -ErrorAction SilentlyContinue)
+        if ($nodeErrText -match 'PAGE_BUDGET_EXHAUSTED_SAFE_EVICTION') {
+          Write-Host "LIVE_P3_DIAG_NODE_ERROR=PAGE_BUDGET_EXHAUSTED_SAFE_EVICTION"
+        } elseif ($nodeErrText -match 'MUTATION_LEASE_BUSY') {
+          Write-Host "LIVE_P3_DIAG_NODE_ERROR=MUTATION_LEASE_BUSY"
+        } elseif ($nodeErrText -match 'Work replacement') {
+          Write-Host "LIVE_P3_DIAG_NODE_ERROR=WORK_REPLACEMENT_ERROR"
+        } elseif (-not [string]::IsNullOrWhiteSpace($nodeErrText)) {
+          Write-Host "LIVE_P3_DIAG_NODE_ERROR=OTHER"
+        } else {
+          Write-Host "LIVE_P3_DIAG_NODE_ERROR=NONE"
+        }
+      }
       throw "P3_LIVE_REPLACEMENT_NOT_REACHED"
     }
 
