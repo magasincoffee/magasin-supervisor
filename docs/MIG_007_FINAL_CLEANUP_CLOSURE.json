@@ -3,9 +3,9 @@
   "migration_id": "MAGASIN_SUPERVISOR_INDEPENDENT_REPOSITORY_V1",
   "task_id": "MIG-007",
   "execution_task_id": "MIG-007-EXECUTION-FINAL-CLEANUP",
-  "status": "CLOSURE_CANDIDATE_VALIDATION_PENDING",
-  "complete": false,
-  "source_of_truth_role": "CLOSURE_CANDIDATE",
+  "status": "COMPLETE",
+  "complete": true,
+  "source_of_truth_role": "CURRENT_CANONICAL_CLOSURE",
   "authority": {
     "manifest": "docs/MIG_007_AUTHORITY_MANIFEST.json",
     "authority_merge_sha": "50524a60a1f2c718b05f80d774d3344dcec8eb4a",
@@ -98,14 +98,47 @@
     "second_production_authority_created": false
   },
   "target_closure_validation": {
-    "status": "PENDING",
-    "pull_request": null,
-    "pr_head_sha": null,
-    "checks": []
+    "status": "PASS",
+    "pull_request": 14,
+    "candidate_head_sha": "0bc7e98cf005e55257e3acf2569defa216233f05",
+    "checks": [
+      {
+        "name": "Supervisor Tests",
+        "run_id": 35939855977,
+        "job_id": 107445132658,
+        "conclusion": "SUCCESS"
+      },
+      {
+        "name": "Supervisor Integrity",
+        "run_id": 35939855999,
+        "job_id": 107445131833,
+        "conclusion": "SUCCESS"
+      },
+      {
+        "name": "Supervisor Lifecycle Acceptance",
+        "run_id": 35939856008,
+        "job_id": 107445132984,
+        "conclusion": "SUCCESS"
+      },
+      {
+        "name": "Supervisor Autostart Install",
+        "run_id": 35939856027,
+        "job_id": 107445132875,
+        "conclusion": "SUCCESS"
+      },
+      {
+        "name": "Supervisor RBT-009 Overnight Soak",
+        "run_id": 35939858761,
+        "job_id": null,
+        "conclusion": "SKIPPED"
+      }
+    ],
+    "production_jobs": "SKIPPED_FAIL_CLOSED"
   },
-  "migration_complete": false,
+  "migration_complete": true,
   "rollback_window": "CLOSED",
   "next_migration_task": null,
   "next_migration_task_state": "NO_ADDITIONAL_MIGRATION_TASK_DEFINED",
-  "reconciled_on": "2026-09-24"
+  "reconciled_on": "2026-09-24",
+  "migration_final_state": "MAGASIN_SUPERVISOR_INDEPENDENT_REPOSITORY_V1_COMPLETE"
 }
