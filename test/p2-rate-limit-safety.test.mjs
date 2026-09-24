@@ -137,3 +137,12 @@ test("P2 sanitized diagnostics read safe-log snake_case error names and classify
   assert.match(harness, /BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED/);
   assert.match(harness, /TARGET_CREATE_NOT_CONFIRMED/);
 });
+
+
+test("P2 evidence verifier exits deterministically after emitting durable PASS", async () => {
+  const evidence = await source("../.github/scripts/supervisor-p2-live-isolated-evidence.mjs");
+  const pass = evidence.indexOf('LIVE_P2_AUTO_WORK_ACCEPTANCE=PASS');
+  const exit = evidence.indexOf("process.exit(0)", pass);
+  assert.ok(pass >= 0);
+  assert.ok(exit > pass);
+});
