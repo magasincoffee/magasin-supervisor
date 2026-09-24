@@ -98,7 +98,7 @@ test("480-minute attempt starts from zero and interruptions receive zero credit"
   assert.match(controller, /MIG_006_PARTIAL_DURATION_CREDIT_SECONDS=0/);
   assert.match(controller, /qualification = 'NON_QUALIFYING'/);
   assert.match(workflow, /timeout-minutes: 510/);
-  assert.match(workflow, /cancel-in-progress: false/);
+  assert.match(workflow, /cancel-in-progress: true/);
 });
 
 test("target and latch state are fingerprinted and enforced for the full all-disabled window", () => {
