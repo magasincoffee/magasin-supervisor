@@ -69,7 +69,7 @@ test("P2 AUTO create remains exactly-once after ambiguous create-before-persist 
 
 test("P2 live workflow is explicit-trigger-only and never cancels into a burst replacement", async () => {
   const workflow = await source("../.github/workflows/supervisor-p2-live-acceptance-temp.yml");
-  assert.match(workflow, /\.github\/p2-live-request\.txt/);
+  assert.match(workflow, /\.github\/p2-live-trigger-v2\.txt/);
   assert.match(workflow, /cancel-in-progress:\s*false/);
   assert.doesNotMatch(
     workflow,
@@ -106,7 +106,7 @@ test("P2 fixture reuses at most one recent conversation and never blind-retries 
 });
 
 
-test("P2 AUTO Work bootstrap waits for stable assistant completion before canonical reload", async () => {
+test("P2 AUTO Work bootstrap waits for durable canonical conversation identity before target save", async () => {
   const runtime = await source("../src/runtime/three-lane-cli.mjs");
   const start = runtime.indexOf("async function primeBlankWorkConversation");
   const end = runtime.indexOf("async function createBlankWorkTarget", start);
@@ -114,16 +114,17 @@ test("P2 AUTO Work bootstrap waits for stable assistant completion before canoni
   const bootstrap = runtime.slice(start, end);
 
   const send = bootstrap.indexOf("sendComposerInstruction");
-  const response = bootstrap.indexOf("AUTO_WORK_BOOTSTRAP_RESPONSE_NOT_CONFIRMED");
+  const marker = bootstrap.indexOf("waitForUserTurnMarker");
+  const recent = bootstrap.indexOf("listRecentConversationUrls");
   const reload = bootstrap.indexOf("page.goto(canonicalUrl");
   assert.ok(send >= 0);
-  assert.ok(response > send);
-  assert.ok(reload > response);
+  assert.ok(marker > send);
+  assert.ok(recent > marker);
+  assert.ok(reload > recent);
   assert.match(bootstrap, /MAGASIN_WORK_READY/);
-  assert.match(bootstrap, /captureCompletedAssistantTurn/);
-  assert.match(bootstrap, /OBSERVATIONS\.RESPONSE_COMPLETE/);
-  assert.match(bootstrap, /captured\?\.text\?\.trim\(\)/);
+  assert.match(bootstrap, /AUTO_WORK_BOOTSTRAP_CANONICAL_IDENTITY_NOT_CONFIRMED/);
   assert.match(bootstrap, /AUTO_WORK_BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED/);
+  assert.doesNotMatch(bootstrap, /AUTO_WORK_BOOTSTRAP_RESPONSE_NOT_CONFIRMED/);
 });
 
 test("P2 sanitized diagnostics read safe-log snake_case error names and classify bootstrap failures", async () => {
