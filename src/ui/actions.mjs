@@ -1,4 +1,5 @@
 import { ACTIONS } from "../decision.mjs";
+import { collectSafeUiSnapshot } from "./snapshot.mjs";
 
 const SAFE_RETRY_RE = /^(try again|retry|thử lại)$/i;
 const SAFE_CONTINUE_RE = /^(continue generating|continue response|tiếp tục tạo|tiếp tục)$/i;
@@ -260,6 +261,17 @@ export async function sendComposerInstruction(
     };
   }
 
+  const beforeMutation = await collectSafeUiSnapshot(page).catch(() => null);
+  if (beforeMutation?.rateLimited) {
+    return {
+      executed: false,
+      dryRun: false,
+      action: ACTIONS.CONTINUE,
+      reason: "CHATGPT_RATE_LIMITED",
+      rejection_class: SEND_REJECTION_CLASSES.RATE_LIMITED
+    };
+  }
+
   const textSet = await setComposerText(page, instruction);
   if (!textSet.ready) {
     return {
@@ -268,6 +280,17 @@ export async function sendComposerInstruction(
       action: ACTIONS.CONTINUE,
       reason: textSet.reason,
       rejection_class: SEND_REJECTION_CLASSES.COMPOSER_NOT_READY
+    };
+  }
+
+  const afterFillSnapshot = await collectSafeUiSnapshot(page).catch(() => null);
+  if (afterFillSnapshot?.rateLimited) {
+    return {
+      executed: false,
+      dryRun: false,
+      action: ACTIONS.CONTINUE,
+      reason: "CHATGPT_RATE_LIMITED",
+      rejection_class: SEND_REJECTION_CLASSES.RATE_LIMITED
     };
   }
 
