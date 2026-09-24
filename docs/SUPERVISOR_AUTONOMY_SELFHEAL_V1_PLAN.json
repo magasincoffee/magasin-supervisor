@@ -1,0 +1,109 @@
+{
+  "schema_version": "supervisor-autonomy-selfheal-plan.v1",
+  "status": "ACTIVE",
+  "repository": "magasincoffee/magasin-supervisor",
+  "canonical_base": "49eadc9a51a28dbbfb6c7f8230cfd8fa8da5f18c",
+  "working_branch": "hotfix/supervisor-autonomy-selfheal-v1",
+  "objective": "Owner interacts only with Brain; Supervisor reads exact machine directives, manages replaceable Work chats, and preserves durable task identity/exact-once semantics.",
+  "proven_failures": [
+    "F1_CHATGPT_DOM_MESSAGE_CAPTURE_DRIFT",
+    "F2_CHATGPT_DOM_SNAPSHOT_DRIFT",
+    "F3_WRAPPER_ALIVE_NODE_NOT_LAUNCHED_WITHOUT_PROJECT_ADAPTER",
+    "F4_STALE_BRAIN_SEND_STATE_BLOCKS_VALID_DIRECTIVE_ADOPTION",
+    "F5_STALE_RUNTIME_STATUS_MASQUERADES_AS_LIVE_BROWSER_STATE"
+  ],
+  "completed_live_proofs": [
+    {
+      "id": "H1_CURRENT_DOM_MESSAGE_CAPTURE",
+      "state": "PASS",
+      "evidence_run": 35945744452,
+      "markers": [
+        "user_turns=4",
+        "total_turns=8",
+        "directive_action=WORK",
+        "directive_task_id=SCHED-06",
+        "completed_assistant_parse=PASS"
+      ]
+    },
+    {
+      "id": "H2_CURRENT_DOM_SNAPSHOT",
+      "state": "PASS",
+      "evidence_run": 35945801751,
+      "markers": [
+        "assistant_count=4",
+        "user_count=4",
+        "max_turn=8",
+        "last_role=assistant",
+        "response_running=false"
+      ]
+    },
+    {
+      "id": "H3_LOCAL_PLATFORM_RUNTIME_MODE",
+      "state": "PARTIAL_PASS",
+      "evidence_run": 35946365347,
+      "markers": [
+        "RUNTIME_MODE_FROM_LOCAL_PLATFORM_TRUTH",
+        "mode=THREE_LANE_V1",
+        "NODE_LAUNCH",
+        "entry_point=src/runtime/three-lane-cli.mjs"
+      ]
+    }
+  ],
+  "phases": [
+    {
+      "id": "P1",
+      "name": "Brain stale-handshake reconciliation",
+      "state": "READY"
+    },
+    {
+      "id": "P2",
+      "name": "Owner/AUTO Work target policy",
+      "state": "BLOCKED_BY_P1"
+    },
+    {
+      "id": "P3",
+      "name": "Automatic Work replacement",
+      "state": "BLOCKED_BY_P2"
+    },
+    {
+      "id": "P4",
+      "name": "Runtime/status self-heal",
+      "state": "BLOCKED_BY_P1"
+    },
+    {
+      "id": "P5",
+      "name": "Control Panel observability",
+      "state": "BLOCKED_BY_P4"
+    },
+    {
+      "id": "P6",
+      "name": "RESET WORK STATE UI completion",
+      "state": "BLOCKED_BY_P5"
+    },
+    {
+      "id": "P7",
+      "name": "Persistent sanitized diagnostics",
+      "state": "IN_PROGRESS"
+    }
+  ],
+  "final_acceptance": [
+    "LIVE_A_BRAIN_READ",
+    "LIVE_B_BRAIN_TO_WORK",
+    "LIVE_C_WORK_RESULT_TO_BRAIN",
+    "LIVE_D_WORK_REPLACEMENT",
+    "LIVE_E_RESTART_RECOVERY",
+    "DETERMINISTIC_CI_PASS",
+    "POST_MERGE_EXACT_MAIN_PASS"
+  ],
+  "safety": [
+    "OWNER_STOP_WINS",
+    "NO_PROSE_INFERENCE",
+    "NO_DUPLICATE_DISPATCH",
+    "NO_DUPLICATE_RELAY",
+    "NO_BRAIN_URL_MUTATION_WITHOUT_OWNER_REVISION",
+    "NO_PROJECT_TRUTH_DEFAULT",
+    "NO_SECRET_OR_CHAT_BODY_LOGGING",
+    "FAIL_CLOSED_ON_IDENTITY_CONFLICT"
+  ],
+  "next_task": "P1_BRAIN_STALE_HANDSHAKE_RECONCILIATION"
+}
