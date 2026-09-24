@@ -114,14 +114,18 @@ test("Owner pending Work target is evaluated before automatic capacity rollover"
   assert.doesNotMatch(ownerApply, /lane\?\.work_rollover/);
 });
 
-test("active Work/relay/dispatch safe boundaries remain before next-task rollover", async () => {
+test("active Work replacement is evidence-gated while ordinary next-task dispatch keeps safe boundaries", async () => {
   const runtime = await read("../src/runtime/three-lane-cli.mjs");
   const turn = slice(runtime, "async function processLaneTurn", "async function processLane(args)");
-  assert.ok(turn.indexOf("registryLane.relay_inflight") < turn.indexOf("dispatchWork({"));
-  assert.ok(turn.indexOf("registryLane.dispatch_inflight") < turn.indexOf("dispatchWork({"));
-  assert.ok(turn.indexOf("registryLane.awaiting_work") < turn.indexOf("dispatchWork({"));
+  assert.match(turn, /activeReplacementRollover\(registryLane\)/);
+  assert.match(turn, /recoverActiveWorkDirective/);
+  assert.match(turn, /registryLane\.relay_inflight/);
+  assert.match(turn, /registryLane\.dispatch_inflight/);
+  assert.match(turn, /registryLane\.awaiting_work/);
+
   const dispatch = slice(runtime, "async function dispatchWork", "async function reconcileRelayInflight");
-  assert.match(dispatch, /registryLane\.awaiting_work \|\| registryLane\.relay_inflight/);
+  assert.match(dispatch, /replacementContinuation/);
+  assert.match(dispatch, /registryLane\.relay_inflight \|\| \(registryLane\.awaiting_work && !replacementContinuation\)/);
 });
 
 test("Owner STOP/lane disable is rechecked before blank creation and send mutation", async () => {
