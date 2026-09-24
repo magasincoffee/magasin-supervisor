@@ -1816,6 +1816,82 @@ function rolloverOldTargetMatches(registryLane, rollover) {
   return sha256(registryLane.work_url) === rollover.old_work_target_digest;
 }
 
+async function primeBlankWorkConversation({
+  adapter,
+  page,
+  lane,
+  expectedGeneration
+}) {
+  const marker = [
+    "MAGASIN_WORK_BOOTSTRAP_V1",
+    `lane_id=${lane.lane_id}`,
+    `generation=${expectedGeneration}`
+  ].join(" ");
+  const body = [
+    marker,
+    "Initialize this Work conversation only.",
+    "Reply exactly MAGASIN_WORK_READY.",
+    "Do not execute any business task from this bootstrap message."
+  ].join("\n");
+
+  const sent = await sendComposerInstruction(page, body, { dryRun: false });
+  if (!sent?.executed) {
+    if (sent?.rejection_class === SEND_REJECTION_CLASSES.RATE_LIMITED) {
+      throw chatGptRateLimitError();
+    }
+    const error = new Error("AUTO_WORK_BOOTSTRAP_NOT_EXECUTED");
+    error.code = "AUTO_WORK_BOOTSTRAP_NOT_EXECUTED";
+    throw error;
+  }
+
+  const markerConfirmed = await waitForUserTurnMarker(
+    page,
+    marker,
+    { timeoutMs: 15_000, intervalMs: 250 }
+  );
+  if (!markerConfirmed) {
+    const error = new Error("AUTO_WORK_BOOTSTRAP_SEND_NOT_CONFIRMED");
+    error.code = "AUTO_WORK_BOOTSTRAP_SEND_NOT_CONFIRMED";
+    throw error;
+  }
+
+  const identityDeadline = Date.now() + 45_000;
+  let target = null;
+  while (Date.now() <= identityDeadline) {
+    await assertPageNotRateLimited(page);
+    try {
+      target = targetFromUrl(page.url());
+      break;
+    } catch {}
+    await delay(500);
+  }
+  if (!target || !target.pathname.startsWith("/c/")) {
+    const error = new Error("AUTO_WORK_BOOTSTRAP_CONVERSATION_NOT_CONFIRMED");
+    error.code = "AUTO_WORK_BOOTSTRAP_CONVERSATION_NOT_CONFIRMED";
+    throw error;
+  }
+
+  if (!isPersistableConversationUrl(String(page.url()))) {
+    const canonicalUrl = `${target.origin}${target.pathname}`;
+    await page.goto(canonicalUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 30_000
+    });
+    await page.waitForTimeout(800);
+    await assertPageNotRateLimited(page);
+    if (
+      !isPersistableConversationUrl(String(page.url())) ||
+      !await hasUserTurnMarker(page, marker)
+    ) {
+      const error = new Error("AUTO_WORK_BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED");
+      error.code = "AUTO_WORK_BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED";
+      throw error;
+    }
+  }
+
+  return marker;
+}
+
 async function createBlankWorkTarget({
   adapter,
   scheduler,
@@ -1826,6 +1902,12 @@ async function createBlankWorkTarget({
   if (!scheduler) {
     const page = await adapter.newChatPage("https://chatgpt.com/", {
       allowTransientRetry: false
+    });
+    await primeBlankWorkConversation({
+      adapter,
+      page,
+      lane,
+      expectedGeneration
     });
     const url = await waitForConversationUrl(page);
     return { page, url, generation: expectedGeneration };
@@ -1838,7 +1920,14 @@ async function createBlankWorkTarget({
     targetRevision: Number(registryLane.applied_work_url_revision || 0),
     generation: expectedGeneration
   }, async (page) => {
-    // TASK-RBT-006 invariant: blank target creation performs no task send.
+    // Bootstrap creates only the canonical conversation identity. The business
+    // task is still dispatched later under the persisted dispatch latch.
+    await primeBlankWorkConversation({
+      adapter,
+      page,
+      lane,
+      expectedGeneration
+    });
     return waitForConversationUrl(page);
   });
   return {
