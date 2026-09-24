@@ -1,11 +1,27 @@
 # MIG-005 — Single-Authority Production Cutover Evidence
 
-Status: **OLD HANDOFF COMPLETE / NEW-MACHINE ACTIVATION READY / CUTOVER NOT YET COMPLETE**  
+Status: **COMPLETE — SINGLE-OWNERSHIP CUTOVER ESTABLISHED / MIG-006 QUALIFIED**  
 Task: `MIG-005 — Single-Authority Production Cutover`  
 Exact release base: `a67b6ea19e7e10b4b63b56f9e7b5274a94135ca2`  
 Canonical execution: **PR #10 / branch `mig-005/single-authority-cutover`**
 
-## Authority safety
+## Canonical current status
+
+Independent cutover evidence is recorded in PR #10 and canonical merge `cca403faf0704d52ca488d7fecf3c72809a52291`. The sanitized activation checkpoint records state import **PASS**, state verify **PASS**, target/latch preservation, old autostart ownership released, new autostart ownership present, and exactly **1** production ownership authority while runtime authority remains **0** in `ALL_DISABLED_QUIESCENT`.
+
+Current canonical state:
+- production cutover: **complete**
+- production ownership authority instances: **1**
+- production runtime authority instances: **0**
+- ownership state: `NEW_AUTHORITY_OWNERSHIP_ACTIVE_ALL_DISABLED_RUNTIME_QUIESCENT`
+- runtime candidate: `218f330ee86eea4f0fb79ef9293bd43cf96a45de`
+- RBT-009 Tier B 480m: **PASS** via MIG-006 workflow run `35860156388` / job `107180300345`
+- MIG-006 qualification: **QUALIFIED / COMPLETE**
+- next canonical task: **not defined by repository authority**
+
+The sections below retain pre-activation and failed-attempt values as historical checkpoints. Their `NOT_RUN`, cutover-incomplete, and zero-authority values describe those earlier checkpoints rather than current state.
+
+## Historical pre-activation authority safety checkpoint
 
 - production_cutover: **false**
 - production_authority: **ZERO DURING CONTROLLED HANDOFF**
@@ -213,7 +229,10 @@ No raw production state is stored in:
 - Actions logs;
 - repository evidence.
 
-The old rollback state/source remains preserved. Production cutover is not complete until Owner runs the exact-candidate new-machine activation wrapper and its sanitized output proves import, preservation, sole ownership and all-disabled runtime quiescence.
+The old rollback state/source remains preserved. The exact-candidate new-machine activation was subsequently completed and independently recorded in PR #10 before canonical merge. MIG-006 then qualified the unchanged locked runtime candidate with a read-only 8-hour Tier B.
 
-`RBT009_TIER_B_480M=NOT_RUN`
-`PRODUCTION_CUTOVER=false`
+`RBT009_TIER_B_480M=PASS`
+`MIG_006_STATUS=COMPLETE`
+`PRODUCTION_CUTOVER=true`
+`PRODUCTION_OWNERSHIP_AUTHORITY_INSTANCES=1`
+`PRODUCTION_RUNTIME_AUTHORITY_INSTANCES=0`

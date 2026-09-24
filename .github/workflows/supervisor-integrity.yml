@@ -96,7 +96,7 @@ jobs:
           grep -q 'production/self-hosted install remains hard-disabled' .github/workflows/supervisor-autostart-install.yml
           grep -q 'production/self-hosted lifecycle remains hard-disabled' .github/workflows/supervisor-lifecycle-acceptance.yml
           grep -q 'production control-panel workflow remains inert' .github/workflows/supervisor-open-control-panel.yml
-          grep -q 'Tier B 480-minute production soak remains hard-disabled' .github/workflows/supervisor-rbt009-soak.yml
+          grep -q 'MIG-006: Tier B exact-runtime qualification is owner-released and preflight-gated' .github/workflows/supervisor-rbt009-soak.yml
           grep -q 'MIG-003 guard' .github/workflows/supervisor-state-maintenance.yml
           grep -q 'production runtime audit remains hard-disabled' .github/workflows/supervisor-integrity.yml
 

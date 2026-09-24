@@ -1,4 +1,10 @@
-> **MIG-002 bootstrap state:** independent repository extraction only. Production cutover is disabled; the existing embedded Supervisor remains the sole production authority until MIG-005.
+> **Canonical migration state:** MIG-005 production cutover is complete with one new-machine ownership authority in `ALL_DISABLED_QUIESCENT` mode. MIG-006 qualified the final RBT-009 Tier B on workflow run `35860156388` / job `107180300345`; the qualification did not start the production runtime or mutate production targets/latches.
+
+Current machine-readable Source of Truth:
+
+`docs/MIG_006_RBT009_CANONICAL_CLOSURE.json`
+
+The earlier MIG-005 cutover manifest, MIG-006 release request, and MIG-006 pre-run manifest are retained as historical snapshots. Their pre-activation/pre-run values such as `production_cutover=false`, `PENDING`, `NOT_STARTED`, and `NOT_RUN` are not current canonical state.
 
 # MAGASIN Supervisor
 
@@ -44,9 +50,9 @@ Implementation roadmap:
 - TASK-RBT-006B — Owner START Latch Recovery / Lifecycle Acceptance Closure — IMPLEMENTED in v2026-09-20.58
 - TASK-RBT-007 — Control Panel Timeline & Resource UX — IMPLEMENTED in v2026-09-20.59
 - TASK-RBT-008 — Brain Planning Contract Runtime Hooks — IMPLEMENTED in v2026-09-20.60
-- TASK-RBT-009 — Integration / Overnight Soak / Cleanup — IMPLEMENTATION CANDIDATE; FINAL 8H SOAK PENDING
+- TASK-RBT-009 — Integration / Overnight Soak / Cleanup — COMPLETE; FINAL 8H TIER B QUALIFIED BY MIG-006
 
-v2026-09-20.60 production truth includes TASK-RBT-002 event/timing foundation, TASK-RBT-003 Work target hot-swap/save, TASK-RBT-004 scheduler/tab budget, TASK-RBT-005 long-running Work watchdog, TASK-RBT-005A Owner-authorized relay retry recovery, TASK-RBT-006 multi-signal Work-full rollover, TASK-RBT-006A durable stale/missing target quarantine, TASK-RBT-006B deterministic explicit Owner START latch authority, TASK-RBT-007 Control Panel timeline/resource observability, and TASK-RBT-008 backward-compatible Brain planning/result-verdict runtime hooks. TASK-RBT-009 release tooling is staged without changing runtime semantics, but Three-Lane V1 is NOT RELEASED until the uninterrupted 8-hour production soak and docs closure pass.
+v2026-09-20.60 production truth includes TASK-RBT-002 event/timing foundation, TASK-RBT-003 Work target hot-swap/save, TASK-RBT-004 scheduler/tab budget, TASK-RBT-005 long-running Work watchdog, TASK-RBT-005A Owner-authorized relay retry recovery, TASK-RBT-006 multi-signal Work-full rollover, TASK-RBT-006A durable stale/missing target quarantine, TASK-RBT-006B deterministic explicit Owner START latch authority, TASK-RBT-007 Control Panel timeline/resource observability, and TASK-RBT-008 backward-compatible Brain planning/result-verdict runtime hooks. TASK-RBT-009 integration/overnight qualification is complete: MIG-006 run `35860156388` qualified the locked runtime candidate `218f330ee86eea4f0fb79ef9293bd43cf96a45de` for 28,843 seconds with 240 samples. The qualification was read-only and did not change runtime semantics.
 
 ## Lifecycle truth
 
@@ -128,7 +134,7 @@ Runtime v2026-09-20.53 implements TASK-RBT-004 Browser Scheduler + Tab Budget:
 
 One lane enabled continues to work normally. Two or three enabled lanes share the same Chrome/CDP fairly without sharing task/latch state.
 
-Remaining TASK-RBT work after the browser scheduler is intentionally separate; Work-full rollover is released by TASK-RBT-006 and Control Panel timeline/resource UX is released by TASK-RBT-007. Planning protocol/runtime hooks are released by TASK-RBT-008; TASK-RBT-009 remains separate.
+The browser-scheduler follow-on work is complete through TASK-RBT-009: Work-full rollover is released by TASK-RBT-006, Control Panel timeline/resource UX by TASK-RBT-007, planning protocol/runtime hooks by TASK-RBT-008, and the final integration/overnight qualification by TASK-RBT-009 under MIG-006.
 
 ## Released long-running Work watchdog
 
@@ -348,7 +354,7 @@ Sensitive runtime/profile state, authenticated browser data, target conversation
 
 Historical TASK-049 diagnostic/live-monitor workflows are not part of production.
 
-TASK-RBT-009 is responsible for the later integration/overnight scheduler soak and cleanup workflow(s). TASK-RBT-001 does not add or deploy those workflows.
+TASK-RBT-009 supplied the integration/overnight scheduler qualification and cleanup workflow. MIG-006 completed its final exact-runtime Tier B qualification on workflow run `35860156388`; this qualification did not deploy, reinstall, start, or repair the production runtime.
 
 ## Safety stops
 

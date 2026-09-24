@@ -1,0 +1,122 @@
+name: MIG-006 Locked Candidate Diagnostic
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/mig006-candidate-diagnostic.yml"
+      - ".github/workflows/supervisor-rbt009-soak.yml"
+      - ".github/scripts/supervisor-mig006-tierb.ps1"
+      - ".github/scripts/supervisor-mig006-safe-probe-wrapper.ps1"
+      - "test/mig-006-rbt009-control-plane.test.mjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-mig006-diagnostic-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+
+env:
+  MIG006_RUNTIME_CANDIDATE_SHA: "218f330ee86eea4f0fb79ef9293bd43cf96a45de"
+  MIG006_EXPECTED_RUNNER_NAME: "DESKTOP-4K7IM13"
+
+jobs:
+  diagnostic:
+    if: ${{ github.head_ref == 'mig-006/rbt009-exact-runtime-8h' }}
+    name: locked-candidate-exitcode-stress
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout control plane
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - name: Checkout exact locked runtime candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 218f330ee86eea4f0fb79ef9293bd43cf96a45de
+          path: .mig006-runtime-candidate
+          fetch-depth: 1
+
+      - name: Run five refreshed-exitcode probes
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ([string]$env:RUNNER_NAME -ne $env:MIG006_EXPECTED_RUNNER_NAME) {
+            throw "MIG006_DIAGNOSTIC_RUNNER_MISMATCH"
+          }
+
+          $env:SUPERVISOR_STATE_ROOT = Join-Path ([string]$env:LOCALAPPDATA) "MAGASIN\Supervisor"
+          $candidate = [IO.Path]::GetFullPath(".mig006-runtime-candidate\.github\scripts\supervisor-rbt009-soak.ps1")
+          $wrapper = [IO.Path]::GetFullPath(".github\scripts\supervisor-mig006-safe-probe-wrapper.ps1")
+          $originalGithubSha = [string]$env:GITHUB_SHA
+          $env:GITHUB_SHA = $env:MIG006_RUNTIME_CANDIDATE_SHA
+
+          try {
+            for ($round = 1; $round -le 5; $round++) {
+              $summary = Join-Path $env:RUNNER_TEMP ("mig006-exitcode-probe-" + $round + ".json")
+              $stdout = Join-Path $env:RUNNER_TEMP ("mig006-exitcode-probe-" + $round + ".stdout.log")
+              $stderr = Join-Path $env:RUNNER_TEMP ("mig006-exitcode-probe-" + $round + ".stderr.log")
+              Remove-Item $summary,$stdout,$stderr -Force -ErrorAction SilentlyContinue
+
+              $args = @(
+                "-NoLogo","-NoProfile","-ExecutionPolicy","Bypass",
+                "-File",('"' + $wrapper + '"'),
+                "-CandidateScript",('"' + $candidate + '"'),
+                "-SummaryPath",('"' + $summary + '"'),
+                "-DurationMinutes","1",
+                "-SampleSeconds","30"
+              )
+              $p = Start-Process powershell.exe -ArgumentList $args -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+              $p.WaitForExit()
+              $p.Refresh()
+              $exitCode = $p.ExitCode
+
+              if (-not (Test-Path $summary -PathType Leaf)) {
+                $safeText = if (Test-Path $stdout -PathType Leaf) { Get-Content $stdout -Raw -Encoding UTF8 -ErrorAction SilentlyContinue } else { "" }
+                $safeLine = 0
+                $safeFqid = "UNKNOWN"
+                $safeType = "UNKNOWN"
+                $safeCommand = "UNKNOWN"
+                $m = [regex]::Match($safeText, "(?m)^SAFE_SCRIPT_LINE=(\d+)\s*$")
+                if ($m.Success) { $safeLine = [int]$m.Groups[1].Value }
+                $m = [regex]::Match($safeText, "(?m)^SAFE_FQID=([A-Za-z0-9_.-]+)\s*$")
+                if ($m.Success) { $safeFqid = [string]$m.Groups[1].Value }
+                $m = [regex]::Match($safeText, "(?m)^SAFE_EXCEPTION_TYPE=([A-Za-z0-9_.-]+)\s*$")
+                if ($m.Success) { $safeType = [string]$m.Groups[1].Value }
+                $m = [regex]::Match($safeText, "(?m)^SAFE_COMMAND=([A-Za-z0-9_.-]+)\s*$")
+                if ($m.Success) { $safeCommand = [string]$m.Groups[1].Value }
+                Write-Host "MIG006_DIAGNOSTIC_RESULT=FAIL"
+                Write-Host "MIG006_DIAGNOSTIC_ROUND=$round"
+                Write-Host "MIG006_DIAGNOSTIC_REASON=COMPLETION_ARTIFACT_MISSING"
+                Write-Host "MIG006_DIAGNOSTIC_SCRIPT_LINE=$safeLine"
+                Write-Host "MIG006_DIAGNOSTIC_FQID=$safeFqid"
+                Write-Host "MIG006_DIAGNOSTIC_EXCEPTION_TYPE=$safeType"
+                Write-Host "MIG006_DIAGNOSTIC_COMMAND=$safeCommand"
+                throw "MIG006_DIAGNOSTIC_CHILD_PROCESS_FAILED"
+              }
+
+              if (-not (Test-Path $summary -PathType Leaf)) { throw "MIG006_DIAGNOSTIC_SUMMARY_MISSING" }
+              $s = Get-Content $summary -Raw -Encoding UTF8 | ConvertFrom-Json
+              if ([string]$s.release_sha -ne $env:MIG006_RUNTIME_CANDIDATE_SHA) { throw "MIG006_DIAGNOSTIC_RUNTIME_SHA_MISMATCH" }
+              if ([int64]$s.duration_seconds -lt 30) { throw "MIG006_DIAGNOSTIC_DURATION_SHORT" }
+              if ([bool]$s.owner_stop_observed) { throw "MIG006_DIAGNOSTIC_OWNER_STOP" }
+              if ([bool]$s.registry_target_evolved) { throw "MIG006_DIAGNOSTIC_REGISTRY_EVOLVED" }
+              if ([int]$s.max_page_count -gt 3) { throw "MIG006_DIAGNOSTIC_PAGE_BUDGET" }
+
+              Write-Host ("MIG006_DIAGNOSTIC_ROUND_" + $round + "=PASS")
+              Write-Host ("MIG006_DIAGNOSTIC_ROUND_" + $round + "_COMPLETION_ARTIFACT=True")
+              Remove-Item $summary,$stdout,$stderr -Force -ErrorAction SilentlyContinue
+              Start-Sleep -Seconds 2
+            }
+          } finally {
+            $env:GITHUB_SHA = $originalGithubSha
+          }
+
+          Write-Host "MIG006_DIAGNOSTIC_RESULT=PASS"
+          Write-Host "MIG006_DIAGNOSTIC_REFRESHED_EXITCODE_PROBES=5"
+          Write-Host "MIG006_DIAGNOSTIC_RUNTIME_CANDIDATE_SHA=$env:MIG006_RUNTIME_CANDIDATE_SHA"

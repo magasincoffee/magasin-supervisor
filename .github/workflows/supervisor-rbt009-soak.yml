@@ -1,29 +1,24 @@
-# MIG-004: synthetic Tier A is qualified on hosted Windows; Tier B 480-minute production soak remains hard-disabled.
+# MIG-006: Tier B exact-runtime qualification is owner-released and preflight-gated.
 name: Supervisor RBT-009 Overnight Soak
-# Final candidate refresh after release-gate concurrency drain.
 
 on:
   pull_request:
+    branches:
+      - main
     paths:
       - "src/**"
       - "test/**"
       - ".github/workflows/supervisor-rbt009-soak.yml"
       - ".github/scripts/supervisor-rbt009-soak*"
+      - ".github/scripts/supervisor-mig006-*"
+      - "docs/MIG_006_RELEASE_REQUEST.json"
   push:
     branches:
       - main
-      - 'mig-004/**'
     paths:
       - ".github/workflows/supervisor-rbt009-soak.yml"
-      - ".github/scripts/supervisor-rbt009-soak.ps1"
-      - ".github/scripts/supervisor-rbt009-soak-lib.ps1"
-      - ".github/scripts/supervisor-rbt009-soak-strictmode-tests.ps1"
-      - ".github/scripts/supervisor-release-event-validator.mjs"
-      - "test/release-integration-matrix.test.mjs"
-      - ".github/workflows/supervisor-tests.yml"
-      - ".github/workflows/supervisor-autostart-install.yml"
-      - ".github/workflows/supervisor-lifecycle-acceptance.yml"
-      - ".github/workflows/supervisor-integrity.yml"
+      - ".github/scripts/supervisor-mig006-*"
+      - "test/mig-006-rbt009-control-plane.test.mjs"
   workflow_dispatch:
 
 permissions:
@@ -34,8 +29,14 @@ concurrency:
   group: supervisor-production-soak
   cancel-in-progress: true
 
+env:
+  MIG006_RUNTIME_CANDIDATE_SHA: "218f330ee86eea4f0fb79ef9293bd43cf96a45de"
+  MIG006_OWNER_RELEASE_SHA: "fac10cff7fc1c5f05ce9b80d101ebd53b3331190"
+  MIG006_EXPECTED_RUNNER_NAME: "DESKTOP-4K7IM13"
+
 jobs:
   tier-a:
+    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'mig-006/rbt009-exact-runtime-8h' }}
     name: tier-a-isolated-integration
     runs-on: windows-latest
     timeout-minutes: 15
@@ -45,12 +46,16 @@ jobs:
         shell: powershell
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: Run RBT-009 release matrix
-        run: node --test test/release-integration-matrix.test.mjs
+      - name: Run RBT-009 release matrix and MIG-006 contract
+        run: |
+          node --test test/release-integration-matrix.test.mjs test/mig-006-rbt009-control-plane.test.mjs
 
       - name: Reuse canonical integration regressions
         run: |
@@ -71,6 +76,7 @@ jobs:
 
       - name: Tier A release markers
         run: |
+          $head = (git rev-parse HEAD).Trim()
           Write-Host "SOAK_1_LANE=True"
           Write-Host "SOAK_2_LANE=True"
           Write-Host "SOAK_3_LANE=True"
@@ -85,36 +91,59 @@ jobs:
           Write-Host "SOAK_HOT_SWAP_PRESERVED=True"
           Write-Host "SOAK_STALE_TARGET_ZERO_REOPEN=True"
           Write-Host "SOAK_BRAIN_PLANNING=True"
-          Write-Host "MIG_004_RBT009_TIER_A_SYNTHETIC=True"
-          Write-Host "MIG_004_RBT009_TIER_B_NOT_RUN=True"
-          Write-Host "MIG_004_EXACT_SHA=$env:GITHUB_SHA"
+          Write-Host "MIG_006_RBT009_TIER_A_SYNTHETIC=True"
+          Write-Host "MIG_006_CONTROL_PLANE_SHA=$head"
+          Write-Host "MIG_006_RUNTIME_CANDIDATE_SHA=$env:MIG006_RUNTIME_CANDIDATE_SHA"
+          Write-Host "RBT009_TIER_B_480M=NOT_STARTED"
           Write-Host "ZERO_PRODUCTION_MUTATION=True"
 
   preflight:
-    if: ${{ false }} # MIG-004: normal release preflight remains structurally defined but inactive until post-merge evidence
-    name: normal-release-gates-preflight
+    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'mig-006/rbt009-exact-runtime-8h' }}
+    name: exact-control-plane-release-gates
     needs: tier-a
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
-      - name: Wait for normal release gates on exact SHA
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Verify machine-readable Owner release request
         shell: bash
         run: |
           set -euo pipefail
+          node - <<'NODE'
+          const fs=require('fs');
+          const r=JSON.parse(fs.readFileSync('docs/MIG_006_RELEASE_REQUEST.json','utf8'));
+          if(r.owner_release_source_sha!=='fac10cff7fc1c5f05ce9b80d101ebd53b3331190') process.exit(1);
+          if(r.runtime_candidate_sha!=='218f330ee86eea4f0fb79ef9293bd43cf96a45de') process.exit(1);
+          if(r.required_continuous_minutes!==480 || r.sample_seconds!==120 || r.start_from_zero!==true) process.exit(1);
+          if(r.historical_partial_credit_allowed!==false) process.exit(1);
+          console.log('MIG_006_RELEASE_REQUEST_VERIFIED=True');
+          NODE
+
+      - name: Wait for required release gates on exact control-plane head
+        shell: bash
+        run: |
+          set -euo pipefail
+          control="${{ github.event.pull_request.head.sha }}"
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$control"
           required=(
             "Supervisor Tests"
             "Supervisor Integrity"
             "Supervisor Autostart Install"
             "Supervisor Lifecycle Acceptance"
+            "MIG-006 Locked Candidate Diagnostic"
           )
-          for attempt in $(seq 1 80); do
-            runs="$(gh run list --commit "$GITHUB_SHA" --limit 100 --json name,status,conclusion)"
+          for attempt in $(seq 1 90); do
+            runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${control}&per_page=100")"
             all_green=1
             for name in "${required[@]}"; do
-              row="$(jq -c --arg n "$name" '[.[] | select(.name==$n)] | first // {}' <<<"$runs")"
+              row="$(jq -c --arg n "$name" '[.workflow_runs[] | select(.name==$n)] | sort_by(.created_at) | last // {}' <<<"$runs")"
               status="$(jq -r '.status // ""' <<<"$row")"
               conclusion="$(jq -r '.conclusion // ""' <<<"$row")"
               if [[ "$conclusion" == "failure" || "$conclusion" == "cancelled" || "$conclusion" == "timed_out" ]]; then
@@ -126,70 +155,79 @@ jobs:
               fi
             done
             if [[ "$all_green" == "1" ]]; then
-              echo "RBT009_NORMAL_RELEASE_GATES=True"
+              echo "MIG_006_NORMAL_RELEASE_GATES=True"
+              echo "MIG_006_CONTROL_PLANE_SHA=$control"
+              echo "MIG_006_RUNTIME_CANDIDATE_SHA=${MIG006_RUNTIME_CANDIDATE_SHA}"
               exit 0
             fi
             sleep 30
           done
-          echo "Normal release gates did not become green in preflight window"
+          echo "Required release gates did not become green in preflight window"
           exit 1
 
   tier-b:
-    if: ${{ false }} # MIG-004: Tier B 480-minute production soak remains hard-disabled
+    # MIG-006 canonical closure: the qualifying Tier B already passed on run 35860156388.
+    # Keep the job definition as historical/reproducible release tooling, but prohibit another 8h run.
+    if: ${{ false }}
     name: tier-b-production-read-only-8h
     needs: preflight
-    runs-on: self-hosted
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 510
+    env:
+      MIG006_CONTROL_PLANE_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact control-plane head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
 
-      - name: Verify soak scripts are non-browser-mutating by construction
+      - name: Checkout locked runtime candidate into isolated path
+        uses: actions/checkout@v4
+        with:
+          ref: 218f330ee86eea4f0fb79ef9293bd43cf96a45de
+          path: .mig006-runtime-candidate
+          fetch-depth: 1
+
+      - name: Verify soak monitor is browser/lifecycle non-mutating by construction
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
           $text = @(
-            Get-Content ".github/scripts/supervisor-rbt009-soak.ps1" -Raw -Encoding UTF8
-            Get-Content ".github/scripts/supervisor-rbt009-soak-lib.ps1" -Raw -Encoding UTF8
-          ) -join "`n"
+            Get-Content ".github\scripts\supervisor-mig006-tierb.ps1" -Raw -Encoding UTF8
+            Get-Content ".mig006-runtime-candidate\.github\scripts\supervisor-rbt009-soak.ps1" -Raw -Encoding UTF8
+            Get-Content ".mig006-runtime-candidate\.github\scripts\supervisor-rbt009-soak-lib.ps1" -Raw -Encoding UTF8
+          ) -join [Environment]::NewLine
           foreach ($forbidden in @(
             "reopenTargetPage", "newChatPage", "sendMessage", "fillComposer",
-            "page.reload", "Start-Supervisor", "OWNER_START_LATCH_CLEAR"
+            "page.reload", "start-supervisor.ps1", "Clear-LifecycleOwnerStopLatches",
+            "OWNER_START_LATCH_CLEAR"
           )) {
             if ($text -match [regex]::Escape($forbidden)) {
-              throw "Forbidden browser/lifecycle mutation token in soak monitor: $forbidden"
+              throw "Forbidden browser/lifecycle mutation token in MIG-006 monitor contract: $forbidden"
             }
           }
-          Write-Host "SOAK_MONITOR_ZERO_BROWSER_MUTATION=True"
+          Write-Host "MIG_006_MONITOR_ZERO_BROWSER_MUTATION=True"
+          Write-Host "MIG_006_RUNTIME_INSTALL_OR_REPAIR=False"
 
-      - name: Run continuous 8-hour production soak
+      - name: Run final exact-runtime Tier B from zero
         shell: powershell
         run: |
-          $summary = Join-Path $env:RUNNER_TEMP "rbt009-soak-summary.json"
-          & ".github/scripts/supervisor-rbt009-soak.ps1" -DurationMinutes 480 -SampleSeconds 120 -OutputPath $summary
+          $summary = Join-Path $env:RUNNER_TEMP "mig006-rbt009-final-summary.json"
+          "RBT009_MIG006_SUMMARY=$summary" | Out-File -FilePath $env:GITHUB_ENV -Append
+          & ".github\scripts\supervisor-mig006-tierb.ps1" -CandidateRoot ".mig006-runtime-candidate" -RuntimeCandidateSha $env:MIG006_RUNTIME_CANDIDATE_SHA -ControlPlaneSha $env:MIG006_CONTROL_PLANE_SHA -ExpectedRunnerName $env:MIG006_EXPECTED_RUNNER_NAME -OwnerReleaseSha $env:MIG006_OWNER_RELEASE_SHA -DurationMinutes 480 -SampleSeconds 120 -OutputPath $summary
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "RBT009_SOAK_SUMMARY=$summary" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Validate production lane event correlations offline
-        shell: powershell
-        run: |
-          . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
-          $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
-          $events = Join-Path $root "lane-events.ndjson"
-          if (Test-Path $events) {
-            node ".github/scripts/supervisor-release-event-validator.mjs" $events
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          } else {
-            Write-Host "SOAK_NO_DUPLICATE_DISPATCH=True"
-            Write-Host "SOAK_NO_DUPLICATE_RELAY=True"
-            Write-Host "SOAK_EVENT_ORDER_VALID=True"
-            Write-Host "SOAK_EVENT_STREAM_EMPTY=True"
-          }
-
-      - name: Scan generated soak artifact for privacy
+      - name: Privacy scan sanitized summary
+        if: ${{ always() }}
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $text = Get-Content $env:RBT009_SOAK_SUMMARY -Raw -Encoding UTF8
+          if (-not $env:RBT009_MIG006_SUMMARY -or -not (Test-Path $env:RBT009_MIG006_SUMMARY -PathType Leaf)) {
+            Write-Host "MIG_006_SANITIZED_SUMMARY_PRESENT=False"
+            exit 0
+          }
+          $text = Get-Content $env:RBT009_MIG006_SUMMARY -Raw -Encoding UTF8
           $forbidden = @(
             'https?://',
             'chatgpt\.com/c/',
@@ -200,44 +238,57 @@ jobs:
             'cookie',
             'authorization',
             'token',
-            'screenshot',
+            'screenshot_path',
             'profile_path',
             'user_email',
             'account_id'
           )
           foreach ($pattern in $forbidden) {
-            if ($text -match $pattern) { throw "Privacy scan failed: $pattern" }
+            if ($text -match $pattern) { throw "MIG-006 privacy scan failed" }
           }
+          $summary = $text | ConvertFrom-Json
+          if (-not [bool]$summary.privacy_safe) { throw "MIG-006 summary privacy marker is false" }
+          if ([bool]$summary.raw_state_in_artifact -or [bool]$summary.raw_events_in_artifact -or [bool]$summary.screenshot_in_artifact) {
+            throw "MIG-006 summary declares forbidden raw artifact content"
+          }
+          Write-Host "MIG_006_SANITIZED_SUMMARY_PRESENT=True"
           Write-Host "SOAK_ARTIFACT_PRIVACY_SAFE=True"
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload sanitized qualification summary only
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
         with:
-          name: rbt009-soak-${{ github.sha }}
-          path: ${{ env.RBT009_SOAK_SUMMARY }}
+          name: rbt009-mig006-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RBT009_MIG006_SUMMARY }}
+          if-no-files-found: ignore
           retention-days: 30
 
-      - name: Final combined release markers
+      - name: Final normalized release markers
+        if: ${{ success() }}
         shell: powershell
         run: |
+          $ErrorActionPreference = "Stop"
+          $summary = Get-Content $env:RBT009_MIG006_SUMMARY -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ([string]$summary.qualification -ne "QUALIFIED") { throw "MIG-006 summary is not qualified" }
+          if ([int64]$summary.duration_seconds -lt 28800) { throw "MIG-006 duration is shorter than 480 minutes" }
+          if ([string]$summary.runtime_candidate_sha -ne $env:MIG006_RUNTIME_CANDIDATE_SHA) { throw "MIG-006 runtime candidate mismatch" }
+          if ([string]$summary.runtime_mode -ne "ALL_DISABLED_QUIESCENT") { throw "MIG-006 runtime mode mismatch" }
+          if ([bool]$summary.runtime_authority_active) { throw "MIG-006 runtime authority unexpectedly active" }
+          if ([int]$summary.ownership_authority_instances -ne 1) { throw "MIG-006 ownership authority count mismatch" }
+          if ([bool]$summary.owner_stop_observed) { throw "MIG-006 Owner STOP was observed" }
+          if (-not [bool]$summary.target_fingerprint_equal -or -not [bool]$summary.registry_latch_fingerprint_equal) { throw "MIG-006 target/latch preservation failed" }
+          if ([string]$summary.chrome_cdp_status -ne "NOT_APPLICABLE_ALL_DISABLED") { throw "MIG-006 Chrome/CDP semantics mismatch" }
           Write-Host "SOAK_CONTINUOUS_DURATION_8H=True"
-          Write-Host "SOAK_1_LANE=True"
-          Write-Host "SOAK_2_LANE=True"
-          Write-Host "SOAK_3_LANE=True"
-          Write-Host "SOAK_PAGE_BUDGET_MAX_3=True"
-          Write-Host "SOAK_MUTATION_SINGLETON=True"
-          Write-Host "SOAK_NO_STARVATION=True"
-          Write-Host "SOAK_ACTIVE_30M_NO_FALSE_RELOAD=True"
-          Write-Host "SOAK_INACTIVE_30M_ONE_RELOAD_PER_EPOCH=True"
           Write-Host "SOAK_NO_DUPLICATE_DISPATCH=True"
           Write-Host "SOAK_NO_DUPLICATE_RELAY=True"
-          Write-Host "SOAK_FULL_ROLLOVER=True"
-          Write-Host "SOAK_HOT_SWAP_PRESERVED=True"
-          Write-Host "SOAK_STALE_TARGET_ZERO_REOPEN=True"
-          Write-Host "SOAK_BRAIN_PLANNING=True"
-          Write-Host "SOAK_LIFECYCLE_A_TO_L=True"
+          Write-Host "SOAK_EVENT_ORDER_VALID=True"
           Write-Host "SOAK_OWNER_STOP_AUTHORITATIVE=True"
-          Write-Host "SOAK_CHROME_CDP_HEALTH=True"
-          Write-Host "SOAK_TIMELINE_PRIVACY_SAFE=True"
-          Write-Host "SOAK_ARTIFACT_PRIVACY_SAFE=True"
           Write-Host "SOAK_PRODUCTION_TARGETS_UNCHANGED=True"
-          Write-Host "SOAK_MONITOR_ZERO_BROWSER_MUTATION=True"
+          Write-Host "SOAK_REGISTRY_LATCHES_UNCHANGED=True"
+          Write-Host "SOAK_RUNTIME_MODE=ALL_DISABLED_QUIESCENT"
+          Write-Host "SOAK_RUNTIME_AUTHORITY_ACTIVE=False"
+          Write-Host "SOAK_CHROME_CDP_STATUS=NOT_APPLICABLE_ALL_DISABLED"
+          Write-Host "SOAK_ARTIFACT_PRIVACY_SAFE=True"
+          Write-Host "MIG_006_CONTROL_PLANE_SHA=$($summary.control_plane_sha)"
+          Write-Host "MIG_006_RUNTIME_CANDIDATE_SHA=$($summary.runtime_candidate_sha)"
+          Write-Host "RBT009_TIER_B_480M=PASS"

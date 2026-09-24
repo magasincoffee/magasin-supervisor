@@ -1,0 +1,73 @@
+{
+  "schema_version": "supervisor-mig006-rbt009-canonical-closure.v1",
+  "task_id": "MIG-006",
+  "rbt_task_id": "TASK-RBT-009",
+  "canonical_status": "COMPLETE",
+  "qualification": "QUALIFIED",
+  "source_of_truth_role": "CURRENT_CANONICAL_CLOSURE",
+  "historical_records": [
+    {
+      "path": "docs/MIG_005_CUTOVER_MANIFEST.json",
+      "role": "HISTORICAL_PRE_ACTIVATION_SNAPSHOT"
+    },
+    {
+      "path": "docs/MIG_006_RELEASE_REQUEST.json",
+      "role": "HISTORICAL_PRE_RUN_RELEASE_REQUEST"
+    },
+    {
+      "path": "docs/MIG_006_RBT009_MANIFEST.json",
+      "role": "HISTORICAL_PRE_RUN_QUALIFICATION_SNAPSHOT"
+    }
+  ],
+  "mig005_cutover": {
+    "status": "COMPLETE",
+    "evidence_pr": 10,
+    "canonical_merge_sha": "cca403faf0704d52ca488d7fecf3c72809a52291",
+    "runtime_candidate_sha": "218f330ee86eea4f0fb79ef9293bd43cf96a45de",
+    "state_import": "PASS",
+    "state_verify": "PASS",
+    "target_fingerprint_preserved": true,
+    "latch_fingerprint_preserved": true,
+    "ownership_state": "NEW_AUTHORITY_OWNERSHIP_ACTIVE_ALL_DISABLED_RUNTIME_QUIESCENT",
+    "production_cutover": true,
+    "production_ownership_authority_instances": 1,
+    "production_runtime_authority_instances": 0
+  },
+  "mig006_tier_b": {
+    "workflow_run_id": 35860156388,
+    "tier_b_job_id": 107180300345,
+    "control_plane_sha": "3fee892fb9677ab5ea5f60d265858d752d9f9bef",
+    "runtime_candidate_sha": "218f330ee86eea4f0fb79ef9293bd43cf96a45de",
+    "duration_seconds": 28843,
+    "sample_count": 240,
+    "continuous_8h": true,
+    "no_duplicate_dispatch": true,
+    "no_duplicate_relay": true,
+    "event_order_valid": true,
+    "production_targets_unchanged": true,
+    "registry_latches_unchanged": true,
+    "artifact_privacy_safe": true,
+    "runtime_mode": "ALL_DISABLED_QUIESCENT",
+    "runtime_authority_active": false,
+    "ownership_authority_instances": 1,
+    "rbt009_tier_b_480m": "PASS"
+  },
+  "artifact": {
+    "name": "rbt009-mig006-35860156388-1",
+    "id": 10775063102,
+    "digest": "sha256:4ba6b07a38fc85b0e271aa5178628abea776e0192ab9aac59633b0861ed03cb0"
+  },
+  "closure_safety": {
+    "soak_rerun": false,
+    "production_runtime_mutated": false,
+    "production_targets_mutated": false,
+    "registry_latches_mutated": false,
+    "browser_profile_mutated": false,
+    "runner_configuration_mutated": false,
+    "autostart_mutated": false,
+    "local_production_files_mutated": false
+  },
+  "next_task": null,
+  "next_task_state": "NOT_DEFINED_BY_REPOSITORY_AUTHORITY",
+  "reconciled_on": "2026-09-24"
+}
