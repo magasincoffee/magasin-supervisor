@@ -1180,9 +1180,7 @@ async function adoptExistingBrainDirective({
       laneId: lane.lane_id,
       taskId: candidate.action === "WORK" ? candidate.task_id : undefined,
       digest: candidate.digest,
-      reasonCode: evidence.reason_code,
-      revision: Number(registryLane.applied_brain_url_revision || 0),
-      turn: Number(evidence.candidate_turn || 0)
+      reasonCode: evidence.reason_code
     });
   }
   await safeLog(logPath, {
@@ -1190,9 +1188,7 @@ async function adoptExistingBrainDirective({
     laneId: lane.lane_id,
     taskId: candidate.action === "WORK" ? candidate.task_id : undefined,
     digest: candidate.digest,
-    reasonCode: evidence.reason_code,
-    revision: Number(registryLane.applied_brain_url_revision || 0),
-    turn: Number(evidence.candidate_turn || 0)
+    reasonCode: evidence.reason_code
   });
   return candidate;
 }
