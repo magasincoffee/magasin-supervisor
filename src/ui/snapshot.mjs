@@ -102,7 +102,9 @@ export async function collectSafeUiSnapshot(page) {
         document.querySelectorAll("main [role='alert'],main [role='status'],main p,main div")
       )
         .filter(visible)
-        .filter((el) => !el.closest("[data-message-author-role]"))
+        .filter((el) => !el.closest(
+          "[data-message-author-role],[data-turn-key],[data-user-message-bubble],[data-content-search-unit-key]"
+        ))
         .filter((el) => el.children.length === 0)
         .slice(0, 120)
         .map((el) => normalize(el.innerText || el.textContent).slice(0, 160))
@@ -145,19 +147,68 @@ export async function collectSafeUiSnapshot(page) {
         ) ||
         /verify you are human|xác minh bạn là người|captcha/.test(haystack);
 
-      const assistantMessages = Array.from(
+      const legacyAssistantMessages = Array.from(
         document.querySelectorAll("[data-message-author-role='assistant']")
       );
-      const userMessages = Array.from(
+      const legacyUserMessages = Array.from(
         document.querySelectorAll("[data-message-author-role='user']")
       );
-      const conversationMessages = Array.from(
+      const legacyConversationMessages = Array.from(
         document.querySelectorAll("[data-message-author-role]")
       );
-      const lastMessage = conversationMessages.at(-1) || null;
-      const lastMessageRole = lastMessage
-        ? String(lastMessage.getAttribute("data-message-author-role") || "")
-        : null;
+
+      const modernTurns = Array.from(
+        document.querySelectorAll("[data-turn-key]")
+      );
+      const modernUserMessages = Array.from(
+        document.querySelectorAll("[data-user-message-bubble]")
+      );
+      const modernAssistantMessages = Array.from(
+        document.querySelectorAll("[data-chatgpt-selection-message-id]")
+      ).filter((node) => {
+        const unit = node.closest("[data-content-search-unit-key]");
+        return Boolean(unit?.querySelector("h4[data-conversation-role]"));
+      });
+
+      const assistantMessages = legacyAssistantMessages.length
+        ? legacyAssistantMessages
+        : modernAssistantMessages;
+      const userMessages = legacyUserMessages.length
+        ? legacyUserMessages
+        : modernUserMessages;
+
+      let lastMessage = null;
+      let lastMessageRole = null;
+      if (legacyConversationMessages.length) {
+        lastMessage = legacyConversationMessages.at(-1) || null;
+        lastMessageRole = lastMessage
+          ? String(lastMessage.getAttribute("data-message-author-role") || "")
+          : null;
+      } else if (modernTurns.length) {
+        const lastTurn = modernTurns.at(-1);
+        const modernUser = lastTurn.querySelector("[data-user-message-bubble]");
+        const assistantCandidates = Array.from(
+          lastTurn.querySelectorAll("[data-chatgpt-selection-message-id]")
+        ).filter((node) => {
+          const unit = node.closest("[data-content-search-unit-key]");
+          return Boolean(unit?.querySelector("h4[data-conversation-role]"));
+        });
+        const modernAssistant = assistantCandidates.at(-1) || null;
+        const assistantText = String(
+          modernAssistant?.innerText || modernAssistant?.textContent || ""
+        ).trim();
+        const userText = String(
+          modernUser?.innerText || modernUser?.textContent || ""
+        ).trim();
+        if (modernAssistant && assistantText) {
+          lastMessage = modernAssistant;
+          lastMessageRole = "assistant";
+        } else if (modernUser && userText) {
+          lastMessage = modernUser;
+          lastMessageRole = "user";
+        }
+      }
+
       const lastAssistant = assistantMessages.at(-1) || null;
       const main = document.querySelector("main");
       const mainBusy = Boolean(
@@ -202,8 +253,9 @@ export async function collectSafeUiSnapshot(page) {
         })
         .filter((value) => Number.isFinite(value));
 
-      const maxConversationTurnOrdinal =
-        turnOrdinals.length ? Math.max(...turnOrdinals) : 0;
+      const maxConversationTurnOrdinal = turnOrdinals.length
+        ? Math.max(...turnOrdinals)
+        : modernTurns.length * 2;
 
       const responseRunning =
         hasStopControl ||
