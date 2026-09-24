@@ -1,6 +1,6 @@
 # MIG-007 Final Cleanup Closure Evidence
 
-Status: **CLOSURE CANDIDATE / TARGET VALIDATION PENDING**  
+Status: **COMPLETE / READY FOR CANONICAL MERGE**  
 Task: `MIG-007-EXECUTION-FINAL-CLEANUP`
 
 ## Authority and predecessor state
@@ -104,6 +104,14 @@ MIG-007 cleanup did not:
 
 ## Target closure gate
 
-Business OS cleanup is complete and merged. The final canonical migration closure in this repository remains **candidate-only** until the target-repository Tests/Integrity/Lifecycle/Autostart checks pass on the closure PR.
+Business OS cleanup is complete and merged. Target-repository closure validation passed on PR #14 candidate head `0bc7e98cf005e55257e3acf2569defa216233f05`:
 
-No `MIG-008` definition exists in either canonical repository at the time of this closure candidate.
+- Supervisor Tests `35939855977` / job `107445132658`: **SUCCESS**
+- Supervisor Integrity `35939855999` / job `107445131833`: **SUCCESS**
+- Supervisor Lifecycle Acceptance `35939856008` / job `107445132984`: **SUCCESS**
+- Supervisor Autostart Install `35939856027` / job `107445132875`: **SUCCESS**
+- RBT-009 soak `35939858761`: **SKIPPED**
+
+MIG-007 is therefore **COMPLETE** and `MAGASIN_SUPERVISOR_INDEPENDENT_REPOSITORY_V1` is **COMPLETE**, subject only to merging this already-validated closure record to canonical main.
+
+No `MIG-008` definition exists in either canonical repository at closure.
