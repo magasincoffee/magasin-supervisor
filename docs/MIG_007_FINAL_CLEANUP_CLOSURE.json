@@ -1,0 +1,144 @@
+{
+  "schema_version": "supervisor-mig007-final-cleanup-closure.v1",
+  "migration_id": "MAGASIN_SUPERVISOR_INDEPENDENT_REPOSITORY_V1",
+  "task_id": "MIG-007",
+  "execution_task_id": "MIG-007-EXECUTION-FINAL-CLEANUP",
+  "status": "COMPLETE",
+  "complete": true,
+  "source_of_truth_role": "CURRENT_CANONICAL_CLOSURE",
+  "authority": {
+    "manifest": "docs/MIG_007_AUTHORITY_MANIFEST.json",
+    "authority_merge_sha": "50524a60a1f2c718b05f80d774d3344dcec8eb4a",
+    "authorized_delete_count": 137,
+    "retained_business_os_file_count": 5
+  },
+  "predecessors": {
+    "mig005": "COMPLETE",
+    "mig006": "COMPLETE_QUALIFIED",
+    "rbt009": "COMPLETE_RELEASED",
+    "rbt009_tier_b_480m": "PASS",
+    "mig006_closure": "docs/MIG_006_RBT009_CANONICAL_CLOSURE.json"
+  },
+  "business_os_cleanup": {
+    "repository": "magasincoffee/magasincoffee.github.io",
+    "execution_base_sha": "14d39f537733ec759ad3e4a234b102b5912a2dd0",
+    "pull_request": 291,
+    "pr_head_sha": "a80ac3ca3b94db946f73be36be31a1a450f7264e",
+    "merge_sha": "1919cbab4e05cb5fc4af07b5df6b62a9f029c05c",
+    "canonical_main_sha": "1919cbab4e05cb5fc4af07b5df6b62a9f029c05c",
+    "canonical_tree_sha": "6b22c0f03ec9bb4477e46392a3a7a52b9eee7055",
+    "changed_file_count": 141,
+    "deleted_authorized_file_count": 137,
+    "modified_retained_current_state_files": 3,
+    "added_validation_files": 1,
+    "retained_business_os_file_count": 5,
+    "residual_embedded_supervisor_files": 0,
+    "residual_supervisor_workflows": 0,
+    "residual_supervisor_scripts": 0,
+    "architecture_links_reconciled": 2,
+    "current_migration_state_reconciled": true,
+    "rollback_window": "CLOSED",
+    "historical_migration_evidence_preserved": true
+  },
+  "business_os_validation": {
+    "preclosure": {
+      "run_id": 35939535542,
+      "job_id": 107444140372,
+      "conclusion": "SUCCESS"
+    },
+    "final_state": {
+      "run_id": 35939614651,
+      "job_id": 107444385733,
+      "conclusion": "SUCCESS"
+    },
+    "post_merge_contract": {
+      "run_id": 35939676150,
+      "job_id": 107444575369,
+      "conclusion": "SUCCESS"
+    },
+    "post_merge_pages_source": {
+      "run_id": 35939676148,
+      "job_id": 107444575469,
+      "conclusion": "SUCCESS"
+    },
+    "post_merge_pages_deployment": {
+      "run_id": 35939675443,
+      "build_job_id": 107444576266,
+      "deploy_job_id": 107444623736,
+      "report_job_id": 107444623924,
+      "conclusion": "SUCCESS"
+    }
+  },
+  "project_adapter_boundary": {
+    "schema": "supervisor-project-adapter.v1",
+    "implementation": "src/project-adapter.mjs",
+    "implementation_blob_sha": "7125fc5e1fc9e7aae34a328cba91b28e93b30684",
+    "test": "test/project-adapter.test.mjs",
+    "test_blob_sha": "f7d31d0acb19a5a16d8f0a49a22efd09dbfcdc8d",
+    "documentation": "docs/PROJECT_ADAPTER_V1.md",
+    "documentation_blob_sha": "fcbf6d4ddf855fd970b0707327d8cf2655f12398",
+    "explicit_source_required": true,
+    "missing_source_fails_closed": true,
+    "default_business_os_repository": false,
+    "default_project_state_path": false
+  },
+  "safety": {
+    "lane_enabled": false,
+    "owner_start_issued": false,
+    "production_runtime_mutated": false,
+    "brain_work_urls_mutated": false,
+    "dispatch_relay_latches_mutated": false,
+    "local_lane_state_mutated": false,
+    "browser_profile_mutated": false,
+    "secrets_mutated": false,
+    "runner_configuration_mutated": false,
+    "production_autostart_mutated": false,
+    "local_production_state_mutated": false,
+    "tier_b_rerun": false,
+    "second_production_authority_created": false
+  },
+  "target_closure_validation": {
+    "status": "PASS",
+    "pull_request": 14,
+    "candidate_head_sha": "0bc7e98cf005e55257e3acf2569defa216233f05",
+    "checks": [
+      {
+        "name": "Supervisor Tests",
+        "run_id": 35939855977,
+        "job_id": 107445132658,
+        "conclusion": "SUCCESS"
+      },
+      {
+        "name": "Supervisor Integrity",
+        "run_id": 35939855999,
+        "job_id": 107445131833,
+        "conclusion": "SUCCESS"
+      },
+      {
+        "name": "Supervisor Lifecycle Acceptance",
+        "run_id": 35939856008,
+        "job_id": 107445132984,
+        "conclusion": "SUCCESS"
+      },
+      {
+        "name": "Supervisor Autostart Install",
+        "run_id": 35939856027,
+        "job_id": 107445132875,
+        "conclusion": "SUCCESS"
+      },
+      {
+        "name": "Supervisor RBT-009 Overnight Soak",
+        "run_id": 35939858761,
+        "job_id": null,
+        "conclusion": "SKIPPED"
+      }
+    ],
+    "production_jobs": "SKIPPED_FAIL_CLOSED"
+  },
+  "migration_complete": true,
+  "rollback_window": "CLOSED",
+  "next_migration_task": null,
+  "next_migration_task_state": "NO_ADDITIONAL_MIGRATION_TASK_DEFINED",
+  "reconciled_on": "2026-09-24",
+  "migration_final_state": "MAGASIN_SUPERVISOR_INDEPENDENT_REPOSITORY_V1_COMPLETE"
+}
