@@ -18,12 +18,9 @@ function Test-DirectP2Context {
   } catch { return $false }
 }
 
-function Invoke-RunnerIsolatedFallback {
-  Write-Host "LIVE_P2_LAUNCH_CONTEXT=RUNNER_ISOLATED_FALLBACK"
-  $fallback = Join-Path $env:GITHUB_WORKSPACE ".github\scripts\supervisor-p2-live-runner-isolated.ps1"
-  & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $fallback
-  if ($LASTEXITCODE -ne 0) { throw "P2_LIVE_RUNNER_ISOLATED_FALLBACK_FAILED" }
-  exit 0
+function Stop-WithoutFallback {
+  Write-Host "LIVE_P2_SECOND_BROWSER_ATTEMPT_BLOCKED=True"
+  throw "P2_LIVE_SINGLE_ATTEMPT_CONTEXT_UNAVAILABLE"
 }
 
 $harness = Join-Path $env:GITHUB_WORKSPACE ".github\scripts\supervisor-p2-live-isolated.ps1"
@@ -37,7 +34,7 @@ if (Test-DirectP2Context) {
 $interactiveUser = [string](Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).UserName
 if ([string]::IsNullOrWhiteSpace($interactiveUser)) {
   Write-Host "LIVE_P2_INTERACTIVE_USER_PRESENT=False"
-  Invoke-RunnerIsolatedFallback
+  Stop-WithoutFallback
 }
 
 Write-Host "LIVE_P2_LAUNCH_CONTEXT=INTERACTIVE_TOKEN_REQUIRED"
@@ -123,4 +120,4 @@ try {
   try { Remove-Item -LiteralPath $sharedRoot -Recurse -Force -ErrorAction Stop } catch {}
 }
 
-Invoke-RunnerIsolatedFallback
+Stop-WithoutFallback
