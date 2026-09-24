@@ -18,22 +18,12 @@ const three = await import(
 const capture = await import(
   pathToFileURL(path.join(runtime, "src", "ui", "message-capture.mjs")).href
 );
-const pw = await import(
-  pathToFileURL(path.join(runtime, "node_modules", "playwright-core", "index.js")).href
+const adapterMod = await import(
+  pathToFileURL(path.join(runtime, "src", "ui", "playwright-adapter.mjs")).href
 );
-
-const browser = await pw.chromium.connectOverCDP(cdpUrl);
-const context = browser.contexts()[0] || null;
-const pages = context
-  ? context.pages().filter((page) => {
-      try {
-        const url = new URL(page.url());
-        return url.hostname === "chatgpt.com" || url.hostname.endsWith(".chatgpt.com");
-      } catch {
-        return false;
-      }
-    })
-  : [];
+const adapter = new adapterMod.ChatGptUiAdapter({ cdpUrl, settleMs: 250 });
+await adapter.open();
+const pages = adapter.getChatGptPages();
 
 console.log("LIVE_PROBE_CHATGPT_PAGES=" + pages.length);
 
@@ -147,4 +137,5 @@ for (const page of pages) {
   }
 }
 
+await adapter.close().catch(() => {});
 process.exit(0);
