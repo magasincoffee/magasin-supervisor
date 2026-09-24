@@ -20,7 +20,66 @@ const prompt = [
 
 const adapter = new ChatGptUiAdapter({ cdpUrl, timeoutMs: 60_000, settleMs: 800 });
 await adapter.open();
+
+async function exactFixtureDirective(page) {
+  const captured = await captureCompletedAssistantTurn(page).catch(() => null);
+  if (!captured?.text) return null;
+  try {
+    const directive = parseLaneDirective(captured.text);
+    if (
+      directive.action === "WORK" &&
+      directive.task_id === taskId &&
+      directive.instruction === instruction
+    ) return directive;
+  } catch {}
+  return null;
+}
+
+async function persistFixture(page, directive, reused) {
+  const target = targetFromUrl(page.url());
+  const brainPathKind = target.pathname.startsWith("/c/")
+    ? "C"
+    : (target.pathname.startsWith("/g/") ? "G" : "PROJECT");
+  const brainUrl = `${target.origin}${target.pathname}`;
+  await fs.writeFile(outputFile, JSON.stringify({
+    schema_version: "p2-live-fixture.v1",
+    brain_url: brainUrl,
+    task_id: directive.task_id,
+    directive_digest: directive.digest,
+    instruction_digest: directive.instruction_digest
+  }, null, 2) + "\n", "utf8");
+  console.log(`LIVE_P2_FIXTURE_BRAIN_REUSED=${reused ? "True" : "False"}`);
+  console.log("LIVE_P2_FIXTURE_BRAIN_CREATED=True");
+  console.log("LIVE_P2_FIXTURE_BRAIN_SPECIFIC_CONVERSATION=True");
+  console.log(`LIVE_P2_FIXTURE_BRAIN_PATH_KIND=${brainPathKind}`);
+  console.log(`LIVE_P2_FIXTURE_TASK_ID=${directive.task_id}`);
+  console.log("LIVE_P2_FIXTURE_DIRECTIVE_VALID=True");
+}
+
 try {
+  const candidatePages = [...adapter.getChatGptPages()];
+  const active = adapter.getActivePage();
+  const recentUrls = active
+    ? await adapter.listRecentConversationUrls(active, { limit: 16 }).catch(() => [])
+    : [];
+  for (const url of recentUrls) {
+    if (candidatePages.length >= 24) break;
+    let target = null;
+    try { target = targetFromUrl(url); } catch { continue; }
+    if (adapter.findPageForTarget(target)) continue;
+    const page = await adapter.newChatPage(url).catch(() => null);
+    if (page) candidatePages.push(page);
+  }
+  for (const page of candidatePages) {
+    if (!isPersistableConversationUrl(page.url())) continue;
+    const directive = await exactFixtureDirective(page);
+    if (directive) {
+      await persistFixture(page, directive, true);
+      process.exitCode = 0;
+      return;
+    }
+  }
+
   const page = await adapter.newChatPage("https://chatgpt.com/");
   const sent = await sendComposerInstruction(page, prompt, { dryRun: false });
   if (!sent?.executed) throw new Error("P2 Brain fixture prompt was not executed");
@@ -30,10 +89,6 @@ try {
     { timeout: 45_000 }
   );
   const target = targetFromUrl(page.url());
-  const brainPathKind = target.pathname.startsWith("/c/")
-    ? "C"
-    : (target.pathname.startsWith("/g/") ? "G" : "PROJECT");
-
   let captured = null;
   let directive = null;
   const deadline = Date.now() + 90_000;
@@ -61,20 +116,7 @@ try {
     throw new Error("P2 Brain fixture did not produce the exact valid WORK directive");
   }
 
-  const brainUrl = `${target.origin}${target.pathname}`;
-  await fs.writeFile(outputFile, JSON.stringify({
-    schema_version: "p2-live-fixture.v1",
-    brain_url: brainUrl,
-    task_id: directive.task_id,
-    directive_digest: directive.digest,
-    instruction_digest: directive.instruction_digest
-  }, null, 2) + "\n", "utf8");
-
-  console.log("LIVE_P2_FIXTURE_BRAIN_CREATED=True");
-  console.log("LIVE_P2_FIXTURE_BRAIN_SPECIFIC_CONVERSATION=True");
-  console.log(`LIVE_P2_FIXTURE_BRAIN_PATH_KIND=${brainPathKind}`);
-  console.log(`LIVE_P2_FIXTURE_TASK_ID=${directive.task_id}`);
-  console.log("LIVE_P2_FIXTURE_DIRECTIVE_VALID=True");
+  await persistFixture(page, directive, false);
 } finally {
   await adapter.close().catch(() => {});
 }
