@@ -56,6 +56,27 @@ async function persistFixture(page, directive, reused) {
   console.log("LIVE_P2_FIXTURE_DIRECTIVE_VALID=True");
 }
 
+async function closeAdapterBounded(timeoutMs = 2_000) {
+  let timer = null;
+  try {
+    await Promise.race([
+      adapter.close().catch(() => {}),
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function finishFixtureSuccess(page, directive, reused) {
+  await persistFixture(page, directive, reused);
+  await closeAdapterBounded();
+  process.exit(0);
+}
+
 try {
   const candidatePages = [...adapter.getChatGptPages()];
   const active = adapter.getActivePage();
@@ -74,9 +95,7 @@ try {
     if (!isPersistableConversationUrl(page.url())) continue;
     const directive = await exactFixtureDirective(page);
     if (directive) {
-      await persistFixture(page, directive, true);
-      await adapter.close().catch(() => {});
-      process.exit(0);
+      await finishFixtureSuccess(page, directive, true);
     }
   }
 
@@ -116,9 +135,7 @@ try {
     throw new Error("P2 Brain fixture did not produce the exact valid WORK directive");
   }
 
-  await persistFixture(page, directive, false);
-  await adapter.close().catch(() => {});
-  process.exit(0);
+  await finishFixtureSuccess(page, directive, false);
 } finally {
-  await adapter.close().catch(() => {});
+  await closeAdapterBounded();
 }
