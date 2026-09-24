@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: supervisor-p3-live-work-replacement
+  group: supervisor-p3-live-work-replacement-v2
   cancel-in-progress: true
 
 jobs:
