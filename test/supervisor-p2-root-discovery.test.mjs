@@ -103,3 +103,34 @@ test("P2 diagnostic error_name access is StrictMode-safe when property is absent
   assert.equal(run.status, 0, `PowerShell StrictMode diagnostic regression failed:\n${run.stderr || run.stdout}`);
   assert.match(run.stdout, /P2_DIAG_ERROR_NAME_STRICTMODE=PASS/);
 });
+
+
+test("P2 rate-limit event scan is StrictMode-safe when optional fields are absent", { skip: process.platform !== "win32" }, () => {
+  assert.match(harness, /\$reasonCodeProperty = \$safeEvent\.PSObject\.Properties\["reason_code"\]/);
+  assert.match(harness, /\$reasonProperty = \$safeEvent\.PSObject\.Properties\["reason"\]/);
+
+  const probe = [
+    "Set-StrictMode -Version 2.0",
+    "$safeEvent = [pscustomobject]@{ type = 'LANE_BRAIN_SEND_PENDING_CONFIRMATION' }",
+    "$safeType = ''",
+    "$safeReasonCode = ''",
+    "$safeReason = ''",
+    "$typeProperty = $safeEvent.PSObject.Properties['type']",
+    "$reasonCodeProperty = $safeEvent.PSObject.Properties['reason_code']",
+    "$reasonProperty = $safeEvent.PSObject.Properties['reason']",
+    "if ($typeProperty) { $safeType = [string]$typeProperty.Value }",
+    "if ($reasonCodeProperty) { $safeReasonCode = [string]$reasonCodeProperty.Value }",
+    "if ($reasonProperty) { $safeReason = [string]$reasonProperty.Value }",
+    "if ($safeType -eq 'LANE_CHATGPT_RATE_LIMIT_DETECTED' -or $safeReasonCode -eq 'CHATGPT_RATE_LIMITED' -or $safeReason -eq 'CHATGPT_RATE_LIMITED') { throw 'false rate limit' }",
+    "Write-Output 'P2_RATE_LIMIT_EVENT_STRICTMODE=PASS'"
+  ].join("; ");
+
+  const run = spawnSync(
+    "powershell.exe",
+    ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", probe],
+    { cwd: repoRoot, encoding: "utf8", windowsHide: true }
+  );
+
+  assert.equal(run.status, 0, `PowerShell StrictMode rate-limit regression failed:\n${run.stderr || run.stdout}`);
+  assert.match(run.stdout, /P2_RATE_LIMIT_EVENT_STRICTMODE=PASS/);
+});
