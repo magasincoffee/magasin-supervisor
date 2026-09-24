@@ -239,7 +239,7 @@ test("snapshot capacity source excludes conversation message bodies from recover
     new URL("../src/ui/snapshot.mjs", import.meta.url),
     "utf8"
   );
-  assert.match(source, /!el\.closest\("\[data-message-author-role\]"\)/);
+  assert.match(source, /\[data-message-author-role\],\[data-turn-key\],\[data-user-message-bubble\],\[data-content-search-unit-key\]/);
   assert.match(source, /capacityExplicitFullUi/);
   assert.match(source, /composerCapacityBlocked/);
   const capacitySection = source.slice(
