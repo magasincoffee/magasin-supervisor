@@ -186,6 +186,9 @@ async function safeLog(filePath, event = {}) {
     relay_id: event.relayId || undefined,
     digest: event.digest || undefined,
     reason: event.reason || undefined,
+    reason_code: event.reasonCode || undefined,
+    revision: Number.isInteger(event.revision) ? event.revision : undefined,
+    turn: Number.isInteger(event.turn) ? event.turn : undefined,
     error_name: event.errorName || undefined
   };
   await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -2742,6 +2745,7 @@ async function applyOwnerBrainTarget({
     registryLane.brain_url = configuredUrl;
     registryLane.brain_request_sent = false;
     registryLane.brain_request_inflight = null;
+    registryLane.brain_directive_adopted = null;
     registryLane.last_brain_directive_digest = null;
     registryLane.work_rollover = null;
 
@@ -2835,6 +2839,7 @@ async function applyOwnerWorkStateReset({
   registryLane.last_dispatch_id = null;
   registryLane.dispatch_inflight = null;
   registryLane.brain_request_inflight = null;
+  registryLane.brain_directive_adopted = null;
   registryLane.awaiting_work = false;
   registryLane.task_timing = normalizeTaskTiming(null);
   registryLane.work_watchdog = normalizeWorkWatchdog(null);
