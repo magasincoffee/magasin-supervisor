@@ -504,7 +504,11 @@ try {
     # make replacement diagnostics indistinguishable from bootstrap events.
     $safeLogP3 = Join-Path $tempRoot "supervisor.log"
     if (Test-Path $safeLogP3) {
-      Clear-Content -LiteralPath $safeLogP3 -Encoding UTF8
+      [IO.File]::WriteAllText(
+        $safeLogP3,
+        "",
+        (New-Object Text.UTF8Encoding($false))
+      )
     }
     Write-Host "LIVE_P3_PHASE_LOG_RESET=True"
 
