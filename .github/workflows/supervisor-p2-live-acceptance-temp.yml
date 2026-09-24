@@ -1,0 +1,38 @@
+name: Supervisor P2 Live Acceptance Temp
+
+on:
+  push:
+    branches:
+      - hotfix/supervisor-autonomy-selfheal-v1
+    paths:
+      - .github/workflows/supervisor-p2-live-acceptance-temp.yml
+      - .github/scripts/supervisor-p2-live-brain-fixture.mjs
+      - .github/scripts/supervisor-p2-live-isolated-evidence.mjs
+      - .github/scripts/supervisor-p2-live-isolated.ps1
+      - src/runtime/three-lane-cli.mjs
+      - src/runtime/work-target-state.mjs
+      - src/runtime/work-rollover.mjs
+      - src/runtime/lane-events.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-p2-live-acceptance-temp
+  cancel-in-progress: true
+
+jobs:
+  p2-live:
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install runtime dependencies without lifecycle side effects
+        shell: cmd
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Run isolated P2 AUTO Work live acceptance
+        shell: cmd
+        run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-p2-live-isolated.ps1"
