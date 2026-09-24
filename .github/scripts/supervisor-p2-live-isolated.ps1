@@ -2,9 +2,44 @@ $ErrorActionPreference = "Stop"
 
 . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
 
+function Test-ReadableLeaf([string]$Path) {
+  try {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf -ErrorAction Stop)) { return $false }
+    $stream = [System.IO.File]::Open(
+      $Path,
+      [System.IO.FileMode]::Open,
+      [System.IO.FileAccess]::Read,
+      [System.IO.FileShare]::ReadWrite
+    )
+    try { return $true } finally { $stream.Dispose() }
+  } catch {
+    return $false
+  }
+}
 function Read-JsonSafe([string]$Path) {
-  if (-not (Test-Path $Path)) { return $null }
-  try { return Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json } catch { return $null }
+  try {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf -ErrorAction Stop)) { return $null }
+    $raw = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 -ErrorAction Stop
+    if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
+    return $raw | ConvertFrom-Json -ErrorAction Stop
+  } catch {
+    return $null
+  }
+}
+function Test-CanonicalSupervisorRootCandidate([string]$Candidate) {
+  try {
+    if ([string]::IsNullOrWhiteSpace($Candidate)) { return $false }
+    $full = [System.IO.Path]::GetFullPath($Candidate)
+    $lanes = Read-JsonSafe (Join-Path $full "lanes.json")
+    $registry = Read-JsonSafe (Join-Path $full "lane-registry.json")
+    $startScript = Join-Path $full "runtime\\windows\\start-supervisor.ps1"
+    if (-not $lanes -or -not $lanes.lanes) { return $false }
+    if (-not $registry -or -not $registry.lanes) { return $false }
+    if (-not (Test-ReadableLeaf $startScript)) { return $false }
+    return $true
+  } catch {
+    return $false
+  }
 }
 function Resolve-CanonicalSupervisorRoot {
   $processCandidates = New-Object System.Collections.Generic.List[string]
@@ -22,16 +57,14 @@ function Resolve-CanonicalSupervisorRoot {
   $processRoots = @($processCandidates |
     Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
     ForEach-Object { try { [System.IO.Path]::GetFullPath($_) } catch { $null } } |
-    Where-Object { $_ -and (Test-Path (Join-Path $_ "lanes.json")) -and (Test-Path (Join-Path $_ "lane-registry.json")) } |
+    Where-Object { $_ -and (Test-CanonicalSupervisorRootCandidate $_) } |
     Select-Object -Unique)
   Write-Host "LIVE_P2_PROCESS_ROOT_COUNT=$($processRoots.Count)"
   if ($processRoots.Count -eq 1) { return [string]$processRoots[0] }
   if ($processRoots.Count -gt 1) { throw "P2_LIVE_PROCESS_ROOT_AMBIGUOUS" }
 
   $fallback = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
-  if ((Test-Path (Join-Path $fallback "lanes.json")) -and
-      (Test-Path (Join-Path $fallback "lane-registry.json")) -and
-      (Test-Path (Join-Path $fallback "runtime\\windows\\start-supervisor.ps1"))) {
+  if (Test-CanonicalSupervisorRootCandidate $fallback) {
     Write-Host "LIVE_P2_ROOT_FALLBACK=RUNNER_PROFILE"
     return [System.IO.Path]::GetFullPath($fallback)
   }
@@ -40,13 +73,16 @@ function Resolve-CanonicalSupervisorRoot {
     Get-CimInstance Win32_UserProfile -ErrorAction SilentlyContinue |
       Where-Object { $_.LocalPath -and -not $_.Special } |
       ForEach-Object {
-        Join-Path ([string]$_.LocalPath) "AppData\\Local\\MAGASIN\\BusinessOS\\supervisor"
+        try {
+          $candidate = Join-Path ([string]$_.LocalPath) "AppData\\Local\\MAGASIN\\BusinessOS\\supervisor"
+          if (Test-CanonicalSupervisorRootCandidate $candidate) {
+            [System.IO.Path]::GetFullPath($candidate)
+          }
+        } catch {
+          $null
+        }
       } |
-      Where-Object {
-        (Test-Path (Join-Path $_ "lanes.json")) -and
-        (Test-Path (Join-Path $_ "lane-registry.json")) -and
-        (Test-Path (Join-Path $_ "runtime\\windows\\start-supervisor.ps1"))
-      } |
+      Where-Object { $_ } |
       Select-Object -Unique
   )
   Write-Host "LIVE_P2_PROFILE_ROOT_COUNT=$($profileCandidates.Count)"
