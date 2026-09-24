@@ -519,15 +519,38 @@ try {
       throw "P3_LIVE_INITIAL_TASK_IDENTITY_INCOMPLETE"
     }
 
-    $missingWorkUrl = "https://chatgpt.com/c/00000000-0000-0000-0000-000000000000"
-    $beforeLane.work_url = $missingWorkUrl
+    $oldWorkUrl = [string](Get-OptionalPropertyValue $beforeLane "work_url")
+    if ([string]::IsNullOrWhiteSpace($oldWorkUrl)) {
+      throw "P3_LIVE_INITIAL_WORK_TARGET_MISSING"
+    }
+    $oldWorkHealth = Get-OptionalPropertyValue $beforeLane "work_target_health"
+    if (-not $oldWorkHealth) {
+      throw "P3_LIVE_INITIAL_WORK_HEALTH_MISSING"
+    }
+    $oldTargetDigest = [string](Get-OptionalPropertyValue $oldWorkHealth "target_digest")
+    if ([string]::IsNullOrWhiteSpace($oldTargetDigest)) {
+      throw "P3_LIVE_INITIAL_WORK_HEALTH_IDENTITY_MISSING"
+    }
+    $quarantineAt = [DateTimeOffset]::UtcNow.ToString("o")
     $beforeLane.awaiting_work = $true
     $beforeLane.dispatch_inflight = $null
     $beforeLane.relay_inflight = $null
     $beforeLane.work_rollover = $null
-    $beforeLane.work_target_health = $null
+    $beforeLane.work_target_health = [pscustomobject]@{
+      schema_version = "target-health.v1"
+      state = "QUARANTINED"
+      reason_code = "CONVERSATION_MISSING"
+      role = "WORK"
+      target_digest = $oldTargetDigest
+      target_revision = [int](Get-OptionalPropertyValue $oldWorkHealth "target_revision")
+      work_generation = $oldGeneration
+      first_detected_at = $quarantineAt
+      last_checked_at = $quarantineAt
+      quarantined_at = $quarantineAt
+    }
     Write-JsonFile $registryPath $beforeReplacement
     Write-Host "LIVE_P3_UNUSABLE_TARGET_INJECTED=True"
+    Write-Host "LIVE_P3_UNUSABLE_EVIDENCE=CONVERSATION_MISSING"
     Write-Host "LIVE_P3_OLD_GENERATION=$oldGeneration"
 
     $testNode = Start-Process -FilePath "node.exe" -ArgumentList @(
@@ -550,7 +573,7 @@ try {
       if (
         $newGeneration -eq ($oldGeneration + 1) -and
         -not [string]::IsNullOrWhiteSpace($newUrl) -and
-        $newUrl -ne $missingWorkUrl -and
+        $newUrl -ne $oldWorkUrl -and
         (
           $rolloverStage -eq "DISPATCH_CONFIRMED" -or
           [bool](Get-OptionalPropertyValue $replacementLane "awaiting_work")
@@ -637,7 +660,7 @@ try {
     if ($newDirectiveDigest -ne $oldDirectiveDigest) { throw "P3_LIVE_DIRECTIVE_DIGEST_CHANGED" }
     if ($newInstructionDigest -ne $oldInstructionDigest) { throw "P3_LIVE_INSTRUCTION_DIGEST_CHANGED" }
     if ($newGeneration -ne ($oldGeneration + 1)) { throw "P3_LIVE_GENERATION_NOT_INCREMENTED_ONCE" }
-    if ([string]::IsNullOrWhiteSpace($newUrl) -or $newUrl -eq $missingWorkUrl) {
+    if ([string]::IsNullOrWhiteSpace($newUrl) -or $newUrl -eq $oldWorkUrl) {
       throw "P3_LIVE_REPLACEMENT_TARGET_NOT_PERSISTED"
     }
     if ($newUrl -notmatch '^https://chatgpt\.com/c/') {
