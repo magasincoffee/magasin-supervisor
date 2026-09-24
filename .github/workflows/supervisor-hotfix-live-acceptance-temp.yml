@@ -6,6 +6,7 @@ on:
       - hotfix/supervisor-autonomy-selfheal-v1
     paths:
       - .github/workflows/supervisor-hotfix-live-acceptance-temp.yml
+      - .github/scripts/supervisor-p1-live-evidence.mjs
       - src/ui/message-capture.mjs
       - src/ui/snapshot.mjs
       - src/runtime/three-lane-cli.mjs
@@ -87,6 +88,8 @@ jobs:
           $registryFile = Join-Path $root "lane-registry.json"
           $logFile = Join-Path $root "supervisor.log"
           $wrapperLogFile = Join-Path $root "wrapper.log"
+          $acceptanceStartedAt = [DateTimeOffset]::UtcNow
+          Write-Host "LIVE_ACCEPTANCE_STARTED_AT=$($acceptanceStartedAt.ToString('o'))"
 
           function Read-JsonSafe([string]$Path) {
             if (-not (Test-Path $Path)) { return $null }
@@ -144,4 +147,67 @@ jobs:
             throw "LIVE_ACCEPTANCE_NOT_REACHED: Brain SCHED-06 was not durably adopted/dispatched within bounded observation window."
           }
 
+          $duplicateBrainHandshakeCount = 0
+          $staleHandshakeRetryCount = 0
+          if (Test-Path $logFile) {
+            foreach ($line in Get-Content $logFile -Encoding UTF8) {
+              try { $event = $line | ConvertFrom-Json } catch { continue }
+              try { $eventAt = [DateTimeOffset]::Parse([string]$event.timestamp) } catch { continue }
+              if ($eventAt -lt $acceptanceStartedAt) { continue }
+              $type = [string]$event.type
+              if ($type -in @(
+                "LANE_BRAIN_SEND_PENDING_CONFIRMATION",
+                "LANE_BRAIN_REQUEST_SENT",
+                "LANE_BRAIN_SEND_ATTEMPT_ERROR"
+              )) {
+                $duplicateBrainHandshakeCount += 1
+              }
+              if ($type -in @(
+                "LANE_BRAIN_SEND_RECONCILE_RELOAD",
+                "LANE_BRAIN_SEND_NOT_CONFIRMED_RETRY"
+              )) {
+                $staleHandshakeRetryCount += 1
+              }
+            }
+          }
+
+          Write-Host "LIVE_DUPLICATE_BRAIN_HANDSHAKE_COUNT=$duplicateBrainHandshakeCount"
+          Write-Host "LIVE_STALE_HANDSHAKE_RETRY_COUNT=$staleHandshakeRetryCount"
+          if ($duplicateBrainHandshakeCount -ne 0) {
+            throw "LIVE_DUPLICATE_BRAIN_HANDSHAKE_DETECTED"
+          }
+          if ($staleHandshakeRetryCount -ne 0) {
+            throw "LIVE_STALE_HANDSHAKE_RETRY_LOOP_DETECTED"
+          }
+
           Write-Host "LIVE_BRAIN_TO_WORK_ACCEPTANCE=PASS"
+
+      - name: Verify exact live Brain P1 evidence
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
+          $profile = Join-Path $root "browser_profile"
+          $chrome = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.CommandLine -and
+              $_.CommandLine -like "*$profile*" -and
+              $_.CommandLine -match '--remote-debugging-port=(\d+)'
+            } |
+            Select-Object -First 1
+
+          if (-not $chrome -or $chrome.CommandLine -notmatch '--remote-debugging-port=(\d+)') {
+            throw "Dedicated Supervisor Chrome CDP port not found"
+          }
+
+          $port = [int]$Matches[1]
+          $env:PROBE_RUNTIME_DIR = Join-Path $root "runtime"
+          $env:PROBE_CONFIG_FILE = Join-Path $root "lanes.json"
+          $env:PROBE_REGISTRY_FILE = Join-Path $root "lane-registry.json"
+          $env:PROBE_CDP_URL = "http://127.0.0.1:$port"
+
+          node "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-p1-live-evidence.mjs"
+          if ($LASTEXITCODE -ne 0) {
+            throw "P1 live evidence probe failed: $LASTEXITCODE"
+          }
