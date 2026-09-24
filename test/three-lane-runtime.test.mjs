@@ -9,7 +9,12 @@ test("active Three-Lane runtime contains no Brain auto-discovery path", async ()
   );
 
   assert.doesNotMatch(source, /findBrainBy/);
-  assert.doesNotMatch(source, /listRecentConversationUrls/);
+  const workBootstrapStart = source.indexOf("async function primeBlankWorkConversation");
+  const workBootstrapEnd = source.indexOf("async function createBlankWorkTarget", workBootstrapStart);
+  assert.ok(workBootstrapStart >= 0 && workBootstrapEnd > workBootstrapStart);
+  const outsideWorkBootstrap =
+    source.slice(0, workBootstrapStart) + source.slice(workBootstrapEnd);
+  assert.doesNotMatch(outsideWorkBootstrap, /listRecentConversationUrls/);
   assert.doesNotMatch(source, /getVisibleChatGptPages/);
   assert.doesNotMatch(source, /BRAIN_REBIND/);
   assert.match(source, /normalizeChatGptConversationUrl\(registryLane\.brain_url\)/);
