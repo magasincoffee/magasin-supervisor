@@ -210,6 +210,8 @@ $fixtureFile = Join-Path $env:RUNNER_TEMP "magasin-p2-live-fixture.json"
 $fixtureCacheFile = Join-Path $env:USERPROFILE ".magasin-supervisor\p2-live-fixture-cache.json"
 $nodeOut = Join-Path $env:RUNNER_TEMP "magasin-p2-live-runtime.out.log"
 $nodeErr = Join-Path $env:RUNNER_TEMP "magasin-p2-live-runtime.err.log"
+$p3DiagArtifact = Join-Path $env:RUNNER_TEMP "magasin-p3-live-diagnostics.json"
+Remove-Item $p3DiagArtifact -Force -ErrorAction SilentlyContinue
 Remove-Item $tempBase -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $fixtureFile,$nodeOut,$nodeErr -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
@@ -670,20 +672,59 @@ try {
         Write-Host ("LIVE_P3_DIAG_LANE_STATUS=" + [string](Get-OptionalPropertyValue $statusLaneP3 "status"))
       }
 
+      $nodeErrorClass = "NONE"
       if (Test-Path $nodeErr) {
         $nodeErrText = [string](Get-Content -LiteralPath $nodeErr -Raw -Encoding UTF8 -ErrorAction SilentlyContinue)
         if ($nodeErrText -match 'PAGE_BUDGET_EXHAUSTED_SAFE_EVICTION') {
-          Write-Host "LIVE_P3_DIAG_NODE_ERROR=PAGE_BUDGET_EXHAUSTED_SAFE_EVICTION"
+          $nodeErrorClass = "PAGE_BUDGET_EXHAUSTED_SAFE_EVICTION"
         } elseif ($nodeErrText -match 'MUTATION_LEASE_BUSY') {
-          Write-Host "LIVE_P3_DIAG_NODE_ERROR=MUTATION_LEASE_BUSY"
+          $nodeErrorClass = "MUTATION_LEASE_BUSY"
         } elseif ($nodeErrText -match 'Work replacement') {
-          Write-Host "LIVE_P3_DIAG_NODE_ERROR=WORK_REPLACEMENT_ERROR"
+          $nodeErrorClass = "WORK_REPLACEMENT_ERROR"
         } elseif (-not [string]::IsNullOrWhiteSpace($nodeErrText)) {
-          Write-Host "LIVE_P3_DIAG_NODE_ERROR=OTHER"
-        } else {
-          Write-Host "LIVE_P3_DIAG_NODE_ERROR=NONE"
+          $nodeErrorClass = "OTHER"
         }
       }
+      Write-Host ("LIVE_P3_DIAG_NODE_ERROR=" + $nodeErrorClass)
+
+      $statusMessage = if ($statusLaneP3) {
+        [string](Get-OptionalPropertyValue $statusLaneP3 "message")
+      } else { "" }
+      $statusMessage = $statusMessage -replace 'https?://\S+','<URL>'
+      $statusMessage = $statusMessage -replace '\b[0-9a-fA-F]{8}-[0-9a-fA-F-]{27,}\b','<GUID>'
+      $statusMessage = $statusMessage -replace '\b[0-9a-fA-F]{40,64}\b','<HEX>'
+      $statusMessage = ($statusMessage -replace '[\r\n\t]+',' ' -replace '\s+',' ').Trim()
+      if ($statusMessage.Length -gt 220) { $statusMessage = $statusMessage.Substring(0,220) }
+      Write-Host ("LIVE_P3_DIAG_LANE_MESSAGE=" + $statusMessage)
+
+      $diagReasons = @()
+      foreach ($key in @($p3ErrorReasons.Keys | Sort-Object)) {
+        $diagReasons += [pscustomobject]@{
+          reason = $key
+          count = [int]$p3ErrorReasons[$key]
+        }
+      }
+      $diagEvents = @{}
+      foreach ($key in @($p3Counts.Keys | Sort-Object)) {
+        $diagEvents[$key] = [int]$p3Counts[$key]
+      }
+      $diagPayload = [ordered]@{
+        schema_version = "p3-live-diagnostics.v1"
+        runner_name = [string]$env:COMPUTERNAME
+        work_health_state = $(if ($diagHealth) { [string](Get-OptionalPropertyValue $diagHealth "state") } else { "MISSING" })
+        work_health_reason = $(if ($diagHealth) { [string](Get-OptionalPropertyValue $diagHealth "reason_code") } else { "MISSING" })
+        rollover_stage = $(if ($diagRollover) { [string](Get-OptionalPropertyValue $diagRollover "stage") } else { "NONE" })
+        rollover_reason = $(if ($diagRollover) { [string](Get-OptionalPropertyValue $diagRollover "reason") } else { "NONE" })
+        awaiting_work = $(if ($diagLane) { [bool](Get-OptionalPropertyValue $diagLane "awaiting_work") } else { $false })
+        generation = $(if ($diagLane) { [int](Get-OptionalPropertyValue $diagLane "work_generation") } else { -1 })
+        lane_status = $(if ($statusLaneP3) { [string](Get-OptionalPropertyValue $statusLaneP3 "status") } else { "MISSING" })
+        lane_message = $statusMessage
+        node_error_class = $nodeErrorClass
+        events = $diagEvents
+        error_reasons = $diagReasons
+      }
+      $diagPayload | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $p3DiagArtifact -Encoding UTF8
+      Write-Host "LIVE_P3_DIAGNOSTIC_ARTIFACT_WRITTEN=True"
       throw "P3_LIVE_REPLACEMENT_NOT_REACHED"
     }
 
