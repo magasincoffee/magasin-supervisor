@@ -9,6 +9,7 @@ on:
       - .github/scripts/supervisor-p2-live-brain-fixture.mjs
       - .github/scripts/supervisor-p2-live-isolated-evidence.mjs
       - .github/scripts/supervisor-p2-live-isolated.ps1
+      - .github/scripts/supervisor-p2-live-launcher.ps1
       - .github/scripts/supervisor-p2-runtime-diagnostic.ps1
       - src/runtime/three-lane-cli.mjs
       - src/runtime/work-target-state.mjs
@@ -39,7 +40,7 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 15
     env:
-      P2_LIVE_ENABLED: "false"
+      P2_LIVE_ENABLED: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -65,5 +66,5 @@ jobs:
       - name: Run isolated P2 AUTO Work live acceptance
         if: ${{ env.P2_LIVE_ENABLED == 'true' }}
         shell: cmd
-        run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-p2-live-isolated.ps1"
+        run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-p2-live-launcher.ps1"
 
