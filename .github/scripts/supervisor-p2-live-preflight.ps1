@@ -1,11 +1,6 @@
 $ErrorActionPreference = "Stop"
 try {
   . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
-  $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
-  $configFile = Join-Path $root "lanes.json"
-  $registryFile = Join-Path $root "lane-registry.json"
-  $stopFile = Join-Path $root "STOP"
-  $autostartDisabled = Join-Path $root "AUTOSTART_DISABLED"
 
   function Read-JsonSafe([string]$Path) {
     if (-not (Test-Path $Path)) { return $null }
@@ -25,6 +20,40 @@ try {
       return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace("-","").ToLowerInvariant()
     } finally { $sha.Dispose() }
   }
+
+  $candidateRoots = New-Object System.Collections.Generic.List[string]
+  try { $candidateRoots.Add((Get-SupervisorStateRoot -Compatibility "legacy-preserve")) } catch {}
+
+  foreach ($proc in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)) {
+    $cmd = [string]$proc.CommandLine
+    if ([string]::IsNullOrWhiteSpace($cmd)) { continue }
+    foreach ($pattern in @(
+      '([A-Za-z]:\\[^"]*?\\MAGASIN\\BusinessOS\\supervisor)\\runtime\\windows\\run-supervisor\.ps1',
+      '([A-Za-z]:\\[^"]*?\\MAGASIN\\BusinessOS\\supervisor)\\browser_profile'
+    )) {
+      $m = [regex]::Match($cmd,$pattern,[System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+      if ($m.Success) { $candidateRoots.Add([string]$m.Groups[1].Value) }
+    }
+  }
+
+  $validRoots = @($candidateRoots |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+    ForEach-Object { try { [System.IO.Path]::GetFullPath($_) } catch { $null } } |
+    Where-Object { $_ -and (Test-Path (Join-Path $_ "lanes.json")) -and (Test-Path (Join-Path $_ "lane-registry.json")) } |
+    Select-Object -Unique)
+
+  Write-Host "P2_PREFLIGHT_VALID_ROOT_COUNT=$($validRoots.Count)"
+  if ($validRoots.Count -ne 1) {
+    Write-Host "P2_PREFLIGHT_STATE_VALID=False"
+    Write-Host "P2_PREFLIGHT_ERROR_CODE=STATE_ROOT_AMBIGUOUS_OR_MISSING"
+    exit 0
+  }
+
+  $root = [string]$validRoots[0]
+  $configFile = Join-Path $root "lanes.json"
+  $registryFile = Join-Path $root "lane-registry.json"
+  $stopFile = Join-Path $root "STOP"
+  $autostartDisabled = Join-Path $root "AUTOSTART_DISABLED"
 
   $config = Read-JsonSafe $configFile
   $registry = Read-JsonSafe $registryFile
@@ -55,6 +84,8 @@ try {
     $adoptedDirective = [string](Get-Optional $adopted "directive_digest" "")
     $adoptedInstruction = [string](Get-Optional $adopted "instruction_digest" "")
     $task = [string](Get-Optional $reg "task_id" "")
+    $durableDirective = [string](Get-Optional $reg "last_brain_directive_digest" "")
+    $durableInstruction = [string](Get-Optional $reg "instruction_digest" "")
     $work = [string](Get-Optional $reg "work_url" "")
     $workMode = [string](Get-Optional $reg "applied_work_mode" "")
     $roll = Get-Optional $reg "work_rollover"
@@ -71,6 +102,7 @@ try {
     Write-Host "P2_PREFLIGHT_$($id)_ADOPTED_ACTION=$adoptedAction"
     Write-Host "P2_PREFLIGHT_$($id)_ADOPTED_TASK=$adoptedTask"
     Write-Host "P2_PREFLIGHT_$($id)_ADOPTED_IDENTITY_COMPLETE=$([bool]($adoptedDirective -and $adoptedInstruction))"
+    Write-Host "P2_PREFLIGHT_$($id)_DURABLE_IDENTITY_COMPLETE=$([bool]($durableDirective -and $durableInstruction))"
     Write-Host "P2_PREFLIGHT_$($id)_REGISTRY_TASK=$task"
     Write-Host "P2_PREFLIGHT_$($id)_WORK_PRESENT=$(-not [string]::IsNullOrWhiteSpace($work))"
     Write-Host "P2_PREFLIGHT_$($id)_WORK_MODE=$workMode"
@@ -82,10 +114,9 @@ try {
     if (
       -not $ownerStop -and
       $brainExact -and
-      $adoptedAction -eq "WORK" -and
-      -not [string]::IsNullOrWhiteSpace($adoptedTask) -and
-      -not [string]::IsNullOrWhiteSpace($adoptedDirective) -and
-      -not [string]::IsNullOrWhiteSpace($adoptedInstruction)
+      -not [string]::IsNullOrWhiteSpace($task) -and
+      -not [string]::IsNullOrWhiteSpace($durableDirective) -and
+      -not [string]::IsNullOrWhiteSpace($durableInstruction)
     ) {
       $eligible += $id
     }
