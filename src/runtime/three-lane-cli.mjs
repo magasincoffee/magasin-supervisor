@@ -1863,9 +1863,14 @@ async function primeBlankWorkConversation({
   while (Date.now() <= responseDeadline) {
     await assertPageNotRateLimited(page);
     const probe = await adapter.probePage(page).catch(() => null);
-    if (probe && !probe.snapshot?.responseRunning) {
+    if (
+      probe &&
+      !probe.snapshot?.responseRunning &&
+      Number(probe.snapshot?.assistantMessageCount || 0) > 0 &&
+      probe.classification?.observation === OBSERVATIONS.RESPONSE_COMPLETE
+    ) {
       const captured = await captureCompletedAssistantTurn(page).catch(() => null);
-      if (captured?.text?.trim() === readyText) {
+      if (captured?.text?.trim()) {
         bootstrapReady = true;
         break;
       }
@@ -1904,11 +1909,13 @@ async function primeBlankWorkConversation({
     await assertPageNotRateLimited(page);
 
     const markerStillPresent = await hasUserTurnMarker(page, marker);
+    const canonicalProbe = await adapter.probePage(page).catch(() => null);
     const captured = await captureCompletedAssistantTurn(page).catch(() => null);
     if (
       !isPersistableConversationUrl(String(page.url())) ||
       !markerStillPresent ||
-      captured?.text?.trim() !== readyText
+      !captured?.text?.trim() ||
+      canonicalProbe?.classification?.observation !== OBSERVATIONS.RESPONSE_COMPLETE
     ) {
       const error = new Error("AUTO_WORK_BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED");
       error.code = "AUTO_WORK_BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED";
