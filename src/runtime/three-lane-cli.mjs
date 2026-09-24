@@ -1197,6 +1197,62 @@ async function adoptExistingBrainDirective({
   return candidate;
 }
 
+
+async function recoverPersistedAdoptedBrainDirective({
+  page,
+  lane,
+  registryLane
+}) {
+  const adopted = registryLane.brain_directive_adopted || null;
+  if (!adopted?.directive_digest) return null;
+
+  let currentBrainUrl = "";
+  let configuredBrainUrl = "";
+  try {
+    currentBrainUrl = normalizeChatGptConversationUrl(registryLane.brain_url);
+    configuredBrainUrl = normalizeChatGptConversationUrl(lane.brain_url);
+  } catch {
+    return null;
+  }
+
+  if (!pageMatchesTarget(page.url(), targetFromUrl(currentBrainUrl))) {
+    return null;
+  }
+
+  const turns = await captureRecentConversationTurns(page, { limit: 30 })
+    .catch(() => []);
+  if (!turns.length) return null;
+
+  const evidence = evaluateBrainDirectiveAdoptionEvidence({
+    turns,
+    expectedHandshakeDigests: [
+      sha256(buildBrainStartRequest({
+        laneId: lane.lane_id,
+        projectName: lane.project_name
+      })),
+      sha256(buildLegacyBrainStartRequestV59({
+        laneId: lane.lane_id,
+        projectName: lane.project_name
+      }))
+    ],
+    currentTargetDigest: sha256(currentBrainUrl),
+    configuredTargetDigest: sha256(configuredBrainUrl),
+    configuredRevision: Number(lane.brain_url_revision || 0),
+    appliedRevision: Number(registryLane.applied_brain_url_revision || 0),
+    brainRequestInflight: null,
+    adoptedRecord: adopted,
+    activeExactOnce: Boolean(
+      registryLane.dispatch_inflight ||
+      registryLane.relay_inflight ||
+      registryLane.awaiting_work
+    )
+  });
+
+  if (!evidence.adopt) return null;
+  if (evidence.directive.digest !== adopted.directive_digest) return null;
+  return evidence.directive;
+}
+
 async function ensureBrainRequest({
   adapter,
   page,
