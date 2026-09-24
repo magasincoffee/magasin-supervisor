@@ -74,23 +74,47 @@ try {
     throw new Error("exact configured Brain target did not open");
   }
 
-  let turns = [];
-  let directive = null;
-  for (let attempt = 0; attempt < 40 && !directive; attempt += 1) {
-    if (attempt > 0) await brainPage.waitForTimeout(500);
-    turns = await capture
-      .captureRecentConversationTurns(brainPage, { limit: 30 })
-      .catch(() => []);
-    for (let index = turns.length - 1; index >= 0; index -= 1) {
-      if (turns[index].role !== "assistant") continue;
-      try {
-        directive = three.parseLaneDirective(turns[index].text);
-        break;
-      } catch {}
+  async function scanDirective() {
+    let observedTurns = [];
+    let observedDirective = null;
+    for (let attempt = 0; attempt < 40 && !observedDirective; attempt += 1) {
+      if (attempt > 0) await brainPage.waitForTimeout(500);
+      observedTurns = await capture
+        .captureRecentConversationTurns(brainPage, { limit: 30 })
+        .catch(() => []);
+      for (let index = observedTurns.length - 1; index >= 0; index -= 1) {
+        if (observedTurns[index].role !== "assistant") continue;
+        try {
+          observedDirective = three.parseLaneDirective(observedTurns[index].text);
+          break;
+        } catch {}
+      }
     }
+    return { turns: observedTurns, directive: observedDirective };
   }
+
+  let observed = await scanDirective();
+  if (!observed.directive && observed.turns.length === 0) {
+    console.log("LIVE_P1_ZERO_TURN_RELOAD=1");
+    await brainPage.reload({
+      waitUntil: "domcontentloaded",
+      timeout: 30_000
+    });
+    if (three.normalizeChatGptConversationUrl(brainPage.url()) !== exactBrain) {
+      throw new Error("exact Brain target changed during bounded reload");
+    }
+    observed = await scanDirective();
+  }
+
+  const turns = observed.turns;
+  const directive = observed.directive;
   console.log("LIVE_P1_CAPTURED_TURN_COUNT=" + turns.length);
   if (!directive) throw new Error("no valid completed Brain directive found");
+
+  const liveProbe = await adapter.probePage(brainPage).catch(() => null);
+  if (!liveProbe || liveProbe.snapshot?.responseRunning) {
+    throw new Error("Brain directive is not on a stable completed response surface");
+  }
   if (directive.action !== "WORK" || directive.task_id !== "SCHED-06") {
     throw new Error("live Brain directive is not authorized SCHED-06 WORK");
   }
