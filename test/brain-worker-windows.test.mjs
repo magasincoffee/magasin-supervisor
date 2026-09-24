@@ -23,8 +23,9 @@ test("wrapper preserves Three-Lane mode across transient source-of-truth fetch f
 
   assert.match(source, /lane-status\.json/);
   assert.match(source, /lanes\.json/);
-  assert.match(source, /\$runtimeMode = 'THREE_LANE_V1'/);
-  assert.match(source, /retrying without mode downgrade/);
+  assert.match(source, /function Resolve-LocalRuntimeMode/);
+  assert.match(source, /RUNTIME_MODE_FROM_LOCAL_PLATFORM_TRUTH/);
+  assert.match(source, /No authoritative runtime mode is available; preserving wrapper and retrying fail-closed/);
 });
 
 test("installer kills old Three-Lane node runtime during upgrade without clearing Owner STOP", async () => {
