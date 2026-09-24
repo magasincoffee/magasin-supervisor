@@ -105,7 +105,18 @@ try {
   }
 
   let page = active;
-  if (!page || page.isClosed() || !String(page.url()).startsWith("https://chatgpt.com/")) {
+  let activeIsHome = false;
+  try {
+    activeIsHome = Boolean(
+      page &&
+      !page.isClosed() &&
+      new URL(page.url()).origin === "https://chatgpt.com" &&
+      new URL(page.url()).pathname === "/"
+    );
+  } catch {
+    activeIsHome = false;
+  }
+  if (!activeIsHome) {
     await new Promise((resolve) => setTimeout(resolve, mutationPacingMs));
     page = await adapter.newChatPage("https://chatgpt.com/", {
       allowTransientRetry: false
@@ -117,10 +128,20 @@ try {
   const sent = await sendComposerInstruction(page, prompt, { dryRun: false });
   if (!sent?.executed) throw new Error("P2 Brain fixture prompt was not executed");
 
-  await page.waitForURL(
-    (value) => isPersistableConversationUrl(String(value)),
-    { timeout: 45_000 }
-  );
+  const conversationDeadline = Date.now() + 45_000;
+  while (
+    Date.now() < conversationDeadline &&
+    !isPersistableConversationUrl(String(page.url()))
+  ) {
+    await assertNotRateLimited(page);
+    await page.waitForTimeout(1_000);
+  }
+  await assertNotRateLimited(page);
+  if (!isPersistableConversationUrl(String(page.url()))) {
+    const error = new Error("P2_FIXTURE_CONVERSATION_NOT_CONFIRMED");
+    error.code = "P2_FIXTURE_CONVERSATION_NOT_CONFIRMED";
+    throw error;
+  }
   const target = targetFromUrl(page.url());
   let captured = null;
   let directive = null;
