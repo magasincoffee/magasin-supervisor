@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import path from "node:path";
 import { ChatGptUiAdapter } from "../../src/ui/playwright-adapter.mjs";
 import { sendComposerInstruction } from "../../src/ui/actions.mjs";
 import { captureCompletedAssistantTurn } from "../../src/ui/message-capture.mjs";
@@ -7,6 +8,7 @@ import { parseLaneDirective } from "../../src/runtime/three-lane.mjs";
 
 const cdpUrl = String(process.env.P2_CDP_URL || "").trim();
 const outputFile = String(process.env.P2_FIXTURE_FILE || "").trim();
+const cacheFile = String(process.env.P2_FIXTURE_CACHE_FILE || "").trim();
 const mutationPacingMs = Math.max(
   5_000,
   Number.parseInt(process.env.P2_LIVE_MUTATION_PACING_MS || "5000", 10) || 5_000
@@ -51,6 +53,43 @@ async function exactFixtureDirective(page) {
   return null;
 }
 
+async function readFixtureCache() {
+  if (!cacheFile) return null;
+  try {
+    const parsed = JSON.parse(await fs.readFile(cacheFile, "utf8"));
+    if (
+      parsed?.schema_version === "p2-live-fixture-cache.v1" &&
+      parsed?.task_id === taskId &&
+      isPersistableConversationUrl(String(parsed?.brain_url || ""))
+    ) {
+      return parsed;
+    }
+  } catch {}
+  return null;
+}
+
+async function writeFixtureCache(brainUrl) {
+  if (!cacheFile) return;
+  await fs.mkdir(path.dirname(cacheFile), { recursive: true });
+  await fs.writeFile(cacheFile, JSON.stringify({
+    schema_version: "p2-live-fixture-cache.v1",
+    brain_url: brainUrl,
+    task_id: taskId
+  }, null, 2) + "\n", "utf8");
+}
+
+async function navigateSinglePage(page, url) {
+  await new Promise((resolve) => setTimeout(resolve, mutationPacingMs));
+  await assertNotRateLimited(page);
+  await page.goto(url, {
+    waitUntil: "domcontentloaded",
+    timeout: 60_000
+  });
+  await page.waitForTimeout(800);
+  await assertNotRateLimited(page);
+  return page;
+}
+
 async function persistFixture(page, directive, reused) {
   const target = targetFromUrl(page.url());
   const brainPathKind = target.pathname.startsWith("/c/")
@@ -64,6 +103,7 @@ async function persistFixture(page, directive, reused) {
     directive_digest: directive.digest,
     instruction_digest: directive.instruction_digest
   }, null, 2) + "\n", "utf8");
+  await writeFixtureCache(brainUrl);
   console.log(`LIVE_P2_FIXTURE_BRAIN_REUSED=${reused ? "True" : "False"}`);
   console.log("LIVE_P2_FIXTURE_BRAIN_CREATED=True");
   console.log("LIVE_P2_FIXTURE_BRAIN_SPECIFIC_CONVERSATION=True");
@@ -105,6 +145,35 @@ try {
   }
 
   let page = active;
+  if (!page || page.isClosed()) {
+    throw new Error("P2_FIXTURE_ACTIVE_PAGE_MISSING");
+  }
+
+  const cache = await readFixtureCache();
+  if (cache?.brain_url) {
+    await navigateSinglePage(page, cache.brain_url);
+    const directive = await exactFixtureDirective(page);
+    if (directive) {
+      console.log("LIVE_P2_FIXTURE_CACHE_REUSED=True");
+      await finishFixtureSuccess(page, directive, true);
+    }
+  }
+
+  const recentUrls = await adapter.listRecentConversationUrls(page, { limit: 1 })
+    .catch(() => []);
+  const recentUrl = recentUrls[0] || null;
+  if (
+    recentUrl &&
+    (!cache?.brain_url || recentUrl !== cache.brain_url)
+  ) {
+    await navigateSinglePage(page, recentUrl);
+    const directive = await exactFixtureDirective(page);
+    if (directive) {
+      console.log("LIVE_P2_FIXTURE_RECENT_SINGLE_REUSED=True");
+      await finishFixtureSuccess(page, directive, true);
+    }
+  }
+
   let activeIsHome = false;
   try {
     activeIsHome = Boolean(
@@ -117,10 +186,7 @@ try {
     activeIsHome = false;
   }
   if (!activeIsHome) {
-    await new Promise((resolve) => setTimeout(resolve, mutationPacingMs));
-    page = await adapter.newChatPage("https://chatgpt.com/", {
-      allowTransientRetry: false
-    });
+    await navigateSinglePage(page, "https://chatgpt.com/");
   }
   await assertNotRateLimited(page);
   await page.waitForTimeout(mutationPacingMs);
