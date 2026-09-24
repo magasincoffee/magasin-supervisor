@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   p3-live:
+    if: ${{ false }} # TEMP: free migrated runner for worker smoke
     runs-on: [self-hosted, windows, x64]
     timeout-minutes: 20
     env:
