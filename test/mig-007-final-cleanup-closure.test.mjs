@@ -57,10 +57,14 @@ test("closure candidate records no prohibited production mutation", () => {
   assert.equal(closure.next_migration_task_state, "NO_ADDITIONAL_MIGRATION_TASK_DEFINED");
 });
 
-test("candidate remains not-complete until target closure validation passes", () => {
-  assert.equal(closure.status, "CLOSURE_CANDIDATE_VALIDATION_PENDING");
-  assert.equal(closure.complete, false);
-  assert.equal(closure.migration_complete, false);
-  assert.equal(closure.target_closure_validation.status, "PENDING");
-  assert.match(evidence, /CLOSURE CANDIDATE \/ TARGET VALIDATION PENDING/);
+test("MIG-007 and the independent-repository migration are complete after target validation", () => {
+  assert.equal(closure.status, "COMPLETE");
+  assert.equal(closure.complete, true);
+  assert.equal(closure.source_of_truth_role, "CURRENT_CANONICAL_CLOSURE");
+  assert.equal(closure.target_closure_validation.status, "PASS");
+  assert.equal(closure.target_closure_validation.pull_request, 14);
+  assert.equal(closure.target_closure_validation.checks.filter((check) => check.conclusion === "SUCCESS").length, 4);
+  assert.equal(closure.migration_complete, true);
+  assert.equal(closure.migration_final_state, "MAGASIN_SUPERVISOR_INDEPENDENT_REPOSITORY_V1_COMPLETE");
+  assert.match(evidence, /COMPLETE \/ READY FOR CANONICAL MERGE/);
 });
