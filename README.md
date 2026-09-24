@@ -1,10 +1,17 @@
-> **Canonical migration state:** MIG-005 production cutover is complete with one new-machine ownership authority in `ALL_DISABLED_QUIESCENT` mode. MIG-006 qualified the final RBT-009 Tier B on workflow run `35860156388` / job `107180300345`; the qualification did not start the production runtime or mutate production targets/latches.
+> **Canonical migration state:** MIG-005 production cutover is complete; MIG-006 / TASK-RBT-009 qualification is complete and released; MIG-007 cleanup authority is **AUTHORIZED / READY FOR EXECUTION / NOT EXECUTED**. No legacy cleanup has been performed by the authority closure.
 
-Current machine-readable Source of Truth:
+Current machine-readable migration authority:
 
-`docs/MIG_006_RBT009_CANONICAL_CLOSURE.json`
+`docs/MIG_007_AUTHORITY_MANIFEST.json`
 
-The earlier MIG-005 cutover manifest, MIG-006 release request, and MIG-006 pre-run manifest are retained as historical snapshots. Their pre-activation/pre-run values such as `production_cutover=false`, `PENDING`, `NOT_STARTED`, and `NOT_RUN` are not current canonical state.
+Authority plan and evidence:
+
+- `docs/MIG_007_FINAL_CLEANUP_PLAN.md`
+- `docs/MIG_007_AUTHORITY_EVIDENCE.md`
+
+Predecessor qualification Source of Truth remains `docs/MIG_006_RBT009_CANONICAL_CLOSURE.json`. Historical MIG-005/MIG-006 snapshots retain their original pre-activation/pre-run values and are not rewritten as current state.
+
+Exact next task: `MIG-007-EXECUTION-FINAL-CLEANUP` — **READY / NOT STARTED**.
 
 # MAGASIN Supervisor
 
