@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const harnessPath = resolve(repoRoot, ".github", "scripts", "supervisor-p2-live-isolated.ps1");
 const harness = readFileSync(harnessPath, "utf8");
+const brainFixturePath = resolve(repoRoot, ".github", "scripts", "supervisor-p2-live-brain-fixture.mjs");
+const brainFixture = readFileSync(brainFixturePath, "utf8");
 
 test("P2 inaccessible root probes are fail-closed and non-fatal", () => {
   assert.match(harness, /function Test-ReadableLeaf/);
@@ -61,4 +63,14 @@ test("P2 Chrome discovery tolerates zero matching processes under StrictMode and
 
   assert.equal(run.status, 0, `PowerShell StrictMode regression failed:\n${run.stderr || run.stdout}`);
   assert.match(run.stdout, /P2_NULL_CHROME_STRICTMODE_FALLBACK=PASS/);
+});
+
+test("P2 Brain fixture shutdown is bounded after persisted success", () => {
+  assert.match(brainFixture, /async function closeAdapterBounded\(timeoutMs = 2_000\)/);
+  assert.match(brainFixture, /Promise\.race\(\[/);
+  assert.match(brainFixture, /async function finishFixtureSuccess\(page, directive, reused\)/);
+  assert.match(brainFixture, /await finishFixtureSuccess\(page, directive, true\)/);
+  assert.match(brainFixture, /await finishFixtureSuccess\(page, directive, false\)/);
+  assert.match(brainFixture, /finally \{\s*await closeAdapterBounded\(\);\s*\}/m);
+  assert.doesNotMatch(brainFixture, /await adapter\.close\(\)\.catch\(\(\) => \{\}\);/);
 });
