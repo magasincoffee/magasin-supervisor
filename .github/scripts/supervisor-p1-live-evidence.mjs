@@ -146,3 +146,4 @@ try {
   }
   await adapter.close().catch(() => {});
 }
+process.exit(0);
