@@ -27,8 +27,30 @@ const adapterMod = await import(
   pathToFileURL(path.join(runtime, "src", "ui", "playwright-adapter.mjs")).href
 );
 
-const exactBrain = three.normalizeChatGptConversationUrl(lane.brain_url);
+const configuredBrain = three.normalizeChatGptConversationUrl(lane.brain_url);
+const exactBrain = three.normalizeChatGptConversationUrl(
+  registryLane.brain_url || lane.brain_url
+);
 if (!exactBrain) throw new Error("lane-1 exact Brain target is missing");
+if (configuredBrain && configuredBrain !== exactBrain) {
+  throw new Error("configured and active Brain target mismatch");
+}
+if (
+  Number(lane.brain_url_revision || 0) !==
+  Number(registryLane.applied_brain_url_revision || 0)
+) {
+  throw new Error("configured and applied Brain revision mismatch");
+}
+
+console.log(
+  "LIVE_P1_CONFIG_ACTIVE_BRAIN_MATCH=" +
+    Boolean(!configuredBrain || configuredBrain === exactBrain)
+);
+console.log("LIVE_P1_ACTIVE_BRAIN_DIGEST=" + three.sha256(exactBrain));
+console.log(
+  "LIVE_P1_BRAIN_REVISION=" +
+    Number(registryLane.applied_brain_url_revision || 0)
+);
 
 const adapter = new adapterMod.ChatGptUiAdapter({ cdpUrl, settleMs: 250 });
 await adapter.open();
@@ -54,7 +76,7 @@ try {
 
   let turns = [];
   let directive = null;
-  for (let attempt = 0; attempt < 24 && !directive; attempt += 1) {
+  for (let attempt = 0; attempt < 40 && !directive; attempt += 1) {
     if (attempt > 0) await brainPage.waitForTimeout(500);
     turns = await capture
       .captureRecentConversationTurns(brainPage, { limit: 30 })
@@ -67,6 +89,7 @@ try {
       } catch {}
     }
   }
+  console.log("LIVE_P1_CAPTURED_TURN_COUNT=" + turns.length);
   if (!directive) throw new Error("no valid completed Brain directive found");
   if (directive.action !== "WORK" || directive.task_id !== "SCHED-06") {
     throw new Error("live Brain directive is not authorized SCHED-06 WORK");
