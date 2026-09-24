@@ -240,31 +240,17 @@ try {
     error.code = "P2_FIXTURE_CONVERSATION_NOT_CONFIRMED";
     throw error;
   }
-  const target = targetFromUrl(page.url());
-  let captured = null;
+  targetFromUrl(page.url());
   let directive = null;
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
-    const probe = await assertNotRateLimited(page);
-    if (
-      probe &&
-      !probe.snapshot?.responseRunning &&
-      Number(probe.snapshot?.assistantMessageCount || 0) > 0
-    ) {
-      captured = await captureCompletedAssistantTurn(page).catch(() => null);
-      if (captured?.text) {
-        try {
-          directive = parseLaneDirective(captured.text);
-        } catch {
-          directive = null;
-        }
-        if (directive?.action === "WORK" && directive.task_id === taskId) break;
-      }
-    }
+    await assertNotRateLimited(page);
+    directive = await exactFixtureDirective(page);
+    if (directive) break;
     await page.waitForTimeout(1000);
   }
 
-  if (!directive || directive.action !== "WORK" || directive.task_id !== taskId) {
+  if (!directive) {
     throw new Error("P2 Brain fixture did not produce the exact valid WORK directive");
   }
 
