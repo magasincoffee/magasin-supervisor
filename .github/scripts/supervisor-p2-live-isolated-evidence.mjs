@@ -123,3 +123,7 @@ console.log("LIVE_P2_DIRECTIVE_DIGEST_MATCH=True");
 console.log("LIVE_P2_INSTRUCTION_DIGEST_MATCH=True");
 console.log("LIVE_P2_OWNER_MANUAL_WORK_OPERATION_REQUIRED=False");
 console.log("LIVE_P2_AUTO_WORK_ACCEPTANCE=PASS");
+// connectOverCDP keeps a transport handle alive even after adapter.close().
+// Evidence is complete at this durable boundary; terminate only this verifier
+// process so the shared Chrome instance remains owned by the live harness.
+process.exit(0);
