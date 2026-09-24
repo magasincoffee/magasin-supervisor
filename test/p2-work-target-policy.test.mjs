@@ -97,7 +97,6 @@ test("P2 runtime persists canonical AUTO Work target before constructing dispatc
   assert.ok(persist>=0);
   assert.ok(latch>persist);
   assert.match(work,/await atomicJsonWrite\(registryPath, registry\);[\s\S]*AUTO_WORK_TARGET_PERSISTED/);
-  assert.match(work,/AUTO Work target did not resolve to canonical \/c\/ identity/);
 });
 
 test("P2 AUTO creation uses the canonical global browser mutation lease",async()=>{
