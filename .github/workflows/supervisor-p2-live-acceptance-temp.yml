@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   p2-live:
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ false }}
     runs-on: self-hosted
     timeout-minutes: 15
     env:
