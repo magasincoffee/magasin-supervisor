@@ -69,7 +69,7 @@ test("P2 AUTO create remains exactly-once after ambiguous create-before-persist 
 
 test("P2 live workflow is explicit-trigger-only and never cancels into a burst replacement", async () => {
   const workflow = await source("../.github/workflows/supervisor-p2-live-acceptance-temp.yml");
-  assert.match(workflow, /\.github\/p2-live-trigger-v2\.txt/);
+  assert.match(workflow, /\.github\/p2-live-trigger-v3\.txt/);
   assert.match(workflow, /cancel-in-progress:\s*false/);
   assert.doesNotMatch(
     workflow,
