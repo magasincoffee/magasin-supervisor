@@ -255,6 +255,34 @@ export class ChatGptUiAdapter {
     return focused;
   }
 
+  async findExactConversationUrlByPath(page, pathname) {
+    if (!page || page.isClosed()) return null;
+    const expected = String(pathname || "").trim();
+    if (!/^\/(c|g|project)\//.test(expected) || /^\/c\/WEB:/i.test(expected)) {
+      return null;
+    }
+
+    const urls = await page.evaluate((expectedPath) => {
+      const matches = new Set();
+      for (const anchor of document.querySelectorAll("a[href]")) {
+        const raw = String(anchor.getAttribute("href") || "").trim();
+        if (!raw) continue;
+        let url = null;
+        try {
+          url = new URL(raw, location.origin);
+        } catch {
+          continue;
+        }
+        if (url.origin !== "https://chatgpt.com") continue;
+        if (url.pathname !== expectedPath) continue;
+        matches.add(url.origin + url.pathname);
+      }
+      return [...matches];
+    }, expected);
+
+    return Array.isArray(urls) && urls.length === 1 ? urls[0] : null;
+  }
+
   async listRecentConversationUrls(page, { limit = 20 } = {}) {
     if (!page || page.isClosed()) return [];
     const urls = await page.evaluate((maxItems) => {
