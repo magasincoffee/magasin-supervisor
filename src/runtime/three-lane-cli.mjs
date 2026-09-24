@@ -1156,7 +1156,11 @@ async function ensureBrainRequest({
   const baseline = await captureSendBaseline(adapter, page);
   registryLane.brain_request_inflight = {
     digest,
-    ...baseline
+    ...baseline,
+    brain_target_digest: sha256(
+      normalizeChatGptConversationUrl(registryLane.brain_url)
+    ),
+    brain_url_revision: Number(registryLane.applied_brain_url_revision || 0)
   };
   await atomicJsonWrite(registryPath, registry);
 
