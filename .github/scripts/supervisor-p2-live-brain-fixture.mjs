@@ -75,8 +75,8 @@ try {
     const directive = await exactFixtureDirective(page);
     if (directive) {
       await persistFixture(page, directive, true);
-      process.exitCode = 0;
-      return;
+      await adapter.close().catch(() => {});
+      process.exit(0);
     }
   }
 
