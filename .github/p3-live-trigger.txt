@@ -1,5 +1,5 @@
 SUP-SELFHEAL-P3-LIVE-WORK-REPLACEMENT
 single_attempt=true
 runner=DESKTOP-4K7IM13
-diagnostic=bounded-sanitized-v3
-retry_reason=logged_in_new_runner_profile
+diagnostic=bounded-sanitized-v4
+retry_reason=rotated_concurrency_after_stale_rerun
