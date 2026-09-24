@@ -131,6 +131,8 @@ function Write-JsonFile([string]$Path,$Value) {
   $Value | ConvertTo-Json -Depth 20 | Set-Content -Path $Path -Encoding UTF8
 }
 
+$p3ReplacementMode = [string]$env:P3_LIVE_REPLACEMENT_MODE -eq "true"
+
 $mutationPacingMs = 5000
 $parsedPacing = 0
 if ([int]::TryParse([string]$env:P2_LIVE_MUTATION_PACING_MS,[ref]$parsedPacing)) {
@@ -490,6 +492,113 @@ try {
     throw "P2_LIVE_RUNTIME_ACCEPTANCE_NOT_REACHED"
   }
 
+  if ($p3ReplacementMode) {
+    if ($testNode -and -not $testNode.HasExited) {
+      Stop-Process -Id $testNode.Id -Force -ErrorAction SilentlyContinue
+      $testNode.WaitForExit()
+    }
+    $testNode = $null
+
+    $registryPath = Join-Path $tempRoot "lane-registry.json"
+    $beforeReplacement = Read-JsonSafe $registryPath
+    $beforeLanes = Get-OptionalPropertyValue $beforeReplacement "lanes"
+    $beforeLane = if ($beforeLanes) { Get-OptionalPropertyValue $beforeLanes "lane-1" } else { $null }
+    if (-not $beforeLane) { throw "P3_LIVE_INITIAL_REGISTRY_MISSING" }
+
+    $oldTaskId = [string](Get-OptionalPropertyValue $beforeLane "task_id")
+    $oldDirectiveDigest = [string](Get-OptionalPropertyValue $beforeLane "last_brain_directive_digest")
+    $oldInstructionDigest = [string](Get-OptionalPropertyValue $beforeLane "instruction_digest")
+    $oldGeneration = [int](Get-OptionalPropertyValue $beforeLane "work_generation")
+    $oldDispatchId = [string](Get-OptionalPropertyValue $beforeLane "last_dispatch_id")
+    if (
+      [string]::IsNullOrWhiteSpace($oldTaskId) -or
+      [string]::IsNullOrWhiteSpace($oldDirectiveDigest) -or
+      [string]::IsNullOrWhiteSpace($oldInstructionDigest) -or
+      [string]::IsNullOrWhiteSpace($oldDispatchId)
+    ) {
+      throw "P3_LIVE_INITIAL_TASK_IDENTITY_INCOMPLETE"
+    }
+
+    $missingWorkUrl = "https://chatgpt.com/c/00000000-0000-0000-0000-000000000000"
+    $beforeLane.work_url = $missingWorkUrl
+    $beforeLane.awaiting_work = $true
+    $beforeLane.dispatch_inflight = $null
+    $beforeLane.relay_inflight = $null
+    $beforeLane.work_rollover = $null
+    $beforeLane.work_target_health = $null
+    Write-JsonFile $registryPath $beforeReplacement
+    Write-Host "LIVE_P3_UNUSABLE_TARGET_INJECTED=True"
+    Write-Host "LIVE_P3_OLD_GENERATION=$oldGeneration"
+
+    $testNode = Start-Process -FilePath "node.exe" -ArgumentList @(
+      $runtimeCli,"--cdp-url",$env:P2_CDP_URL,"--poll-ms","5000","--execute"
+    ) -PassThru -RedirectStandardOutput $nodeOut -RedirectStandardError $nodeErr
+
+    $replacementReached = $false
+    for ($i=0; $i -lt 180; $i++) {
+      Start-Sleep -Seconds 1
+      if ($testNode.HasExited) { break }
+      $replacementRegistry = Read-JsonSafe $registryPath
+      $replacementLanes = Get-OptionalPropertyValue $replacementRegistry "lanes"
+      $replacementLane = if ($replacementLanes) { Get-OptionalPropertyValue $replacementLanes "lane-1" } else { $null }
+      if (-not $replacementLane) { continue }
+
+      $newUrl = [string](Get-OptionalPropertyValue $replacementLane "work_url")
+      $newGeneration = [int](Get-OptionalPropertyValue $replacementLane "work_generation")
+      $rollover = Get-OptionalPropertyValue $replacementLane "work_rollover"
+      $rolloverStage = if ($rollover) { [string](Get-OptionalPropertyValue $rollover "stage") } else { "" }
+      if (
+        $newGeneration -eq ($oldGeneration + 1) -and
+        -not [string]::IsNullOrWhiteSpace($newUrl) -and
+        $newUrl -ne $missingWorkUrl -and
+        (
+          $rolloverStage -eq "DISPATCH_CONFIRMED" -or
+          [bool](Get-OptionalPropertyValue $replacementLane "awaiting_work")
+        )
+      ) {
+        $replacementReached = $true
+        break
+      }
+    }
+
+    if (-not $replacementReached) {
+      throw "P3_LIVE_REPLACEMENT_NOT_REACHED"
+    }
+
+    $afterReplacement = Read-JsonSafe $registryPath
+    $afterLanes = Get-OptionalPropertyValue $afterReplacement "lanes"
+    $afterLane = Get-OptionalPropertyValue $afterLanes "lane-1"
+    $newUrl = [string](Get-OptionalPropertyValue $afterLane "work_url")
+    $newGeneration = [int](Get-OptionalPropertyValue $afterLane "work_generation")
+    $newTaskId = [string](Get-OptionalPropertyValue $afterLane "task_id")
+    $newDirectiveDigest = [string](Get-OptionalPropertyValue $afterLane "last_brain_directive_digest")
+    $newInstructionDigest = [string](Get-OptionalPropertyValue $afterLane "instruction_digest")
+    $newDispatchId = [string](Get-OptionalPropertyValue $afterLane "last_dispatch_id")
+
+    if ($newTaskId -ne $oldTaskId) { throw "P3_LIVE_TASK_ID_CHANGED" }
+    if ($newDirectiveDigest -ne $oldDirectiveDigest) { throw "P3_LIVE_DIRECTIVE_DIGEST_CHANGED" }
+    if ($newInstructionDigest -ne $oldInstructionDigest) { throw "P3_LIVE_INSTRUCTION_DIGEST_CHANGED" }
+    if ($newGeneration -ne ($oldGeneration + 1)) { throw "P3_LIVE_GENERATION_NOT_INCREMENTED_ONCE" }
+    if ([string]::IsNullOrWhiteSpace($newUrl) -or $newUrl -eq $missingWorkUrl) {
+      throw "P3_LIVE_REPLACEMENT_TARGET_NOT_PERSISTED"
+    }
+    if ($newUrl -notmatch '^https://chatgpt\.com/c/') {
+      throw "P3_LIVE_REPLACEMENT_TARGET_NOT_CANONICAL"
+    }
+    if ($newDispatchId -ne $oldDispatchId) {
+      throw "P3_LIVE_DISPATCH_IDENTITY_CHANGED"
+    }
+
+    Write-Host "LIVE_P3_TASK_ID_PRESERVED=True"
+    Write-Host "LIVE_P3_DIRECTIVE_DIGEST_PRESERVED=True"
+    Write-Host "LIVE_P3_INSTRUCTION_DIGEST_PRESERVED=True"
+    Write-Host "LIVE_P3_GENERATION_INCREMENT_EXACTLY_ONCE=True"
+    Write-Host "LIVE_P3_REPLACEMENT_TARGET_PERSISTED=True"
+    Write-Host "LIVE_P3_CANONICAL_C_TARGET=True"
+    Write-Host "LIVE_P3_DISPATCH_IDENTITY_PRESERVED=True"
+    Write-Host "LIVE_P3_WORK_REPLACEMENT_ACCEPTANCE=PASS"
+  }
+
   if ($testNode -and -not $testNode.HasExited) {
     Stop-Process -Id $testNode.Id -Force -ErrorAction SilentlyContinue
     $testNode.WaitForExit()
@@ -497,9 +606,11 @@ try {
   $testNode = $null
   $env:LOCALAPPDATA = $savedLocalAppData
 
-  $env:P2_TEMP_STATE_ROOT = $tempRoot
-  & node "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-p2-live-isolated-evidence.mjs"
-  if ($LASTEXITCODE -ne 0) { throw "P2_LIVE_EVIDENCE_FAILED" }
+  if (-not $p3ReplacementMode) {
+    $env:P2_TEMP_STATE_ROOT = $tempRoot
+    & node "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-p2-live-isolated-evidence.mjs"
+    if ($LASTEXITCODE -ne 0) { throw "P2_LIVE_EVIDENCE_FAILED" }
+  }
 
   $productionConfigHashAfterTest = (Get-FileHash $configFile -Algorithm SHA256).Hash
   $productionRegistryHashAfterTest = (Get-FileHash $registryFile -Algorithm SHA256).Hash
@@ -588,4 +699,9 @@ if ($restoreError) { throw $restoreError }
 if (-not $acceptancePassed) { throw "P2_LIVE_ACCEPTANCE_FAILED" }
 Write-Host "LIVE_P2_RATE_LIMIT_DETECTED=False"
 Write-Host "LIVE_P2_ISOLATED_PRODUCTION_STATE=True"
-Write-Host "LIVE_P2_ACCEPTANCE=PASS"
+if ($p3ReplacementMode) {
+  Write-Host "LIVE_P3_PRODUCTION_STATE_UNCHANGED=True"
+  Write-Host "LIVE_P3_ACCEPTANCE=PASS"
+} else {
+  Write-Host "LIVE_P2_ACCEPTANCE=PASS"
+}
