@@ -1,3 +1,4 @@
 SUP-SELFHEAL-P3-LIVE-WORK-REPLACEMENT
 single_attempt=true
 runner=DESKTOP-H4A16IL
+diagnostic=bounded-sanitized-v1
