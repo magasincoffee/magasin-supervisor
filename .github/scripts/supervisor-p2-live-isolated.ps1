@@ -531,28 +531,51 @@ finally {
 
   try {
     $env:SUPERVISOR_STATE_ROOT = $root
-    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $startScript -Hidden -Recovery
-    if ($LASTEXITCODE -ne 0) { throw "recovery start failed" }
+    $productionConfig = Read-JsonSafe $configFile
+    $enabledLaneCount = @(
+      @(Get-OptionalPropertyValue $productionConfig "lanes") |
+        Where-Object { [bool](Get-OptionalPropertyValue $_ "enabled") }
+    ).Count
 
-    $restored = $false
-    for ($i=0; $i -lt 60; $i++) {
-      Start-Sleep -Seconds 1
-      $wrapper = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -and $_.CommandLine -like "*run-supervisor.ps1*" -and $_.CommandLine -like "*$root*" } |
-        Select-Object -First 1
-      $threeLane = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -and $_.CommandLine -like "*three-lane-cli.mjs*" } |
-        Select-Object -First 1
-      $robotChrome = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -and $_.CommandLine -like "*$profile*" -and $_.CommandLine -match '--remote-debugging-port=(\d+)' } |
-        Select-Object -First 1
-      if ($wrapper -and $threeLane -and $robotChrome) {
-        $restored = $true
-        break
+    if ($enabledLaneCount -lt 1) {
+      # Production was intentionally stopped before the isolated acceptance.
+      # Recovery must preserve that state and must not manufacture a runtime.
+      Write-Host "LIVE_P2_PRODUCTION_RUNTIME_RESTORE_SKIPPED_ALL_LANES_DISABLED=True"
+    } else {
+      $recovery = Start-Process -FilePath "powershell.exe" -PassThru -ArgumentList @(
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy","Bypass",
+        "-File",('"' + $startScript + '"'),
+        "-Hidden",
+        "-Recovery"
+      )
+      if (-not $recovery.WaitForExit(15000)) {
+        Stop-Process -Id $recovery.Id -Force -ErrorAction SilentlyContinue
+        throw "P2_LIVE_RECOVERY_START_TIMEOUT"
       }
+      if ($recovery.ExitCode -ne 0) { throw "recovery start failed" }
+
+      $restored = $false
+      for ($i=0; $i -lt 30; $i++) {
+        Start-Sleep -Seconds 1
+        $wrapper = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+          Where-Object { $_.CommandLine -and $_.CommandLine -like "*run-supervisor.ps1*" -and $_.CommandLine -like "*$root*" } |
+          Select-Object -First 1
+        $threeLane = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+          Where-Object { $_.CommandLine -and $_.CommandLine -like "*three-lane-cli.mjs*" } |
+          Select-Object -First 1
+        $robotChrome = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
+          Where-Object { $_.CommandLine -and $_.CommandLine -like "*$profile*" -and $_.CommandLine -match '--remote-debugging-port=(\d+)' } |
+          Select-Object -First 1
+        if ($wrapper -and $threeLane -and $robotChrome) {
+          $restored = $true
+          break
+        }
+      }
+      if (-not $restored) { throw "P2_LIVE_PRODUCTION_RUNTIME_NOT_RESTORED" }
+      Write-Host "LIVE_P2_PRODUCTION_RUNTIME_RESTORED=True"
     }
-    if (-not $restored) { throw "P2_LIVE_PRODUCTION_RUNTIME_NOT_RESTORED" }
-    Write-Host "LIVE_P2_PRODUCTION_RUNTIME_RESTORED=True"
   } catch {
     $restoreError = $_.Exception.Message
   }
