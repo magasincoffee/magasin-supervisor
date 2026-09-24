@@ -117,6 +117,8 @@ try {
   }
 
   await persistFixture(page, directive, false);
+  await adapter.close().catch(() => {});
+  process.exit(0);
 } finally {
   await adapter.close().catch(() => {});
 }
