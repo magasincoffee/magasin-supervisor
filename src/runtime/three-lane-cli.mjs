@@ -1827,10 +1827,11 @@ async function primeBlankWorkConversation({
     `lane_id=${lane.lane_id}`,
     `generation=${expectedGeneration}`
   ].join(" ");
+  const readyText = "MAGASIN_WORK_READY";
   const body = [
     marker,
     "Initialize this Work conversation only.",
-    "Reply exactly MAGASIN_WORK_READY.",
+    `Reply exactly ${readyText}.`,
     "Do not execute any business task from this bootstrap message."
   ].join("\n");
 
@@ -1855,15 +1856,37 @@ async function primeBlankWorkConversation({
     throw error;
   }
 
-  const identityDeadline = Date.now() + 45_000;
+  // ChatGPT can expose /c/WEB:<uuid> before the first assistant turn has been
+  // durably committed. Do not canonical-reload that transient route early.
+  const responseDeadline = Date.now() + 90_000;
+  let bootstrapReady = false;
+  while (Date.now() <= responseDeadline) {
+    await assertPageNotRateLimited(page);
+    const probe = await adapter.probePage(page).catch(() => null);
+    if (probe && !probe.snapshot?.responseRunning) {
+      const captured = await captureCompletedAssistantTurn(page).catch(() => null);
+      if (captured?.text?.trim() === readyText) {
+        bootstrapReady = true;
+        break;
+      }
+    }
+    await delay(500);
+  }
+  if (!bootstrapReady) {
+    const error = new Error("AUTO_WORK_BOOTSTRAP_RESPONSE_NOT_CONFIRMED");
+    error.code = "AUTO_WORK_BOOTSTRAP_RESPONSE_NOT_CONFIRMED";
+    throw error;
+  }
+
+  const identityDeadline = Date.now() + 15_000;
   let target = null;
   while (Date.now() <= identityDeadline) {
     await assertPageNotRateLimited(page);
     try {
       target = targetFromUrl(page.url());
-      break;
+      if (target.pathname.startsWith("/c/")) break;
     } catch {}
-    await delay(500);
+    await delay(250);
   }
   if (!target || !target.pathname.startsWith("/c/")) {
     const error = new Error("AUTO_WORK_BOOTSTRAP_CONVERSATION_NOT_CONFIRMED");
@@ -1879,9 +1902,13 @@ async function primeBlankWorkConversation({
     });
     await page.waitForTimeout(800);
     await assertPageNotRateLimited(page);
+
+    const markerStillPresent = await hasUserTurnMarker(page, marker);
+    const captured = await captureCompletedAssistantTurn(page).catch(() => null);
     if (
       !isPersistableConversationUrl(String(page.url())) ||
-      !await hasUserTurnMarker(page, marker)
+      !markerStillPresent ||
+      captured?.text?.trim() !== readyText
     ) {
       const error = new Error("AUTO_WORK_BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED");
       error.code = "AUTO_WORK_BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED";
