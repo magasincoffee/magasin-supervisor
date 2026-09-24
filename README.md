@@ -1,5 +1,11 @@
 > **Canonical migration state:** MIG-005 production cutover is complete with one new-machine ownership authority in `ALL_DISABLED_QUIESCENT` mode. MIG-006 qualified the final RBT-009 Tier B on workflow run `35860156388` / job `107180300345`; the qualification did not start the production runtime or mutate production targets/latches.
 
+Current machine-readable Source of Truth:
+
+`docs/MIG_006_RBT009_CANONICAL_CLOSURE.json`
+
+The earlier MIG-005 cutover manifest, MIG-006 release request, and MIG-006 pre-run manifest are retained as historical snapshots. Their pre-activation/pre-run values such as `production_cutover=false`, `PENDING`, `NOT_STARTED`, and `NOT_RUN` are not current canonical state.
+
 # MAGASIN Supervisor
 
 Production local autonomy runtime for MAGASIN Business OS.
