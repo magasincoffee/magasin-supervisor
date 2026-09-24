@@ -306,6 +306,51 @@ try {
     Write-Host "LIVE_P2_DIAG_TARGET_PERSISTED_COUNT=$targetPersisted"
     Write-Host "LIVE_P2_DIAG_CREATE_ERROR_COUNT=$createErrors"
     Write-Host "LIVE_P2_DIAG_CREATE_AMBIGUOUS_COUNT=$ambiguous"
+
+    $brainAdopted = 0
+    $brainRequestSent = 0
+    $brainSendPending = 0
+    $brainAdoptionBlocked = @{}
+    $laneErrorCount = 0
+    $laneErrorNames = @{}
+    if (Test-Path $safeLog) {
+      foreach ($line in Get-Content $safeLog -Encoding UTF8) {
+        try { $event = $line | ConvertFrom-Json } catch { continue }
+        switch ([string]$event.type) {
+          "LANE_BRAIN_DIRECTIVE_ADOPTED" { $brainAdopted += 1 }
+          "LANE_BRAIN_REQUEST_SENT" { $brainRequestSent += 1 }
+          "LANE_BRAIN_SEND_PENDING_CONFIRMATION" { $brainSendPending += 1 }
+          "LANE_BRAIN_DIRECTIVE_ADOPTION_BLOCKED" {
+            $reason = [string]$event.reasonCode
+            if ([string]::IsNullOrWhiteSpace($reason)) { $reason = "UNKNOWN" }
+            if (-not $brainAdoptionBlocked.ContainsKey($reason)) { $brainAdoptionBlocked[$reason] = 0 }
+            $brainAdoptionBlocked[$reason] += 1
+          }
+          "LANE_ERROR" {
+            $laneErrorCount += 1
+            $name = [string]$event.errorName
+            if ([string]::IsNullOrWhiteSpace($name)) { $name = "UNKNOWN" }
+            if (-not $laneErrorNames.ContainsKey($name)) { $laneErrorNames[$name] = 0 }
+            $laneErrorNames[$name] += 1
+          }
+        }
+      }
+    }
+    Write-Host "LIVE_P2_DIAG_BRAIN_DIRECTIVE_ADOPTED_COUNT=$brainAdopted"
+    Write-Host "LIVE_P2_DIAG_BRAIN_REQUEST_SENT_COUNT=$brainRequestSent"
+    Write-Host "LIVE_P2_DIAG_BRAIN_SEND_PENDING_COUNT=$brainSendPending"
+    foreach ($reason in @($brainAdoptionBlocked.Keys | Sort-Object)) {
+      Write-Host ("LIVE_P2_DIAG_BRAIN_ADOPTION_BLOCKED_" + $reason + "=" + $brainAdoptionBlocked[$reason])
+    }
+    Write-Host "LIVE_P2_DIAG_LANE_ERROR_COUNT=$laneErrorCount"
+    foreach ($name in @($laneErrorNames.Keys | Sort-Object)) {
+      Write-Host ("LIVE_P2_DIAG_LANE_ERROR_" + $name + "=" + $laneErrorNames[$name])
+    }
+
+    $status = Read-JsonSafe (Join-Path $tempRoot "lane-status.json")
+    $statusLane = @($status.lanes | Where-Object { [string]$_.lane_id -eq "lane-1" }) | Select-Object -First 1
+    Write-Host "LIVE_P2_DIAG_LANE_STATUS=$(if ($statusLane) { [string]$statusLane.status } else { "MISSING" })"
+    Write-Host "LIVE_P2_DIAG_LANE_ERROR_NAME=$(if ($statusLane -and $statusLane.error_name) { [string]$statusLane.error_name } else { "NONE" })"
     throw "P2_LIVE_RUNTIME_ACCEPTANCE_NOT_REACHED"
   }
 
