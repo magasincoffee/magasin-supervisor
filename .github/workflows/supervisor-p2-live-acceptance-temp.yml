@@ -25,6 +25,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Initialize sanitized P2 diagnostic
+        shell: powershell
+        run: |
+          $diag = Join-Path $env:RUNNER_TEMP "magasin-p2-live-sanitized-summary.txt"
+          Set-Content -LiteralPath $diag -Value "LIVE_P2_DIAGNOSTIC_INITIALIZED=True" -Encoding ascii
+
       - name: Enforce canonical H4A16IL runner identity
         shell: cmd
         run: |
@@ -45,5 +51,32 @@ jobs:
 
       - name: Run isolated P2 AUTO Work live acceptance
         if: ${{ env.P2_LIVE_ENABLED == 'true' }}
-        shell: cmd
-        run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-p2-live-launcher.ps1"
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          $diag = Join-Path $env:RUNNER_TEMP "magasin-p2-live-sanitized-summary.txt"
+          $lines = @(& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-p2-live-launcher.ps1" 2>&1 | ForEach-Object { [string]$_ })
+          $code = $LASTEXITCODE
+          foreach ($line in $lines) { Write-Host $line }
+
+          $safe = New-Object System.Collections.Generic.List[string]
+          $safe.Add("LIVE_P2_LAUNCH_EXIT_CODE=$code")
+          foreach ($line in $lines) {
+            foreach ($match in [regex]::Matches($line,'LIVE_P2_[A-Z0-9_]+=[A-Za-z0-9_.-]+')) {
+              $safe.Add([string]$match.Value)
+            }
+            foreach ($match in [regex]::Matches($line,'(?<![A-Z0-9_])P2_LIVE_[A-Z0-9_]+')) {
+              $safe.Add("LIVE_P2_TERMINAL_TOKEN=$([string]$match.Value)")
+            }
+          }
+          $safe | Select-Object -Unique | Add-Content -LiteralPath $diag -Encoding ascii
+          exit $code
+
+      - name: Upload sanitized P2 diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2-live-sanitized-${{ github.run_id }}
+          path: ${{ runner.temp }}\magasin-p2-live-sanitized-summary.txt
+          if-no-files-found: error
+          retention-days: 1
