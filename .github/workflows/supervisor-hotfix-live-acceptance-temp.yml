@@ -21,7 +21,7 @@ permissions:
 
 concurrency:
   group: supervisor-hotfix-live-acceptance-temp
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   install-and-observe:
