@@ -94,6 +94,7 @@ import {
   workCapacitySignalsFromSnapshot
 } from "./work-capacity.mjs";
 import {
+  WORK_ROLLOVER_REASONS,
   WORK_ROLLOVER_STAGES,
   beginWorkRollover,
   markBlankTargetCreating,
@@ -1456,6 +1457,120 @@ async function findWorkConversationForLatch(adapter, latch) {
   return unique.size === 1 ? [...unique.values()][0] : null;
 }
 
+async function recoverActiveWorkDirective(brainPage, registryLane) {
+  if (!brainPage || !registryLane?.task_id || !registryLane?.last_brain_directive_digest) {
+    return null;
+  }
+
+  const turns = await captureRecentConversationTurns(brainPage, { limit: 40 })
+    .catch(() => []);
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index];
+    if (turn.role !== "assistant") continue;
+
+    let directive = null;
+    try {
+      directive = parseLaneDirective(turn.text);
+    } catch {
+      continue;
+    }
+    if (
+      directive.action !== "WORK" ||
+      directive.task_id !== registryLane.task_id ||
+      directive.digest !== registryLane.last_brain_directive_digest ||
+      directive.instruction_digest !== registryLane.instruction_digest
+    ) {
+      continue;
+    }
+
+    const newerUserTurn = turns
+      .slice(index + 1)
+      .some((item) => item.role === "user");
+    if (newerUserTurn) return null;
+    return directive;
+  }
+  return null;
+}
+
+function activeReplacementRollover(registryLane) {
+  const rollover = normalizeWorkRollover(registryLane?.work_rollover);
+  if (!rollover) return null;
+  return [
+    WORK_ROLLOVER_REASONS.UNUSABLE_TARGET,
+    WORK_ROLLOVER_REASONS.POSSIBLY_STALLED,
+    WORK_ROLLOVER_REASONS.IDENTITY_FAILURE
+  ].includes(rollover.reason)
+    ? rollover
+    : null;
+}
+
+async function beginActiveWorkReplacement({
+  lane,
+  registryLane,
+  directive,
+  reason,
+  evidenceCode,
+  registry,
+  registryPath,
+  logPath
+}) {
+  if (!registryLane.awaiting_work || registryLane.relay_inflight) {
+    return { status: "UNSAFE_BOUNDARY" };
+  }
+  if (
+    !directive ||
+    directive.action !== "WORK" ||
+    directive.task_id !== registryLane.task_id ||
+    directive.digest !== registryLane.last_brain_directive_digest ||
+    directive.instruction_digest !== registryLane.instruction_digest
+  ) {
+    return { status: "DIRECTIVE_IDENTITY_UNAVAILABLE" };
+  }
+
+  const existing = normalizeWorkRollover(registryLane.work_rollover);
+  if (existing) {
+    return rolloverMatchesDirective(existing, directive)
+      ? { status: "EXISTING", rollover: existing }
+      : { status: "IDENTITY_MISMATCH" };
+  }
+
+  registryLane.work_rollover = beginWorkRollover({
+    reason,
+    taskId: directive.task_id,
+    directiveDigest: directive.digest,
+    directiveInstructionDigest: directive.instruction_digest,
+    oldWorkGeneration: Number(registryLane.work_generation || 0),
+    oldWorkUrlRevision: Number(registryLane.applied_work_url_revision || 0),
+    oldWorkTargetDigest: registryLane.work_url
+      ? sha256(registryLane.work_url)
+      : null,
+    capacityEvidenceCodes: evidenceCode ? [evidenceCode] : [],
+    at: new Date().toISOString()
+  });
+  await atomicJsonWrite(registryPath, registry);
+  await emitLaneEvent({
+    lane_id: lane.lane_id,
+    actor: "SUPERVISOR",
+    event_type: LANE_EVENT_TYPES.WORK_ROLLOVER_INTENT,
+    task_id: directive.task_id,
+    phase: "ROLLOVER",
+    reason_code: "ROLLOVER_INTENT_PERSISTED",
+    work_generation: Number(registryLane.work_generation || 0),
+    work_url_revision: Number(registryLane.applied_work_url_revision || 0)
+  });
+  await safeLog(logPath, {
+    type: "LANE_WORK_REPLACEMENT_INTENT",
+    laneId: lane.lane_id,
+    taskId: directive.task_id,
+    digest: directive.digest,
+    reasonCode: String(evidenceCode || reason)
+  });
+  return {
+    status: "STARTED",
+    rollover: normalizeWorkRollover(registryLane.work_rollover)
+  };
+}
+
 async function findBrainDirectiveForLatch(brainPage, latch, currentDirective = null) {
   if (
     currentDirective &&
@@ -1980,9 +2095,20 @@ async function dispatchWork({
   stopPath = null,
   configPath = null
 }) {
-  if (registryLane.awaiting_work || registryLane.relay_inflight) {
+  let rollover = normalizeWorkRollover(registryLane.work_rollover);
+  const activeReplacement = activeReplacementRollover(registryLane);
+  const replacementContinuation = Boolean(
+    registryLane.awaiting_work &&
+    activeReplacement &&
+    rolloverMatchesDirective(activeReplacement, directive) &&
+    registryLane.task_id === directive.task_id &&
+    registryLane.instruction_digest === directive.instruction_digest
+  );
+
+  if (registryLane.relay_inflight || (registryLane.awaiting_work && !replacementContinuation)) {
     if (
       registryLane.awaiting_work &&
+      !registryLane.relay_inflight &&
       registryLane.task_id === directive.task_id &&
       registryLane.instruction_digest === directive.instruction_digest
     ) {
@@ -1991,7 +2117,6 @@ async function dispatchWork({
     throw new Error("Brain issued a new task while the previous Work result is unresolved");
   }
 
-  let rollover = normalizeWorkRollover(registryLane.work_rollover);
   if (rollover && !rolloverMatchesDirective(rollover, directive)) {
     throw new Error("Work rollover directive identity mismatch; fail-closed");
   }
@@ -4085,7 +4210,9 @@ async function processLaneTurn({
 
   if (
     registryLane.work_url &&
-    currentTargetIsQuarantined(registryLane, { brain: false })
+    currentTargetIsQuarantined(registryLane, { brain: false }) &&
+    !registryLane.awaiting_work &&
+    !activeReplacementRollover(registryLane)
   ) {
     return laneStatus(
       lane,
@@ -4115,7 +4242,49 @@ async function processLaneTurn({
     return brainPage;
   };
 
-  const relayRearmRevision = Number(lane.relay_retry_rearm_revision || 0);
+  const replacementRollover = activeReplacementRollover(registryLane);
+  if (
+    replacementRollover &&
+    replacementRollover.stage !== WORK_ROLLOVER_STAGES.DISPATCH_CONFIRMED
+  ) {
+    await ensureBrainPage();
+    const replacementDirective = await recoverActiveWorkDirective(
+      brainPage,
+      registryLane
+    );
+    if (!replacementDirective) {
+      return laneStatus(
+        lane,
+        registryLane,
+        "WAIT_OWNER",
+        "Không thể khôi phục exact Brain directive cho Work replacement; giữ nguyên task và không tạo/gửi Work mới."
+      );
+    }
+    await dispatchWork({
+      adapter,
+      lane,
+      registryLane,
+      directive: replacementDirective,
+      execute,
+      registry,
+      registryPath,
+      logPath,
+      scheduler,
+      stopPath,
+      configPath
+    });
+    const afterReplacement = normalizeWorkRollover(registryLane.work_rollover);
+    return laneStatus(
+      lane,
+      registryLane,
+      afterReplacement?.stage === WORK_ROLLOVER_STAGES.DISPATCH_CONFIRMED
+        ? "WORKING"
+        : "RECOVERING",
+      "Đang thay Work không dùng được bằng target mới, giữ nguyên exact task identity."
+    );
+  }
+
+    const relayRearmRevision = Number(lane.relay_retry_rearm_revision || 0);
   const appliedRelayRearmRevision = Number(
     registryLane.applied_relay_retry_rearm_revision || 0
   );
@@ -4260,16 +4429,77 @@ async function processLaneTurn({
       throw new Error("Work URL is missing while a result is pending");
     }
 
-    const workPage = await openExactConversation(adapter, registryLane.work_url, {
-      brain: false,
-      scheduler,
-      laneId: lane.lane_id,
-      targetRevision: Number(registryLane.applied_work_url_revision || 0),
-      generation: Number(registryLane.work_generation || 0),
-      registryLane,
-      registry,
-      registryPath
-    });
+    let workPage = null;
+    try {
+      workPage = await openExactConversation(adapter, registryLane.work_url, {
+        brain: false,
+        scheduler,
+        laneId: lane.lane_id,
+        targetRevision: Number(registryLane.applied_work_url_revision || 0),
+        generation: Number(registryLane.work_generation || 0),
+        registryLane,
+        registry,
+        registryPath
+      });
+    } catch (error) {
+      if (!currentTargetIsQuarantined(registryLane, { brain: false })) {
+        throw error;
+      }
+
+      await ensureBrainPage();
+      const replacementDirective = await recoverActiveWorkDirective(
+        brainPage,
+        registryLane
+      );
+      if (!replacementDirective) {
+        return laneStatus(
+          lane,
+          registryLane,
+          "WAIT_OWNER",
+          "Work đã được xác nhận không dùng được nhưng exact Brain directive không còn đủ bằng chứng để tự thay Work."
+        );
+      }
+      const reasonCode = String(
+        registryLane.work_target_health?.reason_code || "TARGET_QUARANTINED"
+      );
+      const replacement = await beginActiveWorkReplacement({
+        lane,
+        registryLane,
+        directive: replacementDirective,
+        reason: WORK_ROLLOVER_REASONS.UNUSABLE_TARGET,
+        evidenceCode: reasonCode,
+        registry,
+        registryPath,
+        logPath
+      });
+      if (replacement.status === "IDENTITY_MISMATCH") {
+        return laneStatus(
+          lane,
+          registryLane,
+          "WAIT_OWNER",
+          "Work replacement bị chặn vì durable task identity không còn khớp."
+        );
+      }
+      await dispatchWork({
+        adapter,
+        lane,
+        registryLane,
+        directive: replacementDirective,
+        execute,
+        registry,
+        registryPath,
+        logPath,
+        scheduler,
+        stopPath,
+        configPath
+      });
+      return laneStatus(
+        lane,
+        registryLane,
+        "RECOVERING",
+        "Work cũ đã được xác nhận không dùng được; rollover intent đã persist và Robot đang tạo Work thay thế."
+      );
+    }
     const workProbe = await assertConversationSafe(adapter, workPage, {
       brain: false,
       allowFull: true
@@ -4390,11 +4620,60 @@ async function processLaneTurn({
     }
 
     if (watchdogDecision.decision === WORK_WATCHDOG_DECISIONS.POSSIBLY_STALLED) {
+      await ensureBrainPage();
+      const replacementDirective = await recoverActiveWorkDirective(
+        brainPage,
+        registryLane
+      );
+      if (!replacementDirective) {
+        return laneStatus(
+          lane,
+          registryLane,
+          "POSSIBLY_STALLED",
+          "Work có thể đã stalled sau bounded recovery nhưng exact Brain directive không đủ bằng chứng để tự thay Work.",
+          {
+            watchdog_phase: registryLane.work_watchdog.phase,
+            task_elapsed_ms: watchdogDecision.elapsed_ms,
+            last_activity_at: timing.last_activity_at
+          }
+        );
+      }
+      const replacement = await beginActiveWorkReplacement({
+        lane,
+        registryLane,
+        directive: replacementDirective,
+        reason: WORK_ROLLOVER_REASONS.POSSIBLY_STALLED,
+        evidenceCode: watchdogDecision.reason_code || "WATCHDOG_NO_PROGRESS_AFTER_RELOAD",
+        registry,
+        registryPath,
+        logPath
+      });
+      if (replacement.status === "IDENTITY_MISMATCH") {
+        return laneStatus(
+          lane,
+          registryLane,
+          "WAIT_OWNER",
+          "Watchdog replacement bị chặn vì durable task identity không khớp."
+        );
+      }
+      await dispatchWork({
+        adapter,
+        lane,
+        registryLane,
+        directive: replacementDirective,
+        execute,
+        registry,
+        registryPath,
+        logPath,
+        scheduler,
+        stopPath,
+        configPath
+      });
       return laneStatus(
         lane,
         registryLane,
-        "POSSIBLY_STALLED",
-        "Work có thể đã stalled sau bounded recovery. Robot giữ nguyên task/target/latches và không reload lần hai.",
+        "RECOVERING",
+        "Work stalled đã qua bounded recovery; rollover intent đã persist và cùng task đang được chuyển sang Work mới.",
         {
           watchdog_phase: registryLane.work_watchdog.phase,
           task_elapsed_ms: watchdogDecision.elapsed_ms,
