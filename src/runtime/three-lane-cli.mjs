@@ -1827,11 +1827,10 @@ async function primeBlankWorkConversation({
     `lane_id=${lane.lane_id}`,
     `generation=${expectedGeneration}`
   ].join(" ");
-  const readyText = "MAGASIN_WORK_READY";
   const body = [
     marker,
     "Initialize this Work conversation only.",
-    `Reply exactly ${readyText}.`,
+    "Reply exactly MAGASIN_WORK_READY.",
     "Do not execute any business task from this bootstrap message."
   ].join("\n");
 
@@ -1856,71 +1855,66 @@ async function primeBlankWorkConversation({
     throw error;
   }
 
-  // ChatGPT can expose /c/WEB:<uuid> before the first assistant turn has been
-  // durably committed. Do not canonical-reload that transient route early.
-  const responseDeadline = Date.now() + 90_000;
-  let bootstrapReady = false;
-  while (Date.now() <= responseDeadline) {
+  // The durable acceptance condition is the canonical conversation identity,
+  // not the model's bootstrap reply text. A new ChatGPT thread may remain on
+  // /c/WEB:<uuid> while the server has already published its canonical /c/<id>
+  // link in the conversation list.
+  const identityDeadline = Date.now() + 90_000;
+  let canonicalUrl = null;
+  while (Date.now() <= identityDeadline) {
     await assertPageNotRateLimited(page);
-    const probe = await adapter.probePage(page).catch(() => null);
-    if (
-      probe &&
-      !probe.snapshot?.responseRunning &&
-      Number(probe.snapshot?.assistantMessageCount || 0) > 0 &&
-      probe.classification?.observation === OBSERVATIONS.RESPONSE_COMPLETE
-    ) {
-      const captured = await captureCompletedAssistantTurn(page).catch(() => null);
-      if (captured?.text?.trim()) {
-        bootstrapReady = true;
+
+    if (isPersistableConversationUrl(String(page.url()))) {
+      const target = targetFromUrl(page.url());
+      canonicalUrl = `${target.origin}${target.pathname}`;
+      break;
+    }
+
+    let transientTarget = null;
+    try {
+      transientTarget = targetFromUrl(page.url());
+    } catch {}
+
+    if (transientTarget?.pathname?.startsWith("/c/")) {
+      const recentUrls = await adapter.listRecentConversationUrls(page, { limit: 20 })
+        .catch(() => []);
+      const matched = recentUrls.find((url) =>
+        isPersistableConversationUrl(String(url)) &&
+        pageMatchesTarget(String(url), transientTarget)
+      );
+      if (matched) {
+        const target = targetFromUrl(matched);
+        canonicalUrl = `${target.origin}${target.pathname}`;
         break;
       }
     }
+
     await delay(500);
   }
-  if (!bootstrapReady) {
-    const error = new Error("AUTO_WORK_BOOTSTRAP_RESPONSE_NOT_CONFIRMED");
-    error.code = "AUTO_WORK_BOOTSTRAP_RESPONSE_NOT_CONFIRMED";
+
+  if (!canonicalUrl) {
+    const error = new Error("AUTO_WORK_BOOTSTRAP_CANONICAL_IDENTITY_NOT_CONFIRMED");
+    error.code = "AUTO_WORK_BOOTSTRAP_CANONICAL_IDENTITY_NOT_CONFIRMED";
     throw error;
   }
 
-  const identityDeadline = Date.now() + 15_000;
-  let target = null;
-  while (Date.now() <= identityDeadline) {
-    await assertPageNotRateLimited(page);
-    try {
-      target = targetFromUrl(page.url());
-      if (target.pathname.startsWith("/c/")) break;
-    } catch {}
-    await delay(250);
-  }
-  if (!target || !target.pathname.startsWith("/c/")) {
-    const error = new Error("AUTO_WORK_BOOTSTRAP_CONVERSATION_NOT_CONFIRMED");
-    error.code = "AUTO_WORK_BOOTSTRAP_CONVERSATION_NOT_CONFIRMED";
-    throw error;
-  }
-
-  if (!isPersistableConversationUrl(String(page.url()))) {
-    const canonicalUrl = `${target.origin}${target.pathname}`;
+  if (!pageMatchesTarget(page.url(), targetFromUrl(canonicalUrl))) {
     await page.goto(canonicalUrl, {
       waitUntil: "domcontentloaded",
       timeout: 30_000
     });
     await page.waitForTimeout(800);
     await assertPageNotRateLimited(page);
+  }
 
-    const markerStillPresent = await hasUserTurnMarker(page, marker);
-    const canonicalProbe = await adapter.probePage(page).catch(() => null);
-    const captured = await captureCompletedAssistantTurn(page).catch(() => null);
-    if (
-      !isPersistableConversationUrl(String(page.url())) ||
-      !markerStillPresent ||
-      !captured?.text?.trim() ||
-      canonicalProbe?.classification?.observation !== OBSERVATIONS.RESPONSE_COMPLETE
-    ) {
-      const error = new Error("AUTO_WORK_BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED");
-      error.code = "AUTO_WORK_BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED";
-      throw error;
-    }
+  if (
+    !isPersistableConversationUrl(String(page.url())) ||
+    !pageMatchesTarget(page.url(), targetFromUrl(canonicalUrl)) ||
+    !await hasUserTurnMarker(page, marker)
+  ) {
+    const error = new Error("AUTO_WORK_BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED");
+    error.code = "AUTO_WORK_BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED";
+    throw error;
   }
 
   return marker;
