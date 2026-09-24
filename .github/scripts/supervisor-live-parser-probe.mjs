@@ -45,6 +45,71 @@ for (const page of pages) {
   } catch {}
   console.log("LIVE_PAGE_" + pageIndex + "_URL=" + redacted);
 
+  const uiProbe = await adapter.probePage(page).catch(() => null);
+  if (uiProbe?.snapshot) {
+    console.log("LIVE_PAGE_" + pageIndex + "_SNAPSHOT_PATH_KIND=" + String(uiProbe.snapshot.pathKind || ""));
+    console.log("LIVE_PAGE_" + pageIndex + "_SNAPSHOT_COMPOSER_READY=" + Boolean(uiProbe.snapshot.composerReady));
+    console.log("LIVE_PAGE_" + pageIndex + "_SNAPSHOT_MAIN_TEXT_CHARS=" + Number(uiProbe.snapshot.mainTextCharCount || 0));
+    console.log("LIVE_PAGE_" + pageIndex + "_SNAPSHOT_MAIN_ELEMENTS=" + Number(uiProbe.snapshot.mainElementCount || 0));
+    console.log("LIVE_PAGE_" + pageIndex + "_SNAPSHOT_ASSISTANT_COUNT=" + Number(uiProbe.snapshot.assistantMessageCount || 0));
+    console.log("LIVE_PAGE_" + pageIndex + "_SNAPSHOT_USER_COUNT=" + Number(uiProbe.snapshot.userMessageCount || 0));
+    console.log("LIVE_PAGE_" + pageIndex + "_SNAPSHOT_MAX_TURN=" + Number(uiProbe.snapshot.maxConversationTurnOrdinal || 0));
+    console.log("LIVE_PAGE_" + pageIndex + "_SNAPSHOT_LAST_ROLE=" + String(uiProbe.snapshot.lastMessageRole || ""));
+  }
+
+  const domMeta = await page.evaluate(() => {
+    const safeAttrs = (node) => ({
+      tag: String(node?.tagName || "").toLowerCase(),
+      testid: String(node?.getAttribute?.("data-testid") || ""),
+      role: String(node?.getAttribute?.("role") || ""),
+      aria: String(node?.getAttribute?.("aria-label") || "").slice(0, 80),
+      dataAuthor: String(node?.getAttribute?.("data-message-author-role") || ""),
+      className: typeof node?.className === "string" ? node.className.slice(0, 160) : "",
+      textLen: Number(String(node?.innerText || node?.textContent || "").trim().length),
+      childCount: Number(node?.children?.length || 0)
+    });
+    const turns = Array.from(document.querySelectorAll("[data-testid^='conversation-turn-']")).slice(-12);
+    const articles = Array.from(document.querySelectorAll("main article")).slice(-12);
+    const testids = Array.from(document.querySelectorAll("main [data-testid]"))
+      .filter((node) => /conversation|turn|message|assistant|user|response/i.test(String(node.getAttribute("data-testid") || "")))
+      .slice(-40);
+    return {
+      readyState: document.readyState,
+      main: document.querySelector("main") ? safeAttrs(document.querySelector("main")) : null,
+      turnCount: turns.length,
+      turns: turns.map(safeAttrs),
+      articleCount: articles.length,
+      articles: articles.map(safeAttrs),
+      interestingTestIdCount: testids.length,
+      interestingTestIds: testids.map(safeAttrs),
+      authorRoleCount: document.querySelectorAll("[data-message-author-role]").length
+    };
+  }).catch(() => null);
+
+  if (domMeta) {
+    console.log("LIVE_PAGE_" + pageIndex + "_DOM_READY=" + String(domMeta.readyState || ""));
+    console.log("LIVE_PAGE_" + pageIndex + "_DOM_AUTHOR_ROLE_COUNT=" + Number(domMeta.authorRoleCount || 0));
+    console.log("LIVE_PAGE_" + pageIndex + "_DOM_TURN_COUNT=" + Number(domMeta.turnCount || 0));
+    console.log("LIVE_PAGE_" + pageIndex + "_DOM_ARTICLE_COUNT=" + Number(domMeta.articleCount || 0));
+    console.log("LIVE_PAGE_" + pageIndex + "_DOM_INTERESTING_TESTID_COUNT=" + Number(domMeta.interestingTestIdCount || 0));
+    console.log("LIVE_PAGE_" + pageIndex + "_DOM_MAIN=" + JSON.stringify(domMeta.main || {}));
+    let metaIndex = 0;
+    for (const meta of domMeta.turns || []) {
+      metaIndex += 1;
+      console.log("LIVE_PAGE_" + pageIndex + "_DOM_TURN_" + metaIndex + "=" + JSON.stringify(meta));
+    }
+    metaIndex = 0;
+    for (const meta of domMeta.articles || []) {
+      metaIndex += 1;
+      console.log("LIVE_PAGE_" + pageIndex + "_DOM_ARTICLE_" + metaIndex + "=" + JSON.stringify(meta));
+    }
+    metaIndex = 0;
+    for (const meta of domMeta.interestingTestIds || []) {
+      metaIndex += 1;
+      console.log("LIVE_PAGE_" + pageIndex + "_DOM_TESTID_" + metaIndex + "=" + JSON.stringify(meta));
+    }
+  }
+
   const userDigests = await capture.captureUserTurnDigests(page).catch(() => []);
   console.log("LIVE_PAGE_" + pageIndex + "_USER_TURN_COUNT=" + userDigests.length);
   console.log(
