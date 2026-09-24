@@ -205,6 +205,7 @@ if (-not $chromeExe) { throw "P2_LIVE_CHROME_NOT_FOUND" }
 $tempBase = Join-Path $env:RUNNER_TEMP "magasin-p2-live-isolated"
 $tempRoot = Join-Path $tempBase "MAGASIN\BusinessOS\supervisor"
 $fixtureFile = Join-Path $env:RUNNER_TEMP "magasin-p2-live-fixture.json"
+$fixtureCacheFile = Join-Path $env:USERPROFILE ".magasin-supervisor\p2-live-fixture-cache.json"
 $nodeOut = Join-Path $env:RUNNER_TEMP "magasin-p2-live-runtime.out.log"
 $nodeErr = Join-Path $env:RUNNER_TEMP "magasin-p2-live-runtime.err.log"
 Remove-Item $tempBase -Recurse -Force -ErrorAction SilentlyContinue
@@ -259,6 +260,7 @@ try {
 
   $env:P2_CDP_URL = "http://127.0.0.1:$cdpPort"
   $env:P2_FIXTURE_FILE = $fixtureFile
+  $env:P2_FIXTURE_CACHE_FILE = $fixtureCacheFile
   & node "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-p2-live-brain-fixture.mjs"
   if ($LASTEXITCODE -eq 75) {
     Set-RateLimitCooldown
