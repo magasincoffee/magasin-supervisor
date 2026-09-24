@@ -12,11 +12,12 @@ if (!runtime || !configFile || !cdpUrl) {
 
 const config = JSON.parse(fs.readFileSync(configFile, "utf8"));
 const lane = config.lanes.find((item) => item.lane_id === "lane-1") || {};
+const sourceRoot = process.env.GITHUB_WORKSPACE || runtime;
 const three = await import(
-  pathToFileURL(path.join(runtime, "src", "runtime", "three-lane.mjs")).href
+  pathToFileURL(path.join(sourceRoot, "src", "runtime", "three-lane.mjs")).href
 );
 const capture = await import(
-  pathToFileURL(path.join(runtime, "src", "ui", "message-capture.mjs")).href
+  pathToFileURL(path.join(sourceRoot, "src", "ui", "message-capture.mjs")).href
 );
 const adapterMod = await import(
   pathToFileURL(path.join(runtime, "src", "ui", "playwright-adapter.mjs")).href
