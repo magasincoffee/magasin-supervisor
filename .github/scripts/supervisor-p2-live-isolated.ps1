@@ -26,6 +26,13 @@ function Read-JsonSafe([string]$Path) {
     return $null
   }
 }
+function Get-OptionalPropertyValue($Object,[string]$Name) {
+  if ($null -eq $Object) { return $null }
+  $property = $Object.PSObject.Properties[$Name]
+  if ($property) { return $property.Value }
+  return $null
+}
+
 function Test-CanonicalSupervisorRootCandidate([string]$Candidate) {
   try {
     if ([string]::IsNullOrWhiteSpace($Candidate)) { return $false }
@@ -352,11 +359,15 @@ try {
 
   if (-not $liveReached) {
     $diag = Read-JsonSafe (Join-Path $tempRoot "lane-registry.json")
-    $diagLane = $diag.lanes.'lane-1'
-    $diagStage = if ($diagLane -and $diagLane.work_rollover) { [string]$diagLane.work_rollover.stage } else { "" }
+    $diagLanes = Get-OptionalPropertyValue $diag "lanes"
+    $diagLane = if ($diagLanes) { Get-OptionalPropertyValue $diagLanes "lane-1" } else { $null }
+    $diagRollover = Get-OptionalPropertyValue $diagLane "work_rollover"
+    $diagStage = if ($diagRollover) { [string](Get-OptionalPropertyValue $diagRollover "stage") } else { "" }
+    $diagWorkUrl = [string](Get-OptionalPropertyValue $diagLane "work_url")
+    $diagDispatchId = [string](Get-OptionalPropertyValue $diagLane "last_dispatch_id")
     Write-Host "LIVE_P2_DIAG_ROLLOVER_STAGE=$diagStage"
-    Write-Host "LIVE_P2_DIAG_WORK_PRESENT=$([bool]($diagLane -and -not [string]::IsNullOrWhiteSpace([string]$diagLane.work_url)))"
-    Write-Host "LIVE_P2_DIAG_DISPATCH_ID_PRESENT=$([bool]($diagLane -and -not [string]::IsNullOrWhiteSpace([string]$diagLane.last_dispatch_id)))"
+    Write-Host "LIVE_P2_DIAG_WORK_PRESENT=$([bool](-not [string]::IsNullOrWhiteSpace($diagWorkUrl)))"
+    Write-Host "LIVE_P2_DIAG_DISPATCH_ID_PRESENT=$([bool](-not [string]::IsNullOrWhiteSpace($diagDispatchId)))"
     $safeLog = Join-Path $tempRoot "supervisor.log"
     $createRequested = 0
     $targetPersisted = 0
@@ -366,13 +377,14 @@ try {
     if (Test-Path $safeLog) {
       foreach ($line in Get-Content $safeLog -Encoding UTF8) {
         try { $event = $line | ConvertFrom-Json } catch { continue }
-        switch ([string]$event.type) {
+        $eventType = [string](Get-OptionalPropertyValue $event "type")
+        switch ($eventType) {
           "LANE_AUTO_WORK_CREATE_REQUESTED" { $createRequested += 1 }
           "LANE_AUTO_WORK_TARGET_PERSISTED" { $targetPersisted += 1 }
           "LANE_WORK_ROLLOVER_BLANK_CREATE_ERROR" {
             $createErrors += 1
-            $errorName = [string]$event.errorName
-            $reason = [string]$event.reason
+            $errorName = [string](Get-OptionalPropertyValue $event "errorName")
+            $reason = [string](Get-OptionalPropertyValue $event "reason")
             $class = if ($reason -match "CHATGPT_RATE_LIMITED") {
               "RATE_LIMITED"
             } elseif ($errorName -match "Timeout" -or $reason -match "Timeout") {
@@ -408,19 +420,20 @@ try {
     if (Test-Path $safeLog) {
       foreach ($line in Get-Content $safeLog -Encoding UTF8) {
         try { $event = $line | ConvertFrom-Json } catch { continue }
-        switch ([string]$event.type) {
+        $eventType = [string](Get-OptionalPropertyValue $event "type")
+        switch ($eventType) {
           "LANE_BRAIN_DIRECTIVE_ADOPTED" { $brainAdopted += 1 }
           "LANE_BRAIN_REQUEST_SENT" { $brainRequestSent += 1 }
           "LANE_BRAIN_SEND_PENDING_CONFIRMATION" { $brainSendPending += 1 }
           "LANE_BRAIN_DIRECTIVE_ADOPTION_BLOCKED" {
-            $reason = [string]$event.reasonCode
+            $reason = [string](Get-OptionalPropertyValue $event "reasonCode")
             if ([string]::IsNullOrWhiteSpace($reason)) { $reason = "UNKNOWN" }
             if (-not $brainAdoptionBlocked.ContainsKey($reason)) { $brainAdoptionBlocked[$reason] = 0 }
             $brainAdoptionBlocked[$reason] += 1
           }
           "LANE_ERROR" {
             $laneErrorCount += 1
-            $name = [string]$event.errorName
+            $name = [string](Get-OptionalPropertyValue $event "errorName")
             if ([string]::IsNullOrWhiteSpace($name)) { $name = "UNKNOWN" }
             if (-not $laneErrorNames.ContainsKey($name)) { $laneErrorNames[$name] = 0 }
             $laneErrorNames[$name] += 1
@@ -440,8 +453,16 @@ try {
     }
 
     $status = Read-JsonSafe (Join-Path $tempRoot "lane-status.json")
-    $statusLane = @($status.lanes | Where-Object { [string]$_.lane_id -eq "lane-1" }) | Select-Object -First 1
-    Write-Host "LIVE_P2_DIAG_LANE_STATUS=$(if ($statusLane) { [string]$statusLane.status } else { "MISSING" })"
+    $statusLanes = @(Get-OptionalPropertyValue $status "lanes")
+    $statusLane = @($statusLanes | Where-Object {
+      [string](Get-OptionalPropertyValue $_ "lane_id") -eq "lane-1"
+    }) | Select-Object -First 1
+    $statusLaneStatus = if ($statusLane) {
+      [string](Get-OptionalPropertyValue $statusLane "status")
+    } else {
+      "MISSING"
+    }
+    Write-Host "LIVE_P2_DIAG_LANE_STATUS=$statusLaneStatus"
     $statusLaneErrorName = "NONE"
     if ($statusLane) {
       $errorNameProperty = $statusLane.PSObject.Properties["error_name"]
