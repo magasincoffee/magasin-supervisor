@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   smoke:
+    if: ${{ false }} # TEMP: isolate P3 live acceptance
     runs-on: [self-hosted, windows, x64]
     timeout-minutes: 3
     steps:
