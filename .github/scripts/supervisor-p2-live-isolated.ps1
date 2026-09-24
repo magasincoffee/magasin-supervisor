@@ -7,8 +7,7 @@ function Read-JsonSafe([string]$Path) {
   try { return Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json } catch { return $null }
 }
 function Resolve-CanonicalSupervisorRoot {
-  $candidates = New-Object System.Collections.Generic.List[string]
-  try { $candidates.Add((Get-SupervisorStateRoot -Compatibility "legacy-preserve")) } catch {}
+  $processCandidates = New-Object System.Collections.Generic.List[string]
   foreach ($proc in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)) {
     $cmd = [string]$proc.CommandLine
     if ([string]::IsNullOrWhiteSpace($cmd)) { continue }
@@ -17,16 +16,25 @@ function Resolve-CanonicalSupervisorRoot {
       '([A-Za-z]:\\[^"]*?\\MAGASIN\\BusinessOS\\supervisor)\\browser_profile'
     )) {
       $m = [regex]::Match($cmd,$pattern,[System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
-      if ($m.Success) { $candidates.Add([string]$m.Groups[1].Value) }
+      if ($m.Success) { $processCandidates.Add([string]$m.Groups[1].Value) }
     }
   }
-  $valid = @($candidates |
+  $processRoots = @($processCandidates |
     Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
     ForEach-Object { try { [System.IO.Path]::GetFullPath($_) } catch { $null } } |
     Where-Object { $_ -and (Test-Path (Join-Path $_ "lanes.json")) -and (Test-Path (Join-Path $_ "lane-registry.json")) } |
     Select-Object -Unique)
-  if ($valid.Count -ne 1) { throw "P2_LIVE_STATE_ROOT_AMBIGUOUS_OR_MISSING" }
-  return [string]$valid[0]
+  Write-Host "LIVE_P2_PROCESS_ROOT_COUNT=$($processRoots.Count)"
+  if ($processRoots.Count -eq 1) { return [string]$processRoots[0] }
+  if ($processRoots.Count -gt 1) { throw "P2_LIVE_PROCESS_ROOT_AMBIGUOUS" }
+
+  $fallback = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
+  if ((Test-Path (Join-Path $fallback "lanes.json")) -and
+      (Test-Path (Join-Path $fallback "lane-registry.json"))) {
+    Write-Host "LIVE_P2_ROOT_FALLBACK=RUNNER_PROFILE"
+    return [System.IO.Path]::GetFullPath($fallback)
+  }
+  throw "P2_LIVE_STATE_ROOT_MISSING"
 }
 function Stop-ProcessTree([int]$ProcessId) {
   if (-not (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) { return }
