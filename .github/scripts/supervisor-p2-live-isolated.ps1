@@ -274,6 +274,7 @@ try {
   $env:P2_CDP_URL = "http://127.0.0.1:$cdpPort"
   $env:P2_FIXTURE_FILE = $fixtureFile
   $env:P2_FIXTURE_CACHE_FILE = $fixtureCacheFile
+  if ($p3ReplacementMode) { $env:P2_LIVE_FAST_FIXTURE = "true" }
   & node "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-p2-live-brain-fixture.mjs"
   if ($LASTEXITCODE -eq 75) {
     Set-RateLimitCooldown
@@ -510,6 +511,55 @@ try {
     }
     $testNode = $null
 
+    # Reassert a clean exact WORK directive for the P3 phase. The fast P2 Work
+    # can already have produced a result relay/IDLE turn by the time the harness
+    # stops the runtime, which correctly makes the prior WORK directive stale.
+    & node "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-p2-live-brain-fixture.mjs"
+    if ($LASTEXITCODE -eq 75) {
+      Set-RateLimitCooldown
+      throw "P3_LIVE_RATE_LIMITED_NON_SEMANTIC"
+    }
+    if ($LASTEXITCODE -ne 0) { throw "P3_LIVE_BRAIN_REASSERT_FAILED" }
+    $p3Fixture = Read-JsonSafe $fixtureFile
+    if (
+      -not $p3Fixture -or
+      [string]$p3Fixture.task_id -ne "SUP-SELFHEAL-P2-LIVE-FIXTURE" -or
+      [string]::IsNullOrWhiteSpace([string]$p3Fixture.brain_url)
+    ) {
+      throw "P3_LIVE_BRAIN_REASSERT_IDENTITY_INVALID"
+    }
+
+    $p3ConfigPath = Join-Path $tempRoot "lanes.json"
+    $p3Config = Read-JsonSafe $p3ConfigPath
+    $p3ConfigLane = @($p3Config.lanes | Where-Object { $_.lane_id -eq "lane-1" }) | Select-Object -First 1
+    $p3RegistryPath = Join-Path $tempRoot "lane-registry.json"
+    $p3Registry = Read-JsonSafe $p3RegistryPath
+    $p3RegistryLane = Get-OptionalPropertyValue (Get-OptionalPropertyValue $p3Registry "lanes") "lane-1"
+    if (-not $p3ConfigLane -or -not $p3RegistryLane) {
+      throw "P3_LIVE_BRAIN_REASSERT_STATE_MISSING"
+    }
+    if (
+      [string]$p3Fixture.directive_digest -ne [string](Get-OptionalPropertyValue $p3RegistryLane "last_brain_directive_digest") -or
+      [string]$p3Fixture.instruction_digest -ne [string](Get-OptionalPropertyValue $p3RegistryLane "instruction_digest")
+    ) {
+      throw "P3_LIVE_BRAIN_REASSERT_DIGEST_MISMATCH"
+    }
+    $p3BrainRevision = [Math]::Max(
+      [int](Get-OptionalPropertyValue $p3ConfigLane "brain_url_revision"),
+      [int](Get-OptionalPropertyValue $p3RegistryLane "applied_brain_url_revision")
+    ) + 1
+    $p3ConfigLane.brain_url = [string]$p3Fixture.brain_url
+    $p3ConfigLane.brain_url_revision = $p3BrainRevision
+    $p3RegistryLane.brain_url = [string]$p3Fixture.brain_url
+    $p3RegistryLane.applied_brain_url_revision = $p3BrainRevision
+    $p3RegistryLane.brain_request_inflight = $null
+    $p3RegistryLane.brain_target_health = $null
+    $p3RegistryLane.brain_directive_adopted = $null
+    $p3RegistryLane.last_result_verdict = $null
+    Write-JsonFile $p3ConfigPath $p3Config
+    Write-JsonFile $p3RegistryPath $p3Registry
+    Write-Host "LIVE_P3_BRAIN_DIRECTIVE_REASSERTED=True"
+
     # P3 evidence must be phase-local. The initial P2 bootstrap intentionally
     # creates and dispatches a Work target, so retaining those events would
     # make replacement diagnostics indistinguishable from bootstrap events.
@@ -552,13 +602,19 @@ try {
       throw "P3_LIVE_INITIAL_WORK_HEALTH_MISSING"
     }
     $storedOldTargetDigest = [string](Get-OptionalPropertyValue $oldWorkHealth "target_digest")
-    $oldTargetDigest = Get-Sha256Hex $oldWorkUrl
-    if ([string]::IsNullOrWhiteSpace($oldTargetDigest)) {
+    if ([string]::IsNullOrWhiteSpace($storedOldTargetDigest)) {
       throw "P3_LIVE_INITIAL_WORK_HEALTH_IDENTITY_MISSING"
     }
-    if ($storedOldTargetDigest -ne $oldTargetDigest) {
-      Write-Host "LIVE_P3_QUARANTINE_IDENTITY_REBASED=True"
-    }
+
+    # Exercise the real failure mode: the durable Work target points to a
+    # canonical /c/ identity that does not exist. A registry-only QUARANTINED
+    # flag is insufficient because a healthy live probe must clear it.
+    $missingWorkUrl = "https://chatgpt.com/c/" + [Guid]::NewGuid().ToString()
+    $oldWorkUrl = $missingWorkUrl
+    $oldTargetDigest = Get-Sha256Hex $missingWorkUrl
+    $beforeLane.work_url = $missingWorkUrl
+    $beforeLane.work_url_saved_at = [DateTimeOffset]::UtcNow.ToString("o")
+    Write-Host "LIVE_P3_MISSING_WORK_TARGET_BOUND=True"
     Write-Host "LIVE_P3_QUARANTINE_IDENTITY_MATCHES_ACTIVE_URL=True"
     $quarantineAt = [DateTimeOffset]::UtcNow.ToString("o")
     $beforeLane.awaiting_work = $true
@@ -587,7 +643,7 @@ try {
     ) -PassThru -RedirectStandardOutput $nodeOut -RedirectStandardError $nodeErr
 
     $replacementReached = $false
-    for ($i=0; $i -lt 180; $i++) {
+    for ($i=0; $i -lt 120; $i++) {
       Start-Sleep -Seconds 1
       if ($testNode.HasExited) { break }
       $replacementRegistry = Read-JsonSafe $registryPath
