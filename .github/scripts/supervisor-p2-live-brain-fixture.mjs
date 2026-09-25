@@ -16,6 +16,7 @@ const mutationPacingMs = Math.max(
   5_000,
   Number.parseInt(process.env.P2_LIVE_MUTATION_PACING_MS || "5000", 10) || 5_000
 );
+const fastConfirm = String(process.env.P2_LIVE_FAST_FIXTURE || "").toLowerCase() === "true";
 if (!cdpUrl || !outputFile) throw new Error("P2 live fixture environment is incomplete");
 
 const taskId = "SUP-SELFHEAL-P2-LIVE-FIXTURE";
@@ -99,7 +100,7 @@ async function confirmDurableFixture(page, directive) {
   // ChatGPT may expose the canonical /c/ URL before the conversation is
   // queryable again after a navigation. First wait for bounded persistence
   // evidence in the recent-conversation surface, then verify by reopening.
-  const persistenceDeadline = Date.now() + 45_000;
+  const persistenceDeadline = Date.now() + (fastConfirm ? 5_000 : 45_000);
   let surfaced = false;
   while (Date.now() < persistenceDeadline) {
     await assertNotRateLimited(page);
@@ -142,7 +143,7 @@ async function confirmDurableFixture(page, directive) {
     return null;
   };
 
-  let confirmed = await confirmExact(90_000);
+  let confirmed = await confirmExact(fastConfirm ? 45_000 : 90_000);
   if (!confirmed) {
     console.log("LIVE_P2_FIXTURE_CANONICAL_RELOAD_RETRY=True");
     await page.reload({
@@ -151,7 +152,7 @@ async function confirmDurableFixture(page, directive) {
     });
     await page.waitForTimeout(1_500);
     await assertNotRateLimited(page);
-    confirmed = await confirmExact(45_000);
+    confirmed = await confirmExact(fastConfirm ? 20_000 : 45_000);
   }
 
   if (!confirmed) {
