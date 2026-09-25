@@ -7,4 +7,5 @@ lane_events_runtime_version=true
 verify_no_private_payloads=true
 verify_production_state_unchanged=true
 dual_candidate_routing=true
-attempt=5
+wrong_runner_cmd_skip=true
+attempt=6
