@@ -9,6 +9,10 @@ on:
       - .github/scripts/update-latest-clean-old.ps1
       - windows/install-supervisor.ps1
 
+concurrency:
+  group: supervisor-live-target-deploy-desktop-4k7im13
+  cancel-in-progress: false
+
 permissions:
   contents: read
 

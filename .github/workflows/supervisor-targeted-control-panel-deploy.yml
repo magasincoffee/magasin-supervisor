@@ -1,15 +1,7 @@
 name: Supervisor Targeted Control Panel Deploy CMD Guard
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - windows/control-panel.ps1
-      - windows/control-panel-observability.ps1
-      - windows/install-supervisor.ps1
-      - .github/workflows/supervisor-targeted-control-panel-deploy.yml
-      - .github/scripts/deploy-control-panel-target.ps1
+  workflow_dispatch:
 
 permissions:
   contents: read

@@ -1,13 +1,7 @@
 name: Supervisor Latest Only Cleanup
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/supervisor-latest-only-cleanup-temp.yml
-      - .github/scripts/deploy-latest-only-cleanup.ps1
-      - windows/install-supervisor.ps1
+  workflow_dispatch:
 
 permissions:
   contents: read
