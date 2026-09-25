@@ -632,7 +632,7 @@ try {
     $beforeLane | Add-Member -NotePropertyName work_url_saved_at -NotePropertyValue ([DateTimeOffset]::UtcNow.ToString("o")) -Force
     Write-Host "LIVE_P3_MISSING_WORK_TARGET_BOUND=True"
     Write-Host "LIVE_P3_QUARANTINE_IDENTITY_MATCHES_ACTIVE_URL=True"
-    $quarantineAt = [DateTimeOffset]::UtcNow.UtcDateTime.ToString("yyyy-MM-dd\'T\'HH:mm:ss.fff\'Z\'", [Globalization.CultureInfo]::InvariantCulture)
+    $quarantineAt = [DateTimeOffset]::UtcNow.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", [Globalization.CultureInfo]::InvariantCulture)
     $beforeLane.awaiting_work = $true
     $beforeLane.dispatch_inflight = $null
     $beforeLane.relay_inflight = $null
