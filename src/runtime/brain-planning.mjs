@@ -43,15 +43,6 @@ export function evaluateBrainVerdictTransition(
     return { state: "LEGACY", record: null, changed: false };
   }
 
-  const durableTaskId = String(registryLane.task_id || "").trim();
-  const durableRelayId = String(registryLane.last_result_relay_id || "").trim();
-  if (!durableTaskId || previous.task_id !== durableTaskId) {
-    throw new Error("Brain previous_result task_id does not match durable lane truth");
-  }
-  if (!durableRelayId || previous.relay_id !== durableRelayId) {
-    throw new Error("Brain previous_result relay_id does not match durable relay truth");
-  }
-
   const nextRecord = {
     task_id: previous.task_id,
     relay_id: previous.relay_id,
@@ -61,11 +52,23 @@ export function evaluateBrainVerdictTransition(
   };
   const stored = normalizeStoredBrainVerdict(registryLane.last_result_verdict);
 
+  // A persisted verdict is the durable authority for replay of the same
+  // previous_result. This must be checked before active task identity because
+  // an accepted IDLE directive legitimately clears task_id after persistence.
   if (stored && stored.relay_id === nextRecord.relay_id) {
     if (sameVerdict(stored, nextRecord)) {
       return { state: "IDEMPOTENT", record: stored, changed: false };
     }
     throw new Error("conflicting Brain verdict for the same relay_id");
+  }
+
+  const durableTaskId = String(registryLane.task_id || "").trim();
+  const durableRelayId = String(registryLane.last_result_relay_id || "").trim();
+  if (!durableTaskId || previous.task_id !== durableTaskId) {
+    throw new Error("Brain previous_result task_id does not match durable lane truth");
+  }
+  if (!durableRelayId || previous.relay_id !== durableRelayId) {
+    throw new Error("Brain previous_result relay_id does not match durable relay truth");
   }
 
   if (previous.verdict === BRAIN_RESULT_VERDICTS.REJECT && directive.action === "WORK") {
