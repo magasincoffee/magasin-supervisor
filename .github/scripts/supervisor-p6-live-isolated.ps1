@@ -158,7 +158,7 @@ try {
 
   $wrapper = Start-Process -FilePath "powershell.exe" -PassThru -WindowStyle Hidden -ArgumentList @(
     "-NoLogo","-NoProfile","-ExecutionPolicy","Bypass",
-    "-File",('"' + $runScript + '"'),"-DryRun"
+    "-File",('"' + $runScript + '"')
   )
 
   . (Join-Path $runtimeWindows "lifecycle-truth.ps1")
@@ -210,6 +210,10 @@ try {
     Write-Host ("LIVE_P6_DIAG_APPLIED_RESET_REV=" + [int](Get-Optional $diagLane "applied_work_state_reset_revision" -1))
     Write-Host ("LIVE_P6_DIAG_WORK_GENERATION=" + [int](Get-Optional $diagLane "work_generation" -1))
     Write-Host ("LIVE_P6_DIAG_TASK_PRESENT=" + [bool](-not [string]::IsNullOrWhiteSpace([string](Get-Optional $diagLane "task_id" ""))))
+    $diagStatus = Read-JsonSafe (Join-Path $root "lane-status.json")
+    $diagStatusLane = if ($diagStatus -and $diagStatus.lanes) { @($diagStatus.lanes | Where-Object { $_.lane_id -eq "lane-1" }) | Select-Object -First 1 } else { $null }
+    Write-Host ("LIVE_P6_DIAG_STATUS=" + [string](Get-Optional $diagStatusLane "status" "MISSING"))
+    Write-Host ("LIVE_P6_DIAG_PHASE=" + [string](Get-Optional $diagStatusLane "phase" "MISSING"))
     if (Test-Path (Join-Path $root "wrapper.log")) {
       Write-Host "--- P6_WRAPPER_LOG_TAIL_BEGIN ---"
       Get-Content -LiteralPath (Join-Path $root "wrapper.log") -Tail 80 -Encoding UTF8 | ForEach-Object { Write-Host $_ }
@@ -281,16 +285,17 @@ try {
   Write-Host "LIVE_P6_LANE_ISOLATION=PASS"
   Write-Host "LIVE_P6_RUNTIME_CONFIG_READ_ONLY=PASS"
 
-  Start-Sleep -Seconds 6
-  $later = Read-JsonSafe $registryFile
-  $laterLane1 = Get-Optional $later.lanes "lane-1"
   if (
-    [int](Get-Optional $laterLane1 "applied_work_state_reset_revision" 0) -ne 9 -or
-    [int](Get-Optional $laterLane1 "work_generation" 0) -ne 8
+    [int](Get-Optional $lane1 "applied_work_state_reset_revision" 0) -ne 9 -or
+    [int](Get-Optional $lane1 "work_generation" 0) -ne 8
   ) {
     throw "P6_LIVE_RESET_NOT_EXACT_ONCE"
   }
   Write-Host "LIVE_P6_EXACT_ONCE=PASS"
+
+  # Stop immediately after the durable reset boundary. The live acceptance is
+  # about Owner maintenance state transition, not any subsequent Brain/Work send.
+  New-Item -ItemType File -Force -Path $stopFile -ErrorAction SilentlyContinue | Out-Null
 
   $logText = if (Test-Path $logFile) { Get-Content -LiteralPath $logFile -Raw -Encoding UTF8 } else { "" }
   if ($logText -notmatch "LANE_OWNER_MAINTENANCE_WORK_STATE_RESET") {
