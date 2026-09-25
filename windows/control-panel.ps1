@@ -116,6 +116,7 @@ function Get-OptionalPropertyValue(
 
 if ($ObservabilityProbe) {
     $configProbe = Read-JsonFile $configFile
+    $registryProbe = Read-JsonFile $registryFile
     $statusProbe = Read-JsonFile $statusFile
     $ownerStopProbe = Get-LifecycleOwnerStopState -Root $root
     $processTruthProbe = Get-LifecycleProcessTruth -Root $root
@@ -133,6 +134,70 @@ if ($ObservabilityProbe) {
     $resourceProbe = Get-ControlPanelResourceSummary $schedulerProbe
     $tailProbe = Read-BoundedLaneEventTail -Path $eventFile -MaxEvents 30 -MaxBytes 262144
 
+    $laneProbeRows = @()
+    foreach ($laneId in @('lane-1','lane-2','lane-3')) {
+        $cfgProbe = if ($configProbe -and $configProbe.lanes) {
+            @($configProbe.lanes | Where-Object { [string]$_.lane_id -eq $laneId } | Select-Object -First 1)[0]
+        } else { $null }
+        $regProbe = $null
+        if ($registryProbe -and $registryProbe.lanes) {
+            $regProperty = $registryProbe.lanes.PSObject.Properties[$laneId]
+            if ($regProperty) { $regProbe = $regProperty.Value }
+        }
+        $stProbe = $null
+        if (
+            $processTruthProbe.three_lane_alive -and
+            -not $processTruthProbe.status_stale -and
+            $statusProbe -and
+            $statusProbe.lanes
+        ) {
+            $stProbe = @($statusProbe.lanes | Where-Object { [string]$_.lane_id -eq $laneId } | Select-Object -First 1)[0]
+        }
+
+        $adoptedProbe = Get-OptionalPropertyValue $regProbe 'brain_directive_adopted' $null
+        $directiveStateProbe = [string](Get-OptionalPropertyValue $stProbe 'brain_directive_state' (
+            Get-OptionalPropertyValue $adoptedProbe 'action' 'NONE'
+        ))
+        if ($directiveStateProbe -notin @('NONE','IDLE','WORK','INVALID')) {
+            $directiveStateProbe = 'NONE'
+        }
+        $directiveReasonProbe = [string](Get-OptionalPropertyValue $stProbe 'brain_directive_reason_code' '')
+        if ($directiveStateProbe -ne 'INVALID') { $directiveReasonProbe = '' }
+
+        $brainHealthProbe = Get-OptionalPropertyValue $stProbe 'brain_target_health' (
+            Get-OptionalPropertyValue $regProbe 'brain_target_health' $null
+        )
+        $workHealthProbe = Get-OptionalPropertyValue $stProbe 'work_target_health' (
+            Get-OptionalPropertyValue $regProbe 'work_target_health' $null
+        )
+
+        $laneProbeRows += [pscustomobject]@{
+            lane_id = $laneId
+            enabled = [bool](Get-OptionalPropertyValue $cfgProbe 'enabled' $false)
+            brain_health = [string](Get-OptionalPropertyValue $brainHealthProbe 'state' 'UNKNOWN')
+            brain_health_reason_code = [string](Get-OptionalPropertyValue $brainHealthProbe 'reason_code' 'NONE')
+            brain_directive = $directiveStateProbe
+            brain_directive_reason_code = $directiveReasonProbe
+            active_task = [string](Get-OptionalPropertyValue $stProbe 'task_id' (
+                Get-OptionalPropertyValue $regProbe 'task_id' ''
+            ))
+            work_target_mode = ([string](Get-OptionalPropertyValue $stProbe 'work_mode' (
+                Get-OptionalPropertyValue $cfgProbe 'work_mode' 'AUTO'
+            ))).ToUpperInvariant()
+            work_target_health = [string](Get-OptionalPropertyValue $workHealthProbe 'state' 'UNKNOWN')
+            work_target_health_reason_code = [string](Get-OptionalPropertyValue $workHealthProbe 'reason_code' 'NONE')
+            work_reset_requested_revision = [int](Get-OptionalPropertyValue $stProbe 'work_reset_requested_revision' (
+                Get-OptionalPropertyValue $cfgProbe 'work_state_reset_revision' 0
+            ))
+            work_reset_applied_revision = [int](Get-OptionalPropertyValue $stProbe 'work_reset_applied_revision' (
+                Get-OptionalPropertyValue $regProbe 'applied_work_state_reset_revision' 0
+            ))
+            work_generation = [int](Get-OptionalPropertyValue $stProbe 'work_generation' (
+                Get-OptionalPropertyValue $regProbe 'work_generation' 0
+            ))
+        }
+    }
+
     [pscustomobject]@{
         schema_version = 'control-panel-observability-probe.v1'
         owner_stop = [bool]$ownerStopProbe.blocked
@@ -146,8 +211,12 @@ if ($ObservabilityProbe) {
         runtime_state = [string]$processTruthProbe.runtime_state
         runtime_version = [string](Get-OptionalPropertyValue $statusProbe 'supervisor_runtime_version' '')
         enabled_lane_count = [int]$enabledProbe
+        chatgpt_page_count = if ($schedulerProbe -and $schedulerProbe.PSObject.Properties['resident_chatgpt_pages']) {
+            [int]$schedulerProbe.resident_chatgpt_pages
+        } else { $null }
         page_summary = [string]$resourceProbe.page_text
         mutation_lease = [string]$resourceProbe.mutation_text
+        lanes = $laneProbeRows
         timeline_event_count = @($tailProbe.events).Count
         timeline_bytes_read = [int]$tailProbe.bytes_read
         timeline_file_length = [long]$tailProbe.file_length
