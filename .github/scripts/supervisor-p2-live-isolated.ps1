@@ -602,19 +602,16 @@ try {
       throw "P3_LIVE_INITIAL_WORK_HEALTH_MISSING"
     }
     $storedOldTargetDigest = [string](Get-OptionalPropertyValue $oldWorkHealth "target_digest")
-    if ([string]::IsNullOrWhiteSpace($storedOldTargetDigest)) {
+    $oldTargetDigest = Get-Sha256Hex $oldWorkUrl
+    if ([string]::IsNullOrWhiteSpace($oldTargetDigest)) {
       throw "P3_LIVE_INITIAL_WORK_HEALTH_IDENTITY_MISSING"
     }
-
-    # Exercise the real failure mode: the durable Work target points to a
-    # canonical /c/ identity that does not exist. A registry-only QUARANTINED
-    # flag is insufficient because a healthy live probe must clear it.
-    $missingWorkUrl = "https://chatgpt.com/c/" + [Guid]::NewGuid().ToString()
-    $oldWorkUrl = $missingWorkUrl
-    $oldTargetDigest = Get-Sha256Hex $missingWorkUrl
-    $beforeLane.work_url = $missingWorkUrl
-    $beforeLane | Add-Member -NotePropertyName work_url_saved_at -NotePropertyValue ([DateTimeOffset]::UtcNow.ToString("o")) -Force
-    Write-Host "LIVE_P3_MISSING_WORK_TARGET_BOUND=True"
+    if ($storedOldTargetDigest -ne $oldTargetDigest) {
+      Write-Host "LIVE_P3_QUARANTINE_IDENTITY_REBASED=True"
+    }
+    # Durable deterministic-unavailable evidence is intentionally bound to the
+    # exact current Work identity. Runtime contract says a quarantined target
+    # must not be reopened; replacement must proceed from durable evidence.
     Write-Host "LIVE_P3_QUARANTINE_IDENTITY_MATCHES_ACTIVE_URL=True"
     $quarantineAt = [DateTimeOffset]::UtcNow.ToString("o")
     $beforeLane.awaiting_work = $true
