@@ -1,0 +1,111 @@
+name: Supervisor Control Panel Reset Visible Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/supervisor-control-panel-reset-visible-deploy.yml
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-panel:
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Deploy Control Panel file only
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          . ".\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
+          $runtime = Join-Path $root "runtime"
+          $sourcePanel = (Resolve-Path ".\windows\control-panel.ps1").Path
+          $targetPanel = Join-Path $runtime "windows\control-panel.ps1"
+
+          if (-not (Test-Path $targetPanel)) { throw "Installed Control Panel is missing" }
+
+          $source = Get-Content $sourcePanel -Raw -Encoding UTF8
+          foreach ($marker in @(
+            "RESET READY",
+            "resetAllButton",
+            "Drawing.Point(820, 20)",
+            "Drawing.Size(365, 42)"
+          )) {
+            if ($source -notmatch [regex]::Escape($marker)) {
+              throw "Source Control Panel missing marker: $marker"
+            }
+          }
+
+          Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.CommandLine -and
+              $_.CommandLine -like "*control-panel.ps1*"
+            } |
+            ForEach-Object {
+              Stop-Process -Id ([int]$_.ProcessId) -Force -ErrorAction SilentlyContinue
+              Write-Host "CONTROL_PANEL_OLD_PID_STOPPED=$($_.ProcessId)"
+            }
+
+          $utf8Bom = New-Object System.Text.UTF8Encoding($true)
+          [System.IO.File]::WriteAllText($targetPanel, $source, $utf8Bom)
+
+          $parseErrors = $null
+          $tokens = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            $targetPanel,
+            [ref]$tokens,
+            [ref]$parseErrors
+          ) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_.Message }
+            throw "Installed Control Panel parse check failed"
+          }
+
+          $installed = Get-Content $targetPanel -Raw -Encoding UTF8
+          foreach ($marker in @("RESET READY","resetAllButton","Drawing.Point(820, 20)")) {
+            if ($installed -notmatch [regex]::Escape($marker)) {
+              throw "Installed Control Panel missing marker: $marker"
+            }
+          }
+
+          $env:RUNNER_TRACKING_ID = "MAGASIN_CONTROL_PANEL_PERSISTENT"
+          Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
+            "-NoLogo","-NoProfile","-ExecutionPolicy","Bypass",
+            "-File",('"' + $targetPanel + '"')
+          )
+
+          $found = $null
+          for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep -Milliseconds 500
+            $found = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.CommandLine -and
+                $_.CommandLine -like "*$targetPanel*"
+              } |
+              Select-Object -First 1
+            if ($found) { break }
+          }
+
+          if (-not $found) { throw "New Control Panel process did not start" }
+
+          $stop = Join-Path $root "STOP"
+          $autostartDisabled = Join-Path $root "AUTOSTART_DISABLED"
+          if (-not (Test-Path $stop) -or -not (Test-Path $autostartDisabled)) {
+            throw "Owner STOP state changed unexpectedly"
+          }
+
+          Write-Host "CONTROL_PANEL_RESET_VISIBLE_DEPLOY=True"
+          Write-Host "CONTROL_PANEL_RESET_READY_MARKER=True"
+          Write-Host "CONTROL_PANEL_RESET_POSITION_820_20=True"
+          Write-Host "CONTROL_PANEL_NEW_PID=$($found.ProcessId)"
+          Write-Host "PROJECT_STATE_UNCHANGED=True"
+          Write-Host "OWNER_STOP_UNCHANGED=True"
+          Write-Host "CONTROL_PANEL_RESET_VISIBLE=PASS"
