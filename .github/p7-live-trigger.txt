@@ -6,5 +6,5 @@ wrapper_log_sanitized=true
 lane_events_runtime_version=true
 verify_no_private_payloads=true
 verify_production_state_unchanged=true
-accept_observed_node_exit_code=true
-attempt=4
+dual_candidate_routing=true
+attempt=5
