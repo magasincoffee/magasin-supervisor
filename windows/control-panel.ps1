@@ -80,7 +80,34 @@ $startScript = Join-Path $runtime 'windows\start-supervisor.ps1'
 $lifecycleScript = Join-Path $runtime 'windows\lifecycle-truth.ps1'
 $observabilityScript = Join-Path $runtime 'windows\control-panel-observability.ps1'
 $openChatScript = Join-Path $runtime 'windows\open-supervisor-chat.ps1'
+$resetAllProjectsScript = Join-Path $runtime 'windows\reset-all-projects.ps1'
 $runnerRoot = [string]$env:SUPERVISOR_RUNNER_ROOT
+if ([string]::IsNullOrWhiteSpace($runnerRoot)) {
+    foreach ($candidate in @(
+        'C:\actions-runner-magasin-supervisor\actions-runner',
+        'C:\actions-runner-business\actions-runner'
+    )) {
+        if (Test-Path (Join-Path $candidate 'run.cmd')) {
+            $runnerRoot = $candidate
+            break
+        }
+    }
+}
+if ([string]::IsNullOrWhiteSpace($runnerRoot)) {
+    $listener = Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.ExecutablePath } |
+        Select-Object -First 1
+    if ($listener -and $listener.ExecutablePath) {
+        $binDir = Split-Path ([string]$listener.ExecutablePath) -Parent
+        $candidate = Split-Path $binDir -Parent
+        if (Test-Path (Join-Path $candidate 'run.cmd')) {
+            $runnerRoot = $candidate
+        }
+    }
+}
+if (-not [string]::IsNullOrWhiteSpace($runnerRoot)) {
+    $env:SUPERVISOR_RUNNER_ROOT = $runnerRoot
+}
 $repoUrl = [string]$env:SUPERVISOR_PROJECT_REPOSITORY_URL
 $vietnamTimeZone = [TimeZoneInfo]::FindSystemTimeZoneById('SE Asia Standard Time')
 $script:lastRecoveryRequestAt = [DateTimeOffset]::MinValue
@@ -504,10 +531,69 @@ $content.Controls.Add($title)
 $subtitle = New-Object Windows.Forms.Label
 $subtitle.Text = '3 LUỒNG ĐỘC LẬP  •  BỘ NÃO DO BẠN CHỌN  •  WORK: BẠN CHỌN HOẶC ROBOT TỰ TẠO'
 $subtitle.Location = New-Object Drawing.Point(520, 34)
-$subtitle.Size = New-Object Drawing.Size(665, 26)
+$subtitle.Size = New-Object Drawing.Size(455, 26)
 $subtitle.TextAlign = 'MiddleRight'
 $subtitle.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
 $content.Controls.Add($subtitle)
+
+$resetAllButton = New-Object Windows.Forms.Button
+$resetAllButton.Location = New-Object Drawing.Point(995, 20)
+$resetAllButton.Size = New-Object Drawing.Size(190, 42)
+$resetAllButton.Text = 'LÀM SẠCH TẤT CẢ DỰ ÁN'
+$resetAllButton.BackColor = [Drawing.Color]::FromArgb(254,226,226)
+$resetAllButton.ForeColor = [Drawing.Color]::FromArgb(153,27,27)
+$resetAllButton.Add_Click({
+    $first = [Windows.Forms.MessageBox]::Show(
+        'Thao tác này sẽ DỪNG Robot và xóa TOÀN BỘ 3 dự án khỏi Supervisor: tên dự án, Brain/Work URL, task cũ, dispatch/relay latch, pending target, quarantine, timeline và evidence. GitHub Runner, cài đặt Robot và Chrome profile đăng nhập được giữ nguyên. Tiếp tục?',
+        'LÀM SẠCH TẤT CẢ DỰ ÁN',
+        [Windows.Forms.MessageBoxButtons]::YesNo,
+        [Windows.Forms.MessageBoxIcon]::Warning
+    )
+    if ($first -ne [Windows.Forms.DialogResult]::Yes) { return }
+
+    $second = [Windows.Forms.MessageBox]::Show(
+        'XÁC NHẬN LẦN CUỐI: cả 3 luồng sẽ trở về trống và TẮT. Dự án cũ sẽ không tự chạy lại. Sau khi nhập dự án mới, bạn bật luồng rồi bấm KHỞI ĐỘNG ROBOT NỀN. Thực hiện reset?',
+        'XÁC NHẬN RESET',
+        [Windows.Forms.MessageBoxButtons]::YesNo,
+        [Windows.Forms.MessageBoxIcon]::Warning
+    )
+    if ($second -ne [Windows.Forms.DialogResult]::Yes) { return }
+
+    if (-not (Test-Path $resetAllProjectsScript)) {
+        [Windows.Forms.MessageBox]::Show(
+            'Không tìm thấy reset-all-projects.ps1 trong runtime đã cài.',
+            'MAGASIN BUSINESS OS',
+            'OK',
+            'Error'
+        ) | Out-Null
+        return
+    }
+
+    $resetAllButton.Enabled = $false
+    try {
+        $resetOutput = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $resetAllProjectsScript -Confirmed 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw ('Reset thất bại: ' + (($resetOutput | Select-Object -Last 8) -join [Environment]::NewLine))
+        }
+        Refresh-Ui
+        [Windows.Forms.MessageBox]::Show(
+            'ĐÃ LÀM SẠCH 3 DỰ ÁN. Robot đang ở trạng thái an toàn: tất cả lane tắt và Owner STOP được giữ. Hãy nhập dự án mới, lưu Brain/Work, BẮT ĐẦU LUỒNG rồi KHỞI ĐỘNG ROBOT NỀN.',
+            'MAGASIN BUSINESS OS',
+            'OK',
+            'Information'
+        ) | Out-Null
+    } catch {
+        [Windows.Forms.MessageBox]::Show(
+            $_.Exception.Message,
+            'RESET TẤT CẢ DỰ ÁN THẤT BẠI',
+            'OK',
+            'Error'
+        ) | Out-Null
+    } finally {
+        $resetAllButton.Enabled = $true
+    }
+})
+$content.Controls.Add($resetAllButton)
 
 $runnerButton = New-Object Windows.Forms.Button
 $runnerButton.Location = New-Object Drawing.Point(28, 76)
