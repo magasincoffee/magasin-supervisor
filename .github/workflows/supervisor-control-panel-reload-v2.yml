@@ -1,0 +1,82 @@
+name: Supervisor Control Panel Reload V2
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/supervisor-control-panel-reload-v2.yml
+
+permissions:
+  contents: read
+
+jobs:
+  reload-panel:
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Reload exact installed Control Panel
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          . ".\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
+          $panel = Join-Path $root "runtime\windows\control-panel.ps1"
+          if (-not (Test-Path $panel)) { throw "Installed Control Panel missing: $panel" }
+
+          $source = Get-Content $panel -Raw -Encoding UTF8
+          foreach ($marker in @("resetAllButton","resetAllProjectsScript","reset-all-projects.ps1")) {
+            if ($source -notmatch [regex]::Escape($marker)) {
+              throw "Installed Control Panel missing marker: $marker"
+            }
+          }
+
+          $old = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.CommandLine -and
+              $_.CommandLine -like "*control-panel.ps1*"
+            }
+
+          foreach ($proc in @($old)) {
+            try {
+              Stop-Process -Id ([int]$proc.ProcessId) -Force -ErrorAction Stop
+              Write-Host "CONTROL_PANEL_OLD_PID_STOPPED=$($proc.ProcessId)"
+            } catch {
+              Write-Host "CONTROL_PANEL_OLD_PID_STOP_WARN=$($proc.ProcessId)"
+            }
+          }
+
+          Start-Sleep -Seconds 1
+
+          $env:RUNNER_TRACKING_ID = "MAGASIN_CONTROL_PANEL_PERSISTENT"
+          $launched = Start-Process powershell.exe -PassThru -WindowStyle Hidden -ArgumentList @(
+            "-NoLogo","-NoProfile","-ExecutionPolicy","Bypass",
+            "-File",('"' + $panel + '"')
+          )
+
+          $found = $null
+          for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep -Milliseconds 500
+            $found = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.CommandLine -and
+                $_.CommandLine -like "*$panel*"
+              } |
+              Select-Object -First 1
+            if ($found) { break }
+          }
+
+          if (-not $found) {
+            throw "Exact installed Control Panel process did not become visible"
+          }
+
+          Write-Host "CONTROL_PANEL_EXACT_PATH=$panel"
+          Write-Host "CONTROL_PANEL_NEW_PID=$($found.ProcessId)"
+          Write-Host "CONTROL_PANEL_RESET_MARKERS=True"
+          Write-Host "SUPERVISOR_OWNER_STOP_UNCHANGED=True"
+          Write-Host "CONTROL_PANEL_RELOAD_V2=PASS"
