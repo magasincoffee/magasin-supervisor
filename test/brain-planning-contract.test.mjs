@@ -322,3 +322,18 @@ test("processed Brain directive short-circuits before previous_result revalidati
     /evaluateBrainVerdictTransition\(registryLane, candidate\)/
   );
 });
+
+
+test("blocked Brain handshake latch is recovered only on a fully idle durable lane", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /brain_request_inflight\?\.reconcile_blocked/);
+  assert.match(source, /!registryLane\.task_id/);
+  assert.match(source, /!registryLane\.awaiting_work/);
+  assert.match(source, /!registryLane\.dispatch_inflight/);
+  assert.match(source, /!registryLane\.relay_inflight/);
+  assert.match(source, /!registryLane\.work_rollover/);
+  assert.match(source, /LANE_BRAIN_BLOCKED_LATCH_RECOVERED/);
+});
