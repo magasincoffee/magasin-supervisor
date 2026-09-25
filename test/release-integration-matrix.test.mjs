@@ -9,7 +9,9 @@ import { BrowserScheduler } from "../src/runtime/browser-scheduler.mjs";
 import {
   defaultWorkWatchdog,
   evaluateWorkWatchdog,
+  beginWatchdogContinueIntent,
   beginWatchdogReloadIntent,
+  markWatchdogContinued,
   markWatchdogReloaded,
   WORK_WATCHDOG_DECISIONS
 } from "../src/runtime/work-watchdog.mjs";
@@ -97,7 +99,7 @@ test("RBT-009 Tier A: active >30m does not false-reload and other lanes still re
   assert.deepEqual(turns, ["lane-1","lane-2","lane-3","lane-1","lane-2","lane-3","lane-1","lane-2","lane-3"]);
 });
 
-test("RBT-009 Tier A: inactive >30m persists one reload intent per epoch and becomes stalled", () => {
+test("RBT-009 Tier A: inactive >30m uses one reload then one bounded continue before stalled", () => {
   let watchdog = defaultWorkWatchdog();
   const base = {
     awaitingWork: true,
@@ -124,8 +126,16 @@ test("RBT-009 Tier A: inactive >30m persists one reload intent per epoch and bec
 
   watchdog = markWatchdogReloaded(watchdog, { now: iso(37) });
   out = evaluateWorkWatchdog({ ...base, now: iso(43), watchdog });
+  assert.equal(out.decision, WORK_WATCHDOG_DECISIONS.CONTINUE_ELIGIBLE);
+  assert.equal(out.state.reload_count, 1);
+  assert.equal(out.state.continue_count, 0);
+
+  watchdog = beginWatchdogContinueIntent(out.state, { now: iso(43) });
+  watchdog = markWatchdogContinued(watchdog, { now: iso(43) });
+  out = evaluateWorkWatchdog({ ...base, now: iso(49), watchdog });
   assert.equal(out.decision, WORK_WATCHDOG_DECISIONS.POSSIBLY_STALLED);
   assert.equal(out.state.reload_count, 1);
+  assert.equal(out.state.continue_count, 1);
 });
 
 test("RBT-009 Tier A: active Owner Work hot-save remains pending until safe boundary", () => {
