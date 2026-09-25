@@ -1018,7 +1018,9 @@ function Refresh-Timeline {
     $timelineList.BeginUpdate()
     try {
         $timelineList.Items.Clear()
-        foreach ($event in @($tail.events)) {
+        $events = @($tail.events)
+        for ($eventIndex = $events.Count - 1; $eventIndex -ge 0; $eventIndex--) {
+            $event = $events[$eventIndex]
             $clock = '—'
             try {
                 $dt = [DateTimeOffset]::Parse([string]$event.timestamp)
