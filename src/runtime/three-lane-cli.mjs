@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
+import { atomicJsonWrite } from "./atomic-json-write.mjs";
 
 import {
   ChatGptUiAdapter,
@@ -158,13 +159,6 @@ function localRoot() {
 
   const base = process.env.LOCALAPPDATA || process.env.HOME || process.cwd();
   return path.join(base, "MAGASIN", "BusinessOS", "supervisor");
-}
-
-async function atomicJsonWrite(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const temp = `${filePath}.tmp`;
-  await fs.writeFile(temp, JSON.stringify(value, null, 2) + "\n", "utf8");
-  await fs.rename(temp, filePath);
 }
 
 function parseJsonText(text) {
