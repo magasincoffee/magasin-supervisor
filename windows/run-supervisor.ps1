@@ -7,6 +7,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'state-root.ps1')
 $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
 $runtime = Join-Path $root 'runtime'
+$env:SUPERVISOR_STATE_ROOT = $root
 $profile = Join-Path $root 'browser_profile'
 $target = Join-Path $root 'target.json'
 $stop = Join-Path $root 'STOP'
@@ -101,6 +102,49 @@ try {
     $mutex.Dispose()
     throw
 }
+
+function Get-ThreeLaneProcesses {
+    return @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.CommandLine -and
+            $_.CommandLine -like '*three-lane-cli.mjs*'
+        })
+}
+
+function Test-WrapperProcessForCurrentRoot($Process) {
+    return [bool](
+        $Process -and
+        $Process.Name -eq 'powershell.exe' -and
+        $Process.CommandLine -and
+        $Process.CommandLine -like '*run-supervisor.ps1*' -and
+        $Process.CommandLine -like "*$root*"
+    )
+}
+
+function Stop-OrphanedThreeLaneProcesses {
+    foreach ($nodeProcess in (Get-ThreeLaneProcesses)) {
+        $parent = Get-CimInstance Win32_Process -Filter "ProcessId=$($nodeProcess.ParentProcessId)" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if (-not (Test-WrapperProcessForCurrentRoot $parent)) {
+            Write-Host "Stopping orphaned Three-Lane Node PID $($nodeProcess.ProcessId) (parent $($nodeProcess.ParentProcessId))."
+            Stop-Process -Id ([int]$nodeProcess.ProcessId) -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Stop-CurrentWrapperThreeLaneChildren {
+    Get-ThreeLaneProcesses |
+        Where-Object { [int]$_.ParentProcessId -eq [int]$PID } |
+        ForEach-Object {
+            Write-Host "Stopping Three-Lane child PID $($_.ProcessId) owned by wrapper $PID."
+            Stop-Process -Id ([int]$_.ProcessId) -Force -ErrorAction SilentlyContinue
+        }
+}
+
+# A wrapper crash/forced restart can orphan Node on Windows. Reclaim stale
+# children before this wrapper becomes authoritative, so exactly one writer
+# can own lane-registry/lane-status at a time.
+Stop-OrphanedThreeLaneProcesses
 
 function Get-DedicatedChromeProcesses {
     return @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
@@ -252,6 +296,9 @@ try {
         Push-Location $runtime
         try {
             $nodeArgs = @($entryPoint, '--cdp-url', $cdpBaseUrl, '--poll-ms', '5000')
+            if ($entryPoint -eq 'src/runtime/three-lane-cli.mjs') {
+                $nodeArgs += @('--wrapper-pid', [string]$PID)
+            }
             if ($entryPoint -in @('src/runtime/brain-worker-cli.mjs','src/runtime/supervisor-loop-cli.mjs')) {
                 if (-not [string]::IsNullOrWhiteSpace($projectAdapterPath)) {
                     $nodeArgs += @('--project-adapter', $projectAdapterPath)
@@ -294,6 +341,7 @@ try {
         }
     }
 } finally {
+    Stop-CurrentWrapperThreeLaneChildren
     Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
     if ($ownsMutex) {
         try { $mutex.ReleaseMutex() } catch {}
