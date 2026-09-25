@@ -32,7 +32,8 @@ $runtime=Join-Path $canonical 'runtime'
 $configFile=Join-Path $canonical 'lanes.json'
 $registryFile=Join-Path $canonical 'lane-registry.json'
 $desktop=[Environment]::GetFolderPath('Desktop')
-$shortcutPath=Join-Path $desktop 'MAGASIN BUSINESS OS CONTROL.lnk'
+$shortcutDisplayName='MAGASIN SUPERVISOR '+[char]0x2014+' CONTROL CENTER.lnk'
+$shortcutPath=Join-Path $desktop $shortcutDisplayName
 $installScript=Join-Path $env:GITHUB_WORKSPACE 'windows\install-supervisor.ps1'
 
 Write-Host "EXPECTED_MAIN_SHA=$ExpectedMainSha"

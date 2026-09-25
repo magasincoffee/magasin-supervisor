@@ -134,7 +134,9 @@ test("installer normalizes Vietnamese panel to UTF-8 BOM and syntax-checks it", 
   assert.match(source, /UTF8Encoding\(\$true\)/);
   assert.match(source, /Language\.Parser\]::ParseFile/);
   assert.match(source, /Control panel PowerShell syntax check failed/);
-  assert.match(source, /MAGASIN BUSINESS OS CONTROL\.lnk/);
+  assert.match(source, /MAGASIN SUPERVISOR/);
+  assert.match(source, /\[char\]0x2014/);
+  assert.match(source, /CONTROL CENTER\.lnk/);
 });
 
 

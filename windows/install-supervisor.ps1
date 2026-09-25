@@ -126,7 +126,8 @@ if ($parseErrors.Count -gt 0) {
     'STOP_MAGASIN_SUPERVISOR.cmd',
     'START_MAGASIN_SUPERVISOR.lnk',
     'STOP_MAGASIN_SUPERVISOR.lnk',
-    'SAYDI CONTROL.lnk'
+    'SAYDI CONTROL.lnk',
+    'MAGASIN BUSINESS OS CONTROL.lnk'
 ) | ForEach-Object {
     $old = Join-Path $desktop $_
     if (Test-Path $old) {
@@ -134,13 +135,14 @@ if ($parseErrors.Count -gt 0) {
     }
 }
 
-$shortcutPath = Join-Path $desktop 'MAGASIN BUSINESS OS CONTROL.lnk'
+$shortcutDisplayName = 'MAGASIN SUPERVISOR ' + [char]0x2014 + ' CONTROL CENTER.lnk'
+$shortcutPath = Join-Path $desktop $shortcutDisplayName
 $wsh = New-Object -ComObject WScript.Shell
 $shortcut = $wsh.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = 'powershell.exe'
 $shortcut.Arguments = '-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $panelTarget + '"'
 $shortcut.WorkingDirectory = $root
-$shortcut.Description = 'MAGASIN Business OS Supervisor Robot control panel'
+$shortcut.Description = 'MAGASIN Supervisor Control Center V2'
 $shortcut.IconLocation = "$env:SystemRoot\System32\imageres.dll,72"
 $shortcut.Save()
 
