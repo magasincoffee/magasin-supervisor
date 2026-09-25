@@ -173,9 +173,9 @@ function New-DefaultConfig {
         schema_version = 'three-lane-config.v1'
         mode = 'THREE_LANE_V1'
         lanes = @(
-            [ordered]@{ lane_id='lane-1'; project_name='Dự án 1'; brain_url=''; brain_url_revision=0; work_url=''; work_url_revision=0; work_url_saved_at=$null; work_mode='AUTO'; relay_retry_rearm_revision=0; relay_retry_rearm_requested_at=$null; enabled=$false },
-            [ordered]@{ lane_id='lane-2'; project_name='Dự án 2'; brain_url=''; brain_url_revision=0; work_url=''; work_url_revision=0; work_url_saved_at=$null; work_mode='AUTO'; relay_retry_rearm_revision=0; relay_retry_rearm_requested_at=$null; enabled=$false },
-            [ordered]@{ lane_id='lane-3'; project_name='Dự án 3'; brain_url=''; brain_url_revision=0; work_url=''; work_url_revision=0; work_url_saved_at=$null; work_mode='AUTO'; relay_retry_rearm_revision=0; relay_retry_rearm_requested_at=$null; enabled=$false }
+            [ordered]@{ lane_id='lane-1'; project_name='Dự án 1'; brain_url=''; brain_url_revision=0; work_url=''; work_url_revision=0; work_url_saved_at=$null; work_mode='AUTO'; work_state_reset_revision=0; relay_retry_rearm_revision=0; relay_retry_rearm_requested_at=$null; enabled=$false },
+            [ordered]@{ lane_id='lane-2'; project_name='Dự án 2'; brain_url=''; brain_url_revision=0; work_url=''; work_url_revision=0; work_url_saved_at=$null; work_mode='AUTO'; work_state_reset_revision=0; relay_retry_rearm_revision=0; relay_retry_rearm_requested_at=$null; enabled=$false },
+            [ordered]@{ lane_id='lane-3'; project_name='Dự án 3'; brain_url=''; brain_url_revision=0; work_url=''; work_url_revision=0; work_url_saved_at=$null; work_mode='AUTO'; work_state_reset_revision=0; relay_retry_rearm_revision=0; relay_retry_rearm_requested_at=$null; enabled=$false }
         )
     }
 }
@@ -1046,7 +1046,7 @@ function Refresh-Ui {
 
     $resourceSummary = Get-ControlPanelResourceSummary $schedulerSnapshot
     $resourceLine2 =
-        'TRANG CHATGPT: ' + [string]$resourceSummary.page_text +
+        'CHATGPT PAGE COUNT: ' + [string]$resourceSummary.page_text +
         ' · MUTATION: ' + [string]$resourceSummary.mutation_text +
         ' · MUT ' + [string]$resourceSummary.active_mutation +
         ' · OBS ' + [string]$resourceSummary.active_observation +
@@ -1213,11 +1213,11 @@ function Refresh-Ui {
         ))
 
         $ui.Execution.Text =
-            'TASK: ' + $taskId +
+            'ACTIVE TASK: ' + $taskId +
             ' · PHA: ' + $phase +
             ' · THỜI GIAN: ' + $elapsed +
             ' · HOẠT ĐỘNG CUỐI: ' + $lastActivityAge +
-            ' · GEN ' + [string]$workGeneration
+            ' · WORK GENERATION: ' + [string]$workGeneration
 
         $brainHealth = Get-OptionalPropertyValue $st 'brain_target_health' (
             Get-OptionalPropertyValue $reg 'brain_target_health' $null
@@ -1225,6 +1225,21 @@ function Refresh-Ui {
         $workHealth = Get-OptionalPropertyValue $st 'work_target_health' (
             Get-OptionalPropertyValue $reg 'work_target_health' $null
         )
+        $brainDirectiveState = [string](Get-OptionalPropertyValue $st 'brain_directive_state' '')
+        if (-not $brainDirectiveState) {
+            $brainDirectiveState = [string](Get-OptionalPropertyValue (
+                Get-OptionalPropertyValue $reg 'brain_directive_adopted' $null
+            ) 'action' 'NONE')
+        }
+        if ($brainDirectiveState -notin @('NONE','IDLE','WORK','INVALID')) {
+            $brainDirectiveState = 'NONE'
+        }
+        $brainDirectiveReason = [string](Get-OptionalPropertyValue $st 'brain_directive_reason_code' '')
+        $brainDirectiveText = 'BRAIN DIRECTIVE: ' + $brainDirectiveState
+        if ($brainDirectiveState -eq 'INVALID' -and $brainDirectiveReason) {
+            $brainDirectiveText += ' (' + $brainDirectiveReason + ')'
+        }
+
         $watchdogPhase = [string](Get-OptionalPropertyValue $st 'watchdog_phase' '')
         if (-not $watchdogPhase -or $watchdogPhase -eq 'IDLE') {
             $watchdogPhase = '—'
@@ -1236,9 +1251,11 @@ function Refresh-Ui {
             $healthLine2 += ' · ' + $rolloverText
         }
         $ui.Health.Text =
-            (Get-ControlPanelTargetHealthText $brainHealth 'BRAIN') +
+            (Get-ControlPanelTargetHealthText $brainHealth 'BRAIN HEALTH') +
             ' · ' +
-            (Get-ControlPanelTargetHealthText $workHealth 'WORK') +
+            $brainDirectiveText +
+            ' · ' +
+            (Get-ControlPanelTargetHealthText $workHealth 'WORK TARGET HEALTH') +
             [Environment]::NewLine +
             $healthLine2
 
@@ -1256,6 +1273,13 @@ function Refresh-Ui {
         ))
         if (-not $configuredMode) { $configuredMode = 'AUTO' }
         $configuredMode = $configuredMode.ToUpperInvariant()
+
+        $workResetRequested = [int](Get-OptionalPropertyValue $st 'work_reset_requested_revision' (
+            Get-OptionalPropertyValue $cfg 'work_state_reset_revision' 0
+        ))
+        $workResetApplied = [int](Get-OptionalPropertyValue $st 'work_reset_applied_revision' (
+            Get-OptionalPropertyValue $reg 'applied_work_state_reset_revision' 0
+        ))
 
         $workApplyState = if ($configuredRevision -gt 0 -and $pendingRevision -ge $configuredRevision) {
             'ĐANG CHỜ ÁP DỤNG'
@@ -1276,7 +1300,9 @@ function Refresh-Ui {
             '—'
         }
         $ui.Updated.Text =
-            'WORK ' + $configuredMode +
+            'WORK TARGET MODE: ' + $configuredMode +
+            ' · WORK RESET requested r' + [string]$workResetRequested +
+            ' / applied r' + [string]$workResetApplied +
             ' · cấu hình r' + [string]$configuredRevision +
             ' · áp dụng r' + [string]$appliedRevision +
             ' · pending r' + [string]$pendingRevision +
