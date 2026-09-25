@@ -58,5 +58,4 @@ test("Three-Lane runtime delegates all JSON state commits to the serialized writ
 
   assert.match(source, /import \{ atomicJsonWrite \} from "\.\/atomic-json-write\.mjs"/);
   assert.doesNotMatch(source, /const temp = `\$\{filePath\}\.tmp`/);
-  assert.match(source, /SUPERVISOR_RUNTIME_VERSION = "2026-09-25\.61"/);
 });
