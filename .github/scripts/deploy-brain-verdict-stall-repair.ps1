@@ -111,7 +111,10 @@ foreach($rel in $files){
   }else{
     [System.IO.File]::WriteAllText($dst,$content,$utf8NoBom)
   }
-  if((Get-FileHash -Algorithm SHA256 $src).Hash -ne (Get-FileHash -Algorithm SHA256 $dst).Hash){
+  if($rel -eq 'windows\control-panel.ps1'){
+    $installedText=Get-Content $dst -Raw -Encoding UTF8
+    if($installedText -ne $content){throw "Installed text mismatch: $rel"}
+  }elseif((Get-FileHash -Algorithm SHA256 $src).Hash -ne (Get-FileHash -Algorithm SHA256 $dst).Hash){
     throw "Installed hash mismatch: $rel"
   }
   Write-Host "DEPLOYED=$rel"
