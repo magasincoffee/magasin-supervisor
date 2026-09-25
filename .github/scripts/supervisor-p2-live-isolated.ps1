@@ -556,6 +556,22 @@ try {
     $p3RegistryLane.brain_target_health = $null
     $p3RegistryLane.brain_directive_adopted = $null
     $p3RegistryLane.last_result_verdict = $null
+
+    # AUTO Work creation persists the canonical Work conversation independently
+    # of the Owner/config revision. Before restart-style P3 acceptance, align
+    # config revision with durable registry truth so a stale config revision
+    # cannot create a pending AUTO intent ahead of replacement processing.
+    $p3WorkRevision = [int](Get-OptionalPropertyValue $p3RegistryLane "applied_work_url_revision")
+    $p3ConfigLane.work_url = ""
+    $p3ConfigLane.work_url_revision = $p3WorkRevision
+    $p3ConfigLane.work_url_saved_at = $null
+    $p3ConfigLane.work_mode = "AUTO"
+    $p3RegistryLane.pending_work_url = ""
+    $p3RegistryLane.pending_work_url_revision = 0
+    $p3RegistryLane.pending_work_saved_at = $null
+    $p3RegistryLane.pending_work_mode = $null
+    Write-Host "LIVE_P3_WORK_REVISION_ALIGNED=True"
+
     Write-JsonFile $p3ConfigPath $p3Config
     Write-JsonFile $p3RegistryPath $p3Registry
     Write-Host "LIVE_P3_BRAIN_DIRECTIVE_REASSERTED=True"
