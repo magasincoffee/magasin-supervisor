@@ -1,7 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { atomicJsonWrite } from "./atomic-json-write.mjs";
 
@@ -1003,20 +1002,6 @@ async function reconcileBrainRequest({
   const latch = registryLane.brain_request_inflight;
   if (!latch) return "NONE";
 
-  const marker = String(latch.marker || "").trim();
-  if (marker && await hasUserTurnMarker(page, marker)) {
-    registryLane.brain_request_sent = true;
-    registryLane.brain_request_inflight = null;
-    await atomicJsonWrite(registryPath, registry);
-    await safeLog(logPath, {
-      type: "LANE_BRAIN_SEND_CONFIRMED_BY_MARKER",
-      laneId: lane.lane_id,
-      digest: latch.digest,
-      marker
-    });
-    return "CONFIRMED";
-  }
-
   if (latch.reconcile_blocked) return "BLOCKED";
   const reload = !latch.reconcile_reloaded;
   if (reload) {
@@ -1065,19 +1050,6 @@ async function reconcileBrainRequest({
       digest: latch.digest
     });
     return "NOT_CONFIRMED";
-  }
-
-  if (marker && await hasUserTurnMarker(page, marker)) {
-    registryLane.brain_request_sent = true;
-    registryLane.brain_request_inflight = null;
-    await atomicJsonWrite(registryPath, registry);
-    await safeLog(logPath, {
-      type: "LANE_BRAIN_SEND_CONFIRMED_BY_MARKER",
-      laneId: lane.lane_id,
-      digest: latch.digest,
-      marker
-    });
-    return "CONFIRMED";
   }
 
   latch.reconcile_blocked = true;
@@ -1162,9 +1134,6 @@ async function adoptExistingBrainDirective({
       projectName: lane.project_name
     }))
   ]);
-  if (registryLane.brain_request_inflight?.digest) {
-    expectedStartDigests.add(registryLane.brain_request_inflight.digest);
-  }
   const laterTurns = turns.slice(candidateIndex + 1);
   const onlyRobotHandshakeAfterDirective = laterTurns.every((turn) =>
     turn.role === "user" && expectedStartDigests.has(turn.digest)
@@ -1209,6 +1178,25 @@ async function ensureBrainRequest({
   });
   if (existingDirective) return existingDirective;
 
+  if (
+    registryLane.brain_request_inflight?.reconcile_blocked &&
+    !registryLane.task_id &&
+    !registryLane.awaiting_work &&
+    !registryLane.dispatch_inflight &&
+    !registryLane.relay_inflight &&
+    !registryLane.work_rollover
+  ) {
+    const staleLatch = registryLane.brain_request_inflight;
+    registryLane.brain_request_inflight = null;
+    await atomicJsonWrite(registryPath, registry);
+    await safeLog(logPath, {
+      type: "LANE_BRAIN_BLOCKED_LATCH_RECOVERED",
+      laneId: lane.lane_id,
+      digest: staleLatch.digest,
+      reason: "idle durable lane has no task, dispatch, relay, or rollover"
+    });
+  }
+
   if (registryLane.brain_request_inflight) {
     const outcome = await reconcileBrainRequest({
       adapter,
@@ -1231,25 +1219,7 @@ async function ensureBrainRequest({
         registryPath,
         logPath
       });
-      if (directiveAfterReconcile) return directiveAfterReconcile;
-      if (outcome === "PENDING") return null;
-
-      const safelyIdle =
-        !registryLane.task_id &&
-        !registryLane.awaiting_work &&
-        !registryLane.dispatch_inflight &&
-        !registryLane.relay_inflight;
-      if (!safelyIdle) return null;
-
-      const blockedDigest = registryLane.brain_request_inflight?.digest || null;
-      registryLane.brain_request_inflight = null;
-      await atomicJsonWrite(registryPath, registry);
-      await safeLog(logPath, {
-        type: "LANE_BRAIN_BLOCKED_HANDSHAKE_REARMED",
-        laneId: lane.lane_id,
-        digest: blockedDigest,
-        reason: "idle lane has no adoptable Brain directive"
-      });
+      return directiveAfterReconcile;
     }
   }
 
@@ -1258,20 +1228,14 @@ async function ensureBrainRequest({
     return null;
   }
 
-  const requestId = randomUUID().replace(/-/g, "");
-  const marker = `brain_request_id=${requestId}`;
-  const request = [
-    buildBrainStartRequest({
-      laneId: lane.lane_id,
-      projectName: lane.project_name
-    }),
-    marker
-  ].join("\n");
+  const request = buildBrainStartRequest({
+    laneId: lane.lane_id,
+    projectName: lane.project_name
+  });
   const digest = sha256(request);
   const baseline = await captureSendBaseline(adapter, page);
   registryLane.brain_request_inflight = {
     digest,
-    marker,
     ...baseline
   };
   await atomicJsonWrite(registryPath, registry);
@@ -1296,7 +1260,7 @@ async function ensureBrainRequest({
   }
   if (!sent.executed) return null;
 
-  const confirmed = await waitForUserTurnMarker(page, marker);
+  const confirmed = await waitForUserTurnDigest(page, digest);
   if (!confirmed) {
     await safeLog(logPath, {
       type: "LANE_BRAIN_SEND_PENDING_CONFIRMATION",
