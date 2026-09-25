@@ -1,0 +1,40 @@
+name: Supervisor Live Startup Diagnostic
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/supervisor-live-startup-diagnostic-temp.yml
+      - .github/scripts/diag-runtime-startup-live.ps1
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        slot: [1,2,3,4]
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Diagnose only DESKTOP-4K7IM13
+        shell: cmd
+        run: |
+          @echo off
+          echo SLOT=${{ matrix.slot }}
+          echo MACHINE=%COMPUTERNAME%
+          if /I not "%COMPUTERNAME%"=="DESKTOP-4K7IM13" (
+            echo TARGET_MATCH=False
+            exit /b 0
+          )
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\diag-runtime-startup-live.ps1" -TargetComputer "DESKTOP-4K7IM13"
+          exit /b %ERRORLEVEL%
