@@ -120,6 +120,9 @@ import {
 import {
   evaluateBrainVerdictTransition
 } from "./brain-planning.mjs";
+import {
+  appendSanitizedSupervisorLog
+} from "./sanitized-log.mjs";
 
 const SUPERVISOR_RUNTIME_VERSION = "2026-09-20.60";
 
@@ -182,21 +185,9 @@ async function readJson(filePath, fallback) {
 }
 
 async function safeLog(filePath, event = {}) {
-  const safe = {
-    timestamp: new Date().toISOString(),
-    type: String(event.type || "EVENT"),
-    lane_id: event.laneId || undefined,
-    task_id: event.taskId || undefined,
-    relay_id: event.relayId || undefined,
-    digest: event.digest || undefined,
-    reason: event.reason || undefined,
-    reason_code: event.reasonCode || undefined,
-    revision: Number.isInteger(event.revision) ? event.revision : undefined,
-    turn: Number.isInteger(event.turn) ? event.turn : undefined,
-    error_name: event.errorName || undefined
-  };
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.appendFile(filePath, JSON.stringify(safe) + "\n", "utf8");
+  return appendSanitizedSupervisorLog(filePath, event, {
+    runtimeVersion: SUPERVISOR_RUNTIME_VERSION
+  });
 }
 
 function ensureLaneTaskTiming(registryLane, taskId = null) {
@@ -226,7 +217,10 @@ function timingEventFields(timing, at = new Date().toISOString()) {
 
 async function emitLaneEvent(event) {
   if (!laneEventSink) return false;
-  const result = await laneEventSink.emit(event);
+  const result = await laneEventSink.emit({
+    ...event,
+    runtime_version: SUPERVISOR_RUNTIME_VERSION
+  });
   if (!result.ok && laneEventErrorLogPath) {
     await safeLog(laneEventErrorLogPath, {
       type: "LANE_EVENT_SINK_ERROR",
@@ -3453,7 +3447,9 @@ async function applyOwnerWorkStateReset({
   await safeLog(logPath, {
     type: "LANE_OWNER_MAINTENANCE_WORK_STATE_RESET",
     laneId: lane.lane_id,
-    reason: `reset_revision=${revision}`
+    reason: `reset_revision=${revision}`,
+    generation: Number(registryLane.work_generation || 0),
+    workUrlRevision: Number(registryLane.applied_work_url_revision || 0)
   });
   return true;
 }
@@ -5158,7 +5154,8 @@ let restartRequested = false;
 
 await safeLog(logPath, {
   type: "RUNTIME_BOOT",
-  reason: `version=${SUPERVISOR_RUNTIME_VERSION};mode=${THREE_LANE_MODE};page_budget=${args.pageBudget}`
+  reason: `mode=${THREE_LANE_MODE};page_budget=${args.pageBudget}`,
+  cdpPort: Number(new URL(args.cdpUrl).port || 9222)
 });
 await emitLaneEvent({
   actor: "SUPERVISOR",
