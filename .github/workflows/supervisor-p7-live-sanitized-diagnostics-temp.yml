@@ -1,0 +1,39 @@
+name: Supervisor P7 Live Sanitized Diagnostics Temp
+
+on:
+  push:
+    branches:
+      - hotfix/supervisor-autonomy-selfheal-v1
+    paths:
+      - .github/p7-live-trigger.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-p7-live-sanitized-diagnostics-v1
+  cancel-in-progress: true
+
+jobs:
+  p7-live:
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify migrated MAGASIN live runner identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ($env:COMPUTERNAME -ne "DESKTOP-4K7IM13") {
+            throw "LIVE_P7_WRONG_RUNNER"
+          }
+          Write-Host "LIVE_P7_RUNNER_MATCH=True"
+          Write-Host ("LIVE_P7_RUNNER_NAME=" + $env:COMPUTERNAME)
+
+      - name: Run isolated P7 sanitized diagnostics acceptance
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          & ".github\scripts\supervisor-p7-live-isolated.ps1"
