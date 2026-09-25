@@ -1,5 +1,20 @@
 Set-StrictMode -Version 2.0
 
+function Get-PersistedSupervisorStateRoot {
+    foreach ($target in @('User','Machine')) {
+        try {
+            $value = [string][Environment]::GetEnvironmentVariable(
+                'SUPERVISOR_STATE_ROOT',
+                [EnvironmentVariableTarget]::$target
+            )
+            if (-not [string]::IsNullOrWhiteSpace($value)) {
+                return [System.IO.Path]::GetFullPath($value)
+            }
+        } catch {}
+    }
+    return $null
+}
+
 function Get-SupervisorStateRoot {
     param(
         [string]$ExplicitRoot = [string]$env:SUPERVISOR_STATE_ROOT,
@@ -9,6 +24,11 @@ function Get-SupervisorStateRoot {
 
     if (-not [string]::IsNullOrWhiteSpace($ExplicitRoot)) {
         return [System.IO.Path]::GetFullPath($ExplicitRoot)
+    }
+
+    $persistedRoot = Get-PersistedSupervisorStateRoot
+    if (-not [string]::IsNullOrWhiteSpace([string]$persistedRoot)) {
+        return $persistedRoot
     }
 
     $base = [string]$env:LOCALAPPDATA
@@ -24,4 +44,20 @@ function Get-SupervisorStateRoot {
     }
 
     return (Join-Path $base 'MAGASIN\Supervisor')
+}
+
+function Set-SupervisorStateRootBinding {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Root
+    )
+
+    $fullRoot = [System.IO.Path]::GetFullPath($Root)
+    [Environment]::SetEnvironmentVariable(
+        'SUPERVISOR_STATE_ROOT',
+        $fullRoot,
+        [EnvironmentVariableTarget]::User
+    )
+    $env:SUPERVISOR_STATE_ROOT = $fullRoot
+    return $fullRoot
 }
