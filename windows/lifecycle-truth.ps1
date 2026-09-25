@@ -98,18 +98,113 @@ function Test-LifecycleRobotCdp(
     }
 }
 
-function Get-LifecycleProcessTruth([string]$Root = (Get-MagasinSupervisorRoot)) {
+function Get-LifecycleLaneStatusFreshness(
+    [string]$Root = (Get-MagasinSupervisorRoot),
+    [int]$StaleAfterSeconds = 120,
+    [DateTimeOffset]$Now = [DateTimeOffset]::UtcNow
+) {
+    $threshold = [Math]::Max(5, $StaleAfterSeconds)
+    $statusPath = Join-Path $Root 'lane-status.json'
+
+    if (-not (Test-Path $statusPath)) {
+        return [pscustomobject]@{
+            present = $false
+            readable = $false
+            updated_at = $null
+            age_seconds = $null
+            stale_after_seconds = $threshold
+            stale = $true
+            reason = 'STATUS_MISSING'
+        }
+    }
+
+    $status = Read-LifecycleJson $statusPath
+    if (-not $status) {
+        return [pscustomobject]@{
+            present = $true
+            readable = $false
+            updated_at = $null
+            age_seconds = $null
+            stale_after_seconds = $threshold
+            stale = $true
+            reason = 'STATUS_UNREADABLE'
+        }
+    }
+
+    $updatedAt = [DateTimeOffset]::MinValue
+    if (
+        -not $status.PSObject.Properties['updated_at'] -or
+        -not [DateTimeOffset]::TryParse([string]$status.updated_at, [ref]$updatedAt)
+    ) {
+        return [pscustomobject]@{
+            present = $true
+            readable = $true
+            updated_at = $null
+            age_seconds = $null
+            stale_after_seconds = $threshold
+            stale = $true
+            reason = 'STATUS_TIMESTAMP_INVALID'
+        }
+    }
+
+    $age = [Math]::Max(0, [Math]::Floor(
+        ($Now.ToUniversalTime() - $updatedAt.ToUniversalTime()).TotalSeconds
+    ))
+    $stale = [bool]($age -gt $threshold)
+    return [pscustomobject]@{
+        present = $true
+        readable = $true
+        updated_at = $updatedAt.ToUniversalTime().ToString('o')
+        age_seconds = [long]$age
+        stale_after_seconds = $threshold
+        stale = $stale
+        reason = $(if ($stale) { 'STATUS_STALE' } else { 'STATUS_FRESH' })
+    }
+}
+
+function Get-LifecycleProcessTruth(
+    [string]$Root = (Get-MagasinSupervisorRoot),
+    [int]$StatusStaleAfterSeconds = 120
+) {
     $wrapper = Get-LifecycleSupervisorWrapper -Root $Root
     $threeLane = Get-LifecycleThreeLaneProcess
     $chrome = Get-LifecycleRobotChrome -Root $Root
     $cdpHealthy = Test-LifecycleRobotCdp -ChromeProcess $chrome -Root $Root
+    $freshness = Get-LifecycleLaneStatusFreshness -Root $Root -StaleAfterSeconds $StatusStaleAfterSeconds
+
+    $nodeDown = [bool]($wrapper -and $chrome -and $cdpHealthy -and -not $threeLane)
+    $statusStale = [bool]($threeLane -and $freshness.stale)
 
     return [pscustomobject]@{
         wrapper_alive = [bool]$wrapper
         three_lane_alive = [bool]$threeLane
         chrome_alive = [bool]$chrome
         cdp_healthy = [bool]$cdpHealthy
-        healthy = [bool]($wrapper -and $threeLane -and $chrome -and $cdpHealthy)
+        lane_status_present = [bool]$freshness.present
+        lane_status_readable = [bool]$freshness.readable
+        lane_status_updated_at = $freshness.updated_at
+        status_age_seconds = $freshness.age_seconds
+        status_stale_after_seconds = [int]$freshness.stale_after_seconds
+        status_stale = $statusStale
+        node_down = $nodeDown
+        runtime_state = $(if ($nodeDown) {
+            'NODE_DOWN'
+        } elseif ($statusStale) {
+            'STATUS_STALE'
+        } elseif ($wrapper -and $threeLane -and $chrome -and $cdpHealthy) {
+            'HEALTHY'
+        } elseif (-not $wrapper) {
+            'WRAPPER_DOWN'
+        } else {
+            'RECOVERING'
+        })
+        healthy = [bool](
+            $wrapper -and
+            $threeLane -and
+            $chrome -and
+            $cdpHealthy -and
+            -not $freshness.stale
+        )
     }
 }
 
@@ -137,6 +232,20 @@ function Invoke-LifecycleRecoveryStart(
     if ($processTruth.healthy) {
         return [pscustomobject]@{
             state = 'HEALTHY'
+            start_requested = $false
+        }
+    }
+
+    if ($processTruth.node_down) {
+        return [pscustomobject]@{
+            state = 'NODE_DOWN'
+            start_requested = $false
+        }
+    }
+
+    if ($processTruth.status_stale) {
+        return [pscustomobject]@{
+            state = 'STATUS_STALE'
             start_requested = $false
         }
     }
