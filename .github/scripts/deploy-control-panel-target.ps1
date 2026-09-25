@@ -14,7 +14,7 @@ $targetPanel = Join-Path $root "runtime\windows\control-panel.ps1"
 if (-not (Test-Path $targetPanel)) { throw "Installed Control Panel missing" }
 
 $source = Get-Content $sourcePanel -Raw -Encoding UTF8
-foreach ($marker in @("CONTROL PANEL V2","heroPanel","overviewPanel","resetAllButton","Drawing.Point(840, 18)","Drawing.Size(315, 40)","BÁO CÁO ẢNH")) {
+foreach ($marker in @("CONTROL PANEL V2","heroPanel","overviewPanel","resetAllButton","Drawing.Point(840, 18)","Drawing.Size(315, 40)","reportInfoLabel","relayScreenshotPath")) {
   if ($source -notmatch [regex]::Escape($marker)) { throw "Source marker missing: $marker" }
 }
 
