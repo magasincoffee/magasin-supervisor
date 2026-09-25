@@ -111,7 +111,7 @@ foreach ($rel in @(
 $panelInstalledText = Get-Content $installedPanel -Raw -Encoding UTF8
 foreach ($marker in @(
   'function Request-RunnerRecovery',
-  'GITHUB ĐANG TỰ KẾT NỐI',
+  'Request-RunnerRecovery',
   'runnerRecoveryBackoffSeconds'
 )) {
   if ($panelInstalledText -notmatch [regex]::Escape($marker)) {
