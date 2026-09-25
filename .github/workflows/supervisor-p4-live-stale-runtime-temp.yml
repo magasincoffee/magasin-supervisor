@@ -1,7 +1,9 @@
 name: Supervisor P4 Live Stale Runtime Temp
 
 on:
-  pull_request:
+  push:
+    branches:
+      - hotfix/supervisor-autonomy-selfheal-v1
     paths:
       - .github/p4-live-trigger.txt
   workflow_dispatch:
