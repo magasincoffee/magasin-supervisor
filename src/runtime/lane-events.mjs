@@ -58,6 +58,7 @@ const EVENT_KEYS = new Set([
   "execution_time_ms",
   "dispatch_id",
   "relay_id",
+  "runtime_version",
   "target_role",
   "target_digest",
   "target_revision"
@@ -305,6 +306,14 @@ export function serializeLaneEvent(input = {}, { now = () => new Date() } = {}) 
 
   if (input.relay_id !== undefined && input.relay_id !== null) {
     output.relay_id = correlationIdentifier(input.relay_id, "relay_id");
+  }
+
+  if (input.runtime_version !== undefined && input.runtime_version !== null) {
+    const runtimeVersion = String(input.runtime_version || "").trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(runtimeVersion)) {
+      throw new TypeError("runtime_version is not a safe operational identifier");
+    }
+    output.runtime_version = runtimeVersion;
   }
 
   if (input.target_role !== undefined && input.target_role !== null) {
