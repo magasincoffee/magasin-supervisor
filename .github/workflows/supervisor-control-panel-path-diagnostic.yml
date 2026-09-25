@@ -1,0 +1,99 @@
+name: Supervisor Control Panel Path Diagnostic
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/supervisor-control-panel-path-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Inspect Control Panel sources and launch paths
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          . ".\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
+          $installedPanel = Join-Path $root "runtime\windows\control-panel.ps1"
+          $sourcePanel = (Resolve-Path ".\windows\control-panel.ps1").Path
+
+          Write-Host "DIAG_COMPUTERNAME=$env:COMPUTERNAME"
+          Write-Host "DIAG_ROOT=$root"
+          Write-Host "DIAG_SOURCE_PANEL=$sourcePanel"
+          Write-Host "DIAG_INSTALLED_PANEL=$installedPanel"
+
+          foreach ($label in @("SOURCE","INSTALLED")) {
+            $path = if ($label -eq "SOURCE") { $sourcePanel } else { $installedPanel }
+            if (Test-Path $path) {
+              $hash = (Get-FileHash -Algorithm SHA256 -Path $path).Hash
+              $text = Get-Content $path -Raw -Encoding UTF8
+              Write-Host "DIAG_$($label)_EXISTS=True"
+              Write-Host "DIAG_$($label)_SHA256=$hash"
+              Write-Host "DIAG_$($label)_RESET_READY=$($text -match [regex]::Escape('RESET READY'))"
+              Write-Host "DIAG_$($label)_RESET_BUTTON=$($text -match 'resetAllButton')"
+              Write-Host "DIAG_$($label)_RESET_POS=$($text -match [regex]::Escape('Drawing.Point(820, 20)'))"
+            } else {
+              Write-Host "DIAG_$($label)_EXISTS=False"
+            }
+          }
+
+          Write-Host "DIAG_CONTROL_PANEL_PROCESSES_BEGIN"
+          $procs = Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and $_.CommandLine -like "*control-panel.ps1*" } |
+            Sort-Object ProcessId
+          if (-not $procs) {
+            Write-Host "DIAG_CONTROL_PANEL_PROCESS=NONE"
+          } else {
+            foreach ($p in $procs) {
+              Write-Host "DIAG_CONTROL_PANEL_PID=$($p.ProcessId)"
+              Write-Host "DIAG_CONTROL_PANEL_EXE=$($p.ExecutablePath)"
+              Write-Host "DIAG_CONTROL_PANEL_CMD=$($p.CommandLine)"
+            }
+          }
+          Write-Host "DIAG_CONTROL_PANEL_PROCESSES_END"
+
+          Write-Host "DIAG_DESKTOP_SHORTCUTS_BEGIN"
+          $shell = New-Object -ComObject WScript.Shell
+          $desktops = @(
+            [Environment]::GetFolderPath("Desktop"),
+            [Environment]::GetFolderPath("CommonDesktopDirectory")
+          ) | Select-Object -Unique
+          foreach ($desktop in $desktops) {
+            if (-not $desktop -or -not (Test-Path $desktop)) { continue }
+            Get-ChildItem -Path $desktop -Filter "*.lnk" -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -like "*MAGASIN*" -or $_.Name -like "*BUSINESS OS*" } |
+              ForEach-Object {
+                $shortcut = $shell.CreateShortcut($_.FullName)
+                Write-Host "DIAG_SHORTCUT_FILE=$($_.FullName)"
+                Write-Host "DIAG_SHORTCUT_TARGET=$($shortcut.TargetPath)"
+                Write-Host "DIAG_SHORTCUT_ARGS=$($shortcut.Arguments)"
+                Write-Host "DIAG_SHORTCUT_WORKDIR=$($shortcut.WorkingDirectory)"
+              }
+          }
+          Write-Host "DIAG_DESKTOP_SHORTCUTS_END"
+
+          Write-Host "DIAG_HKCU_RUN_BEGIN"
+          $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+          if (Test-Path $runKey) {
+            $props = Get-ItemProperty $runKey
+            foreach ($name in @("MAGASINBusinessOSAutostart","MAGASINBusinessOS","MAGASINSupervisor")) {
+              if ($props.PSObject.Properties[$name]) {
+                Write-Host "DIAG_HKCU_RUN_$name=$($props.$name)"
+              }
+            }
+          }
+          Write-Host "DIAG_HKCU_RUN_END"
+
+          Write-Host "DIAG_DONE=PASS"
