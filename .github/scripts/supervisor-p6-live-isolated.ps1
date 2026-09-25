@@ -161,6 +161,34 @@ try {
     "-File",('"' + $runScript + '"'),"-DryRun"
   )
 
+  . (Join-Path $runtimeWindows "lifecycle-truth.ps1")
+
+  $runtimeReady = $false
+  for ($i=0; $i -lt 120; $i++) {
+    Start-Sleep -Milliseconds 500
+    $truth = Get-LifecycleProcessTruth -Root $root
+    if (
+      $truth.wrapper_alive -and
+      $truth.three_lane_alive -and
+      $truth.chrome_alive -and
+      $truth.cdp_healthy
+    ) {
+      $runtimeReady = $true
+      break
+    }
+  }
+  if (-not $runtimeReady) {
+    Write-Host "LIVE_P6_RUNTIME_READY=FAIL"
+    if (Test-Path (Join-Path $root "wrapper.log")) {
+      Write-Host "--- P6_WRAPPER_LOG_TAIL_BEGIN ---"
+      Get-Content -LiteralPath (Join-Path $root "wrapper.log") -Tail 80 -Encoding UTF8 | ForEach-Object { Write-Host $_ }
+      Write-Host "--- P6_WRAPPER_LOG_TAIL_END ---"
+    }
+    throw "P6_LIVE_RUNTIME_NOT_READY"
+  }
+
+  Write-Host "LIVE_P6_RUNTIME_READY=PASS"
+
   $applied = $false
   $after = $null
   for ($i=0; $i -lt 80; $i++) {
@@ -176,7 +204,24 @@ try {
       break
     }
   }
-  if (-not $applied) { throw "P6_LIVE_RESET_NOT_APPLIED" }
+  if (-not $applied) {
+    $diag = Read-JsonSafe $registryFile
+    $diagLane = if ($diag -and $diag.lanes) { Get-Optional $diag.lanes "lane-1" } else { $null }
+    Write-Host ("LIVE_P6_DIAG_APPLIED_RESET_REV=" + [int](Get-Optional $diagLane "applied_work_state_reset_revision" -1))
+    Write-Host ("LIVE_P6_DIAG_WORK_GENERATION=" + [int](Get-Optional $diagLane "work_generation" -1))
+    Write-Host ("LIVE_P6_DIAG_TASK_PRESENT=" + [bool](-not [string]::IsNullOrWhiteSpace([string](Get-Optional $diagLane "task_id" ""))))
+    if (Test-Path (Join-Path $root "wrapper.log")) {
+      Write-Host "--- P6_WRAPPER_LOG_TAIL_BEGIN ---"
+      Get-Content -LiteralPath (Join-Path $root "wrapper.log") -Tail 80 -Encoding UTF8 | ForEach-Object { Write-Host $_ }
+      Write-Host "--- P6_WRAPPER_LOG_TAIL_END ---"
+    }
+    if (Test-Path $logFile) {
+      Write-Host "--- P6_SUPERVISOR_LOG_TAIL_BEGIN ---"
+      Get-Content -LiteralPath $logFile -Tail 80 -Encoding UTF8 | ForEach-Object { Write-Host $_ }
+      Write-Host "--- P6_SUPERVISOR_LOG_TAIL_END ---"
+    }
+    throw "P6_LIVE_RESET_NOT_APPLIED"
+  }
 
   $lane1 = Get-Optional $after.lanes "lane-1"
   $lane2 = Get-Optional $after.lanes "lane-2"
