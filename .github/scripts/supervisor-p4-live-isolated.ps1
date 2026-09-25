@@ -40,7 +40,15 @@ foreach ($name in @(
   "control-panel-observability.ps1",
   "control-panel.ps1"
 )) {
-  Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE ("windows\" + $name)) -Destination (Join-Path $runtimeWindows $name) -Force
+  $source = Join-Path $env:GITHUB_WORKSPACE ("windows\" + $name)
+  $target = Join-Path $runtimeWindows $name
+  Copy-Item -LiteralPath $source -Destination $target -Force
+
+  # Windows PowerShell 5.1 treats UTF-8 without BOM as the legacy ANSI codepage.
+  # The production files contain Vietnamese UI text, so the isolated copied
+  # fixture must be re-emitted with BOM to preserve parser-safe Unicode.
+  $text = [IO.File]::ReadAllText($target, [Text.Encoding]::UTF8)
+  [IO.File]::WriteAllText($target, $text, (New-Object Text.UTF8Encoding($true)))
 }
 
 $fakeNode = @'
