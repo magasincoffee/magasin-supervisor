@@ -8,8 +8,11 @@ const read = (name) =>
 test("autostart bootstrap resumes canonical runner and Supervisor only when Owner STOP latch is absent", async () => {
   const source = await read("autostart-bootstrap.ps1");
   assert.match(source, /AUTOSTART_DISABLED/);
+  assert.match(source, /SUPERVISOR_RUNNER_ROOT/);
+  assert.match(source, /C:\\actions-runner-magasin-supervisor\\actions-runner/);
   assert.match(source, /C:\\actions-runner-business\\actions-runner/);
   assert.match(source, /Runner\.Listener\.exe/);
+  assert.match(source, /Split-Path \(\[string\]\$listener\.ExecutablePath\) -Parent/);
   assert.match(source, /RUNNER_TRACKING_ID = 'MAGASIN_RUNNER_PERSISTENT'/);
   assert.match(source, /start-supervisor\.ps1/);
   assert.match(source, /SUPERVISOR_ONLINE/);
