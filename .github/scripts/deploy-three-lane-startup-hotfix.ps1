@@ -83,8 +83,8 @@ try {
 
     $needsFileDeploy = $sourceHash -ne $targetHashBefore
     if ($needsFileDeploy) {
-        $utf8Bom = New-Object System.Text.UTF8Encoding($true)
-        [System.IO.File]::WriteAllText($targetWrapper, $source, $utf8Bom)
+        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($targetWrapper, $source, $utf8NoBom)
         Write-Host 'WRAPPER_FILE_DEPLOYED=True'
     } else {
         Write-Host 'WRAPPER_FILE_DEPLOYED=False'
