@@ -381,7 +381,8 @@ try {
 
         Push-Location $runtime
         try {
-            $nodeArgs = @($entryPoint, '--cdp-url', $cdpBaseUrl, '--poll-ms', '5000')
+            $entryPointPath = Join-Path $runtime $entryPoint
+            $nodeArgs = @($entryPointPath, '--cdp-url', $cdpBaseUrl, '--poll-ms', '5000')
             if ($entryPoint -in @('src/runtime/brain-worker-cli.mjs','src/runtime/supervisor-loop-cli.mjs')) {
                 if (-not [string]::IsNullOrWhiteSpace($projectAdapterPath)) {
                     $nodeArgs += @('--project-adapter', $projectAdapterPath)
