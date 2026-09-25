@@ -58,6 +58,10 @@ test("Three-Lane runtime accepts wrapper PID and exits its loop after parent los
     /while \(true\) \{\s*if \(args\.wrapperPid && !wrapperProcessAlive\(args\.wrapperPid\)\)/
   );
   assert.match(runtime, /RUNTIME_WRAPPER_PARENT_MISSING/);
+  assert.match(runtime, /function armWrapperParentMonitor\(wrapperPid\)/);
+  assert.match(runtime, /process\.exit\(77\)/);
+  assert.match(runtime, /const wrapperParentMonitor = armWrapperParentMonitor\(args\.wrapperPid\)/);
+  assert.match(runtime, /if \(wrapperParentMonitor\) clearInterval\(wrapperParentMonitor\)/);
 });
 
 test("Control Panel automatically recovers GitHub Runner with bounded backoff", async () => {
