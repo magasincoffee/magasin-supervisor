@@ -299,3 +299,26 @@ test("CLI contains dual handshake migration and active-latch legacy envelope gat
   assert.match(source, /LANE_WORK_LEGACY_SEND_NOT_CONFIRMED_RETRY_SAME_IDENTITY/);
   assert.match(source, /applyBrainVerdictDirective/);
 });
+
+
+test("processed Brain directive short-circuits before previous_result revalidation", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const duplicateGuard = source.indexOf(
+    "directive.digest === registryLane.last_brain_directive_digest"
+  );
+  const verdictApply = source.indexOf(
+    "await applyBrainVerdictDirective({",
+    duplicateGuard
+  );
+
+  assert.ok(duplicateGuard >= 0);
+  assert.ok(verdictApply > duplicateGuard);
+  assert.match(source, /LANE_BRAIN_STALE_DIRECTIVE_SKIPPED/);
+  assert.match(
+    source,
+    /evaluateBrainVerdictTransition\(registryLane, candidate\)/
+  );
+});
