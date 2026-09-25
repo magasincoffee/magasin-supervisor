@@ -1,0 +1,7 @@
+SUP-SELFHEAL-P5-LIVE-OBSERVABILITY
+runner=DESKTOP-4K7IM13
+isolated_state=true
+invalid_brain_fixture=true
+sanitized_probe=true
+verify_no_state_mutation=true
+attempt=1
