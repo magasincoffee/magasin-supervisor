@@ -58,12 +58,13 @@ if ($ViewportProbe) {
         logical_width = $probeLayout.LogicalCanvasSize.Width
         logical_height = $probeLayout.LogicalCanvasSize.Height
         vertical_scroll_required = [bool]($probeLayout.InitialSize.Height -lt $probeLayout.LogicalCanvasSize.Height)
-        lane3_stop_bottom = 1047
-        lane3_stop_in_canvas = [bool]($probeLayout.LogicalCanvasSize.Height -ge 1047)
-        timeline_bottom = 1485
+        header_bottom = 230
+        lane3_stop_bottom = 1072
+        lane3_stop_in_canvas = [bool]($probeLayout.LogicalCanvasSize.Height -ge 1072)
+        timeline_bottom = 1484
         critical_controls_scroll_reachable = [bool](
             $probeLayout.InitialSize.Height -gt 0 -and
-            $probeLayout.LogicalCanvasSize.Height -ge 1047
+            $probeLayout.LogicalCanvasSize.Height -ge 1072
         )
     } | ConvertTo-Json -Compress
     exit 0
@@ -309,7 +310,7 @@ function Open-RobotUrl([string]$Url) {
     if (-not (Test-ChatConversationUrl $Url)) {
         [Windows.Forms.MessageBox]::Show(
             'Chưa có URL cuộc trò chuyện hợp lệ.',
-            'MAGASIN BUSINESS OS',
+            'MAGASIN SUPERVISOR',
             'OK',
             'Information'
         ) | Out-Null
@@ -318,7 +319,7 @@ function Open-RobotUrl([string]$Url) {
     if (-not (Test-Path $openChatScript)) {
         [Windows.Forms.MessageBox]::Show(
             'Không tìm thấy trình mở Chrome Robot.',
-            'MAGASIN BUSINESS OS',
+            'MAGASIN SUPERVISOR',
             'OK',
             'Error'
         ) | Out-Null
@@ -375,6 +376,23 @@ function Get-StatusBackColor([string]$Status) {
         'ERROR' { return [Drawing.Color]::FromArgb(254,226,226) }
         'NEED_BRAIN_URL' { return [Drawing.Color]::FromArgb(255,237,213) }
         default { return [Drawing.Color]::FromArgb(248,250,252) }
+    }
+}
+
+function Get-StatusForeColor([string]$Status) {
+    switch ($Status) {
+        'WORKING' { return [Drawing.Color]::FromArgb(29,78,216) }
+        'WORKING_LONG' { return [Drawing.Color]::FromArgb(3,105,161) }
+        'STALL_CHECK' { return [Drawing.Color]::FromArgb(161,98,7) }
+        'POSSIBLY_STALLED' { return [Drawing.Color]::FromArgb(194,65,12) }
+        'RELAYING_RESULT' { return [Drawing.Color]::FromArgb(3,105,161) }
+        'READY' { return [Drawing.Color]::FromArgb(21,128,61) }
+        'WAITING_BRAIN' { return [Drawing.Color]::FromArgb(161,98,7) }
+        'RECOVERING' { return [Drawing.Color]::FromArgb(161,98,7) }
+        'WAIT_OWNER' { return [Drawing.Color]::FromArgb(194,65,12) }
+        'ERROR' { return [Drawing.Color]::FromArgb(185,28,28) }
+        'NEED_BRAIN_URL' { return [Drawing.Color]::FromArgb(194,65,12) }
+        default { return [Drawing.Color]::FromArgb(51,65,85) }
     }
 }
 
@@ -524,7 +542,7 @@ function Save-BrainTarget(
 [Windows.Forms.Application]::EnableVisualStyles()
 
 $form = New-Object Windows.Forms.Form
-$form.Text = 'MAGASIN BUSINESS OS — 3 LUỒNG LÀM VIỆC'
+$form.Text = 'MAGASIN SUPERVISOR — CONTROL CENTER'
 $form.StartPosition = 'Manual'
 $form.AutoScaleMode = [Windows.Forms.AutoScaleMode]::Dpi
 $form.AutoScaleDimensions = New-Object Drawing.SizeF(96, 96)
@@ -534,7 +552,7 @@ $viewportLayout = Get-ControlPanelViewportLayout -WorkingArea $currentScreen.Wor
 $form.Size = $viewportLayout.InitialSize
 $form.MinimumSize = $viewportLayout.MinimumSize
 $form.Location = $viewportLayout.Location
-$form.BackColor = [Drawing.Color]::FromArgb(248,250,252)
+$form.BackColor = [Drawing.Color]::FromArgb(241,245,249)
 $form.Font = New-Object Drawing.Font('Segoe UI', 9)
 
 $scrollHost = New-Object Windows.Forms.Panel
@@ -550,27 +568,45 @@ $content.BackColor = $form.BackColor
 $scrollHost.Controls.Add($content)
 $scrollHost.AutoScrollMinSize = $viewportLayout.LogicalCanvasSize
 
+$heroPanel = New-Object Windows.Forms.Panel
+$heroPanel.Location = New-Object Drawing.Point(20, 18)
+$heroPanel.Size = New-Object Drawing.Size(1175, 104)
+$heroPanel.BackColor = [Drawing.Color]::FromArgb(15,23,42)
+$content.Controls.Add($heroPanel)
+
 $title = New-Object Windows.Forms.Label
-$title.Text = 'MAGASIN BUSINESS OS'
-$title.Location = New-Object Drawing.Point(28, 22)
-$title.Size = New-Object Drawing.Size(430, 42)
+$title.Text = 'MAGASIN SUPERVISOR'
+$title.Location = New-Object Drawing.Point(22, 16)
+$title.Size = New-Object Drawing.Size(500, 42)
 $title.Font = New-Object Drawing.Font('Segoe UI Semibold', 23)
-$content.Controls.Add($title)
+$title.ForeColor = [Drawing.Color]::White
+$heroPanel.Controls.Add($title)
 
 $subtitle = New-Object Windows.Forms.Label
-$subtitle.Text = '3 LUỒNG ĐỘC LẬP  •  RESET READY'
-$subtitle.Location = New-Object Drawing.Point(510, 34)
-$subtitle.Size = New-Object Drawing.Size(290, 26)
-$subtitle.TextAlign = 'MiddleRight'
-$subtitle.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
-$content.Controls.Add($subtitle)
+$subtitle.Text = 'CONTROL CENTER  •  3 LUỒNG ĐỘC LẬP  •  LIVE STATUS'
+$subtitle.Location = New-Object Drawing.Point(25, 62)
+$subtitle.Size = New-Object Drawing.Size(560, 24)
+$subtitle.ForeColor = [Drawing.Color]::FromArgb(203,213,225)
+$heroPanel.Controls.Add($subtitle)
+
+$versionBadge = New-Object Windows.Forms.Label
+$versionBadge.Text = 'CONTROL PANEL V2'
+$versionBadge.Location = New-Object Drawing.Point(630, 22)
+$versionBadge.Size = New-Object Drawing.Size(180, 28)
+$versionBadge.TextAlign = 'MiddleCenter'
+$versionBadge.BackColor = [Drawing.Color]::FromArgb(30,41,59)
+$versionBadge.ForeColor = [Drawing.Color]::FromArgb(226,232,240)
+$versionBadge.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
+$heroPanel.Controls.Add($versionBadge)
 
 $resetAllButton = New-Object Windows.Forms.Button
-$resetAllButton.Location = New-Object Drawing.Point(820, 20)
-$resetAllButton.Size = New-Object Drawing.Size(365, 42)
+$resetAllButton.Location = New-Object Drawing.Point(840, 18)
+$resetAllButton.Size = New-Object Drawing.Size(315, 40)
 $resetAllButton.Text = '⚠  LÀM SẠCH TẤT CẢ DỰ ÁN'
-$resetAllButton.BackColor = [Drawing.Color]::FromArgb(254,226,226)
-$resetAllButton.ForeColor = [Drawing.Color]::FromArgb(153,27,27)
+$resetAllButton.BackColor = [Drawing.Color]::FromArgb(127,29,29)
+$resetAllButton.ForeColor = [Drawing.Color]::White
+$resetAllButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+$resetAllButton.FlatAppearance.BorderSize = 0
 $resetAllButton.Add_Click({
     $first = [Windows.Forms.MessageBox]::Show(
         'Thao tác này sẽ DỪNG Robot và xóa TOÀN BỘ 3 dự án khỏi Supervisor: tên dự án, Brain/Work URL, task cũ, dispatch/relay latch, pending target, quarantine, timeline và evidence. GitHub Runner, cài đặt Robot và Chrome profile đăng nhập được giữ nguyên. Tiếp tục?',
@@ -591,7 +627,7 @@ $resetAllButton.Add_Click({
     if (-not (Test-Path $resetAllProjectsScript)) {
         [Windows.Forms.MessageBox]::Show(
             'Không tìm thấy reset-all-projects.ps1 trong runtime đã cài.',
-            'MAGASIN BUSINESS OS',
+            'MAGASIN SUPERVISOR',
             'OK',
             'Error'
         ) | Out-Null
@@ -607,7 +643,7 @@ $resetAllButton.Add_Click({
         Refresh-Ui
         [Windows.Forms.MessageBox]::Show(
             'ĐÃ LÀM SẠCH 3 DỰ ÁN. Robot đang ở trạng thái an toàn: tất cả lane tắt và Owner STOP được giữ. Hãy nhập dự án mới, lưu Brain/Work, BẮT ĐẦU LUỒNG rồi KHỞI ĐỘNG ROBOT NỀN.',
-            'MAGASIN BUSINESS OS',
+            'MAGASIN SUPERVISOR',
             'OK',
             'Information'
         ) | Out-Null
@@ -622,47 +658,71 @@ $resetAllButton.Add_Click({
         $resetAllButton.Enabled = $true
     }
 })
-$content.Controls.Add($resetAllButton)
+$heroPanel.Controls.Add($resetAllButton)
+
+$overviewPanel = New-Object Windows.Forms.Panel
+$overviewPanel.Location = New-Object Drawing.Point(20, 132)
+$overviewPanel.Size = New-Object Drawing.Size(1175, 98)
+$overviewPanel.BackColor = [Drawing.Color]::White
+$overviewPanel.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
+$content.Controls.Add($overviewPanel)
 
 $runnerButton = New-Object Windows.Forms.Button
-$runnerButton.Location = New-Object Drawing.Point(28, 76)
-$runnerButton.Size = New-Object Drawing.Size(260, 42)
+$runnerButton.Location = New-Object Drawing.Point(16, 14)
+$runnerButton.Size = New-Object Drawing.Size(218, 36)
 $runnerButton.Text = 'KẾT NỐI GITHUB'
+$runnerButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
 $runnerButton.Add_Click({
     if (-not (Ensure-Runner)) {
         [Windows.Forms.MessageBox]::Show(
             'Không thể khởi động GitHub Runner. Mở nhật ký Runner để kiểm tra kết nối mạng.',
-            'MAGASIN BUSINESS OS',
+            'MAGASIN SUPERVISOR',
             'OK',
             'Warning'
         ) | Out-Null
     }
 })
-$content.Controls.Add($runnerButton)
+$overviewPanel.Controls.Add($runnerButton)
+
+$lastRefreshLabel = New-Object Windows.Forms.Label
+$lastRefreshLabel.Location = New-Object Drawing.Point(16, 57)
+$lastRefreshLabel.Size = New-Object Drawing.Size(218, 22)
+$lastRefreshLabel.TextAlign = 'MiddleLeft'
+$lastRefreshLabel.ForeColor = [Drawing.Color]::FromArgb(100,116,139)
+$lastRefreshLabel.Text = 'Đồng bộ: —'
+$overviewPanel.Controls.Add($lastRefreshLabel)
 
 $runtimeLabel = New-Object Windows.Forms.Label
-$runtimeLabel.Location = New-Object Drawing.Point(310, 77)
-$runtimeLabel.Size = New-Object Drawing.Size(500, 20)
+$runtimeLabel.Location = New-Object Drawing.Point(252, 10)
+$runtimeLabel.Size = New-Object Drawing.Size(590, 24)
 $runtimeLabel.Font = New-Object Drawing.Font('Segoe UI Semibold', 10)
-$content.Controls.Add($runtimeLabel)
+$overviewPanel.Controls.Add($runtimeLabel)
 
 $resourceLabel = New-Object Windows.Forms.Label
-$resourceLabel.Location = New-Object Drawing.Point(310, 98)
-$resourceLabel.Size = New-Object Drawing.Size(500, 36)
+$resourceLabel.Location = New-Object Drawing.Point(252, 34)
+$resourceLabel.Size = New-Object Drawing.Size(590, 36)
 $resourceLabel.Font = New-Object Drawing.Font('Segoe UI', 8.5)
 $resourceLabel.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
-$content.Controls.Add($resourceLabel)
+$overviewPanel.Controls.Add($resourceLabel)
+
+$reportInfoLabel = New-Object Windows.Forms.Label
+$reportInfoLabel.Location = New-Object Drawing.Point(252, 72)
+$reportInfoLabel.Size = New-Object Drawing.Size(590, 20)
+$reportInfoLabel.Text = 'BÁO CÁO ẢNH: Robot tự chụp kết quả Work và gửi kèm về Brain khi relay.'
+$reportInfoLabel.ForeColor = [Drawing.Color]::FromArgb(51,65,85)
+$overviewPanel.Controls.Add($reportInfoLabel)
 
 $runtimeStartButton = New-Object Windows.Forms.Button
-$runtimeStartButton.Location = New-Object Drawing.Point(820, 76)
-$runtimeStartButton.Size = New-Object Drawing.Size(175, 42)
-$runtimeStartButton.Text = 'KHỞI ĐỘNG ROBOT NỀN'
+$runtimeStartButton.Location = New-Object Drawing.Point(864, 10)
+$runtimeStartButton.Size = New-Object Drawing.Size(286, 36)
+$runtimeStartButton.Text = '▶  KHỞI ĐỘNG ROBOT NỀN'
+$runtimeStartButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
 $runtimeStartButton.Add_Click({
     $enabledLaneCount = Get-EnabledLaneCount -Root $root
     if ($enabledLaneCount -lt 1) {
         [Windows.Forms.MessageBox]::Show(
             'Hãy bật ít nhất một luồng trước khi khởi động Robot nền.',
-            'MAGASIN BUSINESS OS',
+            'MAGASIN SUPERVISOR',
             'OK',
             'Information'
         ) | Out-Null
@@ -672,7 +732,7 @@ $runtimeStartButton.Add_Click({
     if (-not (Test-Path $startScript)) {
         [Windows.Forms.MessageBox]::Show(
             'Không tìm thấy Supervisor runtime.',
-            'MAGASIN BUSINESS OS',
+            'MAGASIN SUPERVISOR',
             'OK',
             'Error'
         ) | Out-Null
@@ -684,17 +744,18 @@ $runtimeStartButton.Add_Click({
         '-File',('"' + $startScript + '"'),'-Hidden'
     )
 })
-$content.Controls.Add($runtimeStartButton)
+$overviewPanel.Controls.Add($runtimeStartButton)
 
 $repoButton = New-Object Windows.Forms.Button
-$repoButton.Location = New-Object Drawing.Point(1015, 76)
-$repoButton.Size = New-Object Drawing.Size(170, 42)
+$repoButton.Location = New-Object Drawing.Point(864, 53)
+$repoButton.Size = New-Object Drawing.Size(138, 32)
 $repoButton.Text = 'MỞ DỰ ÁN'
+$repoButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
 $repoButton.Add_Click({
     if ([string]::IsNullOrWhiteSpace($repoUrl)) {
         [Windows.Forms.MessageBox]::Show(
             'Chưa cấu hình SUPERVISOR_PROJECT_REPOSITORY_URL.',
-            'Supervisor',
+            'MAGASIN SUPERVISOR',
             'OK',
             'Information'
         ) | Out-Null
@@ -702,147 +763,190 @@ $repoButton.Add_Click({
     }
     Start-Process $repoUrl
 })
-$content.Controls.Add($repoButton)
+$overviewPanel.Controls.Add($repoButton)
+
+$refreshButton = New-Object Windows.Forms.Button
+$refreshButton.Location = New-Object Drawing.Point(1012, 53)
+$refreshButton.Size = New-Object Drawing.Size(138, 32)
+$refreshButton.Text = '⟳  LÀM MỚI'
+$refreshButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+$refreshButton.Add_Click({ Refresh-Ui })
+$overviewPanel.Controls.Add($refreshButton)
 
 $laneUi = @{}
-$cardY = @(135, 445, 755)
+$cardY = @(244, 530, 816)
 
 for ($i = 0; $i -lt 3; $i++) {
     $laneId = "lane-$($i + 1)"
     $panel = New-Object Windows.Forms.Panel
-    $panel.Location = New-Object Drawing.Point(28, $cardY[$i])
-    $panel.Size = New-Object Drawing.Size(1157, 298)
-    $panel.BorderStyle = 'FixedSingle'
+    $panel.Location = New-Object Drawing.Point(20, $cardY[$i])
+    $panel.Size = New-Object Drawing.Size(1175, 272)
+    $panel.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
     $panel.BackColor = [Drawing.Color]::White
     $content.Controls.Add($panel)
+
+    $accentPanel = New-Object Windows.Forms.Panel
+    $accentPanel.Location = New-Object Drawing.Point(0, 0)
+    $accentPanel.Size = New-Object Drawing.Size(6, 270)
+    $accentPanel.BackColor = [Drawing.Color]::FromArgb(226,232,240)
+    $panel.Controls.Add($accentPanel)
 
     $laneTitle = New-Object Windows.Forms.Label
     $laneTitle.Text = "LUỒNG $($i + 1)"
     $laneTitle.Location = New-Object Drawing.Point(18, 12)
-    $laneTitle.Size = New-Object Drawing.Size(130, 26)
+    $laneTitle.Size = New-Object Drawing.Size(105, 28)
     $laneTitle.Font = New-Object Drawing.Font('Segoe UI Semibold', 13)
     $panel.Controls.Add($laneTitle)
 
     $projectLabel = New-Object Windows.Forms.Label
-    $projectLabel.Text = 'TÊN DỰ ÁN'
-    $projectLabel.Location = New-Object Drawing.Point(165, 15)
-    $projectLabel.Size = New-Object Drawing.Size(85, 22)
+    $projectLabel.Text = 'DỰ ÁN'
+    $projectLabel.Location = New-Object Drawing.Point(130, 17)
+    $projectLabel.Size = New-Object Drawing.Size(70, 22)
+    $projectLabel.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
     $panel.Controls.Add($projectLabel)
 
     $projectBox = New-Object Windows.Forms.TextBox
-    $projectBox.Location = New-Object Drawing.Point(250, 12)
-    $projectBox.Size = New-Object Drawing.Size(340, 26)
+    $projectBox.Location = New-Object Drawing.Point(200, 13)
+    $projectBox.Size = New-Object Drawing.Size(480, 27)
+    $projectBox.Font = New-Object Drawing.Font('Segoe UI Semibold', 9.5)
     $panel.Controls.Add($projectBox)
 
     $statusValue = New-Object Windows.Forms.Label
-    $statusValue.Location = New-Object Drawing.Point(610, 10)
-    $statusValue.Size = New-Object Drawing.Size(520, 32)
-    $statusValue.Font = New-Object Drawing.Font('Segoe UI Semibold', 13)
-    $statusValue.TextAlign = 'MiddleRight'
+    $statusValue.Location = New-Object Drawing.Point(915, 10)
+    $statusValue.Size = New-Object Drawing.Size(230, 34)
+    $statusValue.Font = New-Object Drawing.Font('Segoe UI Semibold', 10)
+    $statusValue.TextAlign = 'MiddleCenter'
+    $statusValue.BackColor = [Drawing.Color]::FromArgb(248,250,252)
+    $statusValue.ForeColor = [Drawing.Color]::FromArgb(51,65,85)
     $panel.Controls.Add($statusValue)
 
     $brainLabel = New-Object Windows.Forms.Label
     $brainLabel.Text = 'LINK BỘ NÃO'
-    $brainLabel.Location = New-Object Drawing.Point(18, 58)
-    $brainLabel.Size = New-Object Drawing.Size(105, 24)
+    $brainLabel.Location = New-Object Drawing.Point(18, 59)
+    $brainLabel.Size = New-Object Drawing.Size(100, 24)
+    $brainLabel.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
     $panel.Controls.Add($brainLabel)
 
     $brainBox = New-Object Windows.Forms.TextBox
-    $brainBox.Location = New-Object Drawing.Point(125, 55)
-    $brainBox.Size = New-Object Drawing.Size(760, 27)
+    $brainBox.Location = New-Object Drawing.Point(118, 56)
+    $brainBox.Size = New-Object Drawing.Size(642, 27)
     $panel.Controls.Add($brainBox)
 
     $openBrain = New-Object Windows.Forms.Button
     $openBrain.Text = 'MỞ BỘ NÃO'
-    $openBrain.Location = New-Object Drawing.Point(900, 52)
-    $openBrain.Size = New-Object Drawing.Size(108, 34)
+    $openBrain.Location = New-Object Drawing.Point(775, 53)
+    $openBrain.Size = New-Object Drawing.Size(110, 34)
+    $openBrain.FlatStyle = [Windows.Forms.FlatStyle]::Flat
     $panel.Controls.Add($openBrain)
 
     $saveBrain = New-Object Windows.Forms.Button
     $saveBrain.Text = 'LƯU BỘ NÃO'
-    $saveBrain.Location = New-Object Drawing.Point(1017, 52)
-    $saveBrain.Size = New-Object Drawing.Size(108, 34)
+    $saveBrain.Location = New-Object Drawing.Point(895, 53)
+    $saveBrain.Size = New-Object Drawing.Size(120, 34)
+    $saveBrain.FlatStyle = [Windows.Forms.FlatStyle]::Flat
     $panel.Controls.Add($saveBrain)
 
     $workLabel = New-Object Windows.Forms.Label
-    $workLabel.Text = 'LINK WORK (TÙY CHỌN)'
-    $workLabel.Location = New-Object Drawing.Point(18, 100)
-    $workLabel.Size = New-Object Drawing.Size(105, 24)
+    $workLabel.Text = 'LINK WORK'
+    $workLabel.Location = New-Object Drawing.Point(18, 101)
+    $workLabel.Size = New-Object Drawing.Size(100, 24)
+    $workLabel.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
     $panel.Controls.Add($workLabel)
 
     $workBox = New-Object Windows.Forms.TextBox
-    $workBox.Location = New-Object Drawing.Point(125, 97)
-    $workBox.Size = New-Object Drawing.Size(635, 27)
+    $workBox.Location = New-Object Drawing.Point(118, 98)
+    $workBox.Size = New-Object Drawing.Size(517, 27)
     $workBox.ReadOnly = $false
     $workBox.BackColor = [Drawing.Color]::White
     $panel.Controls.Add($workBox)
 
     $openWork = New-Object Windows.Forms.Button
     $openWork.Text = 'MỞ WORK'
-    $openWork.Location = New-Object Drawing.Point(775, 94)
-    $openWork.Size = New-Object Drawing.Size(108, 34)
+    $openWork.Location = New-Object Drawing.Point(650, 95)
+    $openWork.Size = New-Object Drawing.Size(110, 34)
+    $openWork.FlatStyle = [Windows.Forms.FlatStyle]::Flat
     $panel.Controls.Add($openWork)
 
     $saveWork = New-Object Windows.Forms.Button
     $saveWork.Text = 'LƯU WORK'
-    $saveWork.Location = New-Object Drawing.Point(892, 94)
-    $saveWork.Size = New-Object Drawing.Size(108, 34)
+    $saveWork.Location = New-Object Drawing.Point(770, 95)
+    $saveWork.Size = New-Object Drawing.Size(110, 34)
+    $saveWork.FlatStyle = [Windows.Forms.FlatStyle]::Flat
     $panel.Controls.Add($saveWork)
 
     $resetWork = New-Object Windows.Forms.Button
     $resetWork.Text = 'TỰ TẠO WORK'
-    $resetWork.Location = New-Object Drawing.Point(1009, 94)
-    $resetWork.Size = New-Object Drawing.Size(116, 34)
+    $resetWork.Location = New-Object Drawing.Point(890, 95)
+    $resetWork.Size = New-Object Drawing.Size(125, 34)
+    $resetWork.FlatStyle = [Windows.Forms.FlatStyle]::Flat
     $panel.Controls.Add($resetWork)
 
+    $summaryPanel = New-Object Windows.Forms.Panel
+    $summaryPanel.Location = New-Object Drawing.Point(18, 136)
+    $summaryPanel.Size = New-Object Drawing.Size(850, 126)
+    $summaryPanel.BackColor = [Drawing.Color]::FromArgb(248,250,252)
+    $summaryPanel.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
+    $panel.Controls.Add($summaryPanel)
+
     $executionValue = New-Object Windows.Forms.Label
-    $executionValue.Location = New-Object Drawing.Point(18, 136)
-    $executionValue.Size = New-Object Drawing.Size(742, 24)
+    $executionValue.Location = New-Object Drawing.Point(10, 7)
+    $executionValue.Size = New-Object Drawing.Size(828, 22)
     $executionValue.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
     $executionValue.AutoEllipsis = $true
-    $panel.Controls.Add($executionValue)
+    $summaryPanel.Controls.Add($executionValue)
 
     $healthValue = New-Object Windows.Forms.Label
-    $healthValue.Location = New-Object Drawing.Point(18, 162)
-    $healthValue.Size = New-Object Drawing.Size(742, 42)
+    $healthValue.Location = New-Object Drawing.Point(10, 30)
+    $healthValue.Size = New-Object Drawing.Size(828, 34)
     $healthValue.Font = New-Object Drawing.Font('Segoe UI', 8.5)
     $healthValue.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
-    $panel.Controls.Add($healthValue)
+    $summaryPanel.Controls.Add($healthValue)
 
     $updatedValue = New-Object Windows.Forms.Label
-    $updatedValue.Location = New-Object Drawing.Point(18, 207)
-    $updatedValue.Size = New-Object Drawing.Size(742, 24)
+    $updatedValue.Location = New-Object Drawing.Point(10, 65)
+    $updatedValue.Size = New-Object Drawing.Size(828, 18)
     $updatedValue.ForeColor = [Drawing.Color]::FromArgb(100,116,139)
-    $panel.Controls.Add($updatedValue)
+    $summaryPanel.Controls.Add($updatedValue)
+
+    $reportValue = New-Object Windows.Forms.Label
+    $reportValue.Location = New-Object Drawing.Point(10, 84)
+    $reportValue.Size = New-Object Drawing.Size(828, 18)
+    $reportValue.Font = New-Object Drawing.Font('Segoe UI Semibold', 8.5)
+    $reportValue.ForeColor = [Drawing.Color]::FromArgb(51,65,85)
+    $summaryPanel.Controls.Add($reportValue)
 
     $messageValue = New-Object Windows.Forms.Label
-    $messageValue.Location = New-Object Drawing.Point(18, 235)
-    $messageValue.Size = New-Object Drawing.Size(742, 50)
+    $messageValue.Location = New-Object Drawing.Point(10, 103)
+    $messageValue.Size = New-Object Drawing.Size(828, 20)
     $messageValue.AutoEllipsis = $true
-    $panel.Controls.Add($messageValue)
+    $summaryPanel.Controls.Add($messageValue)
 
     $retryRelayButton = New-Object Windows.Forms.Button
     $retryRelayButton.Text = 'THỬ LẠI RELAY'
-    $retryRelayButton.Location = New-Object Drawing.Point(775, 145)
-    $retryRelayButton.Size = New-Object Drawing.Size(110, 71)
+    $retryRelayButton.Location = New-Object Drawing.Point(885, 140)
+    $retryRelayButton.Size = New-Object Drawing.Size(260, 34)
     $retryRelayButton.Enabled = $false
     $retryRelayButton.Visible = $false
+    $retryRelayButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
     $panel.Controls.Add($retryRelayButton)
 
     $startButton = New-Object Windows.Forms.Button
     $startButton.Text = '▶  BẮT ĐẦU LUỒNG'
-    $startButton.Location = New-Object Drawing.Point(900, 220)
-    $startButton.Size = New-Object Drawing.Size(225, 34)
+    $startButton.Location = New-Object Drawing.Point(885, 182)
+    $startButton.Size = New-Object Drawing.Size(260, 36)
+    $startButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
     $panel.Controls.Add($startButton)
 
     $stopButton = New-Object Windows.Forms.Button
     $stopButton.Text = '■  DỪNG LUỒNG'
-    $stopButton.Location = New-Object Drawing.Point(900, 260)
-    $stopButton.Size = New-Object Drawing.Size(225, 32)
+    $stopButton.Location = New-Object Drawing.Point(885, 226)
+    $stopButton.Size = New-Object Drawing.Size(260, 32)
+    $stopButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
     $panel.Controls.Add($stopButton)
 
     $laneUi[$laneId] = [pscustomobject]@{
         Panel = $panel
+        Accent = $accentPanel
         Project = $projectBox
         Brain = $brainBox
         Work = $workBox
@@ -851,6 +955,7 @@ for ($i = 0; $i -lt 3; $i++) {
         Health = $healthValue
         Message = $messageValue
         Updated = $updatedValue
+        Report = $reportValue
         Start = $startButton
         Stop = $stopButton
         OpenBrain = $openBrain
@@ -869,7 +974,7 @@ for ($i = 0; $i -lt 3; $i++) {
         if (-not (Test-ChatConversationUrl $brainUrl)) {
             [Windows.Forms.MessageBox]::Show(
                 'Hãy dán đúng link cuộc trò chuyện ChatGPT dùng làm BỘ NÃO cho luồng này.',
-                'MAGASIN BUSINESS OS',
+                'MAGASIN SUPERVISOR',
                 'OK',
                 'Warning'
             ) | Out-Null
@@ -901,7 +1006,7 @@ for ($i = 0; $i -lt 3; $i++) {
         if (-not (Test-ChatConversationUrl $brainUrl)) {
             [Windows.Forms.MessageBox]::Show(
                 'LINK BỘ NÃO không hợp lệ. Hãy dán đúng link cuộc trò chuyện ChatGPT mới.',
-                'MAGASIN BUSINESS OS',
+                'MAGASIN SUPERVISOR',
                 'OK',
                 'Warning'
             ) | Out-Null
@@ -912,7 +1017,7 @@ for ($i = 0; $i -lt 3; $i++) {
         if ($changed) {
             [Windows.Forms.MessageBox]::Show(
                 'Đã lưu Bộ não mới. Robot sẽ chuyển sang Bộ não này ở vòng xử lý kế tiếp, kể cả khi Work hiện tại vẫn đang chạy.',
-                'MAGASIN BUSINESS OS',
+                'MAGASIN SUPERVISOR',
                 'OK',
                 'Information'
             ) | Out-Null
@@ -933,7 +1038,7 @@ for ($i = 0; $i -lt 3; $i++) {
         if (-not (Test-ChatConversationUrl $workUrl)) {
             [Windows.Forms.MessageBox]::Show(
                 'LINK WORK không hợp lệ. Hãy dán đúng link cuộc trò chuyện ChatGPT.',
-                'MAGASIN BUSINESS OS',
+                'MAGASIN SUPERVISOR',
                 'OK',
                 'Warning'
             ) | Out-Null
@@ -944,14 +1049,14 @@ for ($i = 0; $i -lt 3; $i++) {
         if ($saved.Changed) {
             [Windows.Forms.MessageBox]::Show(
                 ('ĐÃ LƯU WORK · revision ' + $saved.Revision + ' · ' + (Format-VietnamTime $saved.SavedAt) + '. Robot sẽ nhận revision ở vòng xử lý kế tiếp; task đang chạy không bị bỏ.'),
-                'MAGASIN BUSINESS OS',
+                'MAGASIN SUPERVISOR',
                 'OK',
                 'Information'
             ) | Out-Null
         } else {
             [Windows.Forms.MessageBox]::Show(
                 ('WORK không đổi · revision ' + $saved.Revision + '. Không tăng revision.'),
-                'MAGASIN BUSINESS OS',
+                'MAGASIN SUPERVISOR',
                 'OK',
                 'Information'
             ) | Out-Null
@@ -964,7 +1069,7 @@ for ($i = 0; $i -lt 3; $i++) {
         $saved = Save-WorkTarget $id '' $true $true
         [Windows.Forms.MessageBox]::Show(
             ('ĐÃ LƯU TỰ TẠO WORK · revision ' + $saved.Revision + ' · ' + (Format-VietnamTime $saved.SavedAt) + '. Nếu có task đang chạy, Work hiện tại được giữ đến safe boundary; Robot không bỏ task.'),
-            'MAGASIN BUSINESS OS',
+            'MAGASIN SUPERVISOR',
             'OK',
             'Information'
         ) | Out-Null
@@ -976,7 +1081,7 @@ for ($i = 0; $i -lt 3; $i++) {
         $requested = Request-RelayRetryRearm $id
         [Windows.Forms.MessageBox]::Show(
             ('ĐÃ YÊU CẦU THỬ LẠI RELAY — revision ' + $requested.Revision + '. Robot sẽ reconcile marker trước; không đổi Brain/Work và không reset task.'),
-            'MAGASIN BUSINESS OS',
+            'MAGASIN SUPERVISOR',
             'OK',
             'Information'
         ) | Out-Null
@@ -986,25 +1091,27 @@ for ($i = 0; $i -lt 3; $i++) {
 }
 
 $timelineGroup = New-Object Windows.Forms.GroupBox
-$timelineGroup.Text = 'DÒNG SỰ KIỆN GẦN NHẤT'
-$timelineGroup.Location = New-Object Drawing.Point(28, 1070)
-$timelineGroup.Size = New-Object Drawing.Size(1157, 415)
+$timelineGroup.Text = 'NHẬT KÝ HOẠT ĐỘNG · MỚI NHẤT Ở TRÊN'
+$timelineGroup.Location = New-Object Drawing.Point(20, 1104)
+$timelineGroup.Size = New-Object Drawing.Size(1175, 380)
+$timelineGroup.BackColor = [Drawing.Color]::White
 $content.Controls.Add($timelineGroup)
 
 $timelineList = New-Object Windows.Forms.ListView
-$timelineList.Location = New-Object Drawing.Point(14, 24)
-$timelineList.Size = New-Object Drawing.Size(1128, 372)
+$timelineList.Location = New-Object Drawing.Point(12, 24)
+$timelineList.Size = New-Object Drawing.Size(1149, 340)
 $timelineList.View = [Windows.Forms.View]::Details
 $timelineList.FullRowSelect = $true
-$timelineList.GridLines = $true
+$timelineList.GridLines = $false
 $timelineList.HideSelection = $false
 $timelineList.MultiSelect = $false
 $timelineList.HeaderStyle = [Windows.Forms.ColumnHeaderStyle]::Nonclickable
-[void]$timelineList.Columns.Add('Giờ', 82)
-[void]$timelineList.Columns.Add('Luồng', 72)
-[void]$timelineList.Columns.Add('Sự kiện', 335)
-[void]$timelineList.Columns.Add('Task', 315)
-[void]$timelineList.Columns.Add('Chi tiết', 300)
+$timelineList.BackColor = [Drawing.Color]::FromArgb(248,250,252)
+[void]$timelineList.Columns.Add('Giờ', 90)
+[void]$timelineList.Columns.Add('Luồng', 82)
+[void]$timelineList.Columns.Add('Sự kiện', 330)
+[void]$timelineList.Columns.Add('Task', 300)
+[void]$timelineList.Columns.Add('Chi tiết', 315)
 $timelineGroup.Controls.Add($timelineList)
 
 function Format-ProcessFlag([bool]$Value) {
@@ -1050,7 +1157,7 @@ function Refresh-Timeline {
             [void]$item.SubItems.Add(($detailParts -join ' · '))
             [void]$timelineList.Items.Add($item)
         }
-        $timelineGroup.Text = 'DÒNG SỰ KIỆN GẦN NHẤT · ' + @($tail.events).Count + ' / 30'
+        $timelineGroup.Text = 'NHẬT KÝ HOẠT ĐỘNG · MỚI → CŨ · ' + @($tail.events).Count + ' / 30'
     } finally {
         $timelineList.EndUpdate()
     }
@@ -1228,6 +1335,18 @@ function Refresh-Ui {
         $ui.RetryRelay.Visible = $relayExhausted
         $ui.RetryRelay.Enabled = [bool]($relayExhausted -and -not $relayRearmPending)
 
+        $relayScreenshotPath = [string](Get-OptionalPropertyValue $relayInflight 'screenshot_path' '')
+        $relayScreenshotPresent = -not [string]::IsNullOrWhiteSpace($relayScreenshotPath)
+        if ($relayScreenshotPresent -and $relayExhausted) {
+            $ui.Report.Text = 'BÁO CÁO ẢNH: ĐÃ GIỮ EVIDENCE · relay đang chờ bạn xử lý'
+        } elseif ($relayScreenshotPresent) {
+            $ui.Report.Text = 'BÁO CÁO ẢNH: ĐÃ CHỤP · đang gửi kèm kết quả về Brain'
+        } elseif ($enabled) {
+            $ui.Report.Text = 'BÁO CÁO ẢNH: TỰ ĐỘNG CHỤP khi Work hoàn tất'
+        } else {
+            $ui.Report.Text = 'BÁO CÁO ẢNH: SẴN SÀNG khi luồng chạy'
+        }
+
         $laneStatusValue = [string](Get-OptionalPropertyValue $st 'status' '')
         $state = Get-ControlPanelEffectiveLaneState -Enabled $enabled -OwnerStopped ([bool]$ownerStop.blocked) -ProcessHealthy ([bool]$processTruth.healthy) -ProcessState $processState -LaneStatus $laneStatusValue
 
@@ -1270,7 +1389,11 @@ function Refresh-Ui {
         }
 
         $ui.Status.Text = Get-FriendlyStatus $state
-        $ui.Panel.BackColor = Get-StatusBackColor $state
+        $statusBackColor = Get-StatusBackColor $state
+        $ui.Status.BackColor = $statusBackColor
+        $ui.Status.ForeColor = Get-StatusForeColor $state
+        $ui.Accent.BackColor = $statusBackColor
+        $ui.Panel.BackColor = [Drawing.Color]::White
         $ui.Message.Text = $message
 
         $taskId = [string](Get-OptionalPropertyValue $st 'task_id' (
@@ -1367,6 +1490,8 @@ function Refresh-Ui {
         $ui.ResetWork.Enabled = $true
     }
 
+    $refreshNow = [TimeZoneInfo]::ConvertTime([DateTimeOffset]::UtcNow, $vietnamTimeZone)
+    $lastRefreshLabel.Text = 'Đồng bộ: ' + $refreshNow.ToString('HH:mm:ss') + ' · Việt Nam'
     Refresh-Timeline
 }
 

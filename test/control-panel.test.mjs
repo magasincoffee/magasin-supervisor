@@ -8,8 +8,8 @@ test("control panel is a three-lane Owner-facing surface", async () => {
     "utf8"
   );
 
-  assert.match(source, /MAGASIN BUSINESS OS — 3 LUỒNG LÀM VIỆC/);
-  assert.match(source, /3 LUỒNG ĐỘC LẬP/);
+  assert.match(source, /MAGASIN SUPERVISOR — CONTROL CENTER/);
+  assert.match(source, /CONTROL CENTER[\s\S]*3 LUỒNG ĐỘC LẬP/);
   assert.match(source, /for \(\$i = 0; \$i -lt 3; \$i\+\+\)/);
   assert.match(source, /lane-1/);
   assert.match(source, /lane-2/);
@@ -186,13 +186,28 @@ test("Brain target can be saved independently while lane is active", async () =>
 });
 
 
-test("reset-all Owner control stays in the always-visible header zone under DPI scaling", async () => {
+test("Control Panel V2 keeps reset-all in the always-visible hero zone under DPI scaling", async () => {
   const source = await fs.readFile(
     new URL("../windows/control-panel.ps1", import.meta.url),
     "utf8"
   );
-  assert.match(source, /RESET READY/);
-  assert.match(source, /\$resetAllButton\.Location = New-Object Drawing\.Point\(820, 20\)/);
-  assert.match(source, /\$resetAllButton\.Size = New-Object Drawing\.Size\(365, 42\)/);
+  assert.match(source, /CONTROL PANEL V2/);
+  assert.match(source, /\$heroPanel/);
+  assert.match(source, /\$overviewPanel/);
+  assert.match(source, /\$resetAllButton\.Location = New-Object Drawing\.Point\(840, 18\)/);
+  assert.match(source, /\$resetAllButton\.Size = New-Object Drawing\.Size\(315, 40\)/);
   assert.match(source, /LÀM SẠCH TẤT CẢ DỰ ÁN/);
+});
+
+test("Control Panel V2 surfaces automatic result screenshot relay state without exposing evidence paths", async () => {
+  const source = await fs.readFile(
+    new URL("../windows/control-panel.ps1", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /BÁO CÁO ẢNH: Robot tự chụp kết quả Work và gửi kèm về Brain khi relay/);
+  assert.match(source, /BÁO CÁO ẢNH: ĐÃ CHỤP/);
+  assert.match(source, /BÁO CÁO ẢNH: TỰ ĐỘNG CHỤP/);
+  assert.match(source, /Get-OptionalPropertyValue \$relayInflight 'screenshot_path'/);
+  assert.match(source, /Report = \$reportValue/);
+  assert.doesNotMatch(source, /\$ui\.Report\.Text\s*=\s*\$relayScreenshotPath/);
 });

@@ -14,7 +14,7 @@ $targetPanel = Join-Path $root "runtime\windows\control-panel.ps1"
 if (-not (Test-Path $targetPanel)) { throw "Installed Control Panel missing" }
 
 $source = Get-Content $sourcePanel -Raw -Encoding UTF8
-foreach ($marker in @("RESET READY","resetAllButton","Drawing.Point(820, 20)","Drawing.Size(365, 42)")) {
+foreach ($marker in @("CONTROL PANEL V2","heroPanel","overviewPanel","resetAllButton","Drawing.Point(840, 18)","Drawing.Size(315, 40)","BÁO CÁO ẢNH")) {
   if ($source -notmatch [regex]::Escape($marker)) { throw "Source marker missing: $marker" }
 }
 
@@ -53,8 +53,8 @@ if(-not $found){throw "Control Panel did not start"}
 $installed = Get-Content $targetPanel -Raw -Encoding UTF8
 Write-Host "TARGET_MACHINE=$env:COMPUTERNAME"
 Write-Host "TARGET_CONTROL_PANEL_PID=$($found.ProcessId)"
-Write-Host "TARGET_RESET_READY=$($installed -match [regex]::Escape('RESET READY'))"
+Write-Host "TARGET_CONTROL_PANEL_V2=$($installed -match [regex]::Escape('CONTROL PANEL V2'))"
 Write-Host "TARGET_RESET_BUTTON=$($installed -match 'resetAllButton')"
-Write-Host "TARGET_RESET_POSITION=$($installed -match [regex]::Escape('Drawing.Point(820, 20)'))"
+Write-Host "TARGET_RESET_POSITION=$($installed -match [regex]::Escape('Drawing.Point(840, 18)'))"
 Write-Host "TARGET_PROJECT_STATE_UNCHANGED=True"
 Write-Host "TARGET_DEPLOY=PASS"
