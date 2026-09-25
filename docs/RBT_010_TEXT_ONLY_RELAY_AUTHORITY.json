@@ -1,0 +1,96 @@
+{
+  "schema_version": "supervisor-rbt010-text-only-relay-authority.v1",
+  "task_id": "TASK-RBT-010",
+  "title": "Text-Only Result Relay / Screenshot Evidence Removal",
+  "source_of_truth_role": "CURRENT_APPROVED_RUNTIME_CHANGE",
+  "status": "OWNER_AUTHORIZED_READY_NOT_STARTED",
+  "owner_decision": "CLEAR_SCREENSHOT_AND_ATTACHMENT_RELAY_COMPLETELY",
+  "decided_on": "2026-09-25",
+  "baseline_main_sha": "bd05eccb15bee4c302b910e5ccf00baa90071fab",
+  "objective": "Remove screenshot capture, screenshot persistence, screenshot-based relay evidence and attachment upload from the Brain-Work result relay workflow. Keep task assignment and result reporting text-native while preserving exact-once relay, restart safety and fail-closed semantics.",
+  "current_production_truth_until_execution": {
+    "screenshot_relay_still_active": true,
+    "attachment_relay_still_active": true,
+    "task_status": "NOT_STARTED",
+    "note": "This authority record does not change live runtime behavior. The existing screenshot contract remains production truth until TASK-RBT-010 is implemented, qualified and deployed."
+  },
+  "required_future_state": {
+    "result_transport": "FULL_TEXT_ONLY",
+    "relay_identity": [
+      "relay_id",
+      "response_digest",
+      "text_digest",
+      "deterministic_relay_marker"
+    ],
+    "screenshot_capture": false,
+    "screenshot_attachment_upload": false,
+    "new_relay_latch_screenshot_path": false,
+    "screenshot_evidence_missing_gate": false,
+    "screenshot_specific_lane_evidence_lifecycle": false,
+    "exact_once_relay_required": true,
+    "bounded_retry_required": true,
+    "owner_rearm_required": true,
+    "restart_reconciliation_required": true
+  },
+  "authorized_scope": {
+    "runtime": [
+      "remove Work-result screenshot capture from relay preparation",
+      "replace result attachment send with the existing bounded text send path",
+      "remove screenshot_path dependency from new relay_inflight state",
+      "remove screenshot-file existence as a relay/rearm prerequisite",
+      "remove screenshot-specific cleanup/GC once no longer referenced"
+    ],
+    "state_migration": [
+      "preserve task_id, relay_id, response_digest, text_digest, retry/rearm state and target identity",
+      "migrate legacy relay_inflight records containing screenshot_path without destructive task reset",
+      "remove obsolete screenshot-only fields and artifacts after safe reconciliation"
+    ],
+    "tests": [
+      "replace screenshot/attachment contract tests with text-only exact-once relay tests",
+      "cover retry, rearm, restart, marker dedupe and legacy-latch migration",
+      "prove no duplicate relay and no screenshot dependency"
+    ],
+    "documentation": [
+      "update current Three-Lane architecture and README only when implementation is released",
+      "retain historical release/evidence documents unchanged"
+    ]
+  },
+  "out_of_scope": [
+    "changing Brain or Work URLs",
+    "resetting projects",
+    "clearing task or relay identity to force resend",
+    "clearing Chrome profile or ChatGPT login",
+    "changing GitHub Runner ownership",
+    "changing Supervisor autostart ownership",
+    "changing unrelated screenshot capability if it is used outside result relay",
+    "rewriting historical MIG/RBT evidence"
+  ],
+  "definition_of_done": [
+    "no Work-result screenshot is captured in the production relay path",
+    "no result screenshot is uploaded to Brain",
+    "new relay_inflight state has no screenshot_path dependency",
+    "legacy screenshot relay state migrates without duplicate relay or task reset",
+    "screenshot-specific EVIDENCE_MISSING branches are removed from active relay/rearm semantics",
+    "screenshot-specific lane-evidence GC is removed or proven unused",
+    "full result text remains the canonical Brain report payload",
+    "relay_id plus digests plus deterministic marker remain authoritative for exact-once delivery",
+    "retry/rearm/restart/dedupe regressions pass",
+    "full Supervisor CI and integrity gates pass",
+    "targeted production deployment passes with Brain/Work target fingerprint unchanged",
+    "live acceptance reports healthy Wrapper, Three-Lane, Chrome and CDP with no screenshot/attachment relay dependency"
+  ],
+  "estimated_execution_window": "1.5-2 hours including implementation, regression updates, CI, targeted deployment and live acceptance",
+  "execution_authority": {
+    "authorized": true,
+    "start_now": false,
+    "next_action": "WAIT_FOR_OWNER_CONTINUATION",
+    "implementation_must_be_separate_from_this_authority_record": true
+  },
+  "hard_safety": {
+    "no_runtime_mutation_by_this_record": true,
+    "no_project_state_reset_by_this_record": true,
+    "no_brain_work_target_mutation_by_this_record": true,
+    "no_browser_profile_mutation_by_this_record": true,
+    "no_runner_or_autostart_mutation_by_this_record": true
+  }
+}
