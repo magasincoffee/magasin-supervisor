@@ -70,8 +70,12 @@ jobs:
           }
 
           $panelSource = Get-Content $installedPanel -Raw -Encoding UTF8
-          if ($panelSource -notmatch "LÀM SẠCH TẤT CẢ DỰ ÁN") {
-            throw "Installed Control Panel does not contain reset-all control"
+          if (
+            $panelSource -notmatch "reset-all-projects\.ps1" -or
+            $panelSource -notmatch "resetAllProjectsScript" -or
+            $panelSource -notmatch "resetAllButton"
+          ) {
+            throw "Installed Control Panel does not contain reset-all control markers"
           }
 
           $autostartSource = Get-Content $installedAutostart -Raw -Encoding UTF8
