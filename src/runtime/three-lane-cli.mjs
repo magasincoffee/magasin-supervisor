@@ -11,6 +11,7 @@ import {
 import {
   SEND_REJECTION_CLASSES,
   classifyComposerSendRejection,
+  executeDecision,
   sendComposerInstruction,
   sendComposerWithAttachment
 } from "../ui/actions.mjs";
@@ -21,7 +22,7 @@ import {
   captureUserTurnDigests,
   captureUserTurnTexts
 } from "../ui/message-capture.mjs";
-import { OBSERVATIONS } from "../decision.mjs";
+import { ACTIONS, OBSERVATIONS } from "../decision.mjs";
 import {
   isPersistableConversationUrl,
   pageMatchesTarget,
@@ -80,8 +81,11 @@ import {
 } from "./browser-scheduler.mjs";
 import {
   WORK_WATCHDOG_DECISIONS,
+  beginWatchdogContinueIntent,
   beginWatchdogReloadIntent,
   evaluateWorkWatchdog,
+  markWatchdogContinued,
+  markWatchdogPostContinueProbe,
   markWatchdogPostReloadProbe,
   markWatchdogReloaded,
   normalizeWorkWatchdog
@@ -119,6 +123,7 @@ import {
 } from "./brain-planning.mjs";
 
 const SUPERVISOR_RUNTIME_VERSION = "2026-09-20.60";
+const WATCHDOG_CONTINUE_INSTRUCTION = "Tiếp tục thực hiện.";
 
 let laneEventSink = null;
 let laneEventErrorLogPath = null;
@@ -3492,6 +3497,187 @@ async function executeWatchdogReload({
   return { status: "RELOADED", probe, at: postProbeAt };
 }
 
+async function executeWatchdogContinue({
+  adapter,
+  lane,
+  registryLane,
+  registry,
+  registryPath,
+  logPath,
+  scheduler,
+  stopPath,
+  configPath,
+  workPage,
+  expectedIdentity
+}) {
+  if (currentTargetIsQuarantined(registryLane, { brain: false })) {
+    return { status: "TARGET_QUARANTINED" };
+  }
+
+  if (!(await isWatchdogRecoveryAllowed({
+    stopPath,
+    configPath,
+    laneId: lane.lane_id
+  }))) {
+    return { status: "OWNER_STOP" };
+  }
+  if (!watchdogIdentityMatches(registryLane, expectedIdentity)) {
+    return { status: "IDENTITY_MISMATCH" };
+  }
+
+  let releaseMutation = null;
+  try {
+    releaseMutation = scheduler
+      ? scheduler.acquireMutationLease({
+          laneId: lane.lane_id,
+          role: "WORK",
+          page: workPage,
+          reason: "WATCHDOG_CONTINUE_POKE"
+        })
+      : () => {};
+  } catch (error) {
+    if (error?.code === "MUTATION_LEASE_BUSY") {
+      return { status: "MUTATION_BUSY" };
+    }
+    throw error;
+  }
+
+  let actionResult = null;
+  try {
+    if (!(await isWatchdogRecoveryAllowed({
+      stopPath,
+      configPath,
+      laneId: lane.lane_id
+    }))) {
+      return { status: "OWNER_STOP" };
+    }
+    if (!watchdogIdentityMatches(registryLane, expectedIdentity)) {
+      return { status: "IDENTITY_MISMATCH" };
+    }
+
+    const exactTarget = targetFromUrl(expectedIdentity.work_url);
+    if (!pageMatchesTarget(workPage.url(), exactTarget)) {
+      return { status: "IDENTITY_MISMATCH" };
+    }
+
+    const preProbe = await assertConversationSafe(adapter, workPage, {
+      brain: false,
+      allowFull: true
+    });
+    if (hardStopObservation(preProbe.classification.observation)) {
+      return { status: "SECURITY_BLOCKED", probe: preProbe };
+    }
+    if (preProbe.snapshot.responseRunning) {
+      return { status: "PROGRESS_RESUMED", probe: preProbe };
+    }
+
+    if (registryLane.last_dispatch_id) {
+      const markerPresent = await waitForUserTurnMarker(
+        workPage,
+        workDispatchMarker(registryLane.last_dispatch_id),
+        { timeoutMs: 4000, intervalMs: 250 }
+      );
+      if (!markerPresent) {
+        return { status: "MARKER_MISSING", probe: preProbe };
+      }
+    }
+
+    const intentAt = new Date().toISOString();
+    registryLane.work_watchdog = beginWatchdogContinueIntent(
+      registryLane.work_watchdog,
+      { now: intentAt }
+    );
+    await atomicJsonWrite(registryPath, registry);
+
+    await safeLog(logPath, {
+      type: "WORK_WATCHDOG_CONTINUE_INTENT",
+      laneId: lane.lane_id,
+      taskId: registryLane.task_id,
+      reason: `epoch=${registryLane.work_watchdog.recovery_epoch};continue=1`
+    });
+
+    actionResult = await executeDecision({
+      page: workPage,
+      decision: {
+        action: ACTIONS.CONTINUE,
+        instruction: WATCHDOG_CONTINUE_INSTRUCTION
+      },
+      dryRun: false
+    });
+
+    if (!actionResult?.executed) {
+      await safeLog(logPath, {
+        type: "WORK_WATCHDOG_CONTINUE_ACTION_UNCERTAIN",
+        laneId: lane.lane_id,
+        taskId: registryLane.task_id,
+        target: actionResult?.target || null,
+        rejectionClass: actionResult?.rejection_class || null,
+        reason: String(actionResult?.reason || "continue action did not execute").slice(0, 180)
+      });
+      return {
+        status: "ACTION_UNCERTAIN",
+        actionResult,
+        probe: preProbe
+      };
+    }
+
+    const continuedAt = new Date().toISOString();
+    registryLane.work_watchdog = markWatchdogContinued(
+      registryLane.work_watchdog,
+      { now: continuedAt }
+    );
+    await atomicJsonWrite(registryPath, registry);
+
+    const reasonCode = actionResult.target === "SAFE_CONTINUE_CONTROL"
+      ? "WATCHDOG_CONTINUE_CONTROL_CLICKED"
+      : "WATCHDOG_CONTINUE_SENT";
+    await emitLaneEvent({
+      timestamp: continuedAt,
+      lane_id: lane.lane_id,
+      actor: "SUPERVISOR",
+      event_type: LANE_EVENT_TYPES.WATCHDOG_CONTINUE_POKE,
+      task_id: registryLane.task_id,
+      phase: "CONTINUE_POKE",
+      reason_code: reasonCode,
+      work_generation: Number(registryLane.work_generation || 0),
+      work_url_revision: Number(registryLane.applied_work_url_revision || 0),
+      ...timingEventFields(registryLane.task_timing, continuedAt)
+    });
+    await safeLog(logPath, {
+      type: "WORK_WATCHDOG_CONTINUE_EXECUTED",
+      laneId: lane.lane_id,
+      taskId: registryLane.task_id,
+      target: actionResult.target,
+      reason: reasonCode
+    });
+  } finally {
+    releaseMutation?.({ durable: true });
+  }
+
+  if (!watchdogIdentityMatches(registryLane, expectedIdentity)) {
+    return { status: "IDENTITY_MISMATCH" };
+  }
+
+  await delay(1000);
+  const probe = await assertConversationSafe(adapter, workPage, {
+    brain: false,
+    allowFull: true
+  });
+  const probedAt = new Date().toISOString();
+  registryLane.work_watchdog = markWatchdogPostContinueProbe(
+    registryLane.work_watchdog,
+    { now: probedAt }
+  );
+  await atomicJsonWrite(registryPath, registry);
+
+  return {
+    status: "CONTINUED",
+    actionResult,
+    probe,
+    at: probedAt
+  };
+}
+
 async function processLaneTurn({
   adapter,
   lane,
@@ -3907,15 +4093,170 @@ async function processLaneTurn({
 
     if (
       watchdogDecision.decision === WORK_WATCHDOG_DECISIONS.STALL_CHECK_COOLDOWN ||
-      watchdogDecision.decision === WORK_WATCHDOG_DECISIONS.RECOVERY_UNCERTAIN
+      watchdogDecision.decision === WORK_WATCHDOG_DECISIONS.RECOVERY_UNCERTAIN ||
+      watchdogDecision.decision === WORK_WATCHDOG_DECISIONS.CONTINUE_UNCERTAIN
     ) {
+      let recoveryMessage = "Work vẫn long-running; watchdog đang trong reload cooldown, không reload.";
+      if (watchdogDecision.decision === WORK_WATCHDOG_DECISIONS.RECOVERY_UNCERTAIN) {
+        recoveryMessage = "Watchdog reload intent đã persist; không tự replay reload sau restart/crash.";
+      } else if (watchdogDecision.decision === WORK_WATCHDOG_DECISIONS.CONTINUE_UNCERTAIN) {
+        recoveryMessage = "Watchdog continue intent đã persist; không tự gửi lại 'Tiếp tục thực hiện' sau restart/crash.";
+      }
       return laneStatus(
         lane,
         registryLane,
         "WORKING_LONG",
-        watchdogDecision.decision === WORK_WATCHDOG_DECISIONS.RECOVERY_UNCERTAIN
-          ? "Watchdog recovery intent đã persist; không tự replay reload sau restart/crash."
-          : "Work vẫn long-running; watchdog đang trong reload cooldown, không reload.",
+        recoveryMessage,
+        {
+          watchdog_phase: registryLane.work_watchdog.phase,
+          task_elapsed_ms: watchdogDecision.elapsed_ms,
+          last_activity_at: timing.last_activity_at
+        }
+      );
+    }
+
+    if (watchdogDecision.decision === WORK_WATCHDOG_DECISIONS.CONTINUE_ELIGIBLE) {
+      if (!execute) {
+        return laneStatus(
+          lane,
+          registryLane,
+          "WORKING_LONG",
+          "Watchdog đủ điều kiện gửi một continue poke nhưng runtime đang dry-run; không mutation.",
+          {
+            watchdog_phase: registryLane.work_watchdog.phase,
+            task_elapsed_ms: watchdogDecision.elapsed_ms
+          }
+        );
+      }
+
+      const expectedIdentity = watchdogIdentity(registryLane);
+      const continuation = await executeWatchdogContinue({
+        adapter,
+        lane,
+        registryLane,
+        registry,
+        registryPath,
+        logPath,
+        scheduler,
+        stopPath,
+        configPath,
+        workPage,
+        expectedIdentity
+      });
+
+      if (continuation.status === "OWNER_STOP") {
+        return laneStatus(
+          lane,
+          registryLane,
+          "STOPPED",
+          "Owner STOP/lane disable đã thắng race trước watchdog continue; không mutation."
+        );
+      }
+      if (continuation.status === "MUTATION_BUSY") {
+        return laneStatus(
+          lane,
+          registryLane,
+          "WORKING_LONG",
+          "Global mutation lease đang bận; watchdog continue yield và thử lại ở turn sau."
+        );
+      }
+      if (continuation.status === "IDENTITY_MISMATCH") {
+        return laneStatus(
+          lane,
+          registryLane,
+          "WAIT_OWNER",
+          "Watchdog huỷ continue vì exact task/Work/generation thay đổi trước mutation."
+        );
+      }
+      if (continuation.status === "TARGET_QUARANTINED") {
+        return laneStatus(
+          lane,
+          registryLane,
+          "WAIT_OWNER",
+          "Work target đang bị quarantine; watchdog không gửi continue."
+        );
+      }
+      if (continuation.status === "SECURITY_BLOCKED") {
+        return laneStatus(
+          lane,
+          registryLane,
+          "WAIT_OWNER",
+          "Work chat đang ở security/auth boundary; watchdog không gửi continue."
+        );
+      }
+      if (continuation.status === "MARKER_MISSING") {
+        return laneStatus(
+          lane,
+          registryLane,
+          "POSSIBLY_STALLED",
+          "Watchdog không xác minh được dispatch marker trên exact Work; không gửi continue."
+        );
+      }
+      if (continuation.status === "PROGRESS_RESUMED") {
+        return laneStatus(
+          lane,
+          registryLane,
+          "WORKING_LONG",
+          "Work đã tự chạy lại trước continue mutation; watchdog không gửi thêm tin nhắn."
+        );
+      }
+      if (continuation.status === "ACTION_UNCERTAIN") {
+        return laneStatus(
+          lane,
+          registryLane,
+          "WORKING_LONG",
+          "Continue intent đã persist nhưng UI action không được xác nhận; watchdog fail-closed và không tự replay."
+        );
+      }
+
+      const postObservation = buildSafeWorkObservation(
+        continuation.probe.snapshot,
+        continuation.probe.classification.observation === OBSERVATIONS.RESPONSE_COMPLETE
+      );
+      const postActivity = observeWorkActivity(
+        timing,
+        postObservation,
+        { at: continuation.at }
+      );
+      if (postActivity.baseline_initialized || postActivity.changed) {
+        await atomicJsonWrite(registryPath, registry);
+        if (postActivity.event_due) {
+          await emitLaneEvent({
+            timestamp: continuation.at,
+            lane_id: lane.lane_id,
+            actor: "WORK",
+            event_type: LANE_EVENT_TYPES.WORK_ACTIVITY,
+            task_id: registryLane.task_id,
+            phase: "WORKING_LONG",
+            reason_code: postActivity.reason_code,
+            work_generation: Number(registryLane.work_generation || 0),
+            ...timingEventFields(timing, continuation.at)
+          });
+        }
+      }
+
+      watchdogDecision = await evaluateAndPersistWorkWatchdog({
+        lane,
+        registryLane,
+        registry,
+        registryPath,
+        timing,
+        observation: postObservation,
+        activityChanged: postActivity.changed,
+        ownerStopped: false,
+        securityBlocked: false,
+        at: continuation.at
+      });
+
+      return laneStatus(
+        lane,
+        registryLane,
+        watchdogDecision.decision === WORK_WATCHDOG_DECISIONS.POSSIBLY_STALLED
+          ? "POSSIBLY_STALLED"
+          : "WORKING_LONG",
+        watchdogDecision.decision === WORK_WATCHDOG_DECISIONS.WORKING_LONG
+          ? "Watchdog continue đã kích hoạt và Work có fresh progress/running evidence."
+          : "Watchdog đã gửi/click continue đúng một lần; đang observation, không gửi lại.",
         {
           watchdog_phase: registryLane.work_watchdog.phase,
           task_elapsed_ms: watchdogDecision.elapsed_ms,
