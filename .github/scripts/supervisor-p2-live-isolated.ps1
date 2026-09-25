@@ -618,16 +618,19 @@ try {
       throw "P3_LIVE_INITIAL_WORK_HEALTH_MISSING"
     }
     $storedOldTargetDigest = [string](Get-OptionalPropertyValue $oldWorkHealth "target_digest")
-    $oldTargetDigest = Get-Sha256Hex $oldWorkUrl
-    if ([string]::IsNullOrWhiteSpace($oldTargetDigest)) {
+    if ([string]::IsNullOrWhiteSpace($storedOldTargetDigest)) {
       throw "P3_LIVE_INITIAL_WORK_HEALTH_IDENTITY_MISSING"
     }
-    if ($storedOldTargetDigest -ne $oldTargetDigest) {
-      Write-Host "LIVE_P3_QUARANTINE_IDENTITY_REBASED=True"
-    }
-    # Durable deterministic-unavailable evidence is intentionally bound to the
-    # exact current Work identity. Runtime contract says a quarantined target
-    # must not be reopened; replacement must proceed from durable evidence.
+
+    # Exercise the actual P3 failure contract: durable Work identity exists,
+    # but the conversation itself is gone. A registry-only QUARANTINED flag
+    # on a healthy URL is invalid evidence because runtime should clear it.
+    $missingWorkUrl = "https://chatgpt.com/c/" + [Guid]::NewGuid().ToString()
+    $oldWorkUrl = $missingWorkUrl
+    $oldTargetDigest = Get-Sha256Hex $missingWorkUrl
+    $beforeLane.work_url = $missingWorkUrl
+    $beforeLane.work_url_saved_at = [DateTimeOffset]::UtcNow.ToString("o")
+    Write-Host "LIVE_P3_MISSING_WORK_TARGET_BOUND=True"
     Write-Host "LIVE_P3_QUARANTINE_IDENTITY_MATCHES_ACTIVE_URL=True"
     $quarantineAt = [DateTimeOffset]::UtcNow.ToString("o")
     $beforeLane.awaiting_work = $true
