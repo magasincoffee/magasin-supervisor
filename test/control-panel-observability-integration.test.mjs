@@ -38,6 +38,16 @@ test("Control Panel never reads full lane-events file", async () => {
   assert.match(helper, /FileShare\]::ReadWrite/);
 });
 
+test("Control Panel timeline renders newest bounded event first", async () => {
+  const panel = await fs.readFile(new URL("../windows/control-panel.ps1", import.meta.url), "utf8");
+  const start = panel.indexOf("function Refresh-Timeline");
+  const end = panel.indexOf("function Refresh-Ui", start);
+  const timeline = panel.slice(start, end);
+
+  assert.match(timeline, /for \(\$eventIndex = \$events\.Count - 1; \$eventIndex -ge 0; \$eventIndex--\)/);
+  assert.match(timeline, /\$event = \$events\[\$eventIndex\]/);
+});
+
 test("Control Panel timeline render path contains no URL or opaque correlation columns", async () => {
   const panel = await read("../windows/control-panel.ps1");
   const start = panel.indexOf("function Refresh-Timeline");
