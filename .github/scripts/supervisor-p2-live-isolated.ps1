@@ -629,7 +629,7 @@ try {
     $oldWorkUrl = $missingWorkUrl
     $oldTargetDigest = Get-Sha256Hex $missingWorkUrl
     $beforeLane.work_url = $missingWorkUrl
-    $beforeLane.work_url_saved_at = [DateTimeOffset]::UtcNow.ToString("o")
+    $beforeLane | Add-Member -NotePropertyName work_url_saved_at -NotePropertyValue ([DateTimeOffset]::UtcNow.ToString("o")) -Force
     Write-Host "LIVE_P3_MISSING_WORK_TARGET_BOUND=True"
     Write-Host "LIVE_P3_QUARANTINE_IDENTITY_MATCHES_ACTIVE_URL=True"
     $quarantineAt = [DateTimeOffset]::UtcNow.ToString("o")
