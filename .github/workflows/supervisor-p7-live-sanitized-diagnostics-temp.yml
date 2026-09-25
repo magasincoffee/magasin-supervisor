@@ -12,28 +12,99 @@ permissions:
   contents: read
 
 concurrency:
-  group: supervisor-p7-live-sanitized-diagnostics-v1
+  group: supervisor-p7-live-sanitized-diagnostics-v2
   cancel-in-progress: true
 
 jobs:
-  p7-live:
+  p7-candidate-a:
     runs-on: [self-hosted, windows, x64]
     timeout-minutes: 10
+    outputs:
+      runner_match: ${{ steps.identity.outputs.match }}
+      acceptance: ${{ steps.acceptance.outputs.pass }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Verify migrated MAGASIN live runner identity
+      - name: Check target runner identity
+        id: identity
         shell: powershell
         run: |
-          $ErrorActionPreference = "Stop"
-          if ($env:COMPUTERNAME -ne "DESKTOP-4K7IM13") {
-            throw "LIVE_P7_WRONG_RUNNER"
+          if ($env:COMPUTERNAME -eq "DESKTOP-4K7IM13") {
+            "match=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            Write-Host "LIVE_P7_RUNNER_MATCH=True"
+            Write-Host ("LIVE_P7_RUNNER_NAME=" + $env:COMPUTERNAME)
+          } else {
+            "match=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            Write-Host "LIVE_P7_RUNNER_MATCH=False"
+            Write-Host ("LIVE_P7_RUNNER_SKIPPED=" + $env:COMPUTERNAME)
           }
-          Write-Host "LIVE_P7_RUNNER_MATCH=True"
-          Write-Host ("LIVE_P7_RUNNER_NAME=" + $env:COMPUTERNAME)
+
+      - uses: actions/checkout@v4
+        if: steps.identity.outputs.match == 'true'
 
       - name: Run isolated P7 sanitized diagnostics acceptance
+        id: acceptance
+        if: steps.identity.outputs.match == 'true'
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
           & ".github\scripts\supervisor-p7-live-isolated.ps1"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "pass=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+  p7-candidate-b:
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 10
+    outputs:
+      runner_match: ${{ steps.identity.outputs.match }}
+      acceptance: ${{ steps.acceptance.outputs.pass }}
+    steps:
+      - name: Check target runner identity
+        id: identity
+        shell: powershell
+        run: |
+          if ($env:COMPUTERNAME -eq "DESKTOP-4K7IM13") {
+            "match=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            Write-Host "LIVE_P7_RUNNER_MATCH=True"
+            Write-Host ("LIVE_P7_RUNNER_NAME=" + $env:COMPUTERNAME)
+          } else {
+            "match=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            Write-Host "LIVE_P7_RUNNER_MATCH=False"
+            Write-Host ("LIVE_P7_RUNNER_SKIPPED=" + $env:COMPUTERNAME)
+          }
+
+      - uses: actions/checkout@v4
+        if: steps.identity.outputs.match == 'true'
+
+      - name: Run isolated P7 sanitized diagnostics acceptance
+        id: acceptance
+        if: steps.identity.outputs.match == 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          & ".github\scripts\supervisor-p7-live-isolated.ps1"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "pass=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+  p7-final-gate:
+    needs: [p7-candidate-a, p7-candidate-b]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require acceptance on DESKTOP-4K7IM13
+        env:
+          A_MATCH: ${{ needs.p7-candidate-a.outputs.runner_match }}
+          A_PASS: ${{ needs.p7-candidate-a.outputs.acceptance }}
+          B_MATCH: ${{ needs.p7-candidate-b.outputs.runner_match }}
+          B_PASS: ${{ needs.p7-candidate-b.outputs.acceptance }}
+        run: |
+          echo "candidate-a match=$A_MATCH pass=$A_PASS"
+          echo "candidate-b match=$B_MATCH pass=$B_PASS"
+          if [ "$A_PASS" = "true" ] || [ "$B_PASS" = "true" ]; then
+            echo "LIVE_P7_TARGET_RUNNER_ACCEPTANCE=PASS"
+            exit 0
+          fi
+          if [ "$A_MATCH" != "true" ] && [ "$B_MATCH" != "true" ]; then
+            echo "LIVE_P7_TARGET_RUNNER_NOT_ASSIGNED"
+          else
+            echo "LIVE_P7_TARGET_RUNNER_ACCEPTANCE=FAIL"
+          fi
+          exit 1
