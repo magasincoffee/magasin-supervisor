@@ -123,7 +123,7 @@ foreach ($marker in @('Get-LifecycleOrphanThreeLaneProcesses','ParentProcessId')
 foreach ($marker in @('armWrapperParentMonitor','process.exit(77)','--wrapper-pid')) {
   if ($installedCli -notmatch [regex]::Escape($marker)) { throw "Three-Lane fix marker missing: $marker" }
 }
-foreach ($marker in @('Request-RunnerRecovery','runnerRecoveryBackoffSeconds','GITHUB ĐANG TỰ KẾT NỐI')) {
+foreach ($marker in @('Request-RunnerRecovery','runnerRecoveryBackoffSeconds','$runner = Get-RunnerProcess')) {
   if ($installedPanel -notmatch [regex]::Escape($marker)) { throw "Control Panel runner fix marker missing: $marker" }
 }
 
