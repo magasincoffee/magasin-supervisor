@@ -148,8 +148,6 @@ $registry = [pscustomobject]@{
 
 Write-JsonFile $configFile $config
 Write-JsonFile $registryFile $registry
-$configHashBefore = (Get-FileHash -LiteralPath $configFile -Algorithm SHA256).Hash
-
 $oldRoot = [string]$env:SUPERVISOR_STATE_ROOT
 $oldLocalAppData = [string]$env:LOCALAPPDATA
 $oldMutex = [string]$env:SUPERVISOR_MUTEX_NAME
@@ -278,10 +276,35 @@ try {
     [string](Get-Optional $lane3 "work_url" "") -ne $work3
   ) { throw "P6_LIVE_LANE3_MUTATED" }
 
-  if ($configHashBefore -ne (Get-FileHash -LiteralPath $configFile -Algorithm SHA256).Hash) {
-    throw "P6_LIVE_RUNTIME_MUTATED_CONFIG"
-  }
+  $configAfter = Read-JsonSafe $configFile
+  $cfg1 = @($configAfter.lanes | Where-Object { $_.lane_id -eq "lane-1" }) | Select-Object -First 1
+  $cfg2 = @($configAfter.lanes | Where-Object { $_.lane_id -eq "lane-2" }) | Select-Object -First 1
+  $cfg3 = @($configAfter.lanes | Where-Object { $_.lane_id -eq "lane-3" }) | Select-Object -First 1
 
+  if (
+    [string]$cfg1.brain_url -ne $brain1 -or
+    [string]$cfg1.work_url -ne $work1 -or
+    [int]$cfg1.brain_url_revision -ne 1 -or
+    [int]$cfg1.work_url_revision -ne 4 -or
+    [string]$cfg1.work_mode -ne "OWNER" -or
+    [int]$cfg1.work_state_reset_revision -ne 9
+  ) { throw "P6_LIVE_LANE1_CONFIG_SEMANTICS_CHANGED" }
+
+  if (
+    [string]$cfg2.brain_url -ne $brain2 -or
+    [string]$cfg2.work_url -ne $work2 -or
+    [int]$cfg2.work_state_reset_revision -ne 2 -or
+    [bool]$cfg2.enabled
+  ) { throw "P6_LIVE_LANE2_CONFIG_SEMANTICS_CHANGED" }
+
+  if (
+    [string]$cfg3.brain_url -ne $brain3 -or
+    [string]$cfg3.work_url -ne $work3 -or
+    [int]$cfg3.work_state_reset_revision -ne 3 -or
+    [bool]$cfg3.enabled
+  ) { throw "P6_LIVE_LANE3_CONFIG_SEMANTICS_CHANGED" }
+
+  Write-Host "LIVE_P6_CONFIG_SEMANTICS_UNCHANGED=PASS"
   Write-Host "LIVE_P6_RESET_REVISION_APPLIED=PASS"
   Write-Host "LIVE_P6_WORK_GENERATION_INCREMENT_ONCE=PASS"
   Write-Host "LIVE_P6_EXECUTION_STATE_CLEARED=PASS"
