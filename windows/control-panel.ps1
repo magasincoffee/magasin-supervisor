@@ -133,6 +133,10 @@ if ($ObservabilityProbe) {
         three_lane_alive = [bool]$processTruthProbe.three_lane_alive
         chrome_alive = [bool]$processTruthProbe.chrome_alive
         cdp_healthy = [bool]$processTruthProbe.cdp_healthy
+        node_down = [bool]$processTruthProbe.node_down
+        status_stale = [bool]$processTruthProbe.status_stale
+        status_age_seconds = $processTruthProbe.status_age_seconds
+        runtime_state = [string]$processTruthProbe.runtime_state
         runtime_version = [string](Get-OptionalPropertyValue $statusProbe 'supervisor_runtime_version' '')
         enabled_lane_count = [int]$enabledProbe
         page_summary = [string]$resourceProbe.page_text
@@ -315,6 +319,8 @@ function Get-StatusBackColor([string]$Status) {
         'READY' { return [Drawing.Color]::FromArgb(220,252,231) }
         'WAITING_BRAIN' { return [Drawing.Color]::FromArgb(254,249,195) }
         'RECOVERING' { return [Drawing.Color]::FromArgb(254,249,195) }
+        'NODE_DOWN' { return [Drawing.Color]::FromArgb(254,226,226) }
+        'STATUS_STALE' { return [Drawing.Color]::FromArgb(255,237,213) }
         'WAIT_OWNER' { return [Drawing.Color]::FromArgb(255,237,213) }
         'ERROR' { return [Drawing.Color]::FromArgb(254,226,226) }
         'NEED_BRAIN_URL' { return [Drawing.Color]::FromArgb(255,237,213) }
@@ -966,6 +972,10 @@ function Refresh-Ui {
         'ALL_DISABLED'
     } elseif ($ownerStop.blocked) {
         'OWNER_STOP'
+    } elseif ($processTruth.node_down) {
+        'NODE_DOWN'
+    } elseif ($processTruth.status_stale) {
+        'STATUS_STALE'
     } elseif ($processTruth.healthy) {
         'HEALTHY'
     } elseif (-not $processTruth.wrapper_alive) {
@@ -991,6 +1001,14 @@ function Refresh-Ui {
             $runtimeLabel.Text = 'ROBOT NỀN: ĐANG KHỞI ĐỘNG'
             $runtimeLabel.ForeColor = [Drawing.Color]::FromArgb(161,98,7)
         }
+        'NODE_DOWN' {
+            $runtimeLabel.Text = 'ROBOT NỀN: NODE_DOWN — WRAPPER ĐANG TỰ KHỞI ĐỘNG LẠI THREE-LANE'
+            $runtimeLabel.ForeColor = [Drawing.Color]::FromArgb(185,28,28)
+        }
+        'STATUS_STALE' {
+            $runtimeLabel.Text = 'ROBOT NỀN: STATUS_STALE — SNAPSHOT CŨ, ĐANG TỰ KHÔI PHỤC'
+            $runtimeLabel.ForeColor = [Drawing.Color]::FromArgb(194,65,12)
+        }
         default {
             $runtimeLabel.Text = 'ROBOT NỀN: ĐANG TỰ KHÔI PHỤC'
             $runtimeLabel.ForeColor = [Drawing.Color]::FromArgb(161,98,7)
@@ -1000,11 +1018,24 @@ function Refresh-Ui {
     $runtimeStartButton.Enabled = [bool]($enabledLaneCount -gt 0 -and $ownerStop.blocked)
 
     $runtimeVersion = [string](Get-OptionalPropertyValue $status 'supervisor_runtime_version' '—')
-    $schedulerSnapshot = Get-OptionalPropertyValue $status 'scheduler' $null
+    $statusSnapshotUsable = [bool](
+        $processTruth.three_lane_alive -and
+        -not $processTruth.status_stale
+    )
+    $schedulerSnapshot = if ($statusSnapshotUsable) {
+        Get-OptionalPropertyValue $status 'scheduler' $null
+    } else {
+        $null
+    }
     $wrapperFlag = Format-ProcessFlag ([bool]$processTruth.wrapper_alive)
     $threeLaneFlag = Format-ProcessFlag ([bool]$processTruth.three_lane_alive)
     $chromeFlag = Format-ProcessFlag ([bool]$processTruth.chrome_alive)
     $cdpFlag = Format-ProcessFlag ([bool]$processTruth.cdp_healthy)
+    $statusAgeText = if ($null -ne $processTruth.status_age_seconds) {
+        Format-ControlPanelDuration ([long]$processTruth.status_age_seconds * 1000)
+    } else {
+        '—'
+    }
 
     $resourceSummary = Get-ControlPanelResourceSummary $schedulerSnapshot
     $resourceLine2 =
@@ -1020,6 +1051,7 @@ function Refresh-Ui {
         ' · THREE-LANE ' + $threeLaneFlag +
         ' · CHROME ' + $chromeFlag +
         ' · CDP ' + $cdpFlag +
+        ' · STATUS AGE ' + $statusAgeText +
         ' · v' + $runtimeVersion +
         ' · LUỒNG ' + [string]$enabledLaneCount +
         [Environment]::NewLine +
@@ -1033,7 +1065,7 @@ function Refresh-Ui {
             $reg = $registry.lanes.$laneId
         }
         $st = $null
-        if ($status -and $status.lanes) {
+        if ($statusSnapshotUsable -and $status -and $status.lanes) {
             $st = @($status.lanes | Where-Object { [string]$_.lane_id -eq $laneId } | Select-Object -First 1)[0]
         }
 
@@ -1116,6 +1148,10 @@ function Refresh-Ui {
             } elseif (-not $processTruth.healthy) {
                 $message = if ($processState -eq 'STARTING') {
                     'Đang khởi động Robot nền; lane status cũ chỉ là recovery state.'
+                } elseif ($processState -eq 'NODE_DOWN') {
+                    'NODE_DOWN — wrapper vẫn sống nhưng Three-Lane Node đã mất; đang tự relaunch Node, không dùng lane snapshot cũ.'
+                } elseif ($processState -eq 'STATUS_STALE') {
+                    'STATUS_STALE — lane-status đã quá hạn; snapshot cũ bị loại khỏi UI và wrapper đang tự khôi phục Node.'
                 } else {
                     'Đang tự khôi phục Supervisor / Three-Lane / Chrome / CDP trước khi tiếp tục task.'
                 }
