@@ -71,6 +71,7 @@ if ($ViewportProbe) {
 
 . (Join-Path $PSScriptRoot 'state-root.ps1')
 $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
+$env:SUPERVISOR_STATE_ROOT = $root
 $runtime = Join-Path $root 'runtime'
 $configFile = Join-Path $root 'lanes.json'
 $registryFile = Join-Path $root 'lane-registry.json'
