@@ -209,7 +209,7 @@ if (-not $stopBefore -and -not $autoStopBefore) {
   }
   Start-Sleep -Seconds 2
   foreach ($n in @(Get-ThreeLaneNodes)) {
-    Stop-Process -Id ([int]$n.ProcessId -Force -ErrorAction SilentlyContinue)
+    Stop-Process -Id ([int]$n.ProcessId) -Force -ErrorAction SilentlyContinue
   }
   Stop-DedicatedChrome
   Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
@@ -225,7 +225,7 @@ if ($enabledAfter -ne 0) { throw 'Repair unexpectedly enabled a lane.' }
 # the Robot; the newly installed panel can still self-heal the GitHub Runner.
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
   Where-Object { $_.CommandLine -and $_.CommandLine -like '*control-panel.ps1*' } |
-  ForEach-Object { Stop-Process -Id ([int]$_.ProcessId -Force -ErrorAction SilentlyContinue) }
+  ForEach-Object { Stop-Process -Id ([int]$_.ProcessId) -Force -ErrorAction SilentlyContinue }
 Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
   '-NoLogo','-NoProfile','-ExecutionPolicy','Bypass',
   '-File',('"' + $installedPanel + '"')
