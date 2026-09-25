@@ -5,7 +5,8 @@ export const WORK_WATCHDOG_DEFAULTS = Object.freeze({
   stallThresholdMs: 30 * 60 * 1000,
   inactivityMs: 5 * 60 * 1000,
   reloadCooldownMs: 10 * 60 * 1000,
-  reloadBudgetPerEpoch: 1
+  reloadBudgetPerEpoch: 1,
+  continueBudgetPerEpoch: 1
 });
 
 export const WORK_WATCHDOG_PHASES = Object.freeze({
@@ -15,6 +16,9 @@ export const WORK_WATCHDOG_PHASES = Object.freeze({
   STALL_CHECK: "STALL_CHECK",
   RECOVERY_INTENT: "RECOVERY_INTENT",
   POST_RELOAD: "POST_RELOAD",
+  CONTINUE_READY: "CONTINUE_READY",
+  CONTINUE_INTENT: "CONTINUE_INTENT",
+  POST_CONTINUE: "POST_CONTINUE",
   POSSIBLY_STALLED: "POSSIBLY_STALLED"
 });
 
@@ -26,6 +30,9 @@ export const WORK_WATCHDOG_DECISIONS = Object.freeze({
   STALL_CHECK_COOLDOWN: "STALL_CHECK_COOLDOWN",
   RELOAD_ELIGIBLE: "RELOAD_ELIGIBLE",
   POST_RELOAD_OBSERVE: "POST_RELOAD_OBSERVE",
+  CONTINUE_ELIGIBLE: "CONTINUE_ELIGIBLE",
+  CONTINUE_UNCERTAIN: "CONTINUE_UNCERTAIN",
+  POST_CONTINUE_OBSERVE: "POST_CONTINUE_OBSERVE",
   RECOVERY_UNCERTAIN: "RECOVERY_UNCERTAIN",
   POSSIBLY_STALLED: "POSSIBLY_STALLED",
   BLOCKED_OWNER_STOP: "BLOCKED_OWNER_STOP",
@@ -74,11 +81,16 @@ export function defaultWorkWatchdog() {
     phase: WORK_WATCHDOG_PHASES.IDLE,
     recovery_epoch: 0,
     reload_count: 0,
+    continue_count: 0,
     stall_check_at: null,
     reload_intent_at: null,
     reloaded_at: null,
     last_reload_at: null,
     post_reload_probe_at: null,
+    continue_intent_at: null,
+    continued_at: null,
+    last_continue_at: null,
+    post_continue_probe_at: null,
     fresh_progress_at: null,
     rearmed_at: null,
     long_event_emitted_at: null,
@@ -99,6 +111,10 @@ export function normalizeWorkWatchdog(value = null) {
     WORK_WATCHDOG_DEFAULTS.reloadBudgetPerEpoch,
     nonNegativeInteger(value.reload_count)
   );
+  safe.continue_count = Math.min(
+    WORK_WATCHDOG_DEFAULTS.continueBudgetPerEpoch,
+    nonNegativeInteger(value.continue_count)
+  );
 
   for (const key of [
     "stall_check_at",
@@ -106,6 +122,10 @@ export function normalizeWorkWatchdog(value = null) {
     "reloaded_at",
     "last_reload_at",
     "post_reload_probe_at",
+    "continue_intent_at",
+    "continued_at",
+    "last_continue_at",
+    "post_continue_probe_at",
     "fresh_progress_at",
     "rearmed_at",
     "long_event_emitted_at",
@@ -196,7 +216,8 @@ export function evaluateWorkWatchdog({
     stallThresholdMs: Number(defaults.stallThresholdMs),
     inactivityMs: Number(defaults.inactivityMs),
     reloadCooldownMs: Number(defaults.reloadCooldownMs),
-    reloadBudgetPerEpoch: Number(defaults.reloadBudgetPerEpoch)
+    reloadBudgetPerEpoch: Number(defaults.reloadBudgetPerEpoch),
+    continueBudgetPerEpoch: Number(defaults.continueBudgetPerEpoch)
   };
 
   const identity = syncIdentity(watchdog, {
@@ -265,35 +286,48 @@ export function evaluateWorkWatchdog({
     });
   }
 
+  const reloadUsed = state.reload_count >= config.reloadBudgetPerEpoch;
+  const continueUsed = state.continue_count >= config.continueBudgetPerEpoch;
+  const recoveryUsed = reloadUsed || continueUsed;
+
   if (
-    state.reload_count >= config.reloadBudgetPerEpoch &&
+    recoveryUsed &&
     (activityChanged || responseRunning) &&
     !state.fresh_progress_at
   ) {
     state.fresh_progress_at = currentAt;
   }
 
-  const recoveryAnchor = state.reloaded_at || state.reload_intent_at;
-  const cooldownFromLastReload = state.last_reload_at
-    ? elapsedMs(currentAt, state.last_reload_at)
+  const recoveryAnchor =
+    state.continued_at ||
+    state.continue_intent_at ||
+    state.reloaded_at ||
+    state.reload_intent_at;
+  const cooldownAnchor = state.last_continue_at || state.last_reload_at;
+  const cooldownFromLastRecovery = cooldownAnchor
+    ? elapsedMs(currentAt, cooldownAnchor)
     : null;
   const recoveryAge = recoveryAnchor
     ? elapsedMs(currentAt, recoveryAnchor)
     : null;
 
   if (
-    state.reload_count >= config.reloadBudgetPerEpoch &&
+    recoveryUsed &&
     state.fresh_progress_at &&
-    state.last_reload_at &&
-    cooldownFromLastReload !== null &&
-    cooldownFromLastReload >= config.reloadCooldownMs
+    cooldownAnchor &&
+    cooldownFromLastRecovery !== null &&
+    cooldownFromLastRecovery >= config.reloadCooldownMs
   ) {
     state.recovery_epoch = Math.max(1, state.recovery_epoch) + 1;
     state.reload_count = 0;
+    state.continue_count = 0;
     state.stall_check_at = null;
     state.reload_intent_at = null;
     state.reloaded_at = null;
     state.post_reload_probe_at = null;
+    state.continue_intent_at = null;
+    state.continued_at = null;
+    state.post_continue_probe_at = null;
     state.fresh_progress_at = null;
     state.possibly_stalled_at = null;
     state.rearmed_at = currentAt;
@@ -340,7 +374,52 @@ export function evaluateWorkWatchdog({
     });
   }
 
-  if (state.reload_count >= config.reloadBudgetPerEpoch) {
+  if (continueUsed) {
+    if (!state.continued_at) {
+      if (recoveryAge !== null && recoveryAge >= config.inactivityMs) {
+        state.phase = WORK_WATCHDOG_PHASES.POSSIBLY_STALLED;
+        const firstTransition = !state.possibly_stalled_at;
+        if (firstTransition) state.possibly_stalled_at = currentAt;
+        return result(WORK_WATCHDOG_DECISIONS.POSSIBLY_STALLED, state, {
+          elapsed_ms: elapsed,
+          inactivity_ms: inactivity,
+          emit_long_running: emitLong,
+          emit_possibly_stalled: firstTransition,
+          reason_code: "WATCHDOG_CONTINUE_OUTCOME_UNCERTAIN"
+        });
+      }
+      state.phase = WORK_WATCHDOG_PHASES.CONTINUE_INTENT;
+      return result(WORK_WATCHDOG_DECISIONS.CONTINUE_UNCERTAIN, state, {
+        elapsed_ms: elapsed,
+        inactivity_ms: inactivity,
+        emit_long_running: emitLong,
+        reason_code: "WATCHDOG_CONTINUE_INTENT_PERSISTED"
+      });
+    }
+
+    if (recoveryAge !== null && recoveryAge < config.inactivityMs) {
+      state.phase = WORK_WATCHDOG_PHASES.POST_CONTINUE;
+      return result(WORK_WATCHDOG_DECISIONS.POST_CONTINUE_OBSERVE, state, {
+        elapsed_ms: elapsed,
+        inactivity_ms: inactivity,
+        emit_long_running: emitLong,
+        reason_code: "WATCHDOG_POST_CONTINUE_WINDOW"
+      });
+    }
+
+    state.phase = WORK_WATCHDOG_PHASES.POSSIBLY_STALLED;
+    const firstTransition = !state.possibly_stalled_at;
+    if (firstTransition) state.possibly_stalled_at = currentAt;
+    return result(WORK_WATCHDOG_DECISIONS.POSSIBLY_STALLED, state, {
+      elapsed_ms: elapsed,
+      inactivity_ms: inactivity,
+      emit_long_running: emitLong,
+      emit_possibly_stalled: firstTransition,
+      reason_code: "WATCHDOG_NO_PROGRESS_AFTER_CONTINUE"
+    });
+  }
+
+  if (reloadUsed) {
     if (!state.reloaded_at) {
       if (recoveryAge !== null && recoveryAge >= config.inactivityMs) {
         state.phase = WORK_WATCHDOG_PHASES.POSSIBLY_STALLED;
@@ -372,15 +451,12 @@ export function evaluateWorkWatchdog({
       });
     }
 
-    state.phase = WORK_WATCHDOG_PHASES.POSSIBLY_STALLED;
-    const firstTransition = !state.possibly_stalled_at;
-    if (firstTransition) state.possibly_stalled_at = currentAt;
-    return result(WORK_WATCHDOG_DECISIONS.POSSIBLY_STALLED, state, {
+    state.phase = WORK_WATCHDOG_PHASES.CONTINUE_READY;
+    return result(WORK_WATCHDOG_DECISIONS.CONTINUE_ELIGIBLE, state, {
       elapsed_ms: elapsed,
       inactivity_ms: inactivity,
       emit_long_running: emitLong,
-      emit_possibly_stalled: firstTransition,
-      reason_code: "WATCHDOG_NO_PROGRESS_AFTER_RELOAD"
+      reason_code: "WATCHDOG_CONTINUE_ELIGIBLE"
     });
   }
 
@@ -399,8 +475,8 @@ export function evaluateWorkWatchdog({
 
   if (
     state.last_reload_at &&
-    cooldownFromLastReload !== null &&
-    cooldownFromLastReload < config.reloadCooldownMs
+    cooldownFromLastRecovery !== null &&
+    cooldownFromLastRecovery < config.reloadCooldownMs
   ) {
     return result(WORK_WATCHDOG_DECISIONS.STALL_CHECK_COOLDOWN, state, {
       elapsed_ms: elapsed,
@@ -467,3 +543,55 @@ export function markWatchdogPostReloadProbe(
   state.post_reload_probe_at = timestamp;
   return state;
 }
+
+export function beginWatchdogContinueIntent(
+  watchdog,
+  { now = new Date().toISOString() } = {}
+) {
+  const state = normalizeWorkWatchdog(watchdog);
+  if (state.reload_count < WORK_WATCHDOG_DEFAULTS.reloadBudgetPerEpoch) {
+    throw new Error("watchdog continue requires the bounded reload stage first");
+  }
+  if (state.continue_count >= WORK_WATCHDOG_DEFAULTS.continueBudgetPerEpoch) {
+    throw new Error("watchdog continue budget exhausted for current recovery epoch");
+  }
+  if (state.phase !== WORK_WATCHDOG_PHASES.CONTINUE_READY) {
+    throw new Error("watchdog continue requires CONTINUE_READY phase");
+  }
+
+  const timestamp = isoRequired(now, "continue_intent_at");
+  state.continue_count = 1;
+  state.continue_intent_at = timestamp;
+  state.continued_at = null;
+  state.post_continue_probe_at = null;
+  state.possibly_stalled_at = null;
+  state.phase = WORK_WATCHDOG_PHASES.CONTINUE_INTENT;
+  return state;
+}
+
+export function markWatchdogContinued(
+  watchdog,
+  { now = new Date().toISOString() } = {}
+) {
+  const state = normalizeWorkWatchdog(watchdog);
+  if (state.continue_count < 1 || !state.continue_intent_at) {
+    throw new Error("watchdog continue completion requires persisted continue intent");
+  }
+  const timestamp = isoRequired(now, "continued_at");
+  state.continued_at = timestamp;
+  state.last_continue_at = timestamp;
+  state.post_continue_probe_at = null;
+  state.phase = WORK_WATCHDOG_PHASES.POST_CONTINUE;
+  return state;
+}
+
+export function markWatchdogPostContinueProbe(
+  watchdog,
+  { now = new Date().toISOString() } = {}
+) {
+  const state = normalizeWorkWatchdog(watchdog);
+  const timestamp = isoRequired(now, "post_continue_probe_at");
+  state.post_continue_probe_at = timestamp;
+  return state;
+}
+
