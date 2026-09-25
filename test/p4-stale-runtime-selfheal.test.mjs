@@ -16,6 +16,8 @@ test("P4 process truth requires fresh lane-status in addition to wrapper/node/ch
   assert.match(life, /STATUS_TIMESTAMP_INVALID/);
   assert.match(life, /STATUS_STALE/);
   assert.match(life, /status_age_seconds/);
+  assert.match(life, /Get-LifecycleThreeLaneProcess\(\[string\]\$Root/);
+  assert.match(life, /\$runtimeRoot = Join-Path \$Root 'runtime'/);
   assert.match(life, /status_stale = \$statusStale/);
   assert.match(life, /node_down = \$nodeDown/);
   assert.match(
@@ -40,6 +42,7 @@ test("P4 wrapper monitors Three-Lane status freshness and relaunches only Node",
   assert.doesNotMatch(monitor, /lanes\.json|lane-registry\.json|brain_url|work_url/);
 
   assert.match(wrapper, /status_stale_restart/);
+  assert.match(wrapper, /SUPERVISOR_MUTEX_NAME/);
   assert.match(wrapper, /THREE_LANE_STATUS_STALE_RELAUNCH/);
 });
 
