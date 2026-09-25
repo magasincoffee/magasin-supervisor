@@ -501,6 +501,24 @@ function Save-WorkTarget(
     }
 }
 
+function Request-OwnerWorkStateReset([string]$LaneId) {
+    $config = Ensure-Config
+    $lane = Get-LaneConfig $config $LaneId
+    if (-not $lane) { throw "Không tìm thấy $LaneId" }
+
+    if (-not $lane.PSObject.Properties['work_state_reset_revision']) {
+        $lane | Add-Member -NotePropertyName 'work_state_reset_revision' -NotePropertyValue 0
+    }
+
+    $lane.work_state_reset_revision = [int]$lane.work_state_reset_revision + 1
+    Write-JsonAtomic $configFile $config
+
+    return [pscustomobject]@{
+        Revision = [int]$lane.work_state_reset_revision
+        LaneId = $LaneId
+    }
+}
+
 function Request-RelayRetryRearm([string]$LaneId) {
     $config = Ensure-Config
     $lane = Get-LaneConfig $config $LaneId
@@ -796,6 +814,15 @@ for ($i = 0; $i -lt 3; $i++) {
     $retryRelayButton.Visible = $false
     $panel.Controls.Add($retryRelayButton)
 
+    $abandonTaskButton = New-Object Windows.Forms.Button
+    $abandonTaskButton.Text = 'BỎ TASK CŨ'
+    $abandonTaskButton.Location = New-Object Drawing.Point(775, 220)
+    $abandonTaskButton.Size = New-Object Drawing.Size(110, 72)
+    $abandonTaskButton.BackColor = [Drawing.Color]::FromArgb(254,226,226)
+    $abandonTaskButton.ForeColor = [Drawing.Color]::FromArgb(153,27,27)
+    $abandonTaskButton.Enabled = $true
+    $panel.Controls.Add($abandonTaskButton)
+
     $startButton = New-Object Windows.Forms.Button
     $startButton.Text = '▶  BẮT ĐẦU LUỒNG'
     $startButton.Location = New-Object Drawing.Point(900, 220)
@@ -826,6 +853,7 @@ for ($i = 0; $i -lt 3; $i++) {
         SaveWork = $saveWork
         ResetWork = $resetWork
         RetryRelay = $retryRelayButton
+        AbandonTask = $abandonTaskButton
     }
 
     $currentLaneId = $laneId
@@ -937,6 +965,53 @@ for ($i = 0; $i -lt 3; $i++) {
         ) | Out-Null
     })
     $resetWork.Tag = $currentLaneId
+
+    $abandonTaskButton.Add_Click({
+        $id = [string]$this.Tag
+        $laneNumber = $id -replace '^lane-',''
+
+        $first = [Windows.Forms.MessageBox]::Show(
+            (
+                "RESET WORK STATE / BỎ TASK CŨ cho LUỒNG $laneNumber?" +
+                [Environment]::NewLine + [Environment]::NewLine +
+                "Chỉ dùng khi Owner chủ động bỏ execution state cũ/obsolete." +
+                [Environment]::NewLine +
+                "Brain URL và Work URL hiện tại sẽ được giữ nguyên."
+            ),
+            'XÁC NHẬN BẢO TRÌ 1/2',
+            'YesNo',
+            'Warning'
+        )
+        if ($first -ne [Windows.Forms.DialogResult]::Yes) { return }
+
+        $second = [Windows.Forms.MessageBox]::Show(
+            (
+                "XÁC NHẬN LẦN 2: BỎ TASK CŨ của LUỒNG $laneNumber." +
+                [Environment]::NewLine + [Environment]::NewLine +
+                "Runtime sẽ clear task/latches/watchdog/rollover cũ và tăng work_generation." +
+                [Environment]::NewLine +
+                "Đây KHÔNG phải Work rollover bình thường và không thể hoàn tác execution state cũ."
+            ),
+            'XÁC NHẬN BẢO TRÌ 2/2',
+            'YesNo',
+            'Warning'
+        )
+        if ($second -ne [Windows.Forms.DialogResult]::Yes) { return }
+
+        $requested = Request-OwnerWorkStateReset $id
+        [Windows.Forms.MessageBox]::Show(
+            (
+                'ĐÃ YÊU CẦU BỎ TASK CŨ — revision ' + $requested.Revision +
+                '. UI chỉ lưu intent; runtime sẽ áp dụng durable reset ở vòng xử lý kế tiếp.' +
+                ' Brain/Work URL không đổi.'
+            ),
+            'MAGASIN BUSINESS OS',
+            'OK',
+            'Information'
+        ) | Out-Null
+        $this.Enabled = $false
+    })
+    $abandonTaskButton.Tag = $currentLaneId
 
     $retryRelayButton.Add_Click({
         $id = $this.Tag
@@ -1381,6 +1456,7 @@ function Refresh-Ui {
         $ui.OpenBrain.Enabled = Test-ChatConversationUrl $ui.Brain.Text
         $ui.OpenWork.Enabled = Test-ChatConversationUrl $ui.Work.Text
         $ui.ResetWork.Enabled = $true
+        $ui.AbandonTask.Enabled = [bool]($workResetRequested -le $workResetApplied)
     }
 
     Refresh-Timeline
