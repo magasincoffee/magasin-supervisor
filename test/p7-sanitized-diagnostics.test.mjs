@@ -179,7 +179,7 @@ test("P7 wrapper log is allowlisted, bounded, runtime-versioned and records node
 
   assert.match(wrapper, /Get-WrapperRuntimeVersion/);
   assert.match(wrapper, /runtime_version = Get-WrapperRuntimeVersion/);
-  assert.match(wrapper, /$allowed = @\(/);
+  assert.match(wrapper, /\$allowed = @\(/);
   assert.match(wrapper, /'cdp_port'/);
   assert.match(wrapper, /'exit_code'/);
   assert.match(wrapper, /\$record\['node_exit_code'\] = \$number/);
