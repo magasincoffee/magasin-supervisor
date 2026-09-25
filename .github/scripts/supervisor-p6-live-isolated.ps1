@@ -21,7 +21,10 @@ function Get-Optional($Object, [string]$Name, $Default = $null) {
 }
 
 $tempBase = Join-Path $env:RUNNER_TEMP "magasin-p6-live-isolated"
-$root = Join-Path $tempBase "state"
+# Three-Lane CLI resolves its local state from LOCALAPPDATA/MAGASIN/BusinessOS/supervisor,
+# while the Windows wrapper also accepts SUPERVISOR_STATE_ROOT. Use the canonical
+# local path under an isolated LOCALAPPDATA so both processes read the same temp truth.
+$root = Join-Path $tempBase "MAGASIN\BusinessOS\supervisor"
 $runtime = Join-Path $root "runtime"
 $runtimeWindows = Join-Path $runtime "windows"
 $profile = Join-Path $root "browser_profile"
@@ -148,10 +151,12 @@ Write-JsonFile $registryFile $registry
 $configHashBefore = (Get-FileHash -LiteralPath $configFile -Algorithm SHA256).Hash
 
 $oldRoot = [string]$env:SUPERVISOR_STATE_ROOT
+$oldLocalAppData = [string]$env:LOCALAPPDATA
 $oldMutex = [string]$env:SUPERVISOR_MUTEX_NAME
 $wrapper = $null
 
 try {
+  $env:LOCALAPPDATA = $tempBase
   $env:SUPERVISOR_STATE_ROOT = $root
   $env:SUPERVISOR_MUTEX_NAME = "Local\MAGASIN_BUSINESS_OS_SUPERVISOR_P6_LIVE"
   $env:RUNNER_TRACKING_ID = "MAGASIN_P6_LIVE_ISOLATED"
@@ -327,6 +332,7 @@ finally {
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
   $env:SUPERVISOR_STATE_ROOT = $oldRoot
+  $env:LOCALAPPDATA = $oldLocalAppData
   $env:SUPERVISOR_MUTEX_NAME = $oldMutex
 
   $prodConfigHashAfter = if (Test-Path $productionConfig) { (Get-FileHash $productionConfig -Algorithm SHA256).Hash } else { "" }
