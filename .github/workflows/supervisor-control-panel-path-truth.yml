@@ -1,0 +1,68 @@
+name: Supervisor Control Panel Path Truth
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/supervisor-control-panel-path-truth.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Inspect current panel paths and shortcuts
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          . ".\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
+          $runtimePanel = Join-Path $root "runtime\windows\control-panel.ps1"
+
+          Write-Host "COMPUTERNAME=$env:COMPUTERNAME"
+          Write-Host "STATE_ROOT=$root"
+          Write-Host "RUNTIME_PANEL=$runtimePanel"
+          Write-Host "RUNTIME_PANEL_EXISTS=$(Test-Path $runtimePanel)"
+
+          if (Test-Path $runtimePanel) {
+            $text = Get-Content $runtimePanel -Raw -Encoding UTF8
+            Write-Host "RUNTIME_PANEL_RESET_READY=$($text -match 'RESET READY')"
+            Write-Host "RUNTIME_PANEL_RESET_BUTTON=$($text -match 'resetAllButton')"
+            Write-Host "RUNTIME_PANEL_OLD_SUBTITLE=$($text -match '3 LUỒNG ĐỘC LẬP  •  BỘ NÃO DO BẠN CHỌN')"
+            $item = Get-Item $runtimePanel
+            Write-Host "RUNTIME_PANEL_LASTWRITE_UTC=$($item.LastWriteTimeUtc.ToString('o'))"
+            Write-Host "RUNTIME_PANEL_LENGTH=$($item.Length)"
+          }
+
+          $procs = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and $_.CommandLine -like "*control-panel.ps1*" }
+
+          Write-Host "CONTROL_PANEL_PROCESS_COUNT=$(@($procs).Count)"
+          foreach ($p in @($procs)) {
+            Write-Host "CONTROL_PANEL_PID=$($p.ProcessId)"
+            Write-Host "CONTROL_PANEL_CMD=$($p.CommandLine)"
+          }
+
+          $desktop = [Environment]::GetFolderPath("Desktop")
+          Write-Host "DESKTOP=$desktop"
+          $shell = New-Object -ComObject WScript.Shell
+          Get-ChildItem -Path $desktop -Filter "*.lnk" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match "MAGASIN|BUSINESS|SUPERVISOR" } |
+            ForEach-Object {
+              $sc = $shell.CreateShortcut($_.FullName)
+              Write-Host "SHORTCUT_NAME=$($_.Name)"
+              Write-Host "SHORTCUT_TARGET=$($sc.TargetPath)"
+              Write-Host "SHORTCUT_ARGS=$($sc.Arguments)"
+              Write-Host "SHORTCUT_WORKDIR=$($sc.WorkingDirectory)"
+            }
+
+          Write-Host "CONTROL_PANEL_PATH_TRUTH=PASS"
