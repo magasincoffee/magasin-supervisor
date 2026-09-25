@@ -1,0 +1,137 @@
+name: Supervisor Control Panel Deploy DESKTOP-4K7IM13
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/supervisor-control-panel-desktop-4k7im13.yml
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-panel:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        slot: [1, 2, 3, 4]
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Deploy only on DESKTOP-4K7IM13
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          Write-Host "DEPLOY_SLOT=\${{ matrix.slot }}"
+          Write-Host "DEPLOY_MACHINE=$env:COMPUTERNAME"
+
+          if ($env:COMPUTERNAME -ne "DESKTOP-4K7IM13") {
+            Write-Host "TARGET_MATCH=False"
+            Write-Host "TARGET_SKIP_SAFE=True"
+            exit 0
+          }
+
+          Write-Host "TARGET_MATCH=True"
+          . ".\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
+          $runtime = Join-Path $root "runtime"
+          $sourcePanel = (Resolve-Path ".\windows\control-panel.ps1").Path
+          $targetPanel = Join-Path $runtime "windows\control-panel.ps1"
+
+          if (-not (Test-Path $targetPanel)) {
+            throw "Installed Control Panel is missing: $targetPanel"
+          }
+
+          $source = Get-Content $sourcePanel -Raw -Encoding UTF8
+          foreach ($marker in @(
+            "RESET READY",
+            "resetAllButton",
+            "reset-all-projects.ps1",
+            "Drawing.Point(820, 20)",
+            "Drawing.Size(365, 42)"
+          )) {
+            if ($source -notmatch [regex]::Escape($marker)) {
+              throw "Source Control Panel missing marker: $marker"
+            }
+          }
+
+          Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.CommandLine -and
+              $_.CommandLine -like "*control-panel.ps1*"
+            } |
+            ForEach-Object {
+              Stop-Process -Id ([int]$_.ProcessId) -Force -ErrorAction SilentlyContinue
+              Write-Host "TARGET_OLD_PANEL_STOPPED=$($_.ProcessId)"
+            }
+
+          Start-Sleep -Milliseconds 800
+
+          $utf8Bom = New-Object System.Text.UTF8Encoding($true)
+          [System.IO.File]::WriteAllText($targetPanel, $source, $utf8Bom)
+
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            $targetPanel,
+            [ref]$tokens,
+            [ref]$parseErrors
+          ) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_.Message }
+            throw "Installed Control Panel parse check failed"
+          }
+
+          $installed = Get-Content $targetPanel -Raw -Encoding UTF8
+          foreach ($marker in @(
+            "RESET READY",
+            "resetAllButton",
+            "Drawing.Point(820, 20)"
+          )) {
+            if ($installed -notmatch [regex]::Escape($marker)) {
+              throw "Installed Control Panel missing marker: $marker"
+            }
+          }
+
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $targetPanel).Hash
+          Write-Host "TARGET_INSTALLED_SHA256=$hash"
+
+          $env:RUNNER_TRACKING_ID = "MAGASIN_CONTROL_PANEL_PERSISTENT"
+          Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
+            "-NoLogo","-NoProfile","-ExecutionPolicy","Bypass",
+            "-File",('"' + $targetPanel + '"')
+          )
+
+          $found = $null
+          for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep -Milliseconds 500
+            $found = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.CommandLine -and
+                $_.CommandLine -like "*$targetPanel*"
+              } |
+              Select-Object -First 1
+            if ($found) { break }
+          }
+
+          if (-not $found) {
+            throw "New Control Panel process did not start"
+          }
+
+          $ownerStop = (Test-Path (Join-Path $root "STOP")) -or
+                       (Test-Path (Join-Path $root "AUTOSTART_DISABLED"))
+
+          Write-Host "TARGET_CONTROL_PANEL_PATH=$targetPanel"
+          Write-Host "TARGET_CONTROL_PANEL_PID=$($found.ProcessId)"
+          Write-Host "TARGET_RESET_READY=True"
+          Write-Host "TARGET_RESET_VISIBLE_LAYOUT=True"
+          Write-Host "TARGET_OWNER_STOP=$ownerStop"
+          Write-Host "TARGET_PROJECT_STATE_UNCHANGED=True"
+          Write-Host "TARGET_DEPLOY=PASS"
