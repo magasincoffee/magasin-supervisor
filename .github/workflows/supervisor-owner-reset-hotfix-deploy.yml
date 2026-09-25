@@ -16,7 +16,6 @@ permissions:
 
 jobs:
   deploy-owner-reset-hotfix:
-    if: ${{ contains(github.event.head_commit.message, 'deploy(supervisor): owner reset hotfix') }}
     runs-on: self-hosted
     timeout-minutes: 20
     steps:
@@ -30,19 +29,19 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           node --test test/reset-all-projects.test.mjs test/autostart-recovery.test.mjs
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command @'
+          if ($LASTEXITCODE -ne 0) { throw "Node hotfix contract preflight failed" }
+
+          $tokens = $null
           $errors = $null
           [System.Management.Automation.Language.Parser]::ParseFile(
             (Resolve-Path "windows\reset-all-projects.ps1").Path,
-            [ref]$null,
+            [ref]$tokens,
             [ref]$errors
           ) | Out-Null
           if ($errors.Count -gt 0) {
             $errors | ForEach-Object { Write-Error $_.Message }
-            exit 1
+            throw "PowerShell hotfix syntax preflight failed"
           }
-          '@
-          if ($LASTEXITCODE -ne 0) { throw "Hotfix contract preflight failed" }
 
       - name: Put current production runtime in Owner STOP
         shell: powershell
