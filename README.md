@@ -1,16 +1,21 @@
 > **Canonical migration state:** `MAGASIN_SUPERVISOR_INDEPENDENT_REPOSITORY_V1` is **COMPLETE**. MIG-005 production cutover is complete; MIG-006 / TASK-RBT-009 is complete and released; MIG-007 final cleanup removed the authorized legacy Business OS Supervisor surface and closed the active source-code rollback window.
 
-Current machine-readable Source of Truth:
+Current machine-readable migration Source of Truth:
 
 `docs/MIG_007_FINAL_CLEANUP_CLOSURE.json`
 
-Final evidence:
+Final migration evidence:
 
 - `docs/MIG_007_FINAL_CLEANUP_EVIDENCE.md`
 
+Current approved runtime-change Source of Truth:
+
+- `docs/RBT_010_TEXT_ONLY_RELAY_AUTHORITY.json` — TASK-RBT-010, **OWNER AUTHORIZED / READY / NOT STARTED**
+- `docs/RBT_010_TEXT_ONLY_RELAY_PLAN.md` — bounded execution plan for clearing screenshot/attachment relay and moving to text-only exact-once result relay
+
 The earlier MIG-007 authority manifest/plan/evidence remain historical pre-execution authority records. MIG-005/MIG-006 historical snapshots retain their original values and are not rewritten as current state.
 
-No additional migration task is canonically defined.
+No additional migration task is canonically defined. TASK-RBT-010 is a separate authorized runtime-change task and does not alter the completed migration state until its own implementation is executed and qualified.
 
 # MAGASIN Supervisor
 
