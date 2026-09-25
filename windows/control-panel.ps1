@@ -111,6 +111,8 @@ if (-not [string]::IsNullOrWhiteSpace($runnerRoot)) {
 $repoUrl = [string]$env:SUPERVISOR_PROJECT_REPOSITORY_URL
 $vietnamTimeZone = [TimeZoneInfo]::FindSystemTimeZoneById('SE Asia Standard Time')
 $script:lastRecoveryRequestAt = [DateTimeOffset]::MinValue
+$script:lastRunnerRecoveryRequestAt = [DateTimeOffset]::MinValue
+$script:runnerRecoveryBackoffSeconds = 5
 
 if (-not (Test-Path $lifecycleScript)) {
     throw "Không tìm thấy lifecycle truth helper: $lifecycleScript"
@@ -274,6 +276,32 @@ function Ensure-Runner {
     } catch {
         return $false
     }
+}
+
+function Request-RunnerRecovery {
+    if ([string]::IsNullOrWhiteSpace($runnerRoot)) { return $false }
+    if (Get-RunnerProcess) {
+        $script:runnerRecoveryBackoffSeconds = 5
+        return $true
+    }
+
+    $now = [DateTimeOffset]::UtcNow
+    if (($now - $script:lastRunnerRecoveryRequestAt).TotalSeconds -lt $script:runnerRecoveryBackoffSeconds) {
+        return $false
+    }
+
+    $script:lastRunnerRecoveryRequestAt = $now
+    $recovered = Ensure-Runner
+    if ($recovered) {
+        $script:runnerRecoveryBackoffSeconds = 5
+        return $true
+    }
+
+    $script:runnerRecoveryBackoffSeconds = [Math]::Min(
+        60,
+        [Math]::Max(5, $script:runnerRecoveryBackoffSeconds * 2)
+    )
+    return $false
 }
 
 function Open-RobotUrl([string]$Url) {
@@ -1031,11 +1059,16 @@ function Refresh-Ui {
     $status = Read-JsonFile $statusFile
 
     $runner = Get-RunnerProcess
+    if (-not $runner) {
+        [void](Request-RunnerRecovery)
+        $runner = Get-RunnerProcess
+    }
+
     if ($runner) {
         $runnerButton.Text = '✓  GITHUB ĐANG KẾT NỐI'
         $runnerButton.BackColor = [Drawing.Color]::FromArgb(220,252,231)
     } else {
-        $runnerButton.Text = '▶  KẾT NỐI GITHUB'
+        $runnerButton.Text = '⟳  GITHUB ĐANG TỰ KẾT NỐI'
         $runnerButton.BackColor = [Drawing.Color]::FromArgb(255,247,237)
     }
 

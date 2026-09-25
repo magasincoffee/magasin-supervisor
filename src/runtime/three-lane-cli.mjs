@@ -139,7 +139,8 @@ function parseArgs(argv) {
     relayRearmFixture: false,
     workFullFixture: false,
     staleTargetFixture: false,
-    pageBudget: DEFAULT_CHATGPT_PAGE_BUDGET
+    pageBudget: DEFAULT_CHATGPT_PAGE_BUDGET,
+    wrapperPid: null
   };
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
@@ -153,9 +154,42 @@ function parseArgs(argv) {
     else if (key === "--work-full-fixture") result.workFullFixture = true;
     else if (key === "--stale-target-fixture") result.staleTargetFixture = true;
     else if (key === "--page-budget") result.pageBudget = Number(argv[++i]);
+    else if (key === "--wrapper-pid") result.wrapperPid = Number(argv[++i]);
     else throw new Error(`unknown argument: ${key}`);
   }
   return result;
+}
+
+function wrapperProcessAlive(wrapperPid) {
+  if (!Number.isInteger(wrapperPid) || wrapperPid < 1) return true;
+  try {
+    process.kill(wrapperPid, 0);
+    return true;
+  } catch (error) {
+    // EPERM means the process exists but cannot be signalled. Treat that as
+    // alive; only a missing PID is authority for an orphan Three-Lane exit.
+    return error?.code === "EPERM";
+  }
+}
+
+function armWrapperParentMonitor(wrapperPid) {
+  if (!Number.isInteger(wrapperPid) || wrapperPid < 1) return null;
+
+  const timer = setInterval(() => {
+    if (wrapperProcessAlive(wrapperPid)) return;
+
+    // Parent loss is an authority loss. Exit promptly even if a UI operation
+    // is currently waiting; durable send/relay intents are reconciled by the
+    // next authoritative wrapper instead of allowing an orphan writer to run.
+    try {
+      process.stderr.write(
+        `MAGASIN Three-Lane exiting because wrapper PID ${wrapperPid} is gone.\n`
+      );
+    } catch {}
+    process.exit(77);
+  }, 2000);
+  timer.unref?.();
+  return timer;
 }
 
 function localRoot() {
@@ -4675,6 +4709,9 @@ if (!Number.isFinite(args.pollMs) || args.pollMs < 1000) {
 if (!Number.isInteger(args.pageBudget) || args.pageBudget < 1) {
   throw new TypeError("page-budget must be a positive integer");
 }
+if (args.wrapperPid !== null && (!Number.isInteger(args.wrapperPid) || args.wrapperPid < 1)) {
+  throw new TypeError("wrapper-pid must be a positive integer");
+}
 
 const root = localRoot();
 const configPath = path.join(root, "lanes.json");
@@ -4715,10 +4752,11 @@ let adapter = null;
 let scheduler = null;
 let cdpRecoveryFailures = 0;
 let restartRequested = false;
+const wrapperParentMonitor = armWrapperParentMonitor(args.wrapperPid);
 
 await safeLog(logPath, {
   type: "RUNTIME_BOOT",
-  reason: `version=${SUPERVISOR_RUNTIME_VERSION};mode=${THREE_LANE_MODE};page_budget=${args.pageBudget}`
+  reason: `version=${SUPERVISOR_RUNTIME_VERSION};mode=${THREE_LANE_MODE};page_budget=${args.pageBudget};wrapper_pid=${args.wrapperPid || "none"}`
 });
 await emitLaneEvent({
   actor: "SUPERVISOR",
@@ -4738,6 +4776,14 @@ try {
   await scheduler.reconstructFromBrowser();
 
   while (true) {
+    if (args.wrapperPid && !wrapperProcessAlive(args.wrapperPid)) {
+      await safeLog(logPath, {
+        type: "RUNTIME_WRAPPER_PARENT_MISSING",
+        reason: `wrapper_pid=${args.wrapperPid};node_pid=${process.pid}`
+      });
+      break;
+    }
+
     try {
       await fs.access(stopPath);
       for (const lane of config.lanes) {
@@ -4894,5 +4940,6 @@ try {
     }
   }
 } finally {
+  if (wrapperParentMonitor) clearInterval(wrapperParentMonitor);
   await adapter?.close().catch(() => {});
 }

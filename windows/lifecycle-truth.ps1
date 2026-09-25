@@ -60,13 +60,37 @@ function Get-LifecycleSupervisorWrapper([string]$Root = (Get-MagasinSupervisorRo
         Select-Object -First 1
 }
 
-function Get-LifecycleThreeLaneProcess {
-    return Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+function Get-LifecycleThreeLaneProcesses {
+    return @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
         Where-Object {
             $_.CommandLine -and
             $_.CommandLine -like '*three-lane-cli.mjs*'
-        } |
+        })
+}
+
+function Get-LifecycleThreeLaneProcess([string]$Root = (Get-MagasinSupervisorRoot)) {
+    # A Three-Lane Node is process truth only when it is the direct child of
+    # the currently authoritative wrapper for this state root. An orphan Node
+    # from a killed/restarted wrapper must never make the Control Panel report
+    # THREE-LANE as healthy.
+    $wrapper = Get-LifecycleSupervisorWrapper -Root $Root
+    if (-not $wrapper) { return $null }
+
+    $wrapperPid = [int]$wrapper.ProcessId
+    return Get-LifecycleThreeLaneProcesses |
+        Where-Object { [int]$_.ParentProcessId -eq $wrapperPid } |
         Select-Object -First 1
+}
+
+function Get-LifecycleOrphanThreeLaneProcesses([string]$Root = (Get-MagasinSupervisorRoot)) {
+    $wrapper = Get-LifecycleSupervisorWrapper -Root $Root
+    $wrapperPid = if ($wrapper) { [int]$wrapper.ProcessId } else { 0 }
+
+    return @(Get-LifecycleThreeLaneProcesses |
+        Where-Object {
+            $wrapperPid -le 0 -or
+            [int]$_.ParentProcessId -ne $wrapperPid
+        })
 }
 
 function Get-LifecycleRobotChrome([string]$Root = (Get-MagasinSupervisorRoot)) {
@@ -100,7 +124,7 @@ function Test-LifecycleRobotCdp(
 
 function Get-LifecycleProcessTruth([string]$Root = (Get-MagasinSupervisorRoot)) {
     $wrapper = Get-LifecycleSupervisorWrapper -Root $Root
-    $threeLane = Get-LifecycleThreeLaneProcess
+    $threeLane = Get-LifecycleThreeLaneProcess -Root $Root
     $chrome = Get-LifecycleRobotChrome -Root $Root
     $cdpHealthy = Test-LifecycleRobotCdp -ChromeProcess $chrome -Root $Root
 
