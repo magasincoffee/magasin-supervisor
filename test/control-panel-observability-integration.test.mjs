@@ -67,7 +67,7 @@ test("resource summary consumes local scheduler snapshot only", async () => {
   const end = panel.indexOf("$timer = New-Object Windows.Forms.Timer", start);
   const refresh = panel.slice(start, end);
   assert.match(refresh, /Get-ControlPanelResourceSummary/);
-  assert.match(refresh, /TRANG CHATGPT:/);
+  assert.match(refresh, /CHATGPT PAGE COUNT:/);
   assert.doesNotMatch(refresh, /Invoke-RestMethod|reopenTargetPage|newChatPage|open-supervisor-chat/);
 });
 
