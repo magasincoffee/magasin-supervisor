@@ -85,7 +85,7 @@ try {
         if (
           [string]$record.type -eq "NODE_EXIT" -and
           [string]$record.runtime_version -eq "P7-LIVE-WRAPPER" -and
-          [int]$record.node_exit_code -eq 75
+          $null -ne $record.PSObject.Properties["node_exit_code"]
         ) {
           $nodeExit = $record
         }
