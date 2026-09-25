@@ -7,4 +7,5 @@ work_generation_before=7
 verify_exact_once=true
 verify_lane_isolation=true
 verify_targets_unchanged=true
-attempt=2
+execute_mode=true
+attempt=3
