@@ -821,9 +821,9 @@ for ($i = 0; $i -lt 3; $i++) {
     $panel.Controls.Add($statusValue)
 
     $brainLabel = New-Object Windows.Forms.Label
-    $brainLabel.Text = 'BỘ NÃO'
+    $brainLabel.Text = 'LINK BỘ NÃO'
     $brainLabel.Location = New-Object Drawing.Point(18, 59)
-    $brainLabel.Size = New-Object Drawing.Size(96, 24)
+    $brainLabel.Size = New-Object Drawing.Size(100, 24)
     $brainLabel.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
     $panel.Controls.Add($brainLabel)
 
@@ -847,9 +847,9 @@ for ($i = 0; $i -lt 3; $i++) {
     $panel.Controls.Add($saveBrain)
 
     $workLabel = New-Object Windows.Forms.Label
-    $workLabel.Text = 'WORK'
+    $workLabel.Text = 'LINK WORK'
     $workLabel.Location = New-Object Drawing.Point(18, 101)
-    $workLabel.Size = New-Object Drawing.Size(96, 24)
+    $workLabel.Size = New-Object Drawing.Size(100, 24)
     $workLabel.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
     $panel.Controls.Add($workLabel)
 
