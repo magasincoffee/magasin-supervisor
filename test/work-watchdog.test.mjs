@@ -4,9 +4,11 @@ import assert from "node:assert/strict";
 import {
   WORK_WATCHDOG_DECISIONS,
   WORK_WATCHDOG_PHASES,
+  beginWatchdogContinueIntent,
   beginWatchdogReloadIntent,
   defaultWorkWatchdog,
   evaluateWorkWatchdog,
+  markWatchdogContinued,
   markWatchdogReloaded,
   normalizeWorkWatchdog
 } from "../src/runtime/work-watchdog.mjs";
@@ -139,7 +141,7 @@ test("second eligible turn becomes RELOAD_ELIGIBLE and intent consumes epoch bud
   assert.ok(intent.reload_intent_at);
 });
 
-test("same no-progress recovery epoch cannot reload a second time", () => {
+test("no progress after bounded reload becomes one continue-eligible stage before possibly stalled", () => {
   const checked = evaluate({
     minutes: 35,
     taskTiming: timing({ activity: 29 })
@@ -155,13 +157,46 @@ test("same no-progress recovery epoch cannot reload a second time", () => {
   assert.equal(post.decision, WORK_WATCHDOG_DECISIONS.POST_RELOAD_OBSERVE);
   assert.equal(post.state.reload_count, 1);
 
-  const stalled = evaluate({
+  const eligible = evaluate({
     minutes: 41,
     state: post.state,
     taskTiming: timing({ activity: 29 })
   });
+  assert.equal(eligible.decision, WORK_WATCHDOG_DECISIONS.CONTINUE_ELIGIBLE);
+  assert.equal(eligible.state.phase, WORK_WATCHDOG_PHASES.CONTINUE_READY);
+  assert.equal(eligible.state.reload_count, 1);
+  assert.equal(eligible.state.continue_count, 0);
+
+  const continueIntent = beginWatchdogContinueIntent(eligible.state, {
+    now: iso(41, 1)
+  });
+  assert.equal(continueIntent.continue_count, 1);
+  assert.equal(continueIntent.phase, WORK_WATCHDOG_PHASES.CONTINUE_INTENT);
+
+  const continued = markWatchdogContinued(continueIntent, {
+    now: iso(41, 2)
+  });
+  assert.equal(continued.phase, WORK_WATCHDOG_PHASES.POST_CONTINUE);
+
+  const postContinue = evaluate({
+    minutes: 42,
+    state: continued,
+    taskTiming: timing({ activity: 29 })
+  });
+  assert.equal(
+    postContinue.decision,
+    WORK_WATCHDOG_DECISIONS.POST_CONTINUE_OBSERVE
+  );
+
+  const stalled = evaluate({
+    minutes: 47,
+    state: postContinue.state,
+    taskTiming: timing({ activity: 29 })
+  });
   assert.equal(stalled.decision, WORK_WATCHDOG_DECISIONS.POSSIBLY_STALLED);
+  assert.equal(stalled.reason_code, "WATCHDOG_NO_PROGRESS_AFTER_CONTINUE");
   assert.equal(stalled.state.reload_count, 1);
+  assert.equal(stalled.state.continue_count, 1);
 });
 
 test("restart with persisted reload intent does not replay mutation", () => {
@@ -187,6 +222,48 @@ test("restart with persisted reload intent does not replay mutation", () => {
   });
   assert.equal(later.decision, WORK_WATCHDOG_DECISIONS.POSSIBLY_STALLED);
   assert.equal(later.state.reload_count, 1);
+});
+
+test("restart with persisted continue intent never replays the continue mutation", () => {
+  const checked = evaluate({
+    minutes: 35,
+    taskTiming: timing({ activity: 29 })
+  });
+  const reloadIntent = beginWatchdogReloadIntent(checked.state, { now: iso(35) });
+  const reloaded = markWatchdogReloaded(reloadIntent, { now: iso(35, 1) });
+  const eligible = evaluate({
+    minutes: 41,
+    state: reloaded,
+    taskTiming: timing({ activity: 29 })
+  });
+  assert.equal(eligible.decision, WORK_WATCHDOG_DECISIONS.CONTINUE_ELIGIBLE);
+
+  const continueIntent = beginWatchdogContinueIntent(eligible.state, {
+    now: iso(41, 1)
+  });
+  const restarted = normalizeWorkWatchdog(
+    JSON.parse(JSON.stringify(continueIntent))
+  );
+
+  const uncertain = evaluate({
+    minutes: 42,
+    state: restarted,
+    taskTiming: timing({ activity: 29 })
+  });
+  assert.equal(
+    uncertain.decision,
+    WORK_WATCHDOG_DECISIONS.CONTINUE_UNCERTAIN
+  );
+  assert.equal(uncertain.state.continue_count, 1);
+  assert.equal(uncertain.state.continued_at, null);
+
+  const later = evaluate({
+    minutes: 47,
+    state: uncertain.state,
+    taskTiming: timing({ activity: 29 })
+  });
+  assert.equal(later.decision, WORK_WATCHDOG_DECISIONS.POSSIBLY_STALLED);
+  assert.equal(later.reason_code, "WATCHDOG_CONTINUE_OUTCOME_UNCERTAIN");
 });
 
 test("fresh progress after reload returns WORKING_LONG and only re-arms after >=10m cooldown", () => {
