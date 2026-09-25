@@ -3,7 +3,6 @@ import path from "node:path";
 
 import {
   normalizeChatGptConversationUrl,
-  normalizeLaneRegistry,
   sha256
 } from "../../src/runtime/three-lane.mjs";
 import {
@@ -15,10 +14,10 @@ const root = String(process.env.P2_TEMP_STATE_ROOT || "").trim();
 if (!root) throw new Error("P3_QUARANTINE_PREFLIGHT_ROOT_MISSING");
 
 const registryPath = path.join(root, "lane-registry.json");
-const registry = normalizeLaneRegistry(
-  JSON.parse(fs.readFileSync(registryPath, "utf8").replace(/^\uFEFF/, ""))
+const registry = JSON.parse(
+  fs.readFileSync(registryPath, "utf8").replace(/^\uFEFF/, "")
 );
-const lane = registry.lanes["lane-1"];
+const lane = registry?.lanes?.["lane-1"];
 if (!lane?.work_url) throw new Error("P3_QUARANTINE_PREFLIGHT_WORK_URL_MISSING");
 
 const normalized = normalizeChatGptConversationUrl(lane.work_url);
