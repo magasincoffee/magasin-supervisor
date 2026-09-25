@@ -8,7 +8,7 @@ async function read(rel) {
 
 test("RBT-007 observability remains canonical after runtime v60 planning bump", async () => {
   const runtime = await read("../src/runtime/three-lane-cli.mjs");
-  assert.match(runtime, /SUPERVISOR_RUNTIME_VERSION = "2026-09-20\.60"/);
+  assert.match(runtime, /SUPERVISOR_RUNTIME_VERSION = "2026-09-25\.61"/);
   assert.match(runtime, /projectLaneOperationalStatus/);
   const laneStatusStart = runtime.indexOf("function laneStatus");
   const laneStatusEnd = runtime.indexOf("async function writeLaneStatus", laneStatusStart);
