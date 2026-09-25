@@ -130,6 +130,15 @@ function Write-JsonFile([string]$Path,$Value) {
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
   $Value | ConvertTo-Json -Depth 20 | Set-Content -Path $Path -Encoding UTF8
 }
+function Get-Sha256Hex([string]$Value) {
+  $bytes = [Text.Encoding]::UTF8.GetBytes([string]$Value)
+  $sha = [Security.Cryptography.SHA256]::Create()
+  try {
+    return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace("-","").ToLowerInvariant()
+  } finally {
+    $sha.Dispose()
+  }
+}
 
 $p3ReplacementMode = [string]$env:P3_LIVE_REPLACEMENT_MODE -eq "true"
 
@@ -542,10 +551,15 @@ try {
     if (-not $oldWorkHealth) {
       throw "P3_LIVE_INITIAL_WORK_HEALTH_MISSING"
     }
-    $oldTargetDigest = [string](Get-OptionalPropertyValue $oldWorkHealth "target_digest")
+    $storedOldTargetDigest = [string](Get-OptionalPropertyValue $oldWorkHealth "target_digest")
+    $oldTargetDigest = Get-Sha256Hex $oldWorkUrl
     if ([string]::IsNullOrWhiteSpace($oldTargetDigest)) {
       throw "P3_LIVE_INITIAL_WORK_HEALTH_IDENTITY_MISSING"
     }
+    if ($storedOldTargetDigest -ne $oldTargetDigest) {
+      Write-Host "LIVE_P3_QUARANTINE_IDENTITY_REBASED=True"
+    }
+    Write-Host "LIVE_P3_QUARANTINE_IDENTITY_MATCHES_ACTIVE_URL=True"
     $quarantineAt = [DateTimeOffset]::UtcNow.ToString("o")
     $beforeLane.awaiting_work = $true
     $beforeLane.dispatch_inflight = $null
@@ -557,7 +571,7 @@ try {
       reason_code = "CONVERSATION_MISSING"
       role = "WORK"
       target_digest = $oldTargetDigest
-      target_revision = [int](Get-OptionalPropertyValue $oldWorkHealth "target_revision")
+      target_revision = [int](Get-OptionalPropertyValue $beforeLane "applied_work_url_revision")
       work_generation = $oldGeneration
       first_detected_at = $quarantineAt
       last_checked_at = $quarantineAt

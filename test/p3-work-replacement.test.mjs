@@ -106,6 +106,17 @@ test("P3 deterministic target quarantine and bounded watchdog stall both enter r
   assert.match(runtime, /reason: WORK_ROLLOVER_REASONS\.POSSIBLY_STALLED/);
 });
 
+test("P3 live quarantine fixture binds evidence to the active Work URL identity", async () => {
+  const harness = await read("../.github/scripts/supervisor-p2-live-isolated.ps1");
+  assert.match(harness, /function Get-Sha256Hex/);
+  assert.match(harness, /\$oldTargetDigest = Get-Sha256Hex \$oldWorkUrl/);
+  assert.match(
+    harness,
+    /target_revision = \[int\]\(Get-OptionalPropertyValue \$beforeLane "applied_work_url_revision"\)/
+  );
+  assert.match(harness, /LIVE_P3_QUARANTINE_IDENTITY_MATCHES_ACTIVE_URL=True/);
+});
+
 test("P3 replacement continuation still rechecks Owner STOP before browser mutation", async () => {
   const runtime = await read("../src/runtime/three-lane-cli.mjs");
   const start = runtime.indexOf("async function dispatchWork");
