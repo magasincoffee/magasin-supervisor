@@ -9,4 +9,5 @@ verify_lane_isolation=true
 verify_targets_unchanged=true
 execute_mode=true
 canonical_temp_localappdata=true
-attempt=4
+semantic_config_compare=true
+attempt=5
