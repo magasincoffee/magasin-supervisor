@@ -153,6 +153,9 @@ function parseArgs(argv) {
 }
 
 function localRoot() {
+  const configured = String(process.env.SUPERVISOR_STATE_ROOT || "").trim();
+  if (configured) return path.resolve(configured);
+
   const base = process.env.LOCALAPPDATA || process.env.HOME || process.cwd();
   return path.join(base, "MAGASIN", "BusinessOS", "supervisor");
 }
