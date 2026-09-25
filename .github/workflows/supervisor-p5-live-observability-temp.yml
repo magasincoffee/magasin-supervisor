@@ -1,0 +1,39 @@
+name: Supervisor P5 Live Observability Temp
+
+on:
+  push:
+    branches:
+      - hotfix/supervisor-autonomy-selfheal-v1
+    paths:
+      - .github/p5-live-trigger.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-p5-live-observability-v1
+  cancel-in-progress: true
+
+jobs:
+  p5-live:
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify migrated MAGASIN live runner identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ($env:COMPUTERNAME -ne "DESKTOP-4K7IM13") {
+            throw "LIVE_P5_WRONG_RUNNER"
+          }
+          Write-Host "LIVE_P5_RUNNER_MATCH=True"
+          Write-Host ("LIVE_P5_RUNNER_NAME=" + $env:COMPUTERNAME)
+
+      - name: Run isolated P5 Control Panel observability acceptance
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          & ".github\scripts\supervisor-p5-live-isolated.ps1"
