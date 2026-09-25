@@ -1137,6 +1137,8 @@ Rollback/risk:
 
 ### TASK-RBT-009 — Integration / Overnight Soak / Cleanup
 
+**Implementation status:** TASK-RBT-009 final qualification is RELEASED / COMPLETE. MIG-006 workflow run `35860156388`, Tier B job `107180300345`, qualified locked runtime candidate `218f330ee86eea4f0fb79ef9293bd43cf96a45de` for 28,843 continuous seconds (240 samples) with `RBT009_TIER_B_480M=PASS`. Runtime semantics remain v2026-09-20.60.
+
 Purpose: prove the combined system under real 1/2/3-lane pressure before declaring release.
 
 Expected scope/files:
