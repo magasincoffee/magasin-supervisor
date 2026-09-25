@@ -122,7 +122,14 @@ if ($ObservabilityProbe) {
     $enabledProbe = if ($configProbe -and $configProbe.lanes) {
         @($configProbe.lanes | Where-Object { [bool]$_.enabled }).Count
     } else { 0 }
-    $schedulerProbe = Get-OptionalPropertyValue $statusProbe 'scheduler' $null
+    $schedulerProbe = if (
+        $processTruthProbe.three_lane_alive -and
+        -not $processTruthProbe.status_stale
+    ) {
+        Get-OptionalPropertyValue $statusProbe 'scheduler' $null
+    } else {
+        $null
+    }
     $resourceProbe = Get-ControlPanelResourceSummary $schedulerProbe
     $tailProbe = Read-BoundedLaneEventTail -Path $eventFile -MaxEvents 30 -MaxBytes 262144
 
