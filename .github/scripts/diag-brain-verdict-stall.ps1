@@ -55,3 +55,5 @@ if(Test-Path $log){
   }
   Write-Host 'LOG_MATCH_END'
 }
+
+# post-repair verification trigger
