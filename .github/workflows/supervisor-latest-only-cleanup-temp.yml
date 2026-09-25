@@ -1,0 +1,41 @@
+name: Supervisor Latest Only Cleanup
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/supervisor-latest-only-cleanup-temp.yml
+      - .github/scripts/deploy-latest-only-cleanup.ps1
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        slot: [1,2,3,4,5,6]
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Update latest and remove old runtime copies on DESKTOP-4K7IM13
+        shell: cmd
+        run: |
+          @echo off
+          echo SLOT=${{ matrix.slot }}
+          echo MACHINE=%COMPUTERNAME%
+          if /I not "%COMPUTERNAME%"=="DESKTOP-4K7IM13" (
+            echo TARGET_MATCH=False
+            echo TARGET_SKIP_SAFE=True
+            exit /b 0
+          )
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\deploy-latest-only-cleanup.ps1" -TargetComputer "DESKTOP-4K7IM13"
+          exit /b %ERRORLEVEL%
