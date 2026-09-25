@@ -45,7 +45,8 @@ function safeReason(value) {
     raw.includes("://") ||
     raw.includes("\\") ||
     raw.includes("..") ||
-    raw.includes("//")
+    raw.includes("//") ||
+    /(token|cookie|secret|password|bearer|authorization|api[_-]?key|session)/i.test(raw)
   ) {
     return undefined;
   }
