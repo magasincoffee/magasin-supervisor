@@ -12,8 +12,31 @@ $stop = Join-Path $root 'STOP'
 $lifecycleScript = Join-Path $runtime 'windows\lifecycle-truth.ps1'
 $bootstrapLog = Join-Path $root 'autostart.log'
 $startSupervisor = Join-Path $runtime 'windows\start-supervisor.ps1'
-$runnerRoot = 'C:\actions-runner-business\actions-runner'
-$runnerCmd = Join-Path $runnerRoot 'run.cmd'
+$runnerRoot = [string]$env:SUPERVISOR_RUNNER_ROOT
+if ([string]::IsNullOrWhiteSpace($runnerRoot)) {
+    foreach ($candidate in @(
+        'C:\actions-runner-magasin-supervisor\actions-runner',
+        'C:\actions-runner-business\actions-runner'
+    )) {
+        if (Test-Path (Join-Path $candidate 'run.cmd')) {
+            $runnerRoot = $candidate
+            break
+        }
+    }
+}
+if ([string]::IsNullOrWhiteSpace($runnerRoot)) {
+    $listener = Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.ExecutablePath } |
+        Select-Object -First 1
+    if ($listener -and $listener.ExecutablePath) {
+        $binDir = Split-Path ([string]$listener.ExecutablePath) -Parent
+        $candidate = Split-Path $binDir -Parent
+        if (Test-Path (Join-Path $candidate 'run.cmd')) {
+            $runnerRoot = $candidate
+        }
+    }
+}
+$runnerCmd = if ([string]::IsNullOrWhiteSpace($runnerRoot)) { '' } else { Join-Path $runnerRoot 'run.cmd' }
 
 New-Item -ItemType Directory -Force -Path $root | Out-Null
 
@@ -32,7 +55,11 @@ function Write-BootstrapLog([string]$Type, [string]$Message) {
 }
 
 function Get-CanonicalRunnerProcess {
-    return Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" -ErrorAction SilentlyContinue |
+    $listeners = Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" -ErrorAction SilentlyContinue
+    if ([string]::IsNullOrWhiteSpace($runnerRoot)) {
+        return $listeners | Select-Object -First 1
+    }
+    return $listeners |
         Where-Object {
             ($_.ExecutablePath -and $_.ExecutablePath -like "$runnerRoot*") -or
             ($_.CommandLine -and $_.CommandLine -like "*$runnerRoot*")
@@ -71,8 +98,8 @@ if ($DryRun) {
 
 $runner = Get-CanonicalRunnerProcess
 if (-not $runner) {
-    if (-not (Test-Path $runnerCmd)) {
-        Write-BootstrapLog 'RUNNER_MISSING' 'Canonical GitHub Runner run.cmd is missing.'
+    if ([string]::IsNullOrWhiteSpace($runnerRoot) -or -not $runnerCmd -or -not (Test-Path $runnerCmd)) {
+        Write-BootstrapLog 'RUNNER_MISSING' 'GitHub Runner root/run.cmd could not be resolved.'
     } else {
         $env:RUNNER_TRACKING_ID = 'MAGASIN_RUNNER_PERSISTENT'
         $command = 'cd /d "' + $runnerRoot + '" && call run.cmd'
