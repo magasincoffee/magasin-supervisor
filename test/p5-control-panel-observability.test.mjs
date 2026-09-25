@@ -67,8 +67,9 @@ test("P5 invalid Brain output maps to allowlisted reason codes and never becomes
     assert.match(classifier, new RegExp(code));
   }
 
-  const parseStart = runtime.indexOf("try {\n      directive = parseLaneDirective(captured.text)");
+  const parseStart = runtime.indexOf("directive = parseLaneDirective(captured.text);");
   const parseEnd = runtime.indexOf("await applyBrainVerdictDirective", parseStart);
+  assert.ok(parseStart >= 0 && parseEnd > parseStart);
   const parseBlock = runtime.slice(parseStart, parseEnd);
   assert.match(parseBlock, /brain_directive_state: "INVALID"/);
   assert.match(parseBlock, /brain_directive_reason_code: brainDirectiveInvalidReason\(error\)/);
