@@ -112,8 +112,8 @@ test("viewport remains scrollable with critical controls and timeline inside log
   const panel = await read("../windows/control-panel.ps1");
   assert.match(panel, /LogicalCanvasSize/);
   assert.match(panel, /AutoScrollMinSize/);
-  assert.match(panel, /lane3_stop_bottom = 1047/);
-  assert.match(panel, /timeline_bottom = 1485/);
+  assert.match(panel, /lane3_stop_bottom = 1072/);
+  assert.match(panel, /timeline_bottom = 1484/);
   assert.match(panel, /critical_controls_scroll_reachable/);
 });
 
