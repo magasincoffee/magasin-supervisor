@@ -11,6 +11,10 @@ Write-Host "TARGET_MATCH=True"
 $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
 $sourcePanel = (Resolve-Path (Join-Path $PSScriptRoot "..\..\windows\control-panel.ps1")).Path
 $targetPanel = Join-Path $root "runtime\windows\control-panel.ps1"
+$desktop = [Environment]::GetFolderPath("Desktop")
+$shortcutDisplayName = 'MAGASIN SUPERVISOR ' + [char]0x2014 + ' CONTROL CENTER.lnk'
+$shortcutPath = Join-Path $desktop $shortcutDisplayName
+$oldShortcutPath = Join-Path $desktop 'MAGASIN BUSINESS OS CONTROL.lnk'
 if (-not (Test-Path $targetPanel)) { throw "Installed Control Panel missing" }
 
 $source = Get-Content $sourcePanel -Raw -Encoding UTF8
@@ -29,16 +33,26 @@ Start-Sleep -Milliseconds 700
 $utf8Bom = New-Object System.Text.UTF8Encoding($true)
 [System.IO.File]::WriteAllText($targetPanel, $source, $utf8Bom)
 
+$wsh = New-Object -ComObject WScript.Shell
+$shortcut = $wsh.CreateShortcut($shortcutPath)
+$shortcut.TargetPath = 'powershell.exe'
+$shortcut.Arguments = '-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $targetPanel + '"'
+$shortcut.WorkingDirectory = $root
+$shortcut.Description = 'MAGASIN Supervisor Control Center V2'
+$shortcut.IconLocation = "$env:SystemRoot\System32\imageres.dll,72"
+$shortcut.Save()
+if (Test-Path $oldShortcutPath) {
+  Remove-Item $oldShortcutPath -Force -ErrorAction SilentlyContinue
+  Write-Host "TARGET_OLD_SHORTCUT_REMOVED=True"
+}
+
 $tokens=$null
 $errors=$null
 [System.Management.Automation.Language.Parser]::ParseFile($targetPanel,[ref]$tokens,[ref]$errors) | Out-Null
 if ($errors.Count -gt 0) { throw "Installed Control Panel parse failed" }
 
 $env:RUNNER_TRACKING_ID = "MAGASIN_CONTROL_PANEL_PERSISTENT"
-Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
-  "-NoLogo","-NoProfile","-ExecutionPolicy","Bypass",
-  "-File",('"' + $targetPanel + '"')
-)
+& explorer.exe $shortcutPath
 
 $found=$null
 for($i=0;$i -lt 30;$i++){
@@ -50,9 +64,30 @@ for($i=0;$i -lt 30;$i++){
 }
 if(-not $found){throw "Control Panel did not start"}
 
+$windowTitle = ''
+for($i=0;$i -lt 20;$i++){
+  Start-Sleep -Milliseconds 300
+  try {
+    $windowTitle = [string](Get-Process -Id ([int]$found.ProcessId) -ErrorAction Stop).MainWindowTitle
+  } catch {
+    $windowTitle = ''
+  }
+  if($windowTitle){break}
+}
+$windowV2 = [bool]($windowTitle -match 'MAGASIN SUPERVISOR.*CONTROL CENTER')
+if(-not $windowV2){throw "Live Control Panel window title is not V2: $windowTitle"}
+
+$shortcutCheck = $wsh.CreateShortcut($shortcutPath)
+if([string]$shortcutCheck.Arguments -notlike "*$targetPanel*"){throw "V2 shortcut target mismatch"}
+if([System.IO.Path]::GetFullPath([string]$shortcutCheck.WorkingDirectory) -ne [System.IO.Path]::GetFullPath($root)){throw "V2 shortcut working directory mismatch"}
+
 $installed = Get-Content $targetPanel -Raw -Encoding UTF8
 Write-Host "TARGET_MACHINE=$env:COMPUTERNAME"
 Write-Host "TARGET_CONTROL_PANEL_PID=$($found.ProcessId)"
+Write-Host "TARGET_CONTROL_PANEL_TITLE=$windowTitle"
+Write-Host "TARGET_WINDOW_V2=$windowV2"
+Write-Host "TARGET_SHORTCUT=$shortcutPath"
+Write-Host "TARGET_SHORTCUT_V2=$(Test-Path $shortcutPath)"
 Write-Host "TARGET_CONTROL_PANEL_V2=$($installed -match [regex]::Escape('CONTROL PANEL V2'))"
 Write-Host "TARGET_RESET_BUTTON=$($installed -match 'resetAllButton')"
 Write-Host "TARGET_RESET_POSITION=$($installed -match [regex]::Escape('Drawing.Point(840, 18)'))"
