@@ -1,9 +1,6 @@
 name: Supervisor P3 Live Work Replacement Temp
 
 on:
-  pull_request:
-    paths:
-      - .github/p3-live-trigger.txt
   workflow_dispatch:
 
 permissions:
