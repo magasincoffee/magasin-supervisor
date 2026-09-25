@@ -92,11 +92,61 @@ test("security/access guard occurs before execution watchdog decisions", async (
   assert.match(runtime, /CAPTCHA/);
 });
 
-test("one watchdog scheduler turn yields after STALL_CHECK and after bounded reload", async () => {
+test("one watchdog scheduler turn yields after STALL_CHECK, bounded reload, and bounded continue", async () => {
   const runtime = await read("../src/runtime/three-lane-cli.mjs");
   const turn = slice(runtime, "if (registryLane.awaiting_work)", "const captured = await captureCompletedAssistantTurn");
   assert.match(turn, /WORK_WATCHDOG_DECISIONS\.STALL_CHECK[\s\S]*?return laneStatus/);
   assert.match(turn, /executeWatchdogReload\([\s\S]*?return laneStatus/);
+  assert.match(turn, /WORK_WATCHDOG_DECISIONS\.CONTINUE_ELIGIBLE[\s\S]*?executeWatchdogContinue\([\s\S]*?return laneStatus/);
+});
+
+test("post-reload continue persists exact-once intent before one safe UI mutation", async () => {
+  const runtime = await read("../src/runtime/three-lane-cli.mjs");
+  const executor = slice(
+    runtime,
+    "async function executeWatchdogContinue",
+    "async function processLaneTurn"
+  );
+
+  const acquire = executor.indexOf("scheduler.acquireMutationLease");
+  const marker = executor.indexOf("workDispatchMarker(registryLane.last_dispatch_id)");
+  const intent = executor.indexOf("beginWatchdogContinueIntent");
+  const persist = executor.indexOf(
+    "await atomicJsonWrite(registryPath, registry)",
+    intent
+  );
+  const mutate = executor.indexOf("await executeDecision", persist);
+  const mark = executor.indexOf("markWatchdogContinued", mutate);
+  const release = executor.indexOf("releaseMutation?.({ durable: true })", mark);
+
+  assert.ok(acquire >= 0);
+  assert.ok(marker > acquire);
+  assert.ok(intent > marker);
+  assert.ok(persist > intent);
+  assert.ok(mutate > persist);
+  assert.ok(mark > mutate);
+  assert.ok(release > mark);
+  assert.match(executor, /WATCHDOG_CONTINUE_INSTRUCTION/);
+  assert.match(executor, /action: ACTIONS\.CONTINUE/);
+  assert.match(executor, /SAFE_CONTINUE_CONTROL/);
+  assert.match(runtime, /WATCHDOG_CONTINUE_INSTRUCTION = "Tiếp tục thực hiện\."/);
+});
+
+test("continue recovery re-verifies owner authority, exact target and task marker without resending the task", async () => {
+  const runtime = await read("../src/runtime/three-lane-cli.mjs");
+  const executor = slice(
+    runtime,
+    "async function executeWatchdogContinue",
+    "async function processLaneTurn"
+  );
+
+  assert.ok((executor.match(/isWatchdogRecoveryAllowed/g) || []).length >= 2);
+  assert.ok((executor.match(/watchdogIdentityMatches/g) || []).length >= 2);
+  assert.match(executor, /pageMatchesTarget\(workPage\.url\(\), exactTarget\)/);
+  assert.match(executor, /workDispatchMarker\(registryLane\.last_dispatch_id\)/);
+  assert.doesNotMatch(executor, /buildWorkDispatchInstruction|WORK_DISPATCH_SEND/);
+  assert.doesNotMatch(executor, /registryLane\.dispatch_inflight\s*=/);
+  assert.doesNotMatch(executor, /registryLane\.task_id\s*=/);
 });
 
 test("watchdog does not clear/resend task, dispatch, relay, result or pending Work state", async () => {
@@ -166,6 +216,7 @@ test("watchdog event additions remain metadata-only", async () => {
     "WORK_LONG_RUNNING",
     "WATCHDOG_STALL_CHECK",
     "PAGE_RECOVERY_RELOAD",
+    "WATCHDOG_CONTINUE_POKE",
     "WATCHDOG_PROGRESS_REARMED",
     "POSSIBLY_STALLED"
   ]) {
