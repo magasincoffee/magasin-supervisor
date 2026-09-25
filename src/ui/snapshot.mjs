@@ -20,6 +20,9 @@ const EXPLICIT_RETRY_CONTROL_RE =
 const TRANSIENT_ERROR_ALERT_RE =
   /something went wrong|đã xảy ra lỗi/i;
 
+const RATE_LIMIT_RE =
+  /too many requests|quá nhiều yêu cầu|requests?.{0,30}too quickly|sending requests too quickly|gửi yêu cầu quá nhanh|please wait.{0,40}(?:few|several) minutes|vui lòng đợi.{0,40}phút/i;
+
 export function matchesConversationFullText(value) {
   return CONVERSATION_FULL_RE.test(String(value || ""));
 }
@@ -44,6 +47,10 @@ export function matchesTransientErrorAlert(value) {
   return TRANSIENT_ERROR_ALERT_RE.test(String(value || ""));
 }
 
+export function matchesRateLimitText(value) {
+  return RATE_LIMIT_RE.test(String(value || ""));
+}
+
 export function matchesStopControlMetadata(control = {}) {
   const testId = String(control.testId || "").trim().toLowerCase();
   const text = String(control.text || "").trim().toLowerCase();
@@ -63,7 +70,8 @@ export async function collectSafeUiSnapshot(page) {
       conversationAccessDeniedPattern,
       modelSwitchingPattern,
       explicitRetryControlPattern,
-      transientErrorAlertPattern
+      transientErrorAlertPattern,
+      rateLimitPattern
     }) => {
       const normalize = eval(normalizeSource);
       const visible = (el) => {
@@ -102,7 +110,9 @@ export async function collectSafeUiSnapshot(page) {
         document.querySelectorAll("main [role='alert'],main [role='status'],main p,main div")
       )
         .filter(visible)
-        .filter((el) => !el.closest("[data-message-author-role]"))
+        .filter((el) => !el.closest(
+          "[data-message-author-role],[data-turn-key],[data-user-message-bubble],[data-content-search-unit-key]"
+        ))
         .filter((el) => el.children.length === 0)
         .slice(0, 120)
         .map((el) => normalize(el.innerText || el.textContent).slice(0, 160))
@@ -111,6 +121,8 @@ export async function collectSafeUiSnapshot(page) {
         .toLowerCase();
 
       const recoveryHaystack = `${haystack} | ${nonMessageSurface}`;
+      const rateLimited =
+        new RegExp(rateLimitPattern, "i").test(recoveryHaystack);
 
       const composer = [
         document.querySelector("#prompt-textarea"),
@@ -145,19 +157,68 @@ export async function collectSafeUiSnapshot(page) {
         ) ||
         /verify you are human|xác minh bạn là người|captcha/.test(haystack);
 
-      const assistantMessages = Array.from(
+      const legacyAssistantMessages = Array.from(
         document.querySelectorAll("[data-message-author-role='assistant']")
       );
-      const userMessages = Array.from(
+      const legacyUserMessages = Array.from(
         document.querySelectorAll("[data-message-author-role='user']")
       );
-      const conversationMessages = Array.from(
+      const legacyConversationMessages = Array.from(
         document.querySelectorAll("[data-message-author-role]")
       );
-      const lastMessage = conversationMessages.at(-1) || null;
-      const lastMessageRole = lastMessage
-        ? String(lastMessage.getAttribute("data-message-author-role") || "")
-        : null;
+
+      const modernTurns = Array.from(
+        document.querySelectorAll("[data-turn-key]")
+      );
+      const modernUserMessages = Array.from(
+        document.querySelectorAll("[data-user-message-bubble]")
+      );
+      const modernAssistantMessages = Array.from(
+        document.querySelectorAll("[data-chatgpt-selection-message-id]")
+      ).filter((node) => {
+        const unit = node.closest("[data-content-search-unit-key]");
+        return Boolean(unit?.querySelector("h4[data-conversation-role]"));
+      });
+
+      const assistantMessages = legacyAssistantMessages.length
+        ? legacyAssistantMessages
+        : modernAssistantMessages;
+      const userMessages = legacyUserMessages.length
+        ? legacyUserMessages
+        : modernUserMessages;
+
+      let lastMessage = null;
+      let lastMessageRole = null;
+      if (legacyConversationMessages.length) {
+        lastMessage = legacyConversationMessages.at(-1) || null;
+        lastMessageRole = lastMessage
+          ? String(lastMessage.getAttribute("data-message-author-role") || "")
+          : null;
+      } else if (modernTurns.length) {
+        const lastTurn = modernTurns.at(-1);
+        const modernUser = lastTurn.querySelector("[data-user-message-bubble]");
+        const assistantCandidates = Array.from(
+          lastTurn.querySelectorAll("[data-chatgpt-selection-message-id]")
+        ).filter((node) => {
+          const unit = node.closest("[data-content-search-unit-key]");
+          return Boolean(unit?.querySelector("h4[data-conversation-role]"));
+        });
+        const modernAssistant = assistantCandidates.at(-1) || null;
+        const assistantText = String(
+          modernAssistant?.innerText || modernAssistant?.textContent || ""
+        ).trim();
+        const userText = String(
+          modernUser?.innerText || modernUser?.textContent || ""
+        ).trim();
+        if (modernAssistant && assistantText) {
+          lastMessage = modernAssistant;
+          lastMessageRole = "assistant";
+        } else if (modernUser && userText) {
+          lastMessage = modernUser;
+          lastMessageRole = "user";
+        }
+      }
+
       const lastAssistant = assistantMessages.at(-1) || null;
       const main = document.querySelector("main");
       const mainBusy = Boolean(
@@ -202,8 +263,9 @@ export async function collectSafeUiSnapshot(page) {
         })
         .filter((value) => Number.isFinite(value));
 
-      const maxConversationTurnOrdinal =
-        turnOrdinals.length ? Math.max(...turnOrdinals) : 0;
+      const maxConversationTurnOrdinal = turnOrdinals.length
+        ? Math.max(...turnOrdinals)
+        : modernTurns.length * 2;
 
       const responseRunning =
         hasStopControl ||
@@ -313,6 +375,7 @@ export async function collectSafeUiSnapshot(page) {
         assistantBusy,
         modelSwitching,
         hasNetworkError,
+        rateLimited,
         hasTransientError,
         hasContinueControl:
           /continue generating|tiếp tục tạo|continue response/.test(haystack),
@@ -329,7 +392,8 @@ export async function collectSafeUiSnapshot(page) {
       conversationAccessDeniedPattern: CONVERSATION_ACCESS_DENIED_RE.source,
       modelSwitchingPattern: MODEL_SWITCHING_RE.source,
       explicitRetryControlPattern: EXPLICIT_RETRY_CONTROL_RE.source,
-      transientErrorAlertPattern: TRANSIENT_ERROR_ALERT_RE.source
+      transientErrorAlertPattern: TRANSIENT_ERROR_ALERT_RE.source,
+      rateLimitPattern: RATE_LIMIT_RE.source
     }
   );
 }

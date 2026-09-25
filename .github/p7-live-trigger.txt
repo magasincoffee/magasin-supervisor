@@ -1,0 +1,11 @@
+SUP-SELFHEAL-P7-LIVE-SANITIZED-DIAGNOSTICS
+runner=DESKTOP-4K7IM13
+isolated_state=true
+supervisor_log_sanitized=true
+wrapper_log_sanitized=true
+lane_events_runtime_version=true
+verify_no_private_payloads=true
+verify_production_state_unchanged=true
+dual_candidate_routing=true
+wrong_runner_cmd_skip=true
+attempt=6

@@ -196,3 +196,57 @@ test("projection contains no URL, message body, cookie, token or screenshot fiel
     assert.equal(Object.prototype.hasOwnProperty.call(out, forbidden), false);
   }
 });
+
+
+test("P5 projection exposes Brain directive enum and Work reset revisions from canonical truth", () => {
+  const cfg = config({ work_state_reset_revision: 12 });
+  const reg = registry({
+    applied_work_state_reset_revision: 11,
+    brain_directive_adopted: {
+      action: "WORK",
+      directive_digest: "d".repeat(64),
+      task_id: "TASK-P5"
+    }
+  });
+  const out = projectLaneOperationalStatus(
+    cfg,
+    reg,
+    "WORKING",
+    {},
+    { now: NOW }
+  );
+  assert.equal(out.brain_directive_state, "WORK");
+  assert.equal(out.brain_directive_reason_code, null);
+  assert.equal(out.work_reset_requested_revision, 12);
+  assert.equal(out.work_reset_applied_revision, 11);
+  assert.equal(out.work_generation, 5);
+});
+
+test("P5 INVALID Brain directive is explicit and reason-coded without prose payload", () => {
+  const out = projectLaneOperationalStatus(
+    config(),
+    registry({ brain_directive_adopted: null }),
+    "WAITING_BRAIN",
+    {
+      brain_directive_state: "INVALID",
+      brain_directive_reason_code: "MISSING_DIRECTIVE_BLOCK"
+    },
+    { now: NOW }
+  );
+  assert.equal(out.brain_directive_state, "INVALID");
+  assert.equal(out.brain_directive_reason_code, "MISSING_DIRECTIVE_BLOCK");
+  const text = JSON.stringify(out);
+  assert.doesNotMatch(text, /message_body|assistant_text|brain_response|instruction_text/i);
+});
+
+test("P5 Brain directive defaults to NONE when no validated directive exists", () => {
+  const out = projectLaneOperationalStatus(
+    config(),
+    registry({ brain_directive_adopted: null }),
+    "WAITING_BRAIN",
+    {},
+    { now: NOW }
+  );
+  assert.equal(out.brain_directive_state, "NONE");
+  assert.equal(out.brain_directive_reason_code, null);
+});

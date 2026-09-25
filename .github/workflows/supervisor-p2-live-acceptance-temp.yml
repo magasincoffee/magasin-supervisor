@@ -1,0 +1,45 @@
+name: Supervisor P2 Live Acceptance Temp
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-p2-live-acceptance-temp
+  cancel-in-progress: false
+
+jobs:
+  p2-live:
+    runs-on: self-hosted
+    timeout-minutes: 15
+    env:
+      P2_LIVE_ENABLED: "true"
+      P2_LIVE_MUTATION_PACING_MS: "5000"
+      P2_LIVE_RATE_LIMIT_COOLDOWN_MINUTES: "5"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enforce canonical H4A16IL runner identity
+        shell: cmd
+        run: |
+          if /I not "%COMPUTERNAME%"=="DESKTOP-H4A16IL" (
+            echo LIVE_P2_RUNNER_MATCH=False
+            exit /b 1
+          )
+          echo LIVE_P2_RUNNER_NAME=DESKTOP-H4A16IL
+          echo LIVE_P2_RUNNER_MATCH=True
+
+      - name: Install runtime dependencies without lifecycle side effects
+        shell: cmd
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Run sanitized H4A16IL runtime diagnostics
+        shell: cmd
+        run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-p2-runtime-diagnostic.ps1"
+
+      - name: Run isolated P2 AUTO Work live acceptance
+        if: ${{ env.P2_LIVE_ENABLED == 'true' }}
+        shell: cmd
+        run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-p2-live-launcher.ps1"

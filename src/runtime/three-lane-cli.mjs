@@ -20,6 +20,7 @@ import {
   captureUserTurnDigests,
   captureUserTurnTexts
 } from "../ui/message-capture.mjs";
+import { collectSafeUiSnapshot } from "../ui/snapshot.mjs";
 import { OBSERVATIONS } from "../decision.mjs";
 import {
   isPersistableConversationUrl,
@@ -36,6 +37,7 @@ import {
   normalizeLaneConfig,
   defaultLaneRegistry,
   normalizeLaneRegistry,
+  evaluateBrainDirectiveAdoptionEvidence,
   buildBrainStartRequest,
   buildLegacyBrainStartRequestV59,
   buildWorkRolloverInstruction,
@@ -71,7 +73,8 @@ import {
 import {
   WORK_TARGET_MODES,
   acceptOwnerWorkTargetRevision,
-  applyPendingWorkTargetIfSafe
+  applyPendingWorkTargetIfSafe,
+  resolveWorkTargetPolicy
 } from "./work-target-state.mjs";
 import {
   BrowserScheduler,
@@ -91,6 +94,7 @@ import {
   workCapacitySignalsFromSnapshot
 } from "./work-capacity.mjs";
 import {
+  WORK_ROLLOVER_REASONS,
   WORK_ROLLOVER_STAGES,
   beginWorkRollover,
   markBlankTargetCreating,
@@ -116,6 +120,9 @@ import {
 import {
   evaluateBrainVerdictTransition
 } from "./brain-planning.mjs";
+import {
+  appendSanitizedSupervisorLog
+} from "./sanitized-log.mjs";
 
 const SUPERVISOR_RUNTIME_VERSION = "2026-09-20.60";
 
@@ -178,18 +185,9 @@ async function readJson(filePath, fallback) {
 }
 
 async function safeLog(filePath, event = {}) {
-  const safe = {
-    timestamp: new Date().toISOString(),
-    type: String(event.type || "EVENT"),
-    lane_id: event.laneId || undefined,
-    task_id: event.taskId || undefined,
-    relay_id: event.relayId || undefined,
-    digest: event.digest || undefined,
-    reason: event.reason || undefined,
-    error_name: event.errorName || undefined
-  };
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.appendFile(filePath, JSON.stringify(safe) + "\n", "utf8");
+  return appendSanitizedSupervisorLog(filePath, event, {
+    runtimeVersion: SUPERVISOR_RUNTIME_VERSION
+  });
 }
 
 function ensureLaneTaskTiming(registryLane, taskId = null) {
@@ -219,7 +217,10 @@ function timingEventFields(timing, at = new Date().toISOString()) {
 
 async function emitLaneEvent(event) {
   if (!laneEventSink) return false;
-  const result = await laneEventSink.emit(event);
+  const result = await laneEventSink.emit({
+    ...event,
+    runtime_version: SUPERVISOR_RUNTIME_VERSION
+  });
   if (!result.ok && laneEventErrorLogPath) {
     await safeLog(laneEventErrorLogPath, {
       type: "LANE_EVENT_SINK_ERROR",
@@ -480,18 +481,66 @@ async function runBrowserMutation(
   );
 }
 
+function chatGptRateLimitError() {
+  const error = new Error("CHATGPT_RATE_LIMITED");
+  error.code = "CHATGPT_RATE_LIMITED";
+  return error;
+}
+
+async function assertPageNotRateLimited(page) {
+  const snapshot = await collectSafeUiSnapshot(page).catch(() => null);
+  if (snapshot?.rateLimited) throw chatGptRateLimitError();
+  return snapshot;
+}
+
 async function waitForConversationUrl(page) {
-  await page.waitForURL(
-    (value) => isPersistableConversationUrl(String(value)),
-    { timeout: 45_000 }
-  );
+  const deadline = Date.now() + 45_000;
+  while (
+    Date.now() <= deadline &&
+    !isPersistableConversationUrl(String(page.url()))
+  ) {
+    await assertPageNotRateLimited(page);
+    await page.waitForURL(
+      (value) => isPersistableConversationUrl(String(value)),
+      { timeout: 1_000 }
+    ).catch(() => {});
+  }
+  await assertPageNotRateLimited(page);
+  if (!isPersistableConversationUrl(String(page.url()))) {
+    const error = new Error("AUTO_WORK_TARGET_CREATE_NOT_CONFIRMED");
+    error.code = "AUTO_WORK_TARGET_CREATE_NOT_CONFIRMED";
+    throw error;
+  }
 
   // ChatGPT may briefly expose an internal /c/WEB:<uuid> route while a new
   // conversation is still being created. That route is not authoritative for
   // future reopen. Persist only the final canonical conversation URL emitted
   // by ChatGPT itself; never synthesize it from a transient WEB route.
   const target = targetFromUrl(page.url());
+  if (!/^\/c\/[A-Za-z0-9:_-]+$/.test(target.pathname)) {
+    const error = new Error("AUTO Work target did not resolve to canonical /c/ identity");
+    error.code = "AUTO_WORK_TARGET_NOT_CANONICAL_C";
+    throw error;
+  }
   return `${target.origin}${target.pathname}`;
+}
+
+function brainDirectiveInvalidReason(error) {
+  const message = String(error?.message || error || "");
+  if (message.includes("missing MAGASIN_LANE_DIRECTIVE_V1 block")) {
+    return "MISSING_DIRECTIVE_BLOCK";
+  }
+  if (
+    error instanceof SyntaxError ||
+    message.includes("JSON") ||
+    message.includes("Unexpected token")
+  ) {
+    return "INVALID_DIRECTIVE_JSON";
+  }
+  if (message.includes("unsupported lane directive action")) {
+    return "UNSUPPORTED_DIRECTIVE_ACTION";
+  }
+  return "INVALID_DIRECTIVE_SCHEMA";
 }
 
 function laneStatus(configLane, registryLane, status, message, extra = {}) {
@@ -542,6 +591,9 @@ async function assertConversationSafe(adapter, page, {
   allowFull = false
 } = {}) {
   const probe = await adapter.probePage(page);
+  if (probe.snapshot.rateLimited) {
+    throw chatGptRateLimitError();
+  }
   if (hardStopObservation(probe.classification.observation)) {
     throw new Error("Owner/security boundary detected");
   }
@@ -950,6 +1002,20 @@ async function finalizeConfirmedDispatch({
       work_generation: Number(registryLane.work_generation || 0),
       dispatch_id: latch.dispatch_id
     });
+    if (rollover?.reason === "NO_WORK_TARGET") {
+      await emitLaneEvent({
+        timestamp: startedAt,
+        lane_id: registryLane.lane_id,
+        actor: "SUPERVISOR",
+        event_type: LANE_EVENT_TYPES.AUTO_WORK_DISPATCH_CONFIRMED,
+        task_id: latch.task_id,
+        phase: "ROLLOVER",
+        reason_code: "AUTO_WORK_DISPATCH_CONFIRMED",
+        work_generation: Number(registryLane.work_generation || 0),
+        work_url_revision: Number(registryLane.applied_work_url_revision || 0),
+        dispatch_id: latch.dispatch_id
+      });
+    }
   }
 }
 
@@ -967,6 +1033,49 @@ async function reconcileBrainRequest({
   if (!latch) return "NONE";
 
   if (latch.reconcile_blocked) return "BLOCKED";
+
+  let currentBrainUrl = "";
+  let configuredBrainUrl = "";
+  try {
+    currentBrainUrl = normalizeChatGptConversationUrl(registryLane.brain_url);
+    configuredBrainUrl = normalizeChatGptConversationUrl(lane.brain_url);
+  } catch {
+    latch.reconcile_blocked = true;
+    await atomicJsonWrite(registryPath, registry);
+    await safeLog(logPath, {
+      type: "LANE_BRAIN_SEND_RECONCILE_BLOCKED",
+      laneId: lane.lane_id,
+      digest: latch.digest,
+      reasonCode: "BRAIN_TARGET_IDENTITY_AMBIGUOUS"
+    });
+    return "BLOCKED";
+  }
+
+  const currentTargetDigest = sha256(currentBrainUrl);
+  const configuredTargetDigest = sha256(configuredBrainUrl);
+  const appliedRevision = Number(registryLane.applied_brain_url_revision || 0);
+  const configuredRevision = Number(lane.brain_url_revision || 0);
+  const identityMismatch =
+    currentTargetDigest !== configuredTargetDigest ||
+    configuredRevision !== appliedRevision ||
+    (latch.brain_target_digest &&
+      latch.brain_target_digest !== currentTargetDigest) ||
+    (latch.brain_url_revision !== undefined &&
+      latch.brain_url_revision !== null &&
+      Number(latch.brain_url_revision) !== appliedRevision);
+
+  if (identityMismatch) {
+    latch.reconcile_blocked = true;
+    await atomicJsonWrite(registryPath, registry);
+    await safeLog(logPath, {
+      type: "LANE_BRAIN_SEND_RECONCILE_BLOCKED",
+      laneId: lane.lane_id,
+      digest: latch.digest,
+      reasonCode: "BRAIN_HANDSHAKE_IDENTITY_MISMATCH",
+      revision: appliedRevision
+    });
+    return "BLOCKED";
+  }
   const reload = !latch.reconcile_reloaded;
   if (reload) {
     latch.reconcile_reloaded = true;
@@ -1040,30 +1149,31 @@ async function adoptExistingBrainDirective({
     .catch(() => null);
   if (!probe || probe.snapshot.responseRunning) return null;
 
+  let currentBrainUrl = "";
+  let configuredBrainUrl = "";
+  try {
+    currentBrainUrl = normalizeChatGptConversationUrl(registryLane.brain_url);
+    configuredBrainUrl = normalizeChatGptConversationUrl(lane.brain_url);
+  } catch {
+    return null;
+  }
+
+  const currentTarget = targetFromUrl(currentBrainUrl);
+  if (!pageMatchesTarget(page.url(), currentTarget)) {
+    await safeLog(logPath, {
+      type: "LANE_BRAIN_DIRECTIVE_ADOPTION_BLOCKED",
+      laneId: lane.lane_id,
+      reasonCode: "BRAIN_PAGE_TARGET_MISMATCH",
+      revision: Number(registryLane.applied_brain_url_revision || 0)
+    });
+    return null;
+  }
+
   const turns = await captureRecentConversationTurns(page, { limit: 30 })
     .catch(() => []);
   if (!turns.length) return null;
 
-  let candidate = null;
-  let candidateIndex = -1;
-  for (let index = turns.length - 1; index >= 0; index -= 1) {
-    const turn = turns[index];
-    if (turn.role !== "assistant") continue;
-    try {
-      candidate = parseLaneDirective(turn.text);
-      candidateIndex = index;
-      break;
-    } catch {
-      // Keep scanning older assistant turns for the latest valid directive.
-    }
-  }
-  if (!candidate || candidateIndex < 0) return null;
-
-  // A valid directive remains authoritative when the only later turns are
-  // duplicate first-handshake prompts generated by this Robot. Any later
-  // Owner/user content or later assistant output means the older directive is
-  // stale and must not be adopted.
-  const expectedStartDigests = new Set([
+  const expectedStartDigests = [
     sha256(buildBrainStartRequest({
       laneId: lane.lane_id,
       projectName: lane.project_name
@@ -1072,25 +1182,133 @@ async function adoptExistingBrainDirective({
       laneId: lane.lane_id,
       projectName: lane.project_name
     }))
-  ]);
-  const laterTurns = turns.slice(candidateIndex + 1);
-  const onlyRobotHandshakeAfterDirective = laterTurns.every((turn) =>
-    turn.role === "user" && expectedStartDigests.has(turn.digest)
-  );
-  if (laterTurns.length && !onlyRobotHandshakeAfterDirective) return null;
+  ];
+  const staleLatch = registryLane.brain_request_inflight || null;
+  const evidence = evaluateBrainDirectiveAdoptionEvidence({
+    turns,
+    expectedHandshakeDigests: expectedStartDigests,
+    currentTargetDigest: sha256(currentBrainUrl),
+    configuredTargetDigest: sha256(configuredBrainUrl),
+    configuredRevision: Number(lane.brain_url_revision || 0),
+    appliedRevision: Number(registryLane.applied_brain_url_revision || 0),
+    brainRequestInflight: staleLatch,
+    adoptedRecord: registryLane.brain_directive_adopted || null,
+    activeExactOnce: Boolean(
+      registryLane.dispatch_inflight ||
+      registryLane.relay_inflight ||
+      registryLane.awaiting_work
+    )
+  });
+
+  if (!evidence.adopt) {
+    if (evidence.reason_code !== "NO_VALID_DIRECTIVE") {
+      await safeLog(logPath, {
+        type: "LANE_BRAIN_DIRECTIVE_ADOPTION_BLOCKED",
+        laneId: lane.lane_id,
+        taskId: registryLane.task_id || undefined,
+        reasonCode: evidence.reason_code,
+        revision: Number(registryLane.applied_brain_url_revision || 0)
+      });
+    }
+    return null;
+  }
+
+  const candidate = evidence.directive;
+  const alreadyAdopted =
+    registryLane.brain_directive_adopted?.directive_digest === candidate.digest;
 
   registryLane.brain_request_sent = true;
   registryLane.brain_request_inflight = null;
+  if (!alreadyAdopted) {
+    registryLane.brain_directive_adopted = {
+      directive_digest: candidate.digest,
+      action: candidate.action,
+      task_id: candidate.action === "WORK" ? candidate.task_id : null,
+      instruction_digest:
+        candidate.action === "WORK" ? candidate.instruction_digest : null,
+      brain_target_digest: sha256(currentBrainUrl),
+      brain_url_revision: Number(registryLane.applied_brain_url_revision || 0),
+      adopted_at: new Date().toISOString(),
+      assistant_turn: Number(evidence.candidate_turn || 0),
+      later_robot_handshake_count:
+        Number(evidence.later_robot_handshake_count || 0)
+    };
+  }
   await atomicJsonWrite(registryPath, registry);
+
+  if (staleLatch) {
+    await safeLog(logPath, {
+      type: "LANE_BRAIN_STALE_HANDSHAKE_SUPERSEDED",
+      laneId: lane.lane_id,
+      taskId: candidate.action === "WORK" ? candidate.task_id : undefined,
+      digest: candidate.digest,
+      reasonCode: evidence.reason_code
+    });
+  }
   await safeLog(logPath, {
-    type: laterTurns.length
-      ? "LANE_BRAIN_DIRECTIVE_RECOVERED_BEFORE_DUPLICATE_HANDSHAKE"
-      : "LANE_BRAIN_DIRECTIVE_ADOPTED_AS_HANDSHAKE",
+    type: "LANE_BRAIN_DIRECTIVE_ADOPTED",
     laneId: lane.lane_id,
     taskId: candidate.action === "WORK" ? candidate.task_id : undefined,
-    digest: candidate.digest
+    digest: candidate.digest,
+    reasonCode: evidence.reason_code
   });
   return candidate;
+}
+
+
+async function recoverPersistedAdoptedBrainDirective({
+  page,
+  lane,
+  registryLane
+}) {
+  const adopted = registryLane.brain_directive_adopted || null;
+  if (!adopted?.directive_digest) return null;
+
+  let currentBrainUrl = "";
+  let configuredBrainUrl = "";
+  try {
+    currentBrainUrl = normalizeChatGptConversationUrl(registryLane.brain_url);
+    configuredBrainUrl = normalizeChatGptConversationUrl(lane.brain_url);
+  } catch {
+    return null;
+  }
+
+  if (!pageMatchesTarget(page.url(), targetFromUrl(currentBrainUrl))) {
+    return null;
+  }
+
+  const turns = await captureRecentConversationTurns(page, { limit: 30 })
+    .catch(() => []);
+  if (!turns.length) return null;
+
+  const evidence = evaluateBrainDirectiveAdoptionEvidence({
+    turns,
+    expectedHandshakeDigests: [
+      sha256(buildBrainStartRequest({
+        laneId: lane.lane_id,
+        projectName: lane.project_name
+      })),
+      sha256(buildLegacyBrainStartRequestV59({
+        laneId: lane.lane_id,
+        projectName: lane.project_name
+      }))
+    ],
+    currentTargetDigest: sha256(currentBrainUrl),
+    configuredTargetDigest: sha256(configuredBrainUrl),
+    configuredRevision: Number(lane.brain_url_revision || 0),
+    appliedRevision: Number(registryLane.applied_brain_url_revision || 0),
+    brainRequestInflight: null,
+    adoptedRecord: adopted,
+    activeExactOnce: Boolean(
+      registryLane.dispatch_inflight ||
+      registryLane.relay_inflight ||
+      registryLane.awaiting_work
+    )
+  });
+
+  if (!evidence.adopt) return null;
+  if (evidence.directive.digest !== adopted.directive_digest) return null;
+  return evidence.directive;
 }
 
 async function ensureBrainRequest({
@@ -1156,7 +1374,11 @@ async function ensureBrainRequest({
   const baseline = await captureSendBaseline(adapter, page);
   registryLane.brain_request_inflight = {
     digest,
-    ...baseline
+    ...baseline,
+    brain_target_digest: sha256(
+      normalizeChatGptConversationUrl(registryLane.brain_url)
+    ),
+    brain_url_revision: Number(registryLane.applied_brain_url_revision || 0)
   };
   await atomicJsonWrite(registryPath, registry);
 
@@ -1245,6 +1467,120 @@ async function findWorkConversationForLatch(adapter, latch) {
     throw new Error("multiple Work conversations match an uncertain dispatch");
   }
   return unique.size === 1 ? [...unique.values()][0] : null;
+}
+
+async function recoverActiveWorkDirective(brainPage, registryLane) {
+  if (!brainPage || !registryLane?.task_id || !registryLane?.last_brain_directive_digest) {
+    return null;
+  }
+
+  const turns = await captureRecentConversationTurns(brainPage, { limit: 40 })
+    .catch(() => []);
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index];
+    if (turn.role !== "assistant") continue;
+
+    let directive = null;
+    try {
+      directive = parseLaneDirective(turn.text);
+    } catch {
+      continue;
+    }
+    if (
+      directive.action !== "WORK" ||
+      directive.task_id !== registryLane.task_id ||
+      directive.digest !== registryLane.last_brain_directive_digest ||
+      directive.instruction_digest !== registryLane.instruction_digest
+    ) {
+      continue;
+    }
+
+    const newerUserTurn = turns
+      .slice(index + 1)
+      .some((item) => item.role === "user");
+    if (newerUserTurn) return null;
+    return directive;
+  }
+  return null;
+}
+
+function activeReplacementRollover(registryLane) {
+  const rollover = normalizeWorkRollover(registryLane?.work_rollover);
+  if (!rollover) return null;
+  return [
+    WORK_ROLLOVER_REASONS.UNUSABLE_TARGET,
+    WORK_ROLLOVER_REASONS.POSSIBLY_STALLED,
+    WORK_ROLLOVER_REASONS.IDENTITY_FAILURE
+  ].includes(rollover.reason)
+    ? rollover
+    : null;
+}
+
+async function beginActiveWorkReplacement({
+  lane,
+  registryLane,
+  directive,
+  reason,
+  evidenceCode,
+  registry,
+  registryPath,
+  logPath
+}) {
+  if (!registryLane.awaiting_work || registryLane.relay_inflight) {
+    return { status: "UNSAFE_BOUNDARY" };
+  }
+  if (
+    !directive ||
+    directive.action !== "WORK" ||
+    directive.task_id !== registryLane.task_id ||
+    directive.digest !== registryLane.last_brain_directive_digest ||
+    directive.instruction_digest !== registryLane.instruction_digest
+  ) {
+    return { status: "DIRECTIVE_IDENTITY_UNAVAILABLE" };
+  }
+
+  const existing = normalizeWorkRollover(registryLane.work_rollover);
+  if (existing) {
+    return rolloverMatchesDirective(existing, directive)
+      ? { status: "EXISTING", rollover: existing }
+      : { status: "IDENTITY_MISMATCH" };
+  }
+
+  registryLane.work_rollover = beginWorkRollover({
+    reason,
+    taskId: directive.task_id,
+    directiveDigest: directive.digest,
+    directiveInstructionDigest: directive.instruction_digest,
+    oldWorkGeneration: Number(registryLane.work_generation || 0),
+    oldWorkUrlRevision: Number(registryLane.applied_work_url_revision || 0),
+    oldWorkTargetDigest: registryLane.work_url
+      ? sha256(registryLane.work_url)
+      : null,
+    capacityEvidenceCodes: evidenceCode ? [evidenceCode] : [],
+    at: new Date().toISOString()
+  });
+  await atomicJsonWrite(registryPath, registry);
+  await emitLaneEvent({
+    lane_id: lane.lane_id,
+    actor: "SUPERVISOR",
+    event_type: LANE_EVENT_TYPES.WORK_ROLLOVER_INTENT,
+    task_id: directive.task_id,
+    phase: "ROLLOVER",
+    reason_code: "ROLLOVER_INTENT_PERSISTED",
+    work_generation: Number(registryLane.work_generation || 0),
+    work_url_revision: Number(registryLane.applied_work_url_revision || 0)
+  });
+  await safeLog(logPath, {
+    type: "LANE_WORK_REPLACEMENT_INTENT",
+    laneId: lane.lane_id,
+    taskId: directive.task_id,
+    digest: directive.digest,
+    reasonCode: String(evidenceCode || reason)
+  });
+  return {
+    status: "STARTED",
+    rollover: normalizeWorkRollover(registryLane.work_rollover)
+  };
 }
 
 async function findBrainDirectiveForLatch(brainPage, latch, currentDirective = null) {
@@ -1607,6 +1943,112 @@ function rolloverOldTargetMatches(registryLane, rollover) {
   return sha256(registryLane.work_url) === rollover.old_work_target_digest;
 }
 
+async function primeBlankWorkConversation({
+  adapter,
+  page,
+  lane,
+  expectedGeneration
+}) {
+  const marker = [
+    "MAGASIN_WORK_BOOTSTRAP_V1",
+    `lane_id=${lane.lane_id}`,
+    `generation=${expectedGeneration}`
+  ].join(" ");
+  const body = [
+    marker,
+    "Initialize this Work conversation only.",
+    "Reply exactly MAGASIN_WORK_READY.",
+    "Do not execute any business task from this bootstrap message."
+  ].join("\n");
+
+  const sent = await sendComposerInstruction(page, body, { dryRun: false });
+  if (!sent?.executed) {
+    if (sent?.rejection_class === SEND_REJECTION_CLASSES.RATE_LIMITED) {
+      throw chatGptRateLimitError();
+    }
+    const error = new Error("AUTO_WORK_BOOTSTRAP_NOT_EXECUTED");
+    error.code = "AUTO_WORK_BOOTSTRAP_NOT_EXECUTED";
+    throw error;
+  }
+
+  const markerConfirmed = await waitForUserTurnMarker(
+    page,
+    marker,
+    { timeoutMs: 15_000, intervalMs: 250 }
+  );
+  if (!markerConfirmed) {
+    const error = new Error("AUTO_WORK_BOOTSTRAP_SEND_NOT_CONFIRMED");
+    error.code = "AUTO_WORK_BOOTSTRAP_SEND_NOT_CONFIRMED";
+    throw error;
+  }
+
+  // The durable acceptance condition is the canonical conversation identity,
+  // not the model's bootstrap reply text. A new ChatGPT thread may remain on
+  // /c/WEB:<uuid> while the server has already published its canonical /c/<id>
+  // link in the conversation list.
+  const identityDeadline = Date.now() + 90_000;
+  let canonicalUrl = null;
+  while (Date.now() <= identityDeadline) {
+    await assertPageNotRateLimited(page);
+
+    if (isPersistableConversationUrl(String(page.url()))) {
+      const target = targetFromUrl(page.url());
+      canonicalUrl = `${target.origin}${target.pathname}`;
+      break;
+    }
+
+    let transientTarget = null;
+    try {
+      transientTarget = targetFromUrl(page.url());
+    } catch {}
+
+    if (transientTarget?.pathname?.startsWith("/c/")) {
+      const matched = await adapter.findExactConversationUrlByPath(
+        page,
+        transientTarget.pathname
+      ).catch(() => null);
+      if (
+        matched &&
+        isPersistableConversationUrl(String(matched)) &&
+        pageMatchesTarget(String(matched), transientTarget)
+      ) {
+        const target = targetFromUrl(matched);
+        canonicalUrl = `${target.origin}${target.pathname}`;
+        break;
+      }
+    }
+
+    await delay(500);
+  }
+
+  if (!canonicalUrl) {
+    const error = new Error("AUTO_WORK_BOOTSTRAP_CANONICAL_IDENTITY_NOT_CONFIRMED");
+    error.code = "AUTO_WORK_BOOTSTRAP_CANONICAL_IDENTITY_NOT_CONFIRMED";
+    throw error;
+  }
+
+  if (!pageMatchesTarget(page.url(), targetFromUrl(canonicalUrl))) {
+    await page.goto(canonicalUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 30_000
+    });
+    await page.waitForTimeout(800);
+    await assertPageNotRateLimited(page);
+  }
+
+  if (
+    !isPersistableConversationUrl(String(page.url())) ||
+    !pageMatchesTarget(page.url(), targetFromUrl(canonicalUrl)) ||
+    !await hasUserTurnMarker(page, marker)
+  ) {
+    const error = new Error("AUTO_WORK_BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED");
+    error.code = "AUTO_WORK_BOOTSTRAP_CANONICAL_RELOAD_NOT_CONFIRMED";
+    throw error;
+  }
+
+  return marker;
+}
+
 async function createBlankWorkTarget({
   adapter,
   scheduler,
@@ -1615,7 +2057,15 @@ async function createBlankWorkTarget({
   expectedGeneration
 }) {
   if (!scheduler) {
-    const page = await adapter.newChatPage("https://chatgpt.com/");
+    const page = await adapter.newChatPage("https://chatgpt.com/", {
+      allowTransientRetry: false
+    });
+    await primeBlankWorkConversation({
+      adapter,
+      page,
+      lane,
+      expectedGeneration
+    });
     const url = await waitForConversationUrl(page);
     return { page, url, generation: expectedGeneration };
   }
@@ -1627,7 +2077,14 @@ async function createBlankWorkTarget({
     targetRevision: Number(registryLane.applied_work_url_revision || 0),
     generation: expectedGeneration
   }, async (page) => {
-    // TASK-RBT-006 invariant: blank target creation performs no task send.
+    // Bootstrap creates only the canonical conversation identity. The business
+    // task is still dispatched later under the persisted dispatch latch.
+    await primeBlankWorkConversation({
+      adapter,
+      page,
+      lane,
+      expectedGeneration
+    });
     return waitForConversationUrl(page);
   });
   return {
@@ -1650,9 +2107,20 @@ async function dispatchWork({
   stopPath = null,
   configPath = null
 }) {
-  if (registryLane.awaiting_work || registryLane.relay_inflight) {
+  let rollover = normalizeWorkRollover(registryLane.work_rollover);
+  const activeReplacement = activeReplacementRollover(registryLane);
+  const replacementContinuation = Boolean(
+    registryLane.awaiting_work &&
+    activeReplacement &&
+    rolloverMatchesDirective(activeReplacement, directive) &&
+    registryLane.task_id === directive.task_id &&
+    registryLane.instruction_digest === directive.instruction_digest
+  );
+
+  if (registryLane.relay_inflight || (registryLane.awaiting_work && !replacementContinuation)) {
     if (
       registryLane.awaiting_work &&
+      !registryLane.relay_inflight &&
       registryLane.task_id === directive.task_id &&
       registryLane.instruction_digest === directive.instruction_digest
     ) {
@@ -1661,7 +2129,6 @@ async function dispatchWork({
     throw new Error("Brain issued a new task while the previous Work result is unresolved");
   }
 
-  let rollover = normalizeWorkRollover(registryLane.work_rollover);
   if (rollover && !rolloverMatchesDirective(rollover, directive)) {
     throw new Error("Work rollover directive identity mismatch; fail-closed");
   }
@@ -1748,6 +2215,22 @@ async function dispatchWork({
       throw new Error("Work rollover old target/generation identity mismatch");
     }
 
+    const workTargetPolicy = resolveWorkTargetPolicy(registryLane);
+    if (
+      rollover.reason === "NO_WORK_TARGET" &&
+      workTargetPolicy.mode !== WORK_TARGET_MODES.AUTO
+    ) {
+      await safeLog(logPath, {
+        type: "LANE_OWNER_WORK_TARGET_REQUIRED",
+        laneId: lane.lane_id,
+        taskId: directive.task_id,
+        digest: directive.digest,
+        reasonCode: "OWNER_WORK_TARGET_REQUIRED"
+      });
+      return;
+    }
+
+    let autoCreationClaimedThisTurn = false;
     if (rollover.stage === WORK_ROLLOVER_STAGES.INTENT_PERSISTED) {
       registryLane.work_rollover = markBlankTargetCreating(rollover, {
         at: new Date().toISOString()
@@ -1755,9 +2238,51 @@ async function dispatchWork({
       await atomicJsonWrite(registryPath, registry);
       await emitAssigned();
       rollover = normalizeWorkRollover(registryLane.work_rollover);
+      if (rollover.reason === "NO_WORK_TARGET") {
+        autoCreationClaimedThisTurn = true;
+        await emitLaneEvent({
+          lane_id: lane.lane_id,
+          actor: "SUPERVISOR",
+          event_type: LANE_EVENT_TYPES.AUTO_WORK_CREATE_REQUESTED,
+          task_id: directive.task_id,
+          phase: "ROLLOVER",
+          reason_code: "AUTO_WORK_CREATE_REQUESTED",
+          work_generation: Number(registryLane.work_generation || 0),
+          work_url_revision: Number(registryLane.applied_work_url_revision || 0)
+        });
+        await safeLog(logPath, {
+          type: "LANE_AUTO_WORK_CREATE_REQUESTED",
+          laneId: lane.lane_id,
+          taskId: directive.task_id,
+          digest: directive.digest,
+          reasonCode: "AUTO_WORK_CREATE_REQUESTED"
+        });
+      }
+    } else if (rollover.reason === "NO_WORK_TARGET") {
+      await emitLaneEvent({
+        lane_id: lane.lane_id,
+        actor: "SUPERVISOR",
+        event_type: LANE_EVENT_TYPES.AUTO_WORK_CREATE_AMBIGUOUS,
+        task_id: directive.task_id,
+        phase: "ERROR",
+        reason_code: "AUTO_WORK_CREATE_RESTART_AMBIGUOUS",
+        work_generation: Number(registryLane.work_generation || 0),
+        work_url_revision: Number(registryLane.applied_work_url_revision || 0)
+      });
+      await safeLog(logPath, {
+        type: "LANE_AUTO_WORK_CREATE_AMBIGUOUS",
+        laneId: lane.lane_id,
+        taskId: directive.task_id,
+        digest: directive.digest,
+        reasonCode: "AUTO_WORK_CREATE_RESTART_AMBIGUOUS"
+      });
+      return;
     }
 
     if (!execute) return;
+    if (rollover.reason === "NO_WORK_TARGET" && !autoCreationClaimedThisTurn) {
+      return;
+    }
     if (!await isLaneMutationAllowed({
       stopPath,
       configPath,
@@ -1777,6 +2302,15 @@ async function dispatchWork({
         expectedGeneration
       });
     } catch (error) {
+      if (error?.code === "CHATGPT_RATE_LIMITED") {
+        await safeLog(logPath, {
+          type: "LANE_CHATGPT_RATE_LIMIT_DETECTED",
+          laneId: lane.lane_id,
+          taskId: directive.task_id,
+          digest: directive.digest,
+          reasonCode: "CHATGPT_RATE_LIMITED"
+        });
+      }
       await safeLog(logPath, {
         type: "LANE_WORK_ROLLOVER_BLANK_CREATE_ERROR",
         laneId: lane.lane_id,
@@ -1812,6 +2346,28 @@ async function dispatchWork({
       work_generation: expectedGeneration,
       work_url_revision: Number(registryLane.applied_work_url_revision || 0)
     });
+    if (rollover.reason === "NO_WORK_TARGET") {
+      await emitLaneEvent({
+        lane_id: lane.lane_id,
+        actor: "SUPERVISOR",
+        event_type: LANE_EVENT_TYPES.AUTO_WORK_TARGET_PERSISTED,
+        task_id: directive.task_id,
+        phase: "ROLLOVER",
+        reason_code: "AUTO_WORK_TARGET_PERSISTED",
+        work_generation: expectedGeneration,
+        work_url_revision: Number(registryLane.applied_work_url_revision || 0),
+        target_role: "WORK",
+        target_digest: sha256(canonicalUrl)
+      });
+      await safeLog(logPath, {
+        type: "LANE_AUTO_WORK_TARGET_PERSISTED",
+        laneId: lane.lane_id,
+        taskId: directive.task_id,
+        digest: sha256(canonicalUrl),
+        reasonCode: "AUTO_WORK_TARGET_PERSISTED",
+        revision: Number(registryLane.applied_work_url_revision || 0)
+      });
+    }
     await safeLog(logPath, {
       type: "LANE_WORK_ROLLOVER_TARGET_PERSISTED",
       laneId: lane.lane_id,
@@ -1829,6 +2385,17 @@ async function dispatchWork({
 
   let page = null;
   if (!rollover && !registryLane.work_url) {
+    const workTargetPolicy = resolveWorkTargetPolicy(registryLane);
+    if (!workTargetPolicy.auto_create_allowed) {
+      await safeLog(logPath, {
+        type: "LANE_OWNER_WORK_TARGET_REQUIRED",
+        laneId: lane.lane_id,
+        taskId: directive.task_id,
+        digest: directive.digest,
+        reasonCode: "OWNER_WORK_TARGET_REQUIRED"
+      });
+      return;
+    }
     registryLane.work_rollover = beginWorkRollover({
       reason: "NO_WORK_TARGET",
       taskId: directive.task_id,
@@ -2098,6 +2665,21 @@ async function dispatchWork({
     );
     latch.last_send_rejection = rejectionClass;
 
+    if (rejectionClass === SEND_REJECTION_CLASSES.RATE_LIMITED) {
+      latch.reconcile_blocked = true;
+      latch.send_state = "RATE_LIMITED";
+      latch.send_attempted_at = null;
+      await atomicJsonWrite(registryPath, registry);
+      await safeLog(logPath, {
+        type: "LANE_CHATGPT_RATE_LIMIT_DETECTED",
+        laneId: lane.lane_id,
+        taskId: directive.task_id,
+        digest: instructionDigest,
+        reasonCode: "CHATGPT_RATE_LIMITED"
+      });
+      return;
+    }
+
     if (
       !rollover &&
       rejectionClass === SEND_REJECTION_CLASSES.CAPACITY_REJECTED
@@ -2141,6 +2723,21 @@ async function dispatchWork({
       rejectionProbe?.snapshot || {}
     );
     latch.last_send_rejection = rejectionClass;
+
+    if (rejectionClass === SEND_REJECTION_CLASSES.RATE_LIMITED) {
+      latch.reconcile_blocked = true;
+      latch.send_state = "RATE_LIMITED";
+      latch.send_attempted_at = null;
+      await atomicJsonWrite(registryPath, registry);
+      await safeLog(logPath, {
+        type: "LANE_CHATGPT_RATE_LIMIT_DETECTED",
+        laneId: lane.lane_id,
+        taskId: directive.task_id,
+        digest: instructionDigest,
+        reasonCode: "CHATGPT_RATE_LIMITED"
+      });
+      return;
+    }
 
     if (rejectionClass === SEND_REJECTION_CLASSES.CAPACITY_REJECTED) {
       const capacity = await probeStableWorkCapacity({
@@ -2228,7 +2825,10 @@ async function dispatchWork({
       : "LANE_WORK_DISPATCHED",
     laneId: lane.lane_id,
     taskId: directive.task_id,
-    digest: instructionDigest
+    digest: instructionDigest,
+    dispatchId,
+    generation: Number(registryLane.work_generation || 0),
+    workUrlRevision: Number(registryLane.applied_work_url_revision || 0)
   });
 }
 
@@ -2624,7 +3224,9 @@ async function relayWorkResult({
     laneId: lane.lane_id,
     taskId: registryLane.task_id,
     relayId: relay.relay_id,
-    digest: relay.response_digest
+    digest: relay.response_digest,
+    generation: Number(registryLane.work_generation || 0),
+    workUrlRevision: Number(registryLane.applied_work_url_revision || 0)
   });
   return "CONFIRMED";
 }
@@ -2738,6 +3340,7 @@ async function applyOwnerBrainTarget({
     registryLane.brain_url = configuredUrl;
     registryLane.brain_request_sent = false;
     registryLane.brain_request_inflight = null;
+    registryLane.brain_directive_adopted = null;
     registryLane.last_brain_directive_digest = null;
     registryLane.work_rollover = null;
 
@@ -2828,9 +3431,12 @@ async function applyOwnerWorkStateReset({
   registryLane.last_brain_directive_digest = null;
   registryLane.last_work_result_digest = null;
   registryLane.last_result_relay_id = null;
+  registryLane.last_result_verdict = null;
   registryLane.last_dispatch_id = null;
   registryLane.dispatch_inflight = null;
+  registryLane.brain_request_sent = false;
   registryLane.brain_request_inflight = null;
+  registryLane.brain_directive_adopted = null;
   registryLane.awaiting_work = false;
   registryLane.task_timing = normalizeTaskTiming(null);
   registryLane.work_watchdog = normalizeWorkWatchdog(null);
@@ -2846,7 +3452,9 @@ async function applyOwnerWorkStateReset({
   await safeLog(logPath, {
     type: "LANE_OWNER_MAINTENANCE_WORK_STATE_RESET",
     laneId: lane.lane_id,
-    reason: `reset_revision=${revision}`
+    reason: `reset_revision=${revision}`,
+    generation: Number(registryLane.work_generation || 0),
+    workUrlRevision: Number(registryLane.applied_work_url_revision || 0)
   });
   return true;
 }
@@ -3623,7 +4231,9 @@ async function processLaneTurn({
 
   if (
     registryLane.work_url &&
-    currentTargetIsQuarantined(registryLane, { brain: false })
+    currentTargetIsQuarantined(registryLane, { brain: false }) &&
+    !registryLane.awaiting_work &&
+    !activeReplacementRollover(registryLane)
   ) {
     return laneStatus(
       lane,
@@ -3653,7 +4263,49 @@ async function processLaneTurn({
     return brainPage;
   };
 
-  const relayRearmRevision = Number(lane.relay_retry_rearm_revision || 0);
+  const replacementRollover = activeReplacementRollover(registryLane);
+  if (
+    replacementRollover &&
+    replacementRollover.stage !== WORK_ROLLOVER_STAGES.DISPATCH_CONFIRMED
+  ) {
+    await ensureBrainPage();
+    const replacementDirective = await recoverActiveWorkDirective(
+      brainPage,
+      registryLane
+    );
+    if (!replacementDirective) {
+      return laneStatus(
+        lane,
+        registryLane,
+        "WAIT_OWNER",
+        "Không thể khôi phục exact Brain directive cho Work replacement; giữ nguyên task và không tạo/gửi Work mới."
+      );
+    }
+    await dispatchWork({
+      adapter,
+      lane,
+      registryLane,
+      directive: replacementDirective,
+      execute,
+      registry,
+      registryPath,
+      logPath,
+      scheduler,
+      stopPath,
+      configPath
+    });
+    const afterReplacement = normalizeWorkRollover(registryLane.work_rollover);
+    return laneStatus(
+      lane,
+      registryLane,
+      afterReplacement?.stage === WORK_ROLLOVER_STAGES.DISPATCH_CONFIRMED
+        ? "WORKING"
+        : "RECOVERING",
+      "Đang thay Work không dùng được bằng target mới, giữ nguyên exact task identity."
+    );
+  }
+
+    const relayRearmRevision = Number(lane.relay_retry_rearm_revision || 0);
   const appliedRelayRearmRevision = Number(
     registryLane.applied_relay_retry_rearm_revision || 0
   );
@@ -3798,16 +4450,77 @@ async function processLaneTurn({
       throw new Error("Work URL is missing while a result is pending");
     }
 
-    const workPage = await openExactConversation(adapter, registryLane.work_url, {
-      brain: false,
-      scheduler,
-      laneId: lane.lane_id,
-      targetRevision: Number(registryLane.applied_work_url_revision || 0),
-      generation: Number(registryLane.work_generation || 0),
-      registryLane,
-      registry,
-      registryPath
-    });
+    let workPage = null;
+    try {
+      workPage = await openExactConversation(adapter, registryLane.work_url, {
+        brain: false,
+        scheduler,
+        laneId: lane.lane_id,
+        targetRevision: Number(registryLane.applied_work_url_revision || 0),
+        generation: Number(registryLane.work_generation || 0),
+        registryLane,
+        registry,
+        registryPath
+      });
+    } catch (error) {
+      if (!currentTargetIsQuarantined(registryLane, { brain: false })) {
+        throw error;
+      }
+
+      await ensureBrainPage();
+      const replacementDirective = await recoverActiveWorkDirective(
+        brainPage,
+        registryLane
+      );
+      if (!replacementDirective) {
+        return laneStatus(
+          lane,
+          registryLane,
+          "WAIT_OWNER",
+          "Work đã được xác nhận không dùng được nhưng exact Brain directive không còn đủ bằng chứng để tự thay Work."
+        );
+      }
+      const reasonCode = String(
+        registryLane.work_target_health?.reason_code || "TARGET_QUARANTINED"
+      );
+      const replacement = await beginActiveWorkReplacement({
+        lane,
+        registryLane,
+        directive: replacementDirective,
+        reason: WORK_ROLLOVER_REASONS.UNUSABLE_TARGET,
+        evidenceCode: reasonCode,
+        registry,
+        registryPath,
+        logPath
+      });
+      if (replacement.status === "IDENTITY_MISMATCH") {
+        return laneStatus(
+          lane,
+          registryLane,
+          "WAIT_OWNER",
+          "Work replacement bị chặn vì durable task identity không còn khớp."
+        );
+      }
+      await dispatchWork({
+        adapter,
+        lane,
+        registryLane,
+        directive: replacementDirective,
+        execute,
+        registry,
+        registryPath,
+        logPath,
+        scheduler,
+        stopPath,
+        configPath
+      });
+      return laneStatus(
+        lane,
+        registryLane,
+        "RECOVERING",
+        "Work cũ đã được xác nhận không dùng được; rollover intent đã persist và Robot đang tạo Work thay thế."
+      );
+    }
     const workProbe = await assertConversationSafe(adapter, workPage, {
       brain: false,
       allowFull: true
@@ -3928,11 +4641,60 @@ async function processLaneTurn({
     }
 
     if (watchdogDecision.decision === WORK_WATCHDOG_DECISIONS.POSSIBLY_STALLED) {
+      await ensureBrainPage();
+      const replacementDirective = await recoverActiveWorkDirective(
+        brainPage,
+        registryLane
+      );
+      if (!replacementDirective) {
+        return laneStatus(
+          lane,
+          registryLane,
+          "POSSIBLY_STALLED",
+          "Work có thể đã stalled sau bounded recovery nhưng exact Brain directive không đủ bằng chứng để tự thay Work.",
+          {
+            watchdog_phase: registryLane.work_watchdog.phase,
+            task_elapsed_ms: watchdogDecision.elapsed_ms,
+            last_activity_at: timing.last_activity_at
+          }
+        );
+      }
+      const replacement = await beginActiveWorkReplacement({
+        lane,
+        registryLane,
+        directive: replacementDirective,
+        reason: WORK_ROLLOVER_REASONS.POSSIBLY_STALLED,
+        evidenceCode: watchdogDecision.reason_code || "WATCHDOG_NO_PROGRESS_AFTER_RELOAD",
+        registry,
+        registryPath,
+        logPath
+      });
+      if (replacement.status === "IDENTITY_MISMATCH") {
+        return laneStatus(
+          lane,
+          registryLane,
+          "WAIT_OWNER",
+          "Watchdog replacement bị chặn vì durable task identity không khớp."
+        );
+      }
+      await dispatchWork({
+        adapter,
+        lane,
+        registryLane,
+        directive: replacementDirective,
+        execute,
+        registry,
+        registryPath,
+        logPath,
+        scheduler,
+        stopPath,
+        configPath
+      });
       return laneStatus(
         lane,
         registryLane,
-        "POSSIBLY_STALLED",
-        "Work có thể đã stalled sau bounded recovery. Robot giữ nguyên task/target/latches và không reload lần hai.",
+        "RECOVERING",
+        "Work stalled đã qua bounded recovery; rollover intent đã persist và cùng task đang được chuyển sang Work mới.",
         {
           watchdog_phase: registryLane.work_watchdog.phase,
           task_elapsed_ms: watchdogDecision.elapsed_ms,
@@ -4206,7 +4968,10 @@ async function processLaneTurn({
       "WAITING_BRAIN",
       directive
         ? "Đã nhận Brain directive; dispatch được tách sang bounded turn kế tiếp."
-        : "Đang chờ Bộ não giao công việc đầu tiên."
+        : "Đang chờ Bộ não giao công việc đầu tiên.",
+      directive
+        ? { brain_directive_state: directive.action }
+        : { brain_directive_state: "NONE" }
     );
   }
 
@@ -4219,26 +4984,37 @@ async function processLaneTurn({
     );
   }
 
-  const captured = await captureCompletedAssistantTurn(brainPage);
-  if (!captured) {
-    return laneStatus(
-      lane,
-      registryLane,
-      "WAITING_BRAIN",
-      "Đang chờ Bộ não trả lệnh."
-    );
-  }
+  let directive = await recoverPersistedAdoptedBrainDirective({
+    page: brainPage,
+    lane,
+    registryLane
+  });
 
-  let directive = null;
-  try {
-    directive = parseLaneDirective(captured.text);
-  } catch {
-    return laneStatus(
-      lane,
-      registryLane,
-      "WAITING_BRAIN",
-      "Bộ não chưa trả block MAGASIN_LANE_DIRECTIVE_V1 hợp lệ."
-    );
+  if (!directive) {
+    const captured = await captureCompletedAssistantTurn(brainPage);
+    if (!captured) {
+      return laneStatus(
+        lane,
+        registryLane,
+        "WAITING_BRAIN",
+        "Đang chờ Bộ não trả lệnh."
+      );
+    }
+
+    try {
+      directive = parseLaneDirective(captured.text);
+    } catch (error) {
+      return laneStatus(
+        lane,
+        registryLane,
+        "WAITING_BRAIN",
+        "Bộ não chưa trả block MAGASIN_LANE_DIRECTIVE_V1 hợp lệ.",
+        {
+          brain_directive_state: "INVALID",
+          brain_directive_reason_code: brainDirectiveInvalidReason(error)
+        }
+      );
+    }
   }
 
   await applyBrainVerdictDirective({
@@ -4256,7 +5032,8 @@ async function processLaneTurn({
       directive.action === "IDLE" ? "READY" : "WAITING_BRAIN",
       directive.action === "IDLE"
         ? "Bộ não chưa có công việc mới."
-        : "Đang chờ trạng thái Work thay đổi."
+        : "Đang chờ trạng thái Work thay đổi.",
+      { brain_directive_state: directive.action }
     );
   }
 
@@ -4269,7 +5046,8 @@ async function processLaneTurn({
       lane,
       registryLane,
       "READY",
-      "Bộ não chưa có công việc mới."
+      "Bộ não chưa có công việc mới.",
+      { brain_directive_state: "IDLE" }
     );
   }
 
@@ -4293,7 +5071,8 @@ async function processLaneTurn({
     registryLane.awaiting_work ? "WORKING" : "STARTING",
     registryLane.awaiting_work
       ? `Đang thực hiện ${registryLane.task_id}; mutation lease đã release tại durable boundary.`
-      : "Đã thực hiện một dispatch attempt; lane yield scheduler."
+      : "Đã thực hiện một dispatch attempt; lane yield scheduler.",
+    { brain_directive_state: "WORK" }
   );
 }
 
@@ -4380,7 +5159,8 @@ let restartRequested = false;
 
 await safeLog(logPath, {
   type: "RUNTIME_BOOT",
-  reason: `version=${SUPERVISOR_RUNTIME_VERSION};mode=${THREE_LANE_MODE};page_budget=${args.pageBudget}`
+  reason: `mode=${THREE_LANE_MODE};page_budget=${args.pageBudget}`,
+  cdpPort: Number(new URL(args.cdpUrl).port || 9222)
 });
 await emitLaneEvent({
   actor: "SUPERVISOR",
@@ -4392,10 +5172,18 @@ await emitLaneEvent({
 try {
   adapter = new ChatGptUiAdapter({ cdpUrl: args.cdpUrl });
   await adapter.open();
+  const liveMutationPacingMs = Number.parseInt(
+    process.env.P2_LIVE_MUTATION_PACING_MS || "0",
+    10
+  );
   scheduler = new BrowserScheduler({
     adapter,
     pageBudget: args.pageBudget,
-    laneOrder: LANE_IDS
+    laneOrder: LANE_IDS,
+    mutationMinIntervalMs: Number.isInteger(liveMutationPacingMs) &&
+      liveMutationPacingMs >= 0
+      ? liveMutationPacingMs
+      : 0
   });
   await scheduler.reconstructFromBrowser();
 

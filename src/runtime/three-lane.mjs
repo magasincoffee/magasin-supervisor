@@ -155,6 +155,93 @@ export function parseLaneDirective(text) {
   return result;
 }
 
+
+export function evaluateBrainDirectiveAdoptionEvidence({
+  turns = [],
+  expectedHandshakeDigests = [],
+  currentTargetDigest = "",
+  configuredTargetDigest = "",
+  configuredRevision = 0,
+  appliedRevision = 0,
+  brainRequestInflight = null,
+  adoptedRecord = null,
+  activeExactOnce = false
+} = {}) {
+  if (!currentTargetDigest || !configuredTargetDigest) {
+    return { adopt: false, reason_code: "BRAIN_TARGET_IDENTITY_AMBIGUOUS" };
+  }
+  if (currentTargetDigest !== configuredTargetDigest) {
+    return { adopt: false, reason_code: "BRAIN_TARGET_DIGEST_MISMATCH" };
+  }
+  if (Number(configuredRevision || 0) !== Number(appliedRevision || 0)) {
+    return { adopt: false, reason_code: "BRAIN_TARGET_REVISION_MISMATCH" };
+  }
+  if (brainRequestInflight?.brain_target_digest &&
+      brainRequestInflight.brain_target_digest !== currentTargetDigest) {
+    return { adopt: false, reason_code: "BRAIN_LATCH_TARGET_DIGEST_MISMATCH" };
+  }
+  if (brainRequestInflight?.brain_url_revision !== undefined &&
+      brainRequestInflight?.brain_url_revision !== null &&
+      Number(brainRequestInflight.brain_url_revision) !== Number(appliedRevision || 0)) {
+    return { adopt: false, reason_code: "BRAIN_LATCH_REVISION_MISMATCH" };
+  }
+  if (activeExactOnce) {
+    return { adopt: false, reason_code: "ACTIVE_EXACT_ONCE_TRANSACTION" };
+  }
+
+  let directive = null;
+  let candidateIndex = -1;
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    if (turns[index]?.role !== "assistant") continue;
+    try {
+      directive = parseLaneDirective(turns[index].text);
+      candidateIndex = index;
+      break;
+    } catch {
+      // Malformed blocks and prose are not task authority.
+    }
+  }
+  if (!directive || candidateIndex < 0) {
+    return { adopt: false, reason_code: "NO_VALID_DIRECTIVE" };
+  }
+
+  const allowed = new Set(expectedHandshakeDigests);
+  const laterTurns = turns.slice(candidateIndex + 1);
+  const laterRobotOnly = laterTurns.every((turn) =>
+    turn?.role === "user" && allowed.has(turn?.digest)
+  );
+  if (laterTurns.length && !laterRobotOnly) {
+    return { adopt: false, reason_code: "NEWER_NON_ROBOT_ACTIVITY" };
+  }
+
+  if (adoptedRecord?.directive_digest &&
+      adoptedRecord.directive_digest !== directive.digest) {
+    return { adopt: false, reason_code: "ADOPTED_DIRECTIVE_IDENTITY_CONFLICT" };
+  }
+  if (adoptedRecord?.brain_target_digest &&
+      adoptedRecord.brain_target_digest !== currentTargetDigest) {
+    return { adopt: false, reason_code: "ADOPTED_TARGET_IDENTITY_CONFLICT" };
+  }
+  if (adoptedRecord?.brain_url_revision !== undefined &&
+      adoptedRecord?.brain_url_revision !== null &&
+      Number(adoptedRecord.brain_url_revision) !== Number(appliedRevision || 0)) {
+    return { adopt: false, reason_code: "ADOPTED_REVISION_IDENTITY_CONFLICT" };
+  }
+
+  return {
+    adopt: true,
+    directive,
+    candidate_index: candidateIndex,
+    candidate_turn: Number(turns[candidateIndex]?.turn || 0),
+    later_robot_handshake_count: laterTurns.length,
+    reason_code: adoptedRecord?.directive_digest
+      ? "DIRECTIVE_ALREADY_ADOPTED_IDEMPOTENT"
+      : (brainRequestInflight
+          ? "STALE_HANDSHAKE_SUPERSEDED_BY_VALID_DIRECTIVE"
+          : "VALID_EXISTING_DIRECTIVE")
+  };
+}
+
 export function defaultLaneConfig() {
   return {
     schema_version: "three-lane-config.v1",
@@ -247,6 +334,7 @@ export function defaultLaneRegistry() {
       applied_relay_retry_rearm_revision: 0,
       brain_request_inflight: null,
       brain_request_sent: false,
+      brain_directive_adopted: null,
       awaiting_work: false,
       task_timing: defaultTaskTiming(),
       work_watchdog: defaultWorkWatchdog(),
@@ -296,6 +384,7 @@ export function normalizeLaneRegistry(value = {}) {
         Number(lane.applied_relay_retry_rearm_revision || 0),
       brain_request_inflight: lane.brain_request_inflight || null,
       brain_request_sent: Boolean(lane.brain_request_sent),
+      brain_directive_adopted: lane.brain_directive_adopted || null,
       awaiting_work: Boolean(lane.awaiting_work),
       task_timing: normalizeTaskTiming(lane.task_timing),
       work_watchdog: normalizeWorkWatchdog(lane.work_watchdog),

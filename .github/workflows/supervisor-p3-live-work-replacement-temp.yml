@@ -1,0 +1,49 @@
+name: Supervisor P3 Live Work Replacement Temp
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-p3-live-work-replacement-v4
+  cancel-in-progress: true
+
+jobs:
+  p3-live:
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 20
+    env:
+      P2_LIVE_MUTATION_PACING_MS: "5000"
+      P2_LIVE_RATE_LIMIT_COOLDOWN_MINUTES: "5"
+      P3_LIVE_REPLACEMENT_MODE: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify migrated MAGASIN live runner identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ($env:COMPUTERNAME -ne "DESKTOP-4K7IM13") {
+            throw "LIVE_P3_WRONG_RUNNER"
+          }
+          Write-Host "LIVE_P3_RUNNER_MATCH=True"
+          Write-Host ("LIVE_P3_RUNNER_NAME=" + $env:COMPUTERNAME)
+
+      - name: Install runtime dependencies without lifecycle side effects
+        shell: cmd
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Run isolated P3 Work replacement live acceptance
+        shell: cmd
+        run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-p2-live-isolated.ps1"
+
+      - name: Upload sanitized P3 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p3-live-diagnostics
+          path: ${{ runner.temp }}\magasin-p3-live-diagnostics.json
+          if-no-files-found: ignore
+          retention-days: 1

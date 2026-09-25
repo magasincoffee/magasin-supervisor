@@ -1,0 +1,112 @@
+name: Supervisor P7 Live Sanitized Diagnostics Temp
+
+on:
+  push:
+    branches:
+      - hotfix/supervisor-autonomy-selfheal-v1
+    paths:
+      - .github/p7-live-trigger.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-p7-live-sanitized-diagnostics-v2
+  cancel-in-progress: true
+
+jobs:
+  p7-candidate-a:
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 10
+    outputs:
+      runner_match: ${{ steps.identity.outputs.match }}
+      acceptance: ${{ steps.acceptance.outputs.pass }}
+    steps:
+      - name: Check target runner identity
+        id: identity
+        shell: cmd
+        run: |
+          @echo off
+          if /I "%COMPUTERNAME%"=="DESKTOP-4K7IM13" (
+            echo match=true>>"%GITHUB_OUTPUT%"
+            echo LIVE_P7_RUNNER_MATCH=True
+            echo LIVE_P7_RUNNER_NAME=%COMPUTERNAME%
+          ) else (
+            echo match=false>>"%GITHUB_OUTPUT%"
+            echo LIVE_P7_RUNNER_MATCH=False
+            echo LIVE_P7_RUNNER_SKIPPED=%COMPUTERNAME%
+          )
+
+      - uses: actions/checkout@v4
+        if: steps.identity.outputs.match == 'true'
+
+      - name: Run isolated P7 sanitized diagnostics acceptance
+        id: acceptance
+        if: steps.identity.outputs.match == 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          & ".github\scripts\supervisor-p7-live-isolated.ps1"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "pass=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+  p7-candidate-b:
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 10
+    outputs:
+      runner_match: ${{ steps.identity.outputs.match }}
+      acceptance: ${{ steps.acceptance.outputs.pass }}
+    steps:
+      - name: Check target runner identity
+        id: identity
+        shell: cmd
+        run: |
+          @echo off
+          if /I "%COMPUTERNAME%"=="DESKTOP-4K7IM13" (
+            echo match=true>>"%GITHUB_OUTPUT%"
+            echo LIVE_P7_RUNNER_MATCH=True
+            echo LIVE_P7_RUNNER_NAME=%COMPUTERNAME%
+          ) else (
+            echo match=false>>"%GITHUB_OUTPUT%"
+            echo LIVE_P7_RUNNER_MATCH=False
+            echo LIVE_P7_RUNNER_SKIPPED=%COMPUTERNAME%
+          )
+
+      - uses: actions/checkout@v4
+        if: steps.identity.outputs.match == 'true'
+
+      - name: Run isolated P7 sanitized diagnostics acceptance
+        id: acceptance
+        if: steps.identity.outputs.match == 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          & ".github\scripts\supervisor-p7-live-isolated.ps1"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "pass=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+  p7-final-gate:
+    needs: [p7-candidate-a, p7-candidate-b]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require acceptance on DESKTOP-4K7IM13
+        env:
+          A_MATCH: ${{ needs.p7-candidate-a.outputs.runner_match }}
+          A_PASS: ${{ needs.p7-candidate-a.outputs.acceptance }}
+          B_MATCH: ${{ needs.p7-candidate-b.outputs.runner_match }}
+          B_PASS: ${{ needs.p7-candidate-b.outputs.acceptance }}
+        run: |
+          echo "candidate-a match=$A_MATCH pass=$A_PASS"
+          echo "candidate-b match=$B_MATCH pass=$B_PASS"
+          if [ "$A_PASS" = "true" ] || [ "$B_PASS" = "true" ]; then
+            echo "LIVE_P7_TARGET_RUNNER_ACCEPTANCE=PASS"
+            exit 0
+          fi
+          if [ "$A_MATCH" != "true" ] && [ "$B_MATCH" != "true" ]; then
+            echo "LIVE_P7_TARGET_RUNNER_NOT_ASSIGNED"
+          else
+            echo "LIVE_P7_TARGET_RUNNER_ACCEPTANCE=FAIL"
+          fi
+          exit 1

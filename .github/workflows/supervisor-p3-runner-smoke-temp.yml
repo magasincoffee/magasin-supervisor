@@ -1,0 +1,28 @@
+name: Supervisor P3 Runner Smoke Temp
+
+on:
+  pull_request:
+    paths:
+      - .github/p3-runner-smoke-trigger.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-p3-runner-smoke-temp
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    if: ${{ false }} # TEMP: isolate P3 live acceptance
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 3
+    steps:
+      - name: Runner worker starts
+        shell: cmd
+        run: |
+          echo P3_RUNNER_SMOKE_STARTED=True
+          echo P3_RUNNER_NAME=%COMPUTERNAME%
+          if /I not "%COMPUTERNAME%"=="DESKTOP-4K7IM13" exit /b 1
+          echo P3_RUNNER_SMOKE=PASS

@@ -1,0 +1,7 @@
+SUP-SELFHEAL-P4-LIVE-STALE-RUNTIME
+runner=DESKTOP-4K7IM13
+isolated_state=true
+status_fixture=stale
+control_panel_probe=true
+verify_no_state_mutation=true
+attempt=3

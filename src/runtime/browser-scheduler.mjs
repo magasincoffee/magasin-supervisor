@@ -1,3 +1,5 @@
+import { setTimeout as delay } from "node:timers/promises";
+
 export const DEFAULT_CHATGPT_PAGE_BUDGET = 3;
 
 export const PAGE_LEASE_STATES = Object.freeze({
@@ -31,6 +33,18 @@ function safeNow(now) {
   return typeof now === "function" ? now : () => Date.now();
 }
 
+function nonNegativeInteger(value, label) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 0) {
+    throw new TypeError(`${label} must be a non-negative integer`);
+  }
+  return number;
+}
+
+function safeSleep(sleep) {
+  return typeof sleep === "function" ? sleep : delay;
+}
+
 function pageClosed(page) {
   return !page || (typeof page.isClosed === "function" && page.isClosed());
 }
@@ -40,13 +54,21 @@ export class BrowserScheduler {
     adapter,
     pageBudget = DEFAULT_CHATGPT_PAGE_BUDGET,
     laneOrder = DEFAULT_LANE_ORDER,
-    now = Date.now
+    now = Date.now,
+    mutationMinIntervalMs = 0,
+    sleep = delay
   } = {}) {
     if (!adapter) throw new TypeError("browser scheduler requires adapter");
     this.adapter = adapter;
     this.pageBudget = clampBudget(pageBudget);
     this.laneOrder = [...laneOrder];
     this.now = safeNow(now);
+    this.mutationMinIntervalMs = nonNegativeInteger(
+      mutationMinIntervalMs,
+      "mutationMinIntervalMs"
+    );
+    this.sleep = safeSleep(sleep);
+    this.lastMutationAt = null;
     this.cursor = 0;
     this.turnCount = 0;
     this.roundCount = 0;
@@ -290,6 +312,23 @@ export class BrowserScheduler {
     return this.snapshot();
   }
 
+  async waitForMutationPacing() {
+    if (
+      this.mutationMinIntervalMs <= 0 ||
+      this.lastMutationAt === null
+    ) {
+      return 0;
+    }
+    const elapsed = Math.max(0, this.now() - this.lastMutationAt);
+    const remaining = Math.max(0, this.mutationMinIntervalMs - elapsed);
+    if (remaining > 0) await this.sleep(remaining);
+    return remaining;
+  }
+
+  markMutationStarted() {
+    this.lastMutationAt = this.now();
+  }
+
   acquireMutationLease({ laneId, role, page = null, reason = "UI_MUTATION" } = {}) {
     if (this.mutationOwner) {
       const error = new Error("global browser mutation lease is already held");
@@ -330,7 +369,9 @@ export class BrowserScheduler {
   }
 
   async withMutationLease(meta, operation) {
+    await this.waitForMutationPacing();
     const release = this.acquireMutationLease(meta);
+    this.markMutationStarted();
     try {
       return await operation();
     } finally {
@@ -357,11 +398,13 @@ export class BrowserScheduler {
 
     if (!page) {
       await this.ensureCapacity(1);
+      await this.waitForMutationPacing();
       const releaseMutation = this.acquireMutationLease({
         laneId,
         role,
         reason: "PAGE_REOPEN"
       });
+      this.markMutationStarted();
       try {
         page = await this.adapter.reopenTargetPage(url);
         this.registerPage(page, {
@@ -394,14 +437,18 @@ export class BrowserScheduler {
     generation = 0
   }, operation) {
     await this.ensureCapacity(1);
+    await this.waitForMutationPacing();
     const releaseMutation = this.acquireMutationLease({
       laneId,
       role,
       reason: "CREATE_PAGE"
     });
+    this.markMutationStarted();
     let page = null;
     try {
-      page = await this.adapter.newChatPage(url);
+      page = await this.adapter.newChatPage(url, {
+        allowTransientRetry: false
+      });
       this.registerPage(page, {
         laneId,
         role,

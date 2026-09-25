@@ -1,0 +1,13 @@
+SUP-SELFHEAL-P6-LIVE-OWNER-RESET
+runner=DESKTOP-4K7IM13
+isolated_state=true
+owner_reset_revision=9
+applied_revision_before=8
+work_generation_before=7
+verify_exact_once=true
+verify_lane_isolation=true
+verify_targets_unchanged=true
+execute_mode=true
+canonical_temp_localappdata=true
+semantic_config_compare=true
+attempt=5

@@ -1,0 +1,6 @@
+SUP-SELFHEAL-P3-LIVE-WORK-REPLACEMENT
+single_attempt=true
+runner=DESKTOP-4K7IM13
+diagnostic=bounded-sanitized-v8
+retry_reason=reject_stale_enriched_brain_fixture_reuse
+pause_for_runner_smoke=false

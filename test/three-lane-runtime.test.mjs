@@ -9,7 +9,12 @@ test("active Three-Lane runtime contains no Brain auto-discovery path", async ()
   );
 
   assert.doesNotMatch(source, /findBrainBy/);
-  assert.doesNotMatch(source, /listRecentConversationUrls/);
+  const workBootstrapStart = source.indexOf("async function primeBlankWorkConversation");
+  const workBootstrapEnd = source.indexOf("async function createBlankWorkTarget", workBootstrapStart);
+  assert.ok(workBootstrapStart >= 0 && workBootstrapEnd > workBootstrapStart);
+  const outsideWorkBootstrap =
+    source.slice(0, workBootstrapStart) + source.slice(workBootstrapEnd);
+  assert.doesNotMatch(outsideWorkBootstrap, /listRecentConversationUrls/);
   assert.doesNotMatch(source, /getVisibleChatGptPages/);
   assert.doesNotMatch(source, /BRAIN_REBIND/);
   assert.match(source, /normalizeChatGptConversationUrl\(registryLane\.brain_url\)/);
@@ -141,10 +146,11 @@ test("v43 valid completed Brain directive can complete a stuck first-handshake w
   );
 
   assert.match(source, /async function adoptExistingBrainDirective/);
-  assert.match(source, /LANE_BRAIN_DIRECTIVE_ADOPTED_AS_HANDSHAKE/);
-  assert.match(source, /directive = parseLaneDirective\(captured\.text\)/);
+  assert.match(source, /LANE_BRAIN_DIRECTIVE_ADOPTED/);
+  assert.match(source, /evaluateBrainDirectiveAdoptionEvidence/);
   assert.match(source, /registryLane\.brain_request_sent = true/);
   assert.match(source, /registryLane\.brain_request_inflight = null/);
+  assert.match(source, /registryLane\.brain_directive_adopted = \{/);
   assert.match(source, /const existingDirective = await adoptExistingBrainDirective/);
   assert.match(source, /const directiveAfterReconcile = await adoptExistingBrainDirective/);
   assert.match(source, /const directiveAfterSend = await adoptExistingBrainDirective/);
@@ -346,13 +352,12 @@ test("v43 can recover the latest valid directive when only duplicate Robot hands
   );
 
   assert.match(source, /captureRecentConversationTurns/);
-  assert.match(source, /expectedStartDigests = new Set/);
+  assert.match(source, /expectedHandshakeDigests/);
   assert.match(source, /buildBrainStartRequest/);
   assert.match(source, /buildLegacyBrainStartRequestV59/);
-  assert.match(source, /onlyRobotHandshakeAfterDirective/);
-  assert.match(source, /turn\.role === "user" && expectedStartDigests\.has\(turn\.digest\)/);
-  assert.match(source, /LANE_BRAIN_DIRECTIVE_RECOVERED_BEFORE_DUPLICATE_HANDSHAKE/);
-  assert.match(source, /if \(laterTurns\.length && !onlyRobotHandshakeAfterDirective\) return null/);
+  assert.match(source, /recoverPersistedAdoptedBrainDirective/);
+  assert.match(source, /LANE_BRAIN_STALE_HANDSHAKE_SUPERSEDED/);
+  assert.match(source, /LANE_BRAIN_DIRECTIVE_ADOPTED/);
 });
 
 

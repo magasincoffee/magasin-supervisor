@@ -1,0 +1,251 @@
+name: Supervisor Runtime Diagnostic Temp
+
+on:
+  push:
+    branches:
+      - hotfix/supervisor-autonomy-selfheal-v1
+    paths:
+      - .github/workflows/supervisor-runtime-diagnostic-temp.yml
+      - .github/scripts/supervisor-live-parser-probe.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-runtime-diagnostic-temp
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: self-hosted
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Capture sanitized runtime diagnostics
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          Set-StrictMode -Version 2.0
+
+          . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
+          $runtime = Join-Path $root "runtime"
+          $statusFile = Join-Path $root "lane-status.json"
+          $configFile = Join-Path $root "lanes.json"
+          $registryFile = Join-Path $root "lane-registry.json"
+          $logFile = Join-Path $root "supervisor.log"
+          $eventFile = Join-Path $root "lane-events.ndjson"
+          $profile = Join-Path $root "browser_profile"
+          $lifecycle = Join-Path $runtime "windows\lifecycle-truth.ps1"
+
+          function Get-Optional($Object, [string]$Name, $Default=$null) {
+            if ($null -eq $Object) { return $Default }
+            $p = $Object.PSObject.Properties[$Name]
+            if ($null -eq $p) { return $Default }
+            return $p.Value
+          }
+
+          function Read-JsonSafe([string]$Path) {
+            if (-not (Test-Path $Path)) { return $null }
+            try { return Get-Content $Path -Raw -Encoding UTF8 | ConvertFrom-Json } catch { return $null }
+          }
+
+          function Redact-ChatUrl([string]$Value) {
+            if (-not $Value) { return "" }
+            try {
+              $u = [Uri]$Value
+              if ($u.Host -match '(^|\.)chatgpt\.com$') {
+                if ($u.AbsolutePath -match '^/(c|g|project)/') {
+                  return "https://chatgpt.com/$($Matches[1])/[REDACTED]"
+                }
+                return "https://chatgpt.com$($u.AbsolutePath)"
+              }
+              return "$($u.Scheme)://$($u.Host)$($u.AbsolutePath)"
+            } catch { return "[UNPARSEABLE]" }
+          }
+
+          Write-Host "DIAG_SCHEMA=supervisor-runtime-diagnostic.v1"
+          Write-Host "DIAG_AT_UTC=$([DateTimeOffset]::UtcNow.ToString('o'))"
+
+          if (Test-Path $lifecycle) {
+            . $lifecycle
+            $truth = Get-LifecycleProcessTruth -Root $root
+            Write-Host "WRAPPER_ALIVE=$([bool]$truth.wrapper_alive)"
+            Write-Host "THREE_LANE_ALIVE=$([bool]$truth.three_lane_alive)"
+            Write-Host "CHROME_ALIVE=$([bool]$truth.chrome_alive)"
+            Write-Host "CDP_HEALTHY=$([bool]$truth.cdp_healthy)"
+          } else {
+            Write-Host "LIFECYCLE_HELPER_MISSING=True"
+          }
+
+          $chrome = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.CommandLine -and
+              $_.CommandLine -like "*$profile*" -and
+              $_.CommandLine -match '--remote-debugging-port=(\d+)'
+            } |
+            Select-Object -First 1
+
+          $chromePort = 0
+          if ($chrome -and $chrome.CommandLine -match '--remote-debugging-port=(\d+)') {
+            $chromePort = [int]$Matches[1]
+          }
+          Write-Host "CHROME_CDP_PORT=$chromePort"
+
+          $node = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and $_.CommandLine -like "*three-lane-cli.mjs*" } |
+            Select-Object -First 1
+          $nodePort = 0
+          if ($node -and $node.CommandLine -match '--cdp-url\s+http://127\.0\.0\.1:(\d+)') {
+            $nodePort = [int]$Matches[1]
+          }
+          Write-Host "NODE_CDP_PORT=$nodePort"
+          Write-Host "NODE_CHROME_PORT_MATCH=$([bool]($nodePort -gt 0 -and $nodePort -eq $chromePort))"
+
+          if ($chromePort -gt 0) {
+            try {
+              $version = Invoke-RestMethod -Uri "http://127.0.0.1:$chromePort/json/version" -TimeoutSec 3
+              Write-Host "CDP_VERSION_OK=$([bool]$version.webSocketDebuggerUrl)"
+            } catch {
+              Write-Host "CDP_VERSION_OK=False"
+              Write-Host "CDP_VERSION_ERROR=$($_.Exception.GetType().Name)"
+            }
+
+            try {
+              $targets = @(Invoke-RestMethod -Uri "http://127.0.0.1:$chromePort/json/list" -TimeoutSec 3)
+              Write-Host "CDP_TARGET_COUNT=$($targets.Count)"
+              $chatTargets = @($targets | Where-Object { [string]$_.url -match '^https://([^.]+\.)?chatgpt\.com/' })
+              Write-Host "CDP_CHATGPT_TARGET_COUNT=$($chatTargets.Count)"
+              $i = 0
+              foreach ($t in $targets | Select-Object -First 12) {
+                $i += 1
+                Write-Host "CDP_TARGET_$($i)_TYPE=$([string]$t.type)"
+                Write-Host "CDP_TARGET_$($i)_URL=$(Redact-ChatUrl ([string]$t.url))"
+              }
+            } catch {
+              Write-Host "CDP_LIST_ERROR=$($_.Exception.GetType().Name)"
+            }
+          }
+
+          $sourceRuntime = Join-Path $env:GITHUB_WORKSPACE "src\runtime\three-lane-cli.mjs"
+          $installedRuntime = Join-Path $runtime "src\runtime\three-lane-cli.mjs"
+          foreach ($pair in @(
+            [pscustomobject]@{ Label='SOURCE'; Path=$sourceRuntime },
+            [pscustomobject]@{ Label='INSTALLED'; Path=$installedRuntime }
+          )) {
+            if (Test-Path $pair.Path) {
+              $txt = Get-Content $pair.Path -Raw -Encoding UTF8
+              $m = [regex]::Match($txt, 'SUPERVISOR_RUNTIME_VERSION\s*=\s*"([^"]+)"')
+              $ver = if ($m.Success) { $m.Groups[1].Value } else { "UNKNOWN" }
+              $hash = (Get-FileHash -Algorithm SHA256 -Path $pair.Path).Hash.ToLowerInvariant()
+              Write-Host "$($pair.Label)_RUNTIME_VERSION=$ver"
+              Write-Host "$($pair.Label)_RUNTIME_SHA256=$hash"
+            } else {
+              Write-Host "$($pair.Label)_RUNTIME_MISSING=True"
+            }
+          }
+
+          $status = Read-JsonSafe $statusFile
+          if ($status) {
+            $statusItem = Get-Item $statusFile
+            $age = [int]([DateTimeOffset]::UtcNow - [DateTimeOffset]$statusItem.LastWriteTimeUtc).TotalSeconds
+            Write-Host "LANE_STATUS_AGE_SECONDS=$age"
+            Write-Host "STATUS_RUNTIME_VERSION=$([string](Get-Optional $status 'supervisor_runtime_version' ''))"
+            $scheduler = Get-Optional $status 'scheduler'
+            if ($scheduler) {
+              Write-Host "SCHEDULER_RESIDENT_CHATGPT_PAGES=$([int](Get-Optional $scheduler 'resident_chatgpt_pages' -1))"
+              Write-Host "SCHEDULER_PAGE_BUDGET=$([int](Get-Optional $scheduler 'page_budget' -1))"
+              Write-Host "SCHEDULER_MUTATION_ACTIVE=$([bool](Get-Optional $scheduler 'mutation_lease_active' $false))"
+              $lease = Get-Optional $scheduler 'lease_states'
+              if ($lease) {
+                foreach ($n in @('ACTIVE_MUTATION','ACTIVE_OBSERVATION','PARKED','EVICTABLE','CLOSED')) {
+                  Write-Host "LEASE_$($n)=$([int](Get-Optional $lease $n 0))"
+                }
+              }
+            }
+          } else {
+            Write-Host "LANE_STATUS_MISSING_OR_INVALID=True"
+          }
+
+          $config = Read-JsonSafe $configFile
+          $registry = Read-JsonSafe $registryFile
+          foreach ($laneId in @('lane-1','lane-2','lane-3')) {
+            $cfgLane = if ($config) { @($config.lanes | Where-Object { [string]$_.lane_id -eq $laneId }) | Select-Object -First 1 } else { $null }
+            $regLanes = if ($registry) { Get-Optional $registry 'lanes' } else { $null }
+            $regLane = if ($regLanes) { Get-Optional $regLanes $laneId } else { $null }
+            Write-Host "$($laneId)_ENABLED=$([bool](Get-Optional $cfgLane 'enabled' $false))"
+            Write-Host "$($laneId)_WORK_MODE=$([string](Get-Optional $cfgLane 'work_mode' ''))"
+            Write-Host "$($laneId)_WORK_REV_CONFIG=$([int](Get-Optional $cfgLane 'work_url_revision' 0))"
+            Write-Host "$($laneId)_WORK_RESET_REV_CONFIG=$([int](Get-Optional $cfgLane 'work_state_reset_revision' 0))"
+            Write-Host "$($laneId)_TASK_ID=$([string](Get-Optional $regLane 'task_id' ''))"
+            Write-Host "$($laneId)_WORK_REV_APPLIED=$([int](Get-Optional $regLane 'applied_work_url_revision' 0))"
+            Write-Host "$($laneId)_WORK_REV_PENDING=$([int](Get-Optional $regLane 'pending_work_url_revision' 0))"
+            Write-Host "$($laneId)_WORK_RESET_REV_APPLIED=$([int](Get-Optional $regLane 'applied_work_state_reset_revision' 0))"
+            Write-Host "$($laneId)_AWAITING_WORK=$([bool](Get-Optional $regLane 'awaiting_work' $false))"
+            Write-Host "$($laneId)_DISPATCH_INFLIGHT=$([bool](Get-Optional $regLane 'dispatch_inflight' $null))"
+            Write-Host "$($laneId)_RELAY_INFLIGHT=$([bool](Get-Optional $regLane 'relay_inflight' $null))"
+            Write-Host "$($laneId)_BRAIN_REQUEST_SENT=$([bool](Get-Optional $regLane 'brain_request_sent' $false))"
+            $brainHealth = Get-Optional $regLane 'brain_target_health'
+            $workHealth = Get-Optional $regLane 'work_target_health'
+            Write-Host "$($laneId)_BRAIN_HEALTH=$([string](Get-Optional $brainHealth 'state' ''))/$([string](Get-Optional $brainHealth 'reason_code' ''))"
+            Write-Host "$($laneId)_WORK_HEALTH=$([string](Get-Optional $workHealth 'state' ''))/$([string](Get-Optional $workHealth 'reason_code' ''))"
+          }
+
+          Write-Host "--- SUPERVISOR_LOG_TAIL_BEGIN ---"
+          if (Test-Path $logFile) {
+            Get-Content $logFile -Tail 160 -Encoding UTF8 | ForEach-Object { Write-Host $_ }
+          } else {
+            Write-Host "LOG_MISSING"
+          }
+          Write-Host "--- SUPERVISOR_LOG_TAIL_END ---"
+
+          Write-Host "--- LANE_EVENTS_TAIL_BEGIN ---"
+          if (Test-Path $eventFile) {
+            Get-Content $eventFile -Tail 80 -Encoding UTF8 | ForEach-Object { Write-Host $_ }
+          } else {
+            Write-Host "EVENT_LOG_MISSING"
+          }
+          Write-Host "--- LANE_EVENTS_TAIL_END ---"
+
+      - name: Static installed runtime syntax check
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
+          $runtime = Join-Path $root "runtime"
+          foreach ($relative in @(
+            "src\ui\message-capture.mjs",
+            "src\ui\snapshot.mjs",
+            "src\runtime\three-lane-cli.mjs"
+          )) {
+            $file = Join-Path $runtime $relative
+            Write-Host "NODE_CHECK_FILE=$relative"
+            & node --check $file
+            Write-Host "NODE_CHECK_EXIT_$($relative.Replace('\\','_'))=$LASTEXITCODE"
+          }
+
+      - name: Live Brain parser probe
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
+          $profile = Join-Path $root "browser_profile"
+          $chrome = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.CommandLine -and
+              $_.CommandLine -like "*$profile*" -and
+              $_.CommandLine -match '--remote-debugging-port=(\d+)'
+            } |
+            Select-Object -First 1
+          if (-not $chrome -or $chrome.CommandLine -notmatch '--remote-debugging-port=(\d+)') {
+            throw "Dedicated Chrome CDP port not found"
+          }
+          $port = [int]$Matches[1]
+          $env:PROBE_RUNTIME_DIR = Join-Path $root "runtime"
+          $env:PROBE_CONFIG_FILE = Join-Path $root "lanes.json"
+          $env:PROBE_CDP_URL = "http://127.0.0.1:$port"
+          node "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-live-parser-probe.mjs"

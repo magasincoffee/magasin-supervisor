@@ -27,6 +27,7 @@ class FakeAdapter {
     this.nextId = 1;
     this.reopens = 0;
     this.closes = [];
+    this.newChatCalls = [];
   }
   getChatGptPages() {
     return this.pages.filter((page) => !page.closed);
@@ -43,7 +44,8 @@ class FakeAdapter {
     this.pages.push(page);
     return page;
   }
-  async newChatPage(url) {
+  async newChatPage(url, options = {}) {
+    this.newChatCalls.push({ url, options });
     const page = new FakePage(url, this.nextId++);
     this.pages.push(page);
     return page;
@@ -343,4 +345,48 @@ test("scheduler resource operations never mutate another lane durable state", as
 
   assert.equal(JSON.stringify(lane2), before2);
   assert.equal(JSON.stringify(lane3), before3);
+});
+
+
+test("P2 live mutation pacing enforces a minimum interval without retry bursts", async () => {
+  const adapter = new FakeAdapter();
+  let now = 1_000;
+  const waits = [];
+  const scheduler = new BrowserScheduler({
+    adapter,
+    mutationMinIntervalMs: 5_000,
+    now: () => now,
+    sleep: async (ms) => {
+      waits.push(ms);
+      now += ms;
+    }
+  });
+
+  await scheduler.withMutationLease(
+    { laneId: "lane-1", role: "BRAIN", reason: "fixture-send" },
+    async () => true
+  );
+  now += 1_000;
+  await scheduler.withMutationLease(
+    { laneId: "lane-1", role: "WORK", reason: "create" },
+    async () => true
+  );
+
+  assert.deepEqual(waits, [4_000]);
+  assert.equal(scheduler.snapshot().mutation_lease_active, false);
+});
+
+test("AUTO Work blank create explicitly disables transient navigation retry", async () => {
+  const adapter = new FakeAdapter();
+  const scheduler = new BrowserScheduler({ adapter });
+  const created = await scheduler.createPageUnderMutation({
+    laneId: "lane-1",
+    role: "WORK",
+    targetRevision: 1,
+    generation: 1
+  }, async (page) => page.url());
+
+  assert.equal(created.result, "https://chatgpt.com/");
+  assert.equal(adapter.newChatCalls.length, 1);
+  assert.equal(adapter.newChatCalls[0].options.allowTransientRetry, false);
 });

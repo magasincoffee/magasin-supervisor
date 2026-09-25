@@ -22,6 +22,27 @@ function safeHealth(value) {
   };
 }
 
+function brainDirectiveProjection(registryLane = {}, extra = {}) {
+  const explicit = String(extra.brain_directive_state || "").toUpperCase();
+  if (["NONE", "IDLE", "WORK", "INVALID"].includes(explicit)) {
+    return {
+      state: explicit,
+      reason_code: explicit === "INVALID"
+        ? String(extra.brain_directive_reason_code || "INVALID_DIRECTIVE_FORMAT").toUpperCase()
+        : null
+    };
+  }
+
+  const adoptedAction = String(
+    registryLane.brain_directive_adopted?.action || ""
+  ).toUpperCase();
+  if (adoptedAction === "IDLE" || adoptedAction === "WORK") {
+    return { state: adoptedAction, reason_code: null };
+  }
+
+  return { state: "NONE", reason_code: null };
+}
+
 function operationalPhase({
   status,
   brainHealth,
@@ -60,6 +81,13 @@ export function projectLaneOperationalStatus(
   const appliedRearmRevision = Number(
     registryLane.applied_relay_retry_rearm_revision || 0
   );
+  const brainDirective = brainDirectiveProjection(registryLane, extra);
+  const requestedWorkResetRevision = Number(
+    configLane.work_state_reset_revision || 0
+  );
+  const appliedWorkResetRevision = Number(
+    registryLane.applied_work_state_reset_revision || 0
+  );
 
   return {
     phase: operationalPhase({
@@ -79,6 +107,10 @@ export function projectLaneOperationalStatus(
     completed_at: timing.completed_at,
     relay_confirmed_at: timing.relay_confirmed_at,
     work_generation: Number(registryLane.work_generation || 0),
+    brain_directive_state: brainDirective.state,
+    brain_directive_reason_code: brainDirective.reason_code,
+    work_reset_requested_revision: requestedWorkResetRevision,
+    work_reset_applied_revision: appliedWorkResetRevision,
     configured_work_url_revision: Number(configLane.work_url_revision || 0),
     applied_work_url_revision: Number(
       registryLane.applied_work_url_revision || 0

@@ -255,6 +255,34 @@ export class ChatGptUiAdapter {
     return focused;
   }
 
+  async findExactConversationUrlByPath(page, pathname) {
+    if (!page || page.isClosed()) return null;
+    const expected = String(pathname || "").trim();
+    if (!/^\/(c|g|project)\//.test(expected) || /^\/c\/WEB:/i.test(expected)) {
+      return null;
+    }
+
+    const urls = await page.evaluate((expectedPath) => {
+      const matches = new Set();
+      for (const anchor of document.querySelectorAll("a[href]")) {
+        const raw = String(anchor.getAttribute("href") || "").trim();
+        if (!raw) continue;
+        let url = null;
+        try {
+          url = new URL(raw, location.origin);
+        } catch {
+          continue;
+        }
+        if (url.origin !== "https://chatgpt.com") continue;
+        if (url.pathname !== expectedPath) continue;
+        matches.add(url.origin + url.pathname);
+      }
+      return [...matches];
+    }, expected);
+
+    return Array.isArray(urls) && urls.length === 1 ? urls[0] : null;
+  }
+
   async listRecentConversationUrls(page, { limit = 20 } = {}) {
     if (!page || page.isClosed()) return [];
     const urls = await page.evaluate((maxItems) => {
@@ -331,14 +359,21 @@ export class ChatGptUiAdapter {
     return page;
   }
 
-  async newChatPage(url = "https://chatgpt.com/") {
+  async newChatPage(
+    url = "https://chatgpt.com/",
+    { allowTransientRetry = true } = {}
+  ) {
     if (!this.context) throw new Error("adapter is not open");
 
     let page = null;
     try {
       page = await this.context.newPage();
     } catch (error) {
-      if (!this.cdpUrl || !isTransientNavigationError(error)) throw error;
+      if (
+        !allowTransientRetry ||
+        !this.cdpUrl ||
+        !isTransientNavigationError(error)
+      ) throw error;
       await this.reconnectOverCdp();
       page = await this.context.newPage();
     }
@@ -349,7 +384,11 @@ export class ChatGptUiAdapter {
         timeout: this.timeoutMs
       });
     } catch (error) {
-      if (!this.cdpUrl || !isTransientNavigationError(error)) throw error;
+      if (
+        !allowTransientRetry ||
+        !this.cdpUrl ||
+        !isTransientNavigationError(error)
+      ) throw error;
       await this.reconnectOverCdp();
       page = await this.context.newPage();
       await page.goto(url, {

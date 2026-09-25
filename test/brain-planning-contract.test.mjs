@@ -144,6 +144,26 @@ test("H duplicate same verdict is idempotent", () => {
   assert.equal(out.changed, false);
 });
 
+test("H replay stays idempotent after accepted IDLE cleared active task_id", () => {
+  const stored = {
+    task_id: "TASK-1", relay_id: RELAY, verdict: "ACCEPT",
+    reason_code: "ACCEPT_DOD_MET", recorded_at: "2026-09-21T03:00:00.000Z"
+  };
+  const out = evaluateBrainVerdictTransition(lane({
+    task_id: null,
+    last_result_verdict: stored
+  }), {
+    action: "IDLE",
+    previous_result: {
+      task_id: "TASK-1", relay_id: RELAY, verdict: "ACCEPT",
+      reason_code: "ACCEPT_DOD_MET"
+    }
+  });
+  assert.equal(out.state, "IDEMPOTENT");
+  assert.equal(out.changed, false);
+  assert.equal(out.record.task_id, "TASK-1");
+});
+
 test("I conflicting verdict for same relay fails closed", () => {
   assert.throws(() => evaluateBrainVerdictTransition(lane({
     last_result_verdict: {

@@ -1,0 +1,196 @@
+import fs from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+const runtime = process.env.PROBE_RUNTIME_DIR;
+const configFile = process.env.PROBE_CONFIG_FILE;
+const registryFile = process.env.PROBE_REGISTRY_FILE;
+const cdpUrl = process.env.PROBE_CDP_URL;
+const sourceRoot = process.env.GITHUB_WORKSPACE;
+
+if (!runtime || !configFile || !registryFile || !cdpUrl || !sourceRoot) {
+  throw new Error("P1 live evidence environment is incomplete");
+}
+
+const config = JSON.parse(fs.readFileSync(configFile, "utf8"));
+const registry = JSON.parse(fs.readFileSync(registryFile, "utf8"));
+const lane = config.lanes.find((item) => item.lane_id === "lane-1") || {};
+const registryLane = registry?.lanes?.["lane-1"] || {};
+
+const three = await import(
+  pathToFileURL(path.join(sourceRoot, "src", "runtime", "three-lane.mjs")).href
+);
+const capture = await import(
+  pathToFileURL(path.join(sourceRoot, "src", "ui", "message-capture.mjs")).href
+);
+const adapterMod = await import(
+  pathToFileURL(path.join(runtime, "src", "ui", "playwright-adapter.mjs")).href
+);
+
+const configuredBrain = three.normalizeChatGptConversationUrl(lane.brain_url);
+const exactBrain = three.normalizeChatGptConversationUrl(
+  registryLane.brain_url || lane.brain_url
+);
+if (!exactBrain) throw new Error("lane-1 exact Brain target is missing");
+if (configuredBrain && configuredBrain !== exactBrain) {
+  throw new Error("configured and active Brain target mismatch");
+}
+if (
+  Number(lane.brain_url_revision || 0) !==
+  Number(registryLane.applied_brain_url_revision || 0)
+) {
+  throw new Error("configured and applied Brain revision mismatch");
+}
+
+console.log(
+  "LIVE_P1_CONFIG_ACTIVE_BRAIN_MATCH=" +
+    Boolean(!configuredBrain || configuredBrain === exactBrain)
+);
+console.log("LIVE_P1_ACTIVE_BRAIN_DIGEST=" + three.sha256(exactBrain));
+console.log(
+  "LIVE_P1_BRAIN_REVISION=" +
+    Number(registryLane.applied_brain_url_revision || 0)
+);
+
+const adapter = new adapterMod.ChatGptUiAdapter({ cdpUrl, settleMs: 250 });
+await adapter.open();
+
+let brainPage = null;
+let createdBrainPage = false;
+try {
+  for (const page of adapter.getChatGptPages()) {
+    try {
+      if (three.normalizeChatGptConversationUrl(page.url()) === exactBrain) {
+        brainPage = page;
+        break;
+      }
+    } catch {}
+  }
+  if (!brainPage) {
+    brainPage = await adapter.newChatPage(exactBrain);
+    createdBrainPage = true;
+  }
+  if (three.normalizeChatGptConversationUrl(brainPage.url()) !== exactBrain) {
+    throw new Error("exact configured Brain target did not open");
+  }
+
+  async function scanDirective() {
+    let observedTurns = [];
+    let observedDirective = null;
+    for (let attempt = 0; attempt < 40 && !observedDirective; attempt += 1) {
+      if (attempt > 0) await brainPage.waitForTimeout(500);
+      observedTurns = await capture
+        .captureRecentConversationTurns(brainPage, { limit: 30 })
+        .catch(() => []);
+      for (let index = observedTurns.length - 1; index >= 0; index -= 1) {
+        if (observedTurns[index].role !== "assistant") continue;
+        try {
+          observedDirective = three.parseLaneDirective(observedTurns[index].text);
+          break;
+        } catch {}
+      }
+    }
+    return { turns: observedTurns, directive: observedDirective };
+  }
+
+  let observed = await scanDirective();
+  if (!observed.directive && observed.turns.length === 0) {
+    console.log("LIVE_P1_ZERO_TURN_RELOAD=1");
+    await brainPage.reload({
+      waitUntil: "domcontentloaded",
+      timeout: 30_000
+    });
+    if (three.normalizeChatGptConversationUrl(brainPage.url()) !== exactBrain) {
+      throw new Error("exact Brain target changed during bounded reload");
+    }
+    observed = await scanDirective();
+  }
+
+  const turns = observed.turns;
+  const directive = observed.directive;
+  console.log("LIVE_P1_CAPTURED_TURN_COUNT=" + turns.length);
+  if (!directive) throw new Error("no valid completed Brain directive found");
+
+  const liveProbe = await adapter.probePage(brainPage).catch(() => null);
+  if (!liveProbe || liveProbe.snapshot?.responseRunning) {
+    throw new Error("Brain directive is not on a stable completed response surface");
+  }
+  if (directive.action !== "WORK" || directive.task_id !== "SCHED-06") {
+    throw new Error("live Brain directive is not authorized SCHED-06 WORK");
+  }
+
+  const targetDigest = three.sha256(exactBrain);
+  const appliedRevision = Number(registryLane.applied_brain_url_revision || 0);
+  const expectedHandshakeDigest = three.sha256(
+    three.buildBrainStartRequest({
+      laneId: "lane-1",
+      projectName: String(lane.project_name || "Dự án 1")
+    })
+  );
+  const legacyHandshakeDigest = three.sha256(
+    three.buildLegacyBrainStartRequestV59({
+      laneId: "lane-1",
+      projectName: String(lane.project_name || "Dự án 1")
+    })
+  );
+
+  const policy = three.evaluateBrainDirectiveAdoptionEvidence({
+    turns,
+    expectedHandshakeDigests: [expectedHandshakeDigest, legacyHandshakeDigest],
+    currentTargetDigest: targetDigest,
+    configuredTargetDigest: targetDigest,
+    configuredRevision: Number(lane.brain_url_revision || 0),
+    appliedRevision,
+    brainRequestInflight: {
+      digest: expectedHandshakeDigest,
+      brain_target_digest: targetDigest,
+      brain_url_revision: appliedRevision
+    },
+    adoptedRecord: null,
+    activeExactOnce: false
+  });
+
+  if (!policy.adopt || policy.directive?.digest !== directive.digest) {
+    throw new Error("P1 live continuity policy did not adopt SCHED-06");
+  }
+
+  const durableTaskMatch = String(registryLane.task_id || "") === directive.task_id;
+  const durableDirectiveMatch =
+    String(registryLane.last_brain_directive_digest || "") === directive.digest;
+  const durableInstructionMatch =
+    String(registryLane.instruction_digest || "") === directive.instruction_digest;
+
+  if (!durableTaskMatch || !durableDirectiveMatch || !durableInstructionMatch) {
+    throw new Error("durable registry identity does not match live SCHED-06 directive");
+  }
+
+  console.log("LIVE_P1_EXACT_BRAIN_OPEN=True");
+  console.log("LIVE_P1_DIRECTIVE_ACTION=" + directive.action);
+  console.log("LIVE_P1_DIRECTIVE_TASK_ID=" + directive.task_id);
+  console.log("LIVE_P1_DIRECTIVE_DIGEST=" + directive.digest);
+  console.log("LIVE_P1_POLICY_ADOPT=True");
+  console.log("LIVE_P1_POLICY_REASON=" + policy.reason_code);
+  console.log(
+    "LIVE_P1_LATER_ROBOT_HANDSHAKES=" +
+      Number(policy.later_robot_handshake_count || 0)
+  );
+  console.log("LIVE_P1_DURABLE_TASK_MATCH=True");
+  console.log("LIVE_P1_DURABLE_DIRECTIVE_MATCH=True");
+  console.log("LIVE_P1_DURABLE_INSTRUCTION_MATCH=True");
+  console.log(
+    "LIVE_P1_BRAIN_REQUEST_SENT=" + Boolean(registryLane.brain_request_sent)
+  );
+  console.log(
+    "LIVE_P1_AWAITING_WORK=" + Boolean(registryLane.awaiting_work)
+  );
+  console.log(
+    "LIVE_P1_ADOPTED_RECORD_PRESENT=" +
+      Boolean(registryLane.brain_directive_adopted?.directive_digest)
+  );
+} finally {
+  if (createdBrainPage && brainPage) {
+    await adapter.closePage(brainPage).catch(() => {});
+  }
+  await adapter.close().catch(() => {});
+}
+process.exit(0);

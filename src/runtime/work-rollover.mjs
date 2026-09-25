@@ -10,7 +10,15 @@ export const WORK_ROLLOVER_STAGES = Object.freeze({
 });
 
 const VALID_STAGES = new Set(Object.values(WORK_ROLLOVER_STAGES));
-const VALID_REASONS = new Set(["FULL_CONFIRMED", "NO_WORK_TARGET"]);
+export const WORK_ROLLOVER_REASONS = Object.freeze({
+  FULL_CONFIRMED: "FULL_CONFIRMED",
+  NO_WORK_TARGET: "NO_WORK_TARGET",
+  UNUSABLE_TARGET: "UNUSABLE_TARGET",
+  POSSIBLY_STALLED: "POSSIBLY_STALLED",
+  IDENTITY_FAILURE: "IDENTITY_FAILURE"
+});
+
+const VALID_REASONS = new Set(Object.values(WORK_ROLLOVER_REASONS));
 
 function nonNegativeInteger(value) {
   const number = Number(value || 0);
@@ -51,7 +59,7 @@ export function normalizeWorkRollover(value = null) {
   return {
     schema_version: WORK_ROLLOVER_SCHEMA_VERSION,
     stage: value.stage,
-    reason: VALID_REASONS.has(value.reason) ? value.reason : "FULL_CONFIRMED",
+    reason: VALID_REASONS.has(value.reason) ? value.reason : WORK_ROLLOVER_REASONS.FULL_CONFIRMED,
     task_id: taskId,
     directive_digest: directiveDigest,
     directive_instruction_digest: safeHex(value.directive_instruction_digest),
@@ -73,7 +81,7 @@ export function normalizeWorkRollover(value = null) {
 }
 
 export function beginWorkRollover({
-  reason = "FULL_CONFIRMED",
+  reason = WORK_ROLLOVER_REASONS.FULL_CONFIRMED,
   taskId,
   directiveDigest,
   directiveInstructionDigest = null,
@@ -84,7 +92,7 @@ export function beginWorkRollover({
   at = new Date().toISOString()
 } = {}) {
   const state = normalizeWorkRollover({
-    stage: reason === "FULL_CONFIRMED"
+    stage: reason === WORK_ROLLOVER_REASONS.FULL_CONFIRMED
       ? WORK_ROLLOVER_STAGES.FULL_CONFIRMED
       : WORK_ROLLOVER_STAGES.INTENT_PERSISTED,
     reason,
@@ -96,7 +104,7 @@ export function beginWorkRollover({
     old_work_target_digest: oldWorkTargetDigest,
     capacity_evidence_codes: capacityEvidenceCodes,
     created_at: at,
-    intent_persisted_at: reason === "NO_WORK_TARGET" ? at : null
+    intent_persisted_at: reason === WORK_ROLLOVER_REASONS.FULL_CONFIRMED ? null : at
   });
   if (!state) throw new Error("invalid Work rollover identity");
   return state;

@@ -116,15 +116,87 @@ function Get-OptionalPropertyValue(
 
 if ($ObservabilityProbe) {
     $configProbe = Read-JsonFile $configFile
+    $registryProbe = Read-JsonFile $registryFile
     $statusProbe = Read-JsonFile $statusFile
     $ownerStopProbe = Get-LifecycleOwnerStopState -Root $root
     $processTruthProbe = Get-LifecycleProcessTruth -Root $root
     $enabledProbe = if ($configProbe -and $configProbe.lanes) {
         @($configProbe.lanes | Where-Object { [bool]$_.enabled }).Count
     } else { 0 }
-    $schedulerProbe = Get-OptionalPropertyValue $statusProbe 'scheduler' $null
+    $schedulerProbe = if (
+        $processTruthProbe.three_lane_alive -and
+        -not $processTruthProbe.status_stale
+    ) {
+        Get-OptionalPropertyValue $statusProbe 'scheduler' $null
+    } else {
+        $null
+    }
     $resourceProbe = Get-ControlPanelResourceSummary $schedulerProbe
     $tailProbe = Read-BoundedLaneEventTail -Path $eventFile -MaxEvents 30 -MaxBytes 262144
+
+    $laneProbeRows = @()
+    foreach ($laneId in @('lane-1','lane-2','lane-3')) {
+        $cfgProbe = if ($configProbe -and $configProbe.lanes) {
+            @($configProbe.lanes | Where-Object { [string]$_.lane_id -eq $laneId } | Select-Object -First 1)[0]
+        } else { $null }
+        $regProbe = $null
+        if ($registryProbe -and $registryProbe.lanes) {
+            $regProperty = $registryProbe.lanes.PSObject.Properties[$laneId]
+            if ($regProperty) { $regProbe = $regProperty.Value }
+        }
+        $stProbe = $null
+        if (
+            $processTruthProbe.three_lane_alive -and
+            -not $processTruthProbe.status_stale -and
+            $statusProbe -and
+            $statusProbe.lanes
+        ) {
+            $stProbe = @($statusProbe.lanes | Where-Object { [string]$_.lane_id -eq $laneId } | Select-Object -First 1)[0]
+        }
+
+        $adoptedProbe = Get-OptionalPropertyValue $regProbe 'brain_directive_adopted' $null
+        $directiveStateProbe = [string](Get-OptionalPropertyValue $stProbe 'brain_directive_state' (
+            Get-OptionalPropertyValue $adoptedProbe 'action' 'NONE'
+        ))
+        if ($directiveStateProbe -notin @('NONE','IDLE','WORK','INVALID')) {
+            $directiveStateProbe = 'NONE'
+        }
+        $directiveReasonProbe = [string](Get-OptionalPropertyValue $stProbe 'brain_directive_reason_code' '')
+        if ($directiveStateProbe -ne 'INVALID') { $directiveReasonProbe = '' }
+
+        $brainHealthProbe = Get-OptionalPropertyValue $stProbe 'brain_target_health' (
+            Get-OptionalPropertyValue $regProbe 'brain_target_health' $null
+        )
+        $workHealthProbe = Get-OptionalPropertyValue $stProbe 'work_target_health' (
+            Get-OptionalPropertyValue $regProbe 'work_target_health' $null
+        )
+
+        $laneProbeRows += [pscustomobject]@{
+            lane_id = $laneId
+            enabled = [bool](Get-OptionalPropertyValue $cfgProbe 'enabled' $false)
+            brain_health = [string](Get-OptionalPropertyValue $brainHealthProbe 'state' 'UNKNOWN')
+            brain_health_reason_code = [string](Get-OptionalPropertyValue $brainHealthProbe 'reason_code' 'NONE')
+            brain_directive = $directiveStateProbe
+            brain_directive_reason_code = $directiveReasonProbe
+            active_task = [string](Get-OptionalPropertyValue $stProbe 'task_id' (
+                Get-OptionalPropertyValue $regProbe 'task_id' ''
+            ))
+            work_target_mode = ([string](Get-OptionalPropertyValue $stProbe 'work_mode' (
+                Get-OptionalPropertyValue $cfgProbe 'work_mode' 'AUTO'
+            ))).ToUpperInvariant()
+            work_target_health = [string](Get-OptionalPropertyValue $workHealthProbe 'state' 'UNKNOWN')
+            work_target_health_reason_code = [string](Get-OptionalPropertyValue $workHealthProbe 'reason_code' 'NONE')
+            work_reset_requested_revision = [int](Get-OptionalPropertyValue $stProbe 'work_reset_requested_revision' (
+                Get-OptionalPropertyValue $cfgProbe 'work_state_reset_revision' 0
+            ))
+            work_reset_applied_revision = [int](Get-OptionalPropertyValue $stProbe 'work_reset_applied_revision' (
+                Get-OptionalPropertyValue $regProbe 'applied_work_state_reset_revision' 0
+            ))
+            work_generation = [int](Get-OptionalPropertyValue $stProbe 'work_generation' (
+                Get-OptionalPropertyValue $regProbe 'work_generation' 0
+            ))
+        }
+    }
 
     [pscustomobject]@{
         schema_version = 'control-panel-observability-probe.v1'
@@ -133,10 +205,18 @@ if ($ObservabilityProbe) {
         three_lane_alive = [bool]$processTruthProbe.three_lane_alive
         chrome_alive = [bool]$processTruthProbe.chrome_alive
         cdp_healthy = [bool]$processTruthProbe.cdp_healthy
+        node_down = [bool]$processTruthProbe.node_down
+        status_stale = [bool]$processTruthProbe.status_stale
+        status_age_seconds = $processTruthProbe.status_age_seconds
+        runtime_state = [string]$processTruthProbe.runtime_state
         runtime_version = [string](Get-OptionalPropertyValue $statusProbe 'supervisor_runtime_version' '')
         enabled_lane_count = [int]$enabledProbe
+        chatgpt_page_count = if ($schedulerProbe -and $schedulerProbe.PSObject.Properties['resident_chatgpt_pages']) {
+            [int]$schedulerProbe.resident_chatgpt_pages
+        } else { $null }
         page_summary = [string]$resourceProbe.page_text
         mutation_lease = [string]$resourceProbe.mutation_text
+        lanes = $laneProbeRows
         timeline_event_count = @($tailProbe.events).Count
         timeline_bytes_read = [int]$tailProbe.bytes_read
         timeline_file_length = [long]$tailProbe.file_length
@@ -162,9 +242,9 @@ function New-DefaultConfig {
         schema_version = 'three-lane-config.v1'
         mode = 'THREE_LANE_V1'
         lanes = @(
-            [ordered]@{ lane_id='lane-1'; project_name='Dự án 1'; brain_url=''; brain_url_revision=0; work_url=''; work_url_revision=0; work_url_saved_at=$null; work_mode='AUTO'; relay_retry_rearm_revision=0; relay_retry_rearm_requested_at=$null; enabled=$false },
-            [ordered]@{ lane_id='lane-2'; project_name='Dự án 2'; brain_url=''; brain_url_revision=0; work_url=''; work_url_revision=0; work_url_saved_at=$null; work_mode='AUTO'; relay_retry_rearm_revision=0; relay_retry_rearm_requested_at=$null; enabled=$false },
-            [ordered]@{ lane_id='lane-3'; project_name='Dự án 3'; brain_url=''; brain_url_revision=0; work_url=''; work_url_revision=0; work_url_saved_at=$null; work_mode='AUTO'; relay_retry_rearm_revision=0; relay_retry_rearm_requested_at=$null; enabled=$false }
+            [ordered]@{ lane_id='lane-1'; project_name='Dự án 1'; brain_url=''; brain_url_revision=0; work_url=''; work_url_revision=0; work_url_saved_at=$null; work_mode='AUTO'; work_state_reset_revision=0; relay_retry_rearm_revision=0; relay_retry_rearm_requested_at=$null; enabled=$false },
+            [ordered]@{ lane_id='lane-2'; project_name='Dự án 2'; brain_url=''; brain_url_revision=0; work_url=''; work_url_revision=0; work_url_saved_at=$null; work_mode='AUTO'; work_state_reset_revision=0; relay_retry_rearm_revision=0; relay_retry_rearm_requested_at=$null; enabled=$false },
+            [ordered]@{ lane_id='lane-3'; project_name='Dự án 3'; brain_url=''; brain_url_revision=0; work_url=''; work_url_revision=0; work_url_saved_at=$null; work_mode='AUTO'; work_state_reset_revision=0; relay_retry_rearm_revision=0; relay_retry_rearm_requested_at=$null; enabled=$false }
         )
     }
 }
@@ -315,6 +395,8 @@ function Get-StatusBackColor([string]$Status) {
         'READY' { return [Drawing.Color]::FromArgb(220,252,231) }
         'WAITING_BRAIN' { return [Drawing.Color]::FromArgb(254,249,195) }
         'RECOVERING' { return [Drawing.Color]::FromArgb(254,249,195) }
+        'NODE_DOWN' { return [Drawing.Color]::FromArgb(254,226,226) }
+        'STATUS_STALE' { return [Drawing.Color]::FromArgb(255,237,213) }
         'WAIT_OWNER' { return [Drawing.Color]::FromArgb(255,237,213) }
         'ERROR' { return [Drawing.Color]::FromArgb(254,226,226) }
         'NEED_BRAIN_URL' { return [Drawing.Color]::FromArgb(255,237,213) }
@@ -416,6 +498,24 @@ function Save-WorkTarget(
         Revision = [int]$lane.work_url_revision
         SavedAt = [string]$lane.work_url_saved_at
         Mode = $newMode
+    }
+}
+
+function Request-OwnerWorkStateReset([string]$LaneId) {
+    $config = Ensure-Config
+    $lane = Get-LaneConfig $config $LaneId
+    if (-not $lane) { throw "Không tìm thấy $LaneId" }
+
+    if (-not $lane.PSObject.Properties['work_state_reset_revision']) {
+        $lane | Add-Member -NotePropertyName 'work_state_reset_revision' -NotePropertyValue 0
+    }
+
+    $lane.work_state_reset_revision = [int]$lane.work_state_reset_revision + 1
+    Write-JsonAtomic $configFile $config
+
+    return [pscustomobject]@{
+        Revision = [int]$lane.work_state_reset_revision
+        LaneId = $LaneId
     }
 }
 
@@ -714,6 +814,15 @@ for ($i = 0; $i -lt 3; $i++) {
     $retryRelayButton.Visible = $false
     $panel.Controls.Add($retryRelayButton)
 
+    $abandonTaskButton = New-Object Windows.Forms.Button
+    $abandonTaskButton.Text = 'BỎ TASK CŨ'
+    $abandonTaskButton.Location = New-Object Drawing.Point(775, 220)
+    $abandonTaskButton.Size = New-Object Drawing.Size(110, 72)
+    $abandonTaskButton.BackColor = [Drawing.Color]::FromArgb(254,226,226)
+    $abandonTaskButton.ForeColor = [Drawing.Color]::FromArgb(153,27,27)
+    $abandonTaskButton.Enabled = $true
+    $panel.Controls.Add($abandonTaskButton)
+
     $startButton = New-Object Windows.Forms.Button
     $startButton.Text = '▶  BẮT ĐẦU LUỒNG'
     $startButton.Location = New-Object Drawing.Point(900, 220)
@@ -744,6 +853,7 @@ for ($i = 0; $i -lt 3; $i++) {
         SaveWork = $saveWork
         ResetWork = $resetWork
         RetryRelay = $retryRelayButton
+        AbandonTask = $abandonTaskButton
     }
 
     $currentLaneId = $laneId
@@ -856,6 +966,53 @@ for ($i = 0; $i -lt 3; $i++) {
     })
     $resetWork.Tag = $currentLaneId
 
+    $abandonTaskButton.Add_Click({
+        $id = [string]$this.Tag
+        $laneNumber = $id -replace '^lane-',''
+
+        $first = [Windows.Forms.MessageBox]::Show(
+            (
+                "RESET WORK STATE / BỎ TASK CŨ cho LUỒNG $laneNumber?" +
+                [Environment]::NewLine + [Environment]::NewLine +
+                "Chỉ dùng khi Owner chủ động bỏ execution state cũ/obsolete." +
+                [Environment]::NewLine +
+                "Brain URL và Work URL hiện tại sẽ được giữ nguyên."
+            ),
+            'XÁC NHẬN BẢO TRÌ 1/2',
+            'YesNo',
+            'Warning'
+        )
+        if ($first -ne [Windows.Forms.DialogResult]::Yes) { return }
+
+        $second = [Windows.Forms.MessageBox]::Show(
+            (
+                "XÁC NHẬN LẦN 2: BỎ TASK CŨ của LUỒNG $laneNumber." +
+                [Environment]::NewLine + [Environment]::NewLine +
+                "Runtime sẽ clear task/latches/watchdog/rollover cũ và tăng work_generation." +
+                [Environment]::NewLine +
+                "Đây KHÔNG phải Work rollover bình thường và không thể hoàn tác execution state cũ."
+            ),
+            'XÁC NHẬN BẢO TRÌ 2/2',
+            'YesNo',
+            'Warning'
+        )
+        if ($second -ne [Windows.Forms.DialogResult]::Yes) { return }
+
+        $requested = Request-OwnerWorkStateReset $id
+        [Windows.Forms.MessageBox]::Show(
+            (
+                'ĐÃ YÊU CẦU BỎ TASK CŨ — revision ' + $requested.Revision +
+                '. UI chỉ lưu intent; runtime sẽ áp dụng durable reset ở vòng xử lý kế tiếp.' +
+                ' Brain/Work URL không đổi.'
+            ),
+            'MAGASIN BUSINESS OS',
+            'OK',
+            'Information'
+        ) | Out-Null
+        $this.Enabled = $false
+    })
+    $abandonTaskButton.Tag = $currentLaneId
+
     $retryRelayButton.Add_Click({
         $id = $this.Tag
         $requested = Request-RelayRetryRearm $id
@@ -966,6 +1123,10 @@ function Refresh-Ui {
         'ALL_DISABLED'
     } elseif ($ownerStop.blocked) {
         'OWNER_STOP'
+    } elseif ($processTruth.node_down) {
+        'NODE_DOWN'
+    } elseif ($processTruth.status_stale) {
+        'STATUS_STALE'
     } elseif ($processTruth.healthy) {
         'HEALTHY'
     } elseif (-not $processTruth.wrapper_alive) {
@@ -991,6 +1152,14 @@ function Refresh-Ui {
             $runtimeLabel.Text = 'ROBOT NỀN: ĐANG KHỞI ĐỘNG'
             $runtimeLabel.ForeColor = [Drawing.Color]::FromArgb(161,98,7)
         }
+        'NODE_DOWN' {
+            $runtimeLabel.Text = 'ROBOT NỀN: NODE_DOWN — WRAPPER ĐANG TỰ KHỞI ĐỘNG LẠI THREE-LANE'
+            $runtimeLabel.ForeColor = [Drawing.Color]::FromArgb(185,28,28)
+        }
+        'STATUS_STALE' {
+            $runtimeLabel.Text = 'ROBOT NỀN: STATUS_STALE — SNAPSHOT CŨ, ĐANG TỰ KHÔI PHỤC'
+            $runtimeLabel.ForeColor = [Drawing.Color]::FromArgb(194,65,12)
+        }
         default {
             $runtimeLabel.Text = 'ROBOT NỀN: ĐANG TỰ KHÔI PHỤC'
             $runtimeLabel.ForeColor = [Drawing.Color]::FromArgb(161,98,7)
@@ -1000,15 +1169,28 @@ function Refresh-Ui {
     $runtimeStartButton.Enabled = [bool]($enabledLaneCount -gt 0 -and $ownerStop.blocked)
 
     $runtimeVersion = [string](Get-OptionalPropertyValue $status 'supervisor_runtime_version' '—')
-    $schedulerSnapshot = Get-OptionalPropertyValue $status 'scheduler' $null
+    $statusSnapshotUsable = [bool](
+        $processTruth.three_lane_alive -and
+        -not $processTruth.status_stale
+    )
+    $schedulerSnapshot = if ($statusSnapshotUsable) {
+        Get-OptionalPropertyValue $status 'scheduler' $null
+    } else {
+        $null
+    }
     $wrapperFlag = Format-ProcessFlag ([bool]$processTruth.wrapper_alive)
     $threeLaneFlag = Format-ProcessFlag ([bool]$processTruth.three_lane_alive)
     $chromeFlag = Format-ProcessFlag ([bool]$processTruth.chrome_alive)
     $cdpFlag = Format-ProcessFlag ([bool]$processTruth.cdp_healthy)
+    $statusAgeText = if ($null -ne $processTruth.status_age_seconds) {
+        Format-ControlPanelDuration ([long]$processTruth.status_age_seconds * 1000)
+    } else {
+        '—'
+    }
 
     $resourceSummary = Get-ControlPanelResourceSummary $schedulerSnapshot
     $resourceLine2 =
-        'TRANG CHATGPT: ' + [string]$resourceSummary.page_text +
+        'CHATGPT PAGE COUNT: ' + [string]$resourceSummary.page_text +
         ' · MUTATION: ' + [string]$resourceSummary.mutation_text +
         ' · MUT ' + [string]$resourceSummary.active_mutation +
         ' · OBS ' + [string]$resourceSummary.active_observation +
@@ -1020,6 +1202,7 @@ function Refresh-Ui {
         ' · THREE-LANE ' + $threeLaneFlag +
         ' · CHROME ' + $chromeFlag +
         ' · CDP ' + $cdpFlag +
+        ' · STATUS AGE ' + $statusAgeText +
         ' · v' + $runtimeVersion +
         ' · LUỒNG ' + [string]$enabledLaneCount +
         [Environment]::NewLine +
@@ -1033,7 +1216,7 @@ function Refresh-Ui {
             $reg = $registry.lanes.$laneId
         }
         $st = $null
-        if ($status -and $status.lanes) {
+        if ($statusSnapshotUsable -and $status -and $status.lanes) {
             $st = @($status.lanes | Where-Object { [string]$_.lane_id -eq $laneId } | Select-Object -First 1)[0]
         }
 
@@ -1116,6 +1299,10 @@ function Refresh-Ui {
             } elseif (-not $processTruth.healthy) {
                 $message = if ($processState -eq 'STARTING') {
                     'Đang khởi động Robot nền; lane status cũ chỉ là recovery state.'
+                } elseif ($processState -eq 'NODE_DOWN') {
+                    'NODE_DOWN — wrapper vẫn sống nhưng Three-Lane Node đã mất; đang tự relaunch Node, không dùng lane snapshot cũ.'
+                } elseif ($processState -eq 'STATUS_STALE') {
+                    'STATUS_STALE — lane-status đã quá hạn; snapshot cũ bị loại khỏi UI và wrapper đang tự khôi phục Node.'
                 } else {
                     'Đang tự khôi phục Supervisor / Three-Lane / Chrome / CDP trước khi tiếp tục task.'
                 }
@@ -1170,11 +1357,11 @@ function Refresh-Ui {
         ))
 
         $ui.Execution.Text =
-            'TASK: ' + $taskId +
+            'ACTIVE TASK: ' + $taskId +
             ' · PHA: ' + $phase +
             ' · THỜI GIAN: ' + $elapsed +
             ' · HOẠT ĐỘNG CUỐI: ' + $lastActivityAge +
-            ' · GEN ' + [string]$workGeneration
+            ' · WORK GENERATION: ' + [string]$workGeneration
 
         $brainHealth = Get-OptionalPropertyValue $st 'brain_target_health' (
             Get-OptionalPropertyValue $reg 'brain_target_health' $null
@@ -1182,6 +1369,21 @@ function Refresh-Ui {
         $workHealth = Get-OptionalPropertyValue $st 'work_target_health' (
             Get-OptionalPropertyValue $reg 'work_target_health' $null
         )
+        $brainDirectiveState = [string](Get-OptionalPropertyValue $st 'brain_directive_state' '')
+        if (-not $brainDirectiveState) {
+            $brainDirectiveState = [string](Get-OptionalPropertyValue (
+                Get-OptionalPropertyValue $reg 'brain_directive_adopted' $null
+            ) 'action' 'NONE')
+        }
+        if ($brainDirectiveState -notin @('NONE','IDLE','WORK','INVALID')) {
+            $brainDirectiveState = 'NONE'
+        }
+        $brainDirectiveReason = [string](Get-OptionalPropertyValue $st 'brain_directive_reason_code' '')
+        $brainDirectiveText = 'BRAIN DIRECTIVE: ' + $brainDirectiveState
+        if ($brainDirectiveState -eq 'INVALID' -and $brainDirectiveReason) {
+            $brainDirectiveText += ' (' + $brainDirectiveReason + ')'
+        }
+
         $watchdogPhase = [string](Get-OptionalPropertyValue $st 'watchdog_phase' '')
         if (-not $watchdogPhase -or $watchdogPhase -eq 'IDLE') {
             $watchdogPhase = '—'
@@ -1193,9 +1395,11 @@ function Refresh-Ui {
             $healthLine2 += ' · ' + $rolloverText
         }
         $ui.Health.Text =
-            (Get-ControlPanelTargetHealthText $brainHealth 'BRAIN') +
+            (Get-ControlPanelTargetHealthText $brainHealth 'BRAIN HEALTH') +
             ' · ' +
-            (Get-ControlPanelTargetHealthText $workHealth 'WORK') +
+            $brainDirectiveText +
+            ' · ' +
+            (Get-ControlPanelTargetHealthText $workHealth 'WORK TARGET HEALTH') +
             [Environment]::NewLine +
             $healthLine2
 
@@ -1213,6 +1417,13 @@ function Refresh-Ui {
         ))
         if (-not $configuredMode) { $configuredMode = 'AUTO' }
         $configuredMode = $configuredMode.ToUpperInvariant()
+
+        $workResetRequested = [int](Get-OptionalPropertyValue $st 'work_reset_requested_revision' (
+            Get-OptionalPropertyValue $cfg 'work_state_reset_revision' 0
+        ))
+        $workResetApplied = [int](Get-OptionalPropertyValue $st 'work_reset_applied_revision' (
+            Get-OptionalPropertyValue $reg 'applied_work_state_reset_revision' 0
+        ))
 
         $workApplyState = if ($configuredRevision -gt 0 -and $pendingRevision -ge $configuredRevision) {
             'ĐANG CHỜ ÁP DỤNG'
@@ -1233,7 +1444,9 @@ function Refresh-Ui {
             '—'
         }
         $ui.Updated.Text =
-            'WORK ' + $configuredMode +
+            'WORK TARGET MODE: ' + $configuredMode +
+            ' · WORK RESET requested r' + [string]$workResetRequested +
+            ' / applied r' + [string]$workResetApplied +
             ' · cấu hình r' + [string]$configuredRevision +
             ' · áp dụng r' + [string]$appliedRevision +
             ' · pending r' + [string]$pendingRevision +
@@ -1243,6 +1456,7 @@ function Refresh-Ui {
         $ui.OpenBrain.Enabled = Test-ChatConversationUrl $ui.Brain.Text
         $ui.OpenWork.Enabled = Test-ChatConversationUrl $ui.Work.Text
         $ui.ResetWork.Enabled = $true
+        $ui.AbandonTask.Enabled = [bool]($workResetRequested -le $workResetApplied)
     }
 
     Refresh-Timeline
