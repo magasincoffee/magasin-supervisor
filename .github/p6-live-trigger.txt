@@ -8,4 +8,5 @@ verify_exact_once=true
 verify_lane_isolation=true
 verify_targets_unchanged=true
 execute_mode=true
-attempt=3
+canonical_temp_localappdata=true
+attempt=4
