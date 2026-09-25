@@ -2825,7 +2825,10 @@ async function dispatchWork({
       : "LANE_WORK_DISPATCHED",
     laneId: lane.lane_id,
     taskId: directive.task_id,
-    digest: instructionDigest
+    digest: instructionDigest,
+    dispatchId,
+    generation: Number(registryLane.work_generation || 0),
+    workUrlRevision: Number(registryLane.applied_work_url_revision || 0)
   });
 }
 
@@ -3221,7 +3224,9 @@ async function relayWorkResult({
     laneId: lane.lane_id,
     taskId: registryLane.task_id,
     relayId: relay.relay_id,
-    digest: relay.response_digest
+    digest: relay.response_digest,
+    generation: Number(registryLane.work_generation || 0),
+    workUrlRevision: Number(registryLane.applied_work_url_revision || 0)
   });
   return "CONFIRMED";
 }
