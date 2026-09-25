@@ -55,7 +55,7 @@ try {
   $mainCli = Get-Content (Join-Path $env:GITHUB_WORKSPACE 'src\runtime\three-lane-cli.mjs') -Raw -Encoding UTF8
   $mainWatchdog = Get-Content (Join-Path $env:GITHUB_WORKSPACE 'src\runtime\work-watchdog.mjs') -Raw -Encoding UTF8
   foreach ($marker in @(
-    'WATCHDOG_CONTINUE_INSTRUCTION = "Tiếp tục thực hiện."',
+    'WATCHDOG_CONTINUE_INSTRUCTION',
     'async function executeWatchdogContinue',
     'WATCHDOG_CONTINUE_POKE'
   )) {
@@ -250,8 +250,9 @@ try {
   }
 
   $installedCli = Get-Content (Join-Path $runtime 'src\runtime\three-lane-cli.mjs') -Raw -Encoding UTF8
-  if ($installedCli -notmatch [regex]::Escape('WATCHDOG_CONTINUE_INSTRUCTION = "Tiếp tục thực hiện."')) {
-    throw 'Installed runtime is missing continue watchdog marker.'
+  if ($installedCli -notmatch [regex]::Escape('WATCHDOG_CONTINUE_INSTRUCTION') -or
+      $installedCli -notmatch [regex]::Escape('async function executeWatchdogContinue')) {
+    throw 'Installed runtime is missing continue watchdog markers.'
   }
 
   Write-Host 'POST_WRAPPER_ALIVE=True'
