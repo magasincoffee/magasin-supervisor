@@ -97,3 +97,71 @@ jobs:
           Write-Host "DIAG_HKCU_RUN_END"
 
           Write-Host "DIAG_DONE=PASS"
+
+
+      - name: Inspect live Control Panel UI tree
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+
+          $cim = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and $_.CommandLine -like "*control-panel.ps1*" } |
+            Sort-Object ProcessId |
+            Select-Object -First 1
+
+          if (-not $cim) {
+            Write-Host "UI_DIAG_PROCESS=NONE"
+            exit 2
+          }
+
+          $proc = Get-Process -Id ([int]$cim.ProcessId) -ErrorAction Stop
+          Write-Host "UI_DIAG_PID=$($proc.Id)"
+          Write-Host "UI_DIAG_MAIN_WINDOW_TITLE=$($proc.MainWindowTitle)"
+          Write-Host "UI_DIAG_MAIN_WINDOW_HANDLE=$($proc.MainWindowHandle)"
+
+          if ($proc.MainWindowHandle -eq 0) {
+            Write-Host "UI_DIAG_WINDOW_HANDLE_ZERO=True"
+            exit 3
+          }
+
+          $root = [System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
+          if (-not $root) {
+            Write-Host "UI_DIAG_AUTOMATION_ROOT=False"
+            exit 4
+          }
+          Write-Host "UI_DIAG_AUTOMATION_ROOT=True"
+
+          $condition = [System.Windows.Automation.Condition]::TrueCondition
+          $nodes = $root.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            $condition
+          )
+
+          $resetFound = $false
+          $resetReadyFound = $false
+          for ($i = 0; $i -lt $nodes.Count; $i++) {
+            $el = $nodes.Item($i)
+            $name = [string]$el.Current.Name
+            $type = [string]$el.Current.ControlType.ProgrammaticName
+            if ($name -match "RESET READY") {
+              $resetReadyFound = $true
+              Write-Host "UI_DIAG_RESET_READY_ELEMENT=True"
+            }
+            if ($name -match "LÀM SẠCH TẤT CẢ DỰ ÁN") {
+              $resetFound = $true
+              $rect = $el.Current.BoundingRectangle
+              Write-Host "UI_DIAG_RESET_BUTTON=True"
+              Write-Host "UI_DIAG_RESET_BUTTON_NAME=$name"
+              Write-Host "UI_DIAG_RESET_BUTTON_TYPE=$type"
+              Write-Host "UI_DIAG_RESET_BUTTON_RECT=$($rect.X),$($rect.Y),$($rect.Width),$($rect.Height)"
+              Write-Host "UI_DIAG_RESET_BUTTON_OFFSCREEN=$($el.Current.IsOffscreen)"
+              Write-Host "UI_DIAG_RESET_BUTTON_ENABLED=$($el.Current.IsEnabled)"
+            }
+          }
+
+          Write-Host "UI_DIAG_RESET_READY_FOUND=$resetReadyFound"
+          Write-Host "UI_DIAG_RESET_FOUND=$resetFound"
+          if (-not $resetFound) { exit 5 }
+          Write-Host "UI_DIAG=PASS"
