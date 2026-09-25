@@ -1,0 +1,129 @@
+name: Supervisor Owner Reset Hotfix Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/supervisor-owner-reset-hotfix-deploy.yml
+
+concurrency:
+  group: supervisor-owner-reset-hotfix-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-owner-reset-hotfix:
+    if: ${{ contains(github.event.head_commit.message, 'deploy(supervisor): owner reset hotfix') }}
+    runs-on: self-hosted
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact main hotfix
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Verify reset and runner hotfix contracts
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          node --test test/reset-all-projects.test.mjs test/autostart-recovery.test.mjs
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command @'
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "windows\reset-all-projects.ps1").Path,
+            [ref]$null,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
+          '@
+          if ($LASTEXITCODE -ne 0) { throw "Hotfix contract preflight failed" }
+
+      - name: Put current production runtime in Owner STOP
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "windows\stop-supervisor.ps1"
+          if ($LASTEXITCODE -ne 0) { throw "Supervisor STOP failed" }
+          Write-Host "OWNER_RESET_DEPLOY_OWNER_STOP=True"
+
+      - name: Install merged hotfix runtime without clearing project state
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "windows\install-supervisor.ps1"
+          if ($LASTEXITCODE -ne 0) { throw "Supervisor hotfix install failed" }
+
+          . ".\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
+          $installedPanel = Join-Path $root "runtime\windows\control-panel.ps1"
+          $installedReset = Join-Path $root "runtime\windows\reset-all-projects.ps1"
+          $installedResetCli = Join-Path $root "runtime\src\runtime\reset-all-projects-cli.mjs"
+          $installedAutostart = Join-Path $root "runtime\windows\autostart-bootstrap.ps1"
+
+          foreach ($path in @($installedPanel, $installedReset, $installedResetCli, $installedAutostart)) {
+            if (-not (Test-Path $path)) { throw "Installed hotfix file missing: $path" }
+          }
+
+          $panelSource = Get-Content $installedPanel -Raw -Encoding UTF8
+          if ($panelSource -notmatch "LÀM SẠCH TẤT CẢ DỰ ÁN") {
+            throw "Installed Control Panel does not contain reset-all control"
+          }
+
+          $autostartSource = Get-Content $installedAutostart -Raw -Encoding UTF8
+          if ($autostartSource -notmatch "actions-runner-magasin-supervisor") {
+            throw "Installed autostart runner fallback is missing"
+          }
+
+          $configFile = Join-Path $root "lanes.json"
+          $registryFile = Join-Path $root "lane-registry.json"
+          if (-not (Test-Path $configFile) -or -not (Test-Path $registryFile)) {
+            throw "Install unexpectedly removed production project state"
+          }
+
+          $stopLatch = Join-Path $root "STOP"
+          $autostartDisabled = Join-Path $root "AUTOSTART_DISABLED"
+          if (-not (Test-Path $stopLatch) -or -not (Test-Path $autostartDisabled)) {
+            throw "Owner STOP was not preserved through hotfix install"
+          }
+
+          Write-Host "OWNER_RESET_DEPLOY_RUNTIME_INSTALLED=True"
+          Write-Host "OWNER_RESET_DEPLOY_PROJECT_STATE_NOT_RESET=True"
+          Write-Host "OWNER_RESET_DEPLOY_OWNER_STOP_PRESERVED=True"
+
+      - name: Open new Control Panel only
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          . ".\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
+          $panel = Join-Path $root "runtime\windows\control-panel.ps1"
+
+          $env:RUNNER_TRACKING_ID = "MAGASIN_CONTROL_PANEL_PERSISTENT"
+          Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
+            "-NoLogo","-NoProfile","-ExecutionPolicy","Bypass",
+            "-File",('"' + $panel + '"')
+          )
+
+          $visible = $false
+          for ($i = 0; $i -lt 20; $i++) {
+            Start-Sleep -Milliseconds 500
+            $proc = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.CommandLine -and $_.CommandLine -like "*control-panel.ps1*" } |
+              Select-Object -First 1
+            if ($proc) {
+              $visible = $true
+              break
+            }
+          }
+
+          if (-not $visible) { throw "New Control Panel process did not start" }
+
+          Write-Host "OWNER_RESET_DEPLOY_CONTROL_PANEL_STARTED=True"
+          Write-Host "OWNER_RESET_DEPLOY_SUPERVISOR_REMAINS_STOPPED=True"
+          Write-Host "OWNER_RESET_HOTFIX_DEPLOY=PASS"
