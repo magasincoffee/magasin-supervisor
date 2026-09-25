@@ -11,11 +11,18 @@ Write-Host "TARGET_MATCH=True"
 $root = Get-SupervisorStateRoot -Compatibility "legacy-preserve"
 $sourcePanel = (Resolve-Path (Join-Path $PSScriptRoot "..\..\windows\control-panel.ps1")).Path
 $targetPanel = Join-Path $root "runtime\windows\control-panel.ps1"
+$sourceRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$installScript = Join-Path $sourceRoot "windows\install-supervisor.ps1"
 $desktop = [Environment]::GetFolderPath("Desktop")
 $shortcutDisplayName = 'MAGASIN SUPERVISOR ' + [char]0x2014 + ' CONTROL CENTER.lnk'
 $shortcutPath = Join-Path $desktop $shortcutDisplayName
 $oldShortcutPath = Join-Path $desktop 'MAGASIN BUSINESS OS CONTROL.lnk'
-if (-not (Test-Path $targetPanel)) { throw "Installed Control Panel missing" }
+if (-not (Test-Path $targetPanel)) {
+  Write-Host "TARGET_PANEL_MISSING_REPAIR=True"
+  & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installScript -SourceRoot $sourceRoot
+  if ($LASTEXITCODE -ne 0) { throw "Installed Control Panel repair failed" }
+}
+if (-not (Test-Path $targetPanel)) { throw "Installed Control Panel missing after repair" }
 
 $source = Get-Content $sourcePanel -Raw -Encoding UTF8
 foreach ($marker in @("CONTROL PANEL V2","heroPanel","overviewPanel","resetAllButton","Drawing.Point(840, 18)","Drawing.Size(315, 40)","reportInfoLabel","relayScreenshotPath")) {

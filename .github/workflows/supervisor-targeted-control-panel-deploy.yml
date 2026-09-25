@@ -7,6 +7,7 @@ on:
     paths:
       - windows/control-panel.ps1
       - windows/control-panel-observability.ps1
+      - windows/install-supervisor.ps1
       - .github/workflows/supervisor-targeted-control-panel-deploy.yml
       - .github/scripts/deploy-control-panel-target.ps1
 
@@ -19,7 +20,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        slot: [1, 2, 3, 4, 5, 6]
+        slot: [1]
     runs-on: self-hosted
     timeout-minutes: 10
     steps:

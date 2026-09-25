@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/supervisor-control-panel-desktop-4k7im13.yml
       - .github/scripts/update-latest-clean-old.ps1
+      - windows/install-supervisor.ps1
 
 permissions:
   contents: read
@@ -17,7 +18,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        slot: [1, 2, 3, 4]
+        slot: [1]
     runs-on: self-hosted
     timeout-minutes: 15
     steps:

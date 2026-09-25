@@ -62,6 +62,7 @@ Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
 # Installation is process replacement, not an Owner START. Preserve STOP/AUTOSTART_DISABLED exactly as found.
 if ($ownerStopWasPresent) { Write-Host 'OWNER_STOP_PRESERVED_DURING_INSTALL=True' }
 
+$runtimeOverlayFallback = $false
 if (Test-Path $runtime) {
     $removed = $false
     for ($i = 0; $i -lt 8; $i++) {
@@ -70,12 +71,18 @@ if (Test-Path $runtime) {
             $removed = $true
             break
         } catch {
-            if ($i -ge 7) { throw }
+            if ($i -ge 7) {
+                # Some Windows processes can keep the runtime directory itself
+                # locked as a working directory even after the Supervisor and
+                # Control Panel are stopped. Do not leave the installation
+                # half-deleted: fall back to an in-place overlay repair.
+                $runtimeOverlayFallback = $true
+                Write-Host "RUNTIME_REMOVE_LOCKED=True"
+                Write-Host "RUNTIME_OVERLAY_REPAIR=True"
+                break
+            }
             Start-Sleep -Milliseconds 750
         }
-    }
-    if (-not $removed -and (Test-Path $runtime)) {
-        throw "Could not replace Supervisor runtime after bounded retries."
     }
 }
 
@@ -84,6 +91,9 @@ New-Item -ItemType Directory -Force -Path $runtime | Out-Null
 Copy-Item (Join-Path $SourceRoot 'src') (Join-Path $runtime 'src') -Recurse -Force
 Copy-Item (Join-Path $SourceRoot 'windows') (Join-Path $runtime 'windows') -Recurse -Force
 Copy-Item (Join-Path $SourceRoot 'package.json') (Join-Path $runtime 'package.json') -Force
+if ($runtimeOverlayFallback) {
+    Write-Host "RUNTIME_OVERLAY_SOURCE_REFRESH=PASS"
+}
 
 Push-Location $runtime
 try {
