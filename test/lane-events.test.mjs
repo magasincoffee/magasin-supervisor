@@ -450,7 +450,7 @@ test("runtime source integrates events only at durable exact-once boundaries", a
     new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
     "utf8"
   );
-  assert.match(source, /SUPERVISOR_RUNTIME_VERSION = "2026-09-25\.61"/);
+  assert.match(source, /SUPERVISOR_RUNTIME_VERSION = "2026-09-20\.60"/);
   assert.match(source, /beginTaskAssignment/);
   assert.match(source, /finalizeConfirmedDispatch/);
   assert.match(source, /WORK_DISPATCH_CONFIRMED/);
