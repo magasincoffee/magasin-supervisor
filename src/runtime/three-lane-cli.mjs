@@ -531,6 +531,24 @@ async function waitForConversationUrl(page) {
   return `${target.origin}${target.pathname}`;
 }
 
+function brainDirectiveInvalidReason(error) {
+  const message = String(error?.message || error || "");
+  if (message.includes("missing MAGASIN_LANE_DIRECTIVE_V1 block")) {
+    return "MISSING_DIRECTIVE_BLOCK";
+  }
+  if (
+    error instanceof SyntaxError ||
+    message.includes("JSON") ||
+    message.includes("Unexpected token")
+  ) {
+    return "INVALID_DIRECTIVE_JSON";
+  }
+  if (message.includes("unsupported lane directive action")) {
+    return "UNSUPPORTED_DIRECTIVE_ACTION";
+  }
+  return "INVALID_DIRECTIVE_SCHEMA";
+}
+
 function laneStatus(configLane, registryLane, status, message, extra = {}) {
   const updatedAt = new Date().toISOString();
   const projection = projectLaneOperationalStatus(
@@ -4947,7 +4965,10 @@ async function processLaneTurn({
       "WAITING_BRAIN",
       directive
         ? "Đã nhận Brain directive; dispatch được tách sang bounded turn kế tiếp."
-        : "Đang chờ Bộ não giao công việc đầu tiên."
+        : "Đang chờ Bộ não giao công việc đầu tiên.",
+      directive
+        ? { brain_directive_state: directive.action }
+        : { brain_directive_state: "NONE" }
     );
   }
 
@@ -4979,12 +5000,16 @@ async function processLaneTurn({
 
     try {
       directive = parseLaneDirective(captured.text);
-    } catch {
+    } catch (error) {
       return laneStatus(
         lane,
         registryLane,
         "WAITING_BRAIN",
-        "Bộ não chưa trả block MAGASIN_LANE_DIRECTIVE_V1 hợp lệ."
+        "Bộ não chưa trả block MAGASIN_LANE_DIRECTIVE_V1 hợp lệ.",
+        {
+          brain_directive_state: "INVALID",
+          brain_directive_reason_code: brainDirectiveInvalidReason(error)
+        }
       );
     }
   }
@@ -5004,7 +5029,8 @@ async function processLaneTurn({
       directive.action === "IDLE" ? "READY" : "WAITING_BRAIN",
       directive.action === "IDLE"
         ? "Bộ não chưa có công việc mới."
-        : "Đang chờ trạng thái Work thay đổi."
+        : "Đang chờ trạng thái Work thay đổi.",
+      { brain_directive_state: directive.action }
     );
   }
 
@@ -5017,7 +5043,8 @@ async function processLaneTurn({
       lane,
       registryLane,
       "READY",
-      "Bộ não chưa có công việc mới."
+      "Bộ não chưa có công việc mới.",
+      { brain_directive_state: "IDLE" }
     );
   }
 
@@ -5041,7 +5068,8 @@ async function processLaneTurn({
     registryLane.awaiting_work ? "WORKING" : "STARTING",
     registryLane.awaiting_work
       ? `Đang thực hiện ${registryLane.task_id}; mutation lease đã release tại durable boundary.`
-      : "Đã thực hiện một dispatch attempt; lane yield scheduler."
+      : "Đã thực hiện một dispatch attempt; lane yield scheduler.",
+    { brain_directive_state: "WORK" }
   );
 }
 
