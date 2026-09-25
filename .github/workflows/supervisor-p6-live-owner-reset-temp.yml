@@ -1,0 +1,43 @@
+name: Supervisor P6 Live Owner Reset Temp
+
+on:
+  push:
+    branches:
+      - hotfix/supervisor-autonomy-selfheal-v1
+    paths:
+      - .github/p6-live-trigger.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervisor-p6-live-owner-reset-v1
+  cancel-in-progress: true
+
+jobs:
+  p6-live:
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify migrated MAGASIN live runner identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ($env:COMPUTERNAME -ne "DESKTOP-4K7IM13") {
+            throw "LIVE_P6_WRONG_RUNNER"
+          }
+          Write-Host "LIVE_P6_RUNNER_MATCH=True"
+          Write-Host ("LIVE_P6_RUNNER_NAME=" + $env:COMPUTERNAME)
+
+      - name: Install runtime dependencies without lifecycle side effects
+        shell: cmd
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Run isolated P6 Owner Work state reset acceptance
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          & ".github\scripts\supervisor-p6-live-isolated.ps1"
