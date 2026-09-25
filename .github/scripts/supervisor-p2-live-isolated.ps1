@@ -650,6 +650,9 @@ try {
       quarantined_at = $quarantineAt
     }
     Write-JsonFile $registryPath $beforeReplacement
+    $env:P2_TEMP_STATE_ROOT = $tempRoot
+    & node "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-p3-quarantine-preflight.mjs"
+    if ($LASTEXITCODE -ne 0) { throw "P3_LIVE_QUARANTINE_PREFLIGHT_FAILED" }
     Write-Host "LIVE_P3_UNUSABLE_TARGET_INJECTED=True"
     Write-Host "LIVE_P3_UNUSABLE_EVIDENCE=CONVERSATION_MISSING"
     Write-Host "LIVE_P3_OLD_GENERATION=$oldGeneration"
@@ -671,6 +674,17 @@ try {
       $newGeneration = [int](Get-OptionalPropertyValue $replacementLane "work_generation")
       $rollover = Get-OptionalPropertyValue $replacementLane "work_rollover"
       $rolloverStage = if ($rollover) { [string](Get-OptionalPropertyValue $rollover "stage") } else { "" }
+      $loopHealth = Get-OptionalPropertyValue $replacementLane "work_target_health"
+      $loopHealthState = if ($loopHealth) { [string](Get-OptionalPropertyValue $loopHealth "state") } else { "MISSING" }
+      if (
+        $i -ge 10 -and
+        $newGeneration -eq $oldGeneration -and
+        [string]::IsNullOrWhiteSpace($rolloverStage) -and
+        $loopHealthState -eq "HEALTHY"
+      ) {
+        Write-Host "LIVE_P3_QUARANTINE_CLEARED_BEFORE_ROLLOVER=True"
+        break
+      }
       if (
         $newGeneration -eq ($oldGeneration + 1) -and
         -not [string]::IsNullOrWhiteSpace($newUrl) -and
