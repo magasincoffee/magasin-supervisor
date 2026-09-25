@@ -1178,6 +1178,25 @@ async function ensureBrainRequest({
   });
   if (existingDirective) return existingDirective;
 
+  if (
+    registryLane.brain_request_inflight?.reconcile_blocked &&
+    !registryLane.task_id &&
+    !registryLane.awaiting_work &&
+    !registryLane.dispatch_inflight &&
+    !registryLane.relay_inflight &&
+    !registryLane.work_rollover
+  ) {
+    const staleLatch = registryLane.brain_request_inflight;
+    registryLane.brain_request_inflight = null;
+    await atomicJsonWrite(registryPath, registry);
+    await safeLog(logPath, {
+      type: "LANE_BRAIN_BLOCKED_LATCH_RECOVERED",
+      laneId: lane.lane_id,
+      digest: staleLatch.digest,
+      reason: "idle durable lane has no task, dispatch, relay, or rollover"
+    });
+  }
+
   if (registryLane.brain_request_inflight) {
     const outcome = await reconcileBrainRequest({
       adapter,
