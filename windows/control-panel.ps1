@@ -529,17 +529,17 @@ $title.Font = New-Object Drawing.Font('Segoe UI Semibold', 23)
 $content.Controls.Add($title)
 
 $subtitle = New-Object Windows.Forms.Label
-$subtitle.Text = '3 LUỒNG ĐỘC LẬP  •  BỘ NÃO DO BẠN CHỌN  •  WORK: BẠN CHỌN HOẶC ROBOT TỰ TẠO'
-$subtitle.Location = New-Object Drawing.Point(520, 34)
-$subtitle.Size = New-Object Drawing.Size(455, 26)
+$subtitle.Text = '3 LUỒNG ĐỘC LẬP  •  RESET READY'
+$subtitle.Location = New-Object Drawing.Point(510, 34)
+$subtitle.Size = New-Object Drawing.Size(290, 26)
 $subtitle.TextAlign = 'MiddleRight'
 $subtitle.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
 $content.Controls.Add($subtitle)
 
 $resetAllButton = New-Object Windows.Forms.Button
-$resetAllButton.Location = New-Object Drawing.Point(995, 20)
-$resetAllButton.Size = New-Object Drawing.Size(190, 42)
-$resetAllButton.Text = 'LÀM SẠCH TẤT CẢ DỰ ÁN'
+$resetAllButton.Location = New-Object Drawing.Point(820, 20)
+$resetAllButton.Size = New-Object Drawing.Size(365, 42)
+$resetAllButton.Text = '⚠  LÀM SẠCH TẤT CẢ DỰ ÁN'
 $resetAllButton.BackColor = [Drawing.Color]::FromArgb(254,226,226)
 $resetAllButton.ForeColor = [Drawing.Color]::FromArgb(153,27,27)
 $resetAllButton.Add_Click({
