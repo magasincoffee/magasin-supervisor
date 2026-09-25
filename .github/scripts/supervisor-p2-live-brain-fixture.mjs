@@ -88,34 +88,65 @@ function hasConversationIdentity(value) {
 async function confirmDurableFixture(page, directive) {
   const target = targetFromUrl(page.url());
   const canonicalUrl = `${target.origin}${target.pathname}`;
+
+  // ChatGPT may expose the canonical /c/ URL before the conversation is
+  // queryable again after a navigation. First wait for bounded persistence
+  // evidence in the recent-conversation surface, then verify by reopening.
+  const persistenceDeadline = Date.now() + 45_000;
+  let surfaced = false;
+  while (Date.now() < persistenceDeadline) {
+    await assertNotRateLimited(page);
+    const recent = await adapter.listRecentConversationUrls(page, { limit: 50 })
+      .catch(() => []);
+    if (recent.includes(canonicalUrl)) {
+      surfaced = true;
+      break;
+    }
+    await page.waitForTimeout(1_000);
+  }
+  console.log(`LIVE_P2_FIXTURE_RECENT_PERSISTENCE=${surfaced ? "True" : "False"}`);
+
   await new Promise((resolve) => setTimeout(resolve, mutationPacingMs));
   await assertNotRateLimited(page);
   await page.goto(canonicalUrl, {
     waitUntil: "domcontentloaded",
     timeout: 60_000
   });
-  await page.waitForTimeout(1_000);
+  await page.waitForTimeout(1_500);
   await assertNotRateLimited(page);
   if (!isPersistableConversationUrl(page.url())) {
     const error = new Error("P2_FIXTURE_CANONICAL_URL_NOT_PERSISTED");
     error.code = "P2_FIXTURE_CANONICAL_URL_NOT_PERSISTED";
     throw error;
   }
-  let confirmed = null;
-  const confirmDeadline = Date.now() + 45_000;
-  while (Date.now() < confirmDeadline) {
-    await assertNotRateLimited(page);
-    confirmed = await exactFixtureDirective(page);
-    if (
-      confirmed &&
-      confirmed.digest === directive.digest &&
-      confirmed.instruction_digest === directive.instruction_digest
-    ) {
-      break;
+
+  const confirmExact = async (timeoutMs) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await assertNotRateLimited(page);
+      const confirmed = await exactFixtureDirective(page);
+      if (
+        confirmed &&
+        confirmed.digest === directive.digest &&
+        confirmed.instruction_digest === directive.instruction_digest
+      ) return confirmed;
+      await page.waitForTimeout(1_000);
     }
-    confirmed = null;
-    await page.waitForTimeout(1_000);
+    return null;
+  };
+
+  let confirmed = await confirmExact(90_000);
+  if (!confirmed) {
+    console.log("LIVE_P2_FIXTURE_CANONICAL_RELOAD_RETRY=True");
+    await page.reload({
+      waitUntil: "domcontentloaded",
+      timeout: 60_000
+    });
+    await page.waitForTimeout(1_500);
+    await assertNotRateLimited(page);
+    confirmed = await confirmExact(45_000);
   }
+
   if (!confirmed) {
     const error = new Error("P2_FIXTURE_CANONICAL_RELOAD_NOT_CONFIRMED");
     error.code = "P2_FIXTURE_CANONICAL_RELOAD_NOT_CONFIRMED";
