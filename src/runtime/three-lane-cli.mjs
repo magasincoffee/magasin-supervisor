@@ -172,6 +172,26 @@ function wrapperProcessAlive(wrapperPid) {
   }
 }
 
+function armWrapperParentMonitor(wrapperPid) {
+  if (!Number.isInteger(wrapperPid) || wrapperPid < 1) return null;
+
+  const timer = setInterval(() => {
+    if (wrapperProcessAlive(wrapperPid)) return;
+
+    // Parent loss is an authority loss. Exit promptly even if a UI operation
+    // is currently waiting; durable send/relay intents are reconciled by the
+    // next authoritative wrapper instead of allowing an orphan writer to run.
+    try {
+      process.stderr.write(
+        `MAGASIN Three-Lane exiting because wrapper PID ${wrapperPid} is gone.\n`
+      );
+    } catch {}
+    process.exit(77);
+  }, 2000);
+  timer.unref?.();
+  return timer;
+}
+
 function localRoot() {
   const configured = String(process.env.SUPERVISOR_STATE_ROOT || "").trim();
   if (configured) return path.resolve(configured);
@@ -4732,6 +4752,7 @@ let adapter = null;
 let scheduler = null;
 let cdpRecoveryFailures = 0;
 let restartRequested = false;
+const wrapperParentMonitor = armWrapperParentMonitor(args.wrapperPid);
 
 await safeLog(logPath, {
   type: "RUNTIME_BOOT",
@@ -4919,5 +4940,6 @@ try {
     }
   }
 } finally {
+  if (wrapperParentMonitor) clearInterval(wrapperParentMonitor);
   await adapter?.close().catch(() => {});
 }
