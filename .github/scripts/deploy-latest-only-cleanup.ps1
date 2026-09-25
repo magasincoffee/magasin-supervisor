@@ -68,7 +68,7 @@ foreach($name in @('START_MAGASIN_SUPERVISOR.cmd','STOP_MAGASIN_SUPERVISOR.cmd')
 $panelTarget=Join-Path $runtime 'windows\control-panel.ps1'
 if(-not (Test-Path $panelTarget)){throw 'Canonical Control Panel missing after install.'}
 $panel=Get-Content $panelTarget -Raw -Encoding UTF8
-foreach($marker in @('RESET READY','LÀM SẠCH TẤT CẢ DỰ ÁN','Request-RunnerRecovery')){
+foreach($marker in @('CONTROL PANEL V2','heroPanel','overviewPanel','resetAllButton','Request-RunnerRecovery')){
   if($panel -notmatch [regex]::Escape($marker)){
     throw "Latest Control Panel marker missing: $marker"
   }
