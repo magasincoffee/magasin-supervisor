@@ -60,11 +60,13 @@ function Get-LifecycleSupervisorWrapper([string]$Root = (Get-MagasinSupervisorRo
         Select-Object -First 1
 }
 
-function Get-LifecycleThreeLaneProcess {
+function Get-LifecycleThreeLaneProcess([string]$Root = (Get-MagasinSupervisorRoot)) {
+    $runtimeRoot = Join-Path $Root 'runtime'
     return Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
         Where-Object {
             $_.CommandLine -and
-            $_.CommandLine -like '*three-lane-cli.mjs*'
+            $_.CommandLine -like '*three-lane-cli.mjs*' -and
+            $_.CommandLine -like "*$runtimeRoot*"
         } |
         Select-Object -First 1
 }
@@ -167,7 +169,7 @@ function Get-LifecycleProcessTruth(
     [int]$StatusStaleAfterSeconds = 120
 ) {
     $wrapper = Get-LifecycleSupervisorWrapper -Root $Root
-    $threeLane = Get-LifecycleThreeLaneProcess
+    $threeLane = Get-LifecycleThreeLaneProcess -Root $Root
     $chrome = Get-LifecycleRobotChrome -Root $Root
     $cdpHealthy = Test-LifecycleRobotCdp -ChromeProcess $chrome -Root $Root
     $freshness = Get-LifecycleLaneStatusFreshness -Root $Root -StaleAfterSeconds $StatusStaleAfterSeconds
