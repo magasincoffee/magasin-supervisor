@@ -25,17 +25,18 @@ jobs:
     steps:
       - name: Check target runner identity
         id: identity
-        shell: powershell
+        shell: cmd
         run: |
-          if ($env:COMPUTERNAME -eq "DESKTOP-4K7IM13") {
-            "match=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-            Write-Host "LIVE_P7_RUNNER_MATCH=True"
-            Write-Host ("LIVE_P7_RUNNER_NAME=" + $env:COMPUTERNAME)
-          } else {
-            "match=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-            Write-Host "LIVE_P7_RUNNER_MATCH=False"
-            Write-Host ("LIVE_P7_RUNNER_SKIPPED=" + $env:COMPUTERNAME)
-          }
+          @echo off
+          if /I "%COMPUTERNAME%"=="DESKTOP-4K7IM13" (
+            echo match=true>>"%GITHUB_OUTPUT%"
+            echo LIVE_P7_RUNNER_MATCH=True
+            echo LIVE_P7_RUNNER_NAME=%COMPUTERNAME%
+          ) else (
+            echo match=false>>"%GITHUB_OUTPUT%"
+            echo LIVE_P7_RUNNER_MATCH=False
+            echo LIVE_P7_RUNNER_SKIPPED=%COMPUTERNAME%
+          )
 
       - uses: actions/checkout@v4
         if: steps.identity.outputs.match == 'true'
@@ -59,17 +60,18 @@ jobs:
     steps:
       - name: Check target runner identity
         id: identity
-        shell: powershell
+        shell: cmd
         run: |
-          if ($env:COMPUTERNAME -eq "DESKTOP-4K7IM13") {
-            "match=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-            Write-Host "LIVE_P7_RUNNER_MATCH=True"
-            Write-Host ("LIVE_P7_RUNNER_NAME=" + $env:COMPUTERNAME)
-          } else {
-            "match=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-            Write-Host "LIVE_P7_RUNNER_MATCH=False"
-            Write-Host ("LIVE_P7_RUNNER_SKIPPED=" + $env:COMPUTERNAME)
-          }
+          @echo off
+          if /I "%COMPUTERNAME%"=="DESKTOP-4K7IM13" (
+            echo match=true>>"%GITHUB_OUTPUT%"
+            echo LIVE_P7_RUNNER_MATCH=True
+            echo LIVE_P7_RUNNER_NAME=%COMPUTERNAME%
+          ) else (
+            echo match=false>>"%GITHUB_OUTPUT%"
+            echo LIVE_P7_RUNNER_MATCH=False
+            echo LIVE_P7_RUNNER_SKIPPED=%COMPUTERNAME%
+          )
 
       - uses: actions/checkout@v4
         if: steps.identity.outputs.match == 'true'
