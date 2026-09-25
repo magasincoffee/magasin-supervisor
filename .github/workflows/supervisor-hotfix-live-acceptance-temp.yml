@@ -1,19 +1,6 @@
 name: Supervisor Hotfix Live Acceptance Temp
 
 on:
-  push:
-    branches:
-      - hotfix/supervisor-autonomy-selfheal-v1
-    paths:
-      - .github/workflows/supervisor-hotfix-live-acceptance-temp.yml
-      - .github/scripts/supervisor-p1-live-evidence.mjs
-      - src/ui/message-capture.mjs
-      - src/ui/snapshot.mjs
-      - src/runtime/three-lane-cli.mjs
-      - src/runtime/work-rollover.mjs
-      - windows/run-supervisor.ps1
-      - windows/control-panel.ps1
-      - windows/control-panel-observability.ps1
   workflow_dispatch:
 
 permissions:
