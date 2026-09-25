@@ -156,3 +156,56 @@ if($enabledCount -gt 0 -and -not $ownerStop.blocked -and -not $processTruth.heal
   Write-Host "LIVE_AFTER_PROCESS_HEALTHY=$([bool]$after.healthy)"
 }
 Write-Host "LIVE_RUNTIME_DIAG=PASS"
+
+
+Write-Host "=== LIVE LANE ERROR DETAIL ==="
+$statusPath=Join-Path $root 'lane-status.json'
+if(Test-Path $statusPath){
+  try{
+    $statusJson=Get-Content $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach($prop in @($statusJson.PSObject.Properties)){
+      if([string]$prop.Name -like 'lane-*'){
+        $laneStatus=$prop.Value
+        $state=[string]$laneStatus.status
+        $msg=[string]$laneStatus.message
+        $errName=''
+        if($laneStatus.PSObject.Properties['error_name']){$errName=[string]$laneStatus.error_name}
+        Write-Host "LIVE_LANE_STATUS=$($prop.Name)|STATUS=$state|ERROR_NAME=$errName|MESSAGE=$msg"
+      }
+    }
+  }catch{
+    Write-Host "LIVE_LANE_STATUS_READ_ERROR=$($_.Exception.Message)"
+  }
+}else{
+  Write-Host "LIVE_LANE_STATUS_MISSING=True"
+}
+
+$supervisorLog=Join-Path $root 'supervisor.log'
+if(Test-Path $supervisorLog){
+  try{
+    $tail=Get-Content $supervisorLog -Tail 120 -Encoding UTF8
+    $laneErrors=@()
+    foreach($line in $tail){
+      try{
+        $obj=$line | ConvertFrom-Json -ErrorAction Stop
+        if([string]$obj.type -eq 'LANE_ERROR'){
+          $laneErrors += [pscustomobject]@{
+            lane=[string]$obj.laneId
+            task=[string]$obj.taskId
+            error=[string]$obj.errorName
+            reason=[string]$obj.reason
+          }
+        }
+      }catch{}
+    }
+    foreach($e in @($laneErrors | Select-Object -Last 8)){
+      Write-Host "LIVE_LANE_ERROR=LANE=$($e.lane)|TASK=$($e.task)|ERROR=$($e.error)|REASON=$($e.reason)"
+    }
+    if(@($laneErrors).Count -eq 0){Write-Host "LIVE_LANE_ERROR_NONE_IN_TAIL=True"}
+  }catch{
+    Write-Host "LIVE_SUPERVISOR_LOG_READ_ERROR=$($_.Exception.Message)"
+  }
+}else{
+  Write-Host "LIVE_SUPERVISOR_LOG_MISSING=True"
+}
+Write-Host "LIVE_LANE_ERROR_DIAG=PASS"
