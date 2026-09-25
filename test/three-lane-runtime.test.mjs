@@ -368,6 +368,23 @@ test("v43 can recover the latest valid directive when only duplicate Robot hands
 });
 
 
+test("Brain handshake uses a unique marker and safely rearms a blocked idle latch", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /randomUUID/);
+  assert.match(source, /brain_request_id=/);
+  assert.match(source, /marker,\s*\.\.\.baseline/s);
+  assert.match(source, /waitForUserTurnMarker\(page, marker\)/);
+  assert.match(source, /LANE_BRAIN_SEND_CONFIRMED_BY_MARKER/);
+  assert.match(source, /LANE_BRAIN_BLOCKED_HANDSHAKE_REARMED/);
+  assert.match(source, /!registryLane\.task_id/);
+  assert.match(source, /!registryLane\.awaiting_work/);
+  assert.match(source, /registryLane\.brain_request_inflight = null/);
+});
+
 test("v43 Work dispatch uses marker confirmation and repairs legacy blocked latches", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
