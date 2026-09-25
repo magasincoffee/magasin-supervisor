@@ -1,17 +1,26 @@
 Set-StrictMode -Version 2.0
 
 function Get-PersistedSupervisorStateRoot {
-    foreach ($target in @('User','Machine')) {
-        try {
-            $value = [string][Environment]::GetEnvironmentVariable(
-                'SUPERVISOR_STATE_ROOT',
-                [EnvironmentVariableTarget]::$target
-            )
-            if (-not [string]::IsNullOrWhiteSpace($value)) {
-                return [System.IO.Path]::GetFullPath($value)
-            }
-        } catch {}
-    }
+    try {
+        $userValue = [string][Environment]::GetEnvironmentVariable(
+            'SUPERVISOR_STATE_ROOT',
+            [EnvironmentVariableTarget]::User
+        )
+        if (-not [string]::IsNullOrWhiteSpace($userValue)) {
+            return [System.IO.Path]::GetFullPath($userValue)
+        }
+    } catch {}
+
+    try {
+        $machineValue = [string][Environment]::GetEnvironmentVariable(
+            'SUPERVISOR_STATE_ROOT',
+            [EnvironmentVariableTarget]::Machine
+        )
+        if (-not [string]::IsNullOrWhiteSpace($machineValue)) {
+            return [System.IO.Path]::GetFullPath($machineValue)
+        }
+    } catch {}
+
     return $null
 }
 
