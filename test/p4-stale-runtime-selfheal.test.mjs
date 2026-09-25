@@ -83,6 +83,10 @@ test("P4 observability probe exposes runtime freshness without target mutation",
   assert.match(panel, /status_stale = \[bool\]\$processTruthProbe\.status_stale/);
   assert.match(panel, /status_age_seconds = \$processTruthProbe\.status_age_seconds/);
   assert.match(panel, /runtime_state = \[string\]\$processTruthProbe\.runtime_state/);
+  assert.match(
+    panel,
+    /\$schedulerProbe = if \([\s\S]*?\$processTruthProbe\.three_lane_alive[\s\S]*?-not \$processTruthProbe\.status_stale[\s\S]*?\$null/
+  );
 
   const probeStart = panel.indexOf("if ($ObservabilityProbe)");
   const probeEnd = panel.indexOf("function Write-JsonAtomic", probeStart);
