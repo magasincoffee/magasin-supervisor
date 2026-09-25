@@ -304,6 +304,8 @@ function Get-ControlPanelEffectiveLaneState(
     if (-not $Enabled) { return 'STOPPED' }
     if ($OwnerStopped) { return 'WAIT_OWNER' }
     if (-not $ProcessHealthy) {
+        if ($ProcessState -eq 'NODE_DOWN') { return 'NODE_DOWN' }
+        if ($ProcessState -eq 'STATUS_STALE') { return 'STATUS_STALE' }
         if ($ProcessState -eq 'STARTING') { return 'STARTING' }
         return 'RECOVERING'
     }
