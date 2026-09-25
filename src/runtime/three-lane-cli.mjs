@@ -118,7 +118,7 @@ import {
   evaluateBrainVerdictTransition
 } from "./brain-planning.mjs";
 
-const SUPERVISOR_RUNTIME_VERSION = "2026-09-25.61";
+const SUPERVISOR_RUNTIME_VERSION = "2026-09-20.60";
 
 let laneEventSink = null;
 let laneEventErrorLogPath = null;
