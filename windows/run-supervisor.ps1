@@ -113,7 +113,11 @@ function Resolve-LocalRuntimeMode {
     return $null
 }
 
-$mutexName = 'Local\MAGASIN_BUSINESS_OS_SUPERVISOR'
+$mutexName = if (-not [string]::IsNullOrWhiteSpace([string]$env:SUPERVISOR_MUTEX_NAME)) {
+    [string]$env:SUPERVISOR_MUTEX_NAME
+} else {
+    'Local\MAGASIN_BUSINESS_OS_SUPERVISOR'
+}
 $mutex = New-Object System.Threading.Mutex($false, $mutexName)
 $ownsMutex = $false
 
