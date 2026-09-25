@@ -42,6 +42,17 @@ async function assertNotRateLimited(page) {
   return probe;
 }
 
+function isInitialFixtureDirective(directive) {
+  return Boolean(
+    directive &&
+    directive.action === "WORK" &&
+    directive.task_id === taskId &&
+    directive.instruction === instruction &&
+    !directive.previous_result &&
+    !directive.correction_of
+  );
+}
+
 async function exactFixtureDirective(page) {
   const turns = await captureRecentConversationTurns(page, { limit: 16 })
     .catch(() => []);
@@ -50,11 +61,7 @@ async function exactFixtureDirective(page) {
     if (turn.role !== "assistant" || !turn.text) continue;
     try {
       const directive = parseLaneDirective(turn.text);
-      if (
-        directive.action === "WORK" &&
-        directive.task_id === taskId &&
-        directive.instruction === instruction
-      ) {
+      if (isInitialFixtureDirective(directive)) {
         const newerUserTurn = turns
           .slice(index + 1)
           .some((item) => item.role === "user");
@@ -63,15 +70,15 @@ async function exactFixtureDirective(page) {
     } catch {}
   }
 
+  // If modern turn capture worked, do not fall back to an older completed
+  // assistant turn: a newer user/result-relay turn makes that fixture stale.
+  if (turns.length > 0) return null;
+
   const captured = await captureCompletedAssistantTurn(page).catch(() => null);
   if (!captured?.text) return null;
   try {
     const directive = parseLaneDirective(captured.text);
-    if (
-      directive.action === "WORK" &&
-      directive.task_id === taskId &&
-      directive.instruction === instruction
-    ) return directive;
+    if (isInitialFixtureDirective(directive)) return directive;
   } catch {}
   return null;
 }
