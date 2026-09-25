@@ -17,6 +17,11 @@ Write-Host "LANE_ENABLED=$([bool]$laneCfg.enabled)"
 Write-Host "TASK_ID=$([string](P $lane 'task_id' ''))"
 Write-Host "AWAITING_WORK=$([bool](P $lane 'awaiting_work' $false))"
 Write-Host "BRAIN_REQUEST_SENT=$([bool](P $lane 'brain_request_sent' $false))"
+$brainInflight=P $lane 'brain_request_inflight' $null
+Write-Host "BRAIN_REQUEST_INFLIGHT=$($null -ne $brainInflight)"
+Write-Host "BRAIN_INFLIGHT_ATTEMPT=$([int](P $brainInflight 'attempt' 0))"
+Write-Host "BRAIN_INFLIGHT_BLOCKED=$([bool](P $brainInflight 'reconcile_blocked' $false))"
+Write-Host "BRAIN_INFLIGHT_DIGEST=$([string](P $brainInflight 'digest' ''))"
 Write-Host "LAST_RESULT_RELAY_ID=$([string](P $lane 'last_result_relay_id' ''))"
 Write-Host "LAST_RESULT_VERDICT_TASK=$([string](P $verdict 'task_id' ''))"
 Write-Host "LAST_RESULT_VERDICT_RELAY=$([string](P $verdict 'relay_id' ''))"
@@ -57,3 +62,5 @@ if(Test-Path $log){
 }
 
 # post-repair verification trigger
+
+# brain-inflight verification trigger
