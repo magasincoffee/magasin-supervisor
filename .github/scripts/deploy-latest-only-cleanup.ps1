@@ -75,7 +75,8 @@ foreach($marker in @('RESET READY','LÀM SẠCH TẤT CẢ DỰ ÁN','Request-Ru
 }
 Write-Host 'LATEST_PANEL_MARKERS=PASS'
 
-$shortcutPath=Join-Path $desktop 'MAGASIN BUSINESS OS CONTROL.lnk'
+$shortcutDisplayName='MAGASIN SUPERVISOR '+[char]0x2014+' CONTROL CENTER.lnk'
+$shortcutPath=Join-Path $desktop $shortcutDisplayName
 if(-not (Test-Path $shortcutPath)){throw 'Canonical desktop shortcut missing.'}
 $shortcut=$wsh.CreateShortcut($shortcutPath)
 Write-Host "SHORTCUT_TARGET=$($shortcut.TargetPath)"
