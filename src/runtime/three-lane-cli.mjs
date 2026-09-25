@@ -3432,8 +3432,10 @@ async function applyOwnerWorkStateReset({
   registryLane.last_brain_directive_digest = null;
   registryLane.last_work_result_digest = null;
   registryLane.last_result_relay_id = null;
+  registryLane.last_result_verdict = null;
   registryLane.last_dispatch_id = null;
   registryLane.dispatch_inflight = null;
+  registryLane.brain_request_sent = false;
   registryLane.brain_request_inflight = null;
   registryLane.brain_directive_adopted = null;
   registryLane.awaiting_work = false;
