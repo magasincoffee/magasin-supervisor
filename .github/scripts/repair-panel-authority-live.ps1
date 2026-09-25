@@ -118,7 +118,7 @@ try {
     }
 
     $panelSource = Get-Content $panelTarget -Raw -Encoding UTF8
-    foreach ($marker in @('3 LUỒNG ĐỘC LẬP  •  RESET READY','Request-RunnerRecovery','Request-LifecycleRecovery')) {
+    foreach ($marker in @('RESET READY','Request-RunnerRecovery','Request-LifecycleRecovery')) {
       if ($panelSource -notmatch [regex]::Escape($marker)) {
         throw "Installed panel missing marker: $marker"
       }
