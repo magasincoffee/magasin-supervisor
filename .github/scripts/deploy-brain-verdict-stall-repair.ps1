@@ -226,3 +226,5 @@ Write-Host "POST_BRAIN_INFLIGHT=$($null -ne (P $laneFinal 'brain_request_infligh
 Write-Host 'TARGET_FINGERPRINT_UNCHANGED=True'
 Write-Host 'TIMELINE_NEWEST_FIRST=True'
 Write-Host 'BRAIN_VERDICT_STALL_REPAIR=PASS'
+
+# marker-handshake production activation trigger
