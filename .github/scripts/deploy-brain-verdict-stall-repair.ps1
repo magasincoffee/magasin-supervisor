@@ -66,12 +66,12 @@ foreach($lc in $enabled){
   $awaiting=[bool](P $lane 'awaiting_work' $false)
   $dispatch=$null -ne (P $lane 'dispatch_inflight' $null)
   $relay=$null -ne (P $lane 'relay_inflight' $null)
-  Write-Host "PRE_$id_TASK=$task"
-  Write-Host "PRE_$id_AWAITING=$awaiting"
-  Write-Host "PRE_$id_DISPATCH=$dispatch"
-  Write-Host "PRE_$id_RELAY=$relay"
+  Write-Host "PRE_${id}_TASK=$task"
+  Write-Host "PRE_${id}_AWAITING=$awaiting"
+  Write-Host "PRE_${id}_DISPATCH=$dispatch"
+  Write-Host "PRE_${id}_RELAY=$relay"
   if($awaiting -or $dispatch -or $relay -or -not [string]::IsNullOrWhiteSpace($task)){
-    Write-Host "DEPLOY_RESULT=DEFERRED_ACTIVE_LANE_$id"
+    Write-Host "DEPLOY_RESULT=DEFERRED_ACTIVE_LANE_${id}"
     exit 0
   }
 }
