@@ -38,6 +38,50 @@ function Read-ConfiguredProjectAdapterState {
     }
     return $adapter.project_state
 }
+
+function Resolve-LocalRuntimeMode {
+    # The standalone Supervisor owns platform-local orchestration truth.
+    # A project adapter is optional for THREE_LANE_V1, so local mode
+    # resolution must run whenever the adapter supplies no mode, not only
+    # when adapter access throws.
+    try {
+        if (Test-Path $laneStatusFile) {
+            $laneStatus = Get-Content $laneStatusFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ([string]$laneStatus.mode -eq 'THREE_LANE_V1') {
+                return 'THREE_LANE_V1'
+            }
+        }
+    } catch {}
+
+    try {
+        if (Test-Path $laneConfigFile) {
+            $laneConfig = Get-Content $laneConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ([string]$laneConfig.mode -eq 'THREE_LANE_V1') {
+                return 'THREE_LANE_V1'
+            }
+        }
+    } catch {}
+
+    try {
+        if (Test-Path $registryFile) {
+            $registry = Get-Content $registryFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ([string]$registry.mode -eq 'BRAIN_WORKER_V1') {
+                return 'BRAIN_WORKER_V1'
+            }
+        }
+    } catch {}
+
+    try {
+        if (Test-Path $runtimeStatusFile) {
+            $runtimeStatus = Get-Content $runtimeStatusFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ([string]$runtimeStatus.orchestration_mode -eq 'BRAIN_WORKER_V1') {
+                return 'BRAIN_WORKER_V1'
+            }
+        }
+    } catch {}
+
+    return $null
+}
 $mutexName = 'Local\MAGASIN_BUSINESS_OS_SUPERVISOR'
 $mutex = New-Object System.Threading.Mutex($false, $mutexName)
 $ownsMutex = $false
@@ -171,58 +215,24 @@ try {
         try {
             $projectState = Read-ConfiguredProjectAdapterState
             if ($projectState -and $projectState.supervisor_orchestration) {
-                $runtimeMode = [string]$projectState.supervisor_orchestration.mode
+                $candidateMode = [string]$projectState.supervisor_orchestration.mode
+                if (-not [string]::IsNullOrWhiteSpace($candidateMode)) {
+                    $runtimeMode = $candidateMode
+                }
             }
         } catch {
-            # Preserve the last locally verified runtime mode during transient
-            # repository/network failures; never guess a downgrade.
-            try {
-                if (Test-Path $laneStatusFile) {
-                    $laneStatus = Get-Content $laneStatusFile -Raw -Encoding UTF8 | ConvertFrom-Json
-                    if ([string]$laneStatus.mode -eq 'THREE_LANE_V1') {
-                        $runtimeMode = 'THREE_LANE_V1'
-                    }
-                }
-            } catch {}
+            # Adapter failure is not authority to downgrade. Local platform
+            # truth is resolved below using the same path as the no-adapter case.
+        }
 
-            if (-not $runtimeMode) {
-                try {
-                    if (Test-Path $laneConfigFile) {
-                        $laneConfig = Get-Content $laneConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
-                        if ([string]$laneConfig.mode -eq 'THREE_LANE_V1') {
-                            $runtimeMode = 'THREE_LANE_V1'
-                        }
-                    }
-                } catch {}
-            }
+        if (-not $runtimeMode) {
+            $runtimeMode = Resolve-LocalRuntimeMode
+        }
 
-            if (-not $runtimeMode) {
-                try {
-                    if (Test-Path $registryFile) {
-                        $registry = Get-Content $registryFile -Raw -Encoding UTF8 | ConvertFrom-Json
-                        if ([string]$registry.mode -eq 'BRAIN_WORKER_V1') {
-                            $runtimeMode = 'BRAIN_WORKER_V1'
-                        }
-                    }
-                } catch {}
-            }
-
-            if (-not $runtimeMode) {
-                try {
-                    if (Test-Path $runtimeStatusFile) {
-                        $runtimeStatus = Get-Content $runtimeStatusFile -Raw -Encoding UTF8 | ConvertFrom-Json
-                        if ([string]$runtimeStatus.orchestration_mode -eq 'BRAIN_WORKER_V1') {
-                            $runtimeMode = 'BRAIN_WORKER_V1'
-                        }
-                    }
-                } catch {}
-            }
-
-            if (-not $runtimeMode) {
-                Write-Host 'Project adapter is unavailable; preserving wrapper and retrying without mode downgrade.'
-                Start-Sleep -Seconds 5
-                continue
-            }
+        if (-not $runtimeMode) {
+            Write-Host 'No authoritative runtime mode is available; preserving wrapper and retrying fail-closed.'
+            Start-Sleep -Seconds 5
+            continue
         }
 
         $entryPoint = switch ($runtimeMode) {

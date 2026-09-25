@@ -15,16 +15,25 @@ test("Windows wrapper selects THREE_LANE_V1 from source of truth", async () => {
   assert.match(source, /supervisor-loop-cli\.mjs/);
 });
 
-test("wrapper preserves Three-Lane mode across transient source-of-truth fetch failures", async () => {
+test("wrapper resolves standalone Three-Lane mode when no project adapter is configured", async () => {
   const source = await fs.readFile(
     new URL("../windows/run-supervisor.ps1", import.meta.url),
     "utf8"
   );
 
+  assert.match(source, /function Resolve-LocalRuntimeMode/);
   assert.match(source, /lane-status\.json/);
   assert.match(source, /lanes\.json/);
-  assert.match(source, /\$runtimeMode = 'THREE_LANE_V1'/);
-  assert.match(source, /retrying without mode downgrade/);
+  assert.match(source, /return 'THREE_LANE_V1'/);
+  assert.match(source, /if \(-not \$runtimeMode\) \{\s*\$runtimeMode = Resolve-LocalRuntimeMode/);
+  assert.match(
+    source,
+    /No authoritative runtime mode is available; preserving wrapper and retrying fail-closed/
+  );
+  assert.doesNotMatch(
+    source,
+    /Read-ConfiguredProjectAdapterState[\s\S]*?catch \{[\s\S]*?\$runtimeMode = 'THREE_LANE_V1'/
+  );
 });
 
 test("installer kills old Three-Lane node runtime during upgrade without clearing Owner STOP", async () => {
