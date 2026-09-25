@@ -76,8 +76,8 @@ test("reset-all helper replaces all three projects with clean disabled canonical
       assert.equal(lane.awaiting_work, false);
       assert.equal(lane.pending_work_url, "");
       assert.equal(lane.work_generation, 0);
-      assert.equal(lane.brain_target_health.state, "HEALTHY");
-      assert.equal(lane.work_target_health.state, "HEALTHY");
+      assert.equal(lane.brain_target_health.state, "UNKNOWN");
+      assert.equal(lane.work_target_health.state, "UNKNOWN");
     }
 
     await assert.rejects(fs.stat(path.join(root, "lane-status.json")));
