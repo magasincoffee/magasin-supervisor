@@ -23,14 +23,17 @@ await fs.mkdir(root, { recursive: true });
 
 // Force one bounded rotation using many ordinary lines rather than an
 // impossible giant record. After the next append the old sentinel must vanish.
-const filler = Array.from(
-  { length: 2600 },
-  (_, i) => JSON.stringify({
-    old: "P7_OLD_SENTINEL",
-    n: i,
-    pad: "x".repeat(850)
-  })
-).join("\n") + "\n";
+const filler = [
+  JSON.stringify({ old: "P7_OLD_SENTINEL", n: -1, pad: "x".repeat(850) }),
+  ...Array.from(
+    { length: 2600 },
+    (_, i) => JSON.stringify({
+      old: "P7_OLD_FILLER",
+      n: i,
+      pad: "x".repeat(850)
+    })
+  )
+].join("\n") + "\n";
 await fs.writeFile(supervisorLog, filler, "utf8");
 
 const safe = await appendSanitizedSupervisorLog(
