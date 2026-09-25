@@ -8,6 +8,7 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'state-root.ps1')
 $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
+$env:SUPERVISOR_STATE_ROOT = $root
 $runtime = Join-Path $root 'runtime'
 $runScript = Join-Path $runtime 'windows\run-supervisor.ps1'
 $lifecycleScript = Join-Path $runtime 'windows\lifecycle-truth.ps1'

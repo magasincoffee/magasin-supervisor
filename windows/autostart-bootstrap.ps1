@@ -6,6 +6,7 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'state-root.ps1')
 $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
+$env:SUPERVISOR_STATE_ROOT = $root
 $runtime = Join-Path $root 'runtime'
 $disabled = Join-Path $root 'AUTOSTART_DISABLED'
 $stop = Join-Path $root 'STOP'
