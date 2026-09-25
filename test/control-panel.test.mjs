@@ -184,3 +184,15 @@ test("Brain target can be saved independently while lane is active", async () =>
   assert.match(source, /Save-BrainTarget \$id \$brainUrl/);
   assert.match(source, /kể cả khi Work hiện tại vẫn đang chạy/);
 });
+
+
+test("reset-all Owner control stays in the always-visible header zone under DPI scaling", async () => {
+  const source = await fs.readFile(
+    new URL("../windows/control-panel.ps1", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /RESET READY/);
+  assert.match(source, /\$resetAllButton\.Location = New-Object Drawing\.Point\(820, 20\)/);
+  assert.match(source, /\$resetAllButton\.Size = New-Object Drawing\.Size\(365, 42\)/);
+  assert.match(source, /LÀM SẠCH TẤT CẢ DỰ ÁN/);
+});
