@@ -5,6 +5,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'state-root.ps1')
+. (Join-Path $PSScriptRoot 'lifecycle-truth.ps1')
 $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
 $runtime = Join-Path $root 'runtime'
 $profile = Join-Path $root 'browser_profile'
@@ -187,6 +188,80 @@ function Test-DedicatedCdpEndpoint([int]$Port) {
     }
 }
 
+function Get-ThreeLaneStatusStaleSeconds {
+    $value = 120
+    $parsed = 0
+    if (
+        [int]::TryParse([string]$env:SUPERVISOR_STATUS_STALE_SECONDS, [ref]$parsed) -and
+        $parsed -ge 5
+    ) {
+        $value = $parsed
+    }
+    return $value
+}
+
+function Invoke-MonitoredThreeLaneNode(
+    [string[]]$NodeArgs,
+    [int]$CdpPort
+) {
+    $threshold = Get-ThreeLaneStatusStaleSeconds
+    $startedAt = [DateTimeOffset]::UtcNow
+    $nodeProcess = Start-Process -FilePath 'node.exe' -ArgumentList $NodeArgs -PassThru -NoNewWindow
+    $staleRestart = $false
+
+    Write-WrapperLog 'THREE_LANE_MONITOR_STARTED' @{
+        pid = [int]$nodeProcess.Id
+        stale_after_seconds = [int]$threshold
+        cdp_port = $CdpPort
+    }
+
+    while (-not $nodeProcess.HasExited) {
+        if ((Test-Path $stop) -or (Test-Path $autostartDisabled)) {
+            break
+        }
+
+        $elapsed = ([DateTimeOffset]::UtcNow - $startedAt).TotalSeconds
+        if ($elapsed -ge $threshold) {
+            $freshness = Get-LifecycleLaneStatusFreshness -Root $root -StaleAfterSeconds $threshold
+            if ($freshness.stale) {
+                Write-Host 'THREE-LANE STATUS_STALE detected; restarting Node without mutating lane/project state.'
+                Write-Host 'SUPERVISOR_P4_STATUS_STALE_DETECTED=True'
+                Write-WrapperLog 'THREE_LANE_STATUS_STALE_RESTART' @{
+                    pid = [int]$nodeProcess.Id
+                    status_age_seconds = $freshness.age_seconds
+                    stale_after_seconds = [int]$threshold
+                    status_reason = [string]$freshness.reason
+                    cdp_port = $CdpPort
+                }
+                Stop-Process -Id $nodeProcess.Id -Force -ErrorAction SilentlyContinue
+                $staleRestart = $true
+                break
+            }
+        }
+
+        Start-Sleep -Seconds 2
+        $nodeProcess.Refresh()
+    }
+
+    if (-not $nodeProcess.HasExited -and ((Test-Path $stop) -or (Test-Path $autostartDisabled))) {
+        for ($i = 0; $i -lt 10 -and -not $nodeProcess.HasExited; $i++) {
+            Start-Sleep -Milliseconds 500
+            $nodeProcess.Refresh()
+        }
+        if (-not $nodeProcess.HasExited) {
+            Stop-Process -Id $nodeProcess.Id -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    try { $nodeProcess.WaitForExit() } catch {}
+
+    return [pscustomobject]@{
+        exit_code = $(if ($staleRestart) { 77 } elseif ($nodeProcess.HasExited) { [int]$nodeProcess.ExitCode } else { 1 })
+        status_stale_restart = [bool]$staleRestart
+        pid = [int]$nodeProcess.Id
+    }
+}
+
 if ((Test-Path $stop) -or (Test-Path $autostartDisabled)) {
     Write-Host 'Supervisor launch blocked by Owner STOP/AUTOSTART_DISABLED.'
     exit 0
@@ -315,13 +390,23 @@ try {
                 }
             }
             if (-not $DryRun) { $nodeArgs += '--execute' }
-            & node @nodeArgs
-            $nodeExitCode = $LASTEXITCODE
+
+            $statusStaleRestart = $false
+            if ($entryPoint -eq 'src/runtime/three-lane-cli.mjs') {
+                $nodeOutcome = Invoke-MonitoredThreeLaneNode -NodeArgs $nodeArgs -CdpPort $cdpPort
+                $nodeExitCode = [int]$nodeOutcome.exit_code
+                $statusStaleRestart = [bool]$nodeOutcome.status_stale_restart
+            } else {
+                & node @nodeArgs
+                $nodeExitCode = $LASTEXITCODE
+            }
+
             Write-WrapperLog 'NODE_EXIT' @{
                 mode = $runtimeMode
                 entry_point = $entryPoint
                 exit_code = $nodeExitCode
                 cdp_port = $cdpPort
+                status_stale_restart = [bool]$statusStaleRestart
             }
         } finally {
             Pop-Location
@@ -338,6 +423,16 @@ try {
             }
             Stop-DedicatedChrome
             Start-Sleep -Milliseconds 750
+            continue
+        }
+
+        if (-not (Test-Path $stop) -and -not (Test-Path $autostartDisabled) -and $statusStaleRestart) {
+            Write-Host 'Three-Lane Node restarted because lane-status exceeded freshness threshold.'
+            Write-WrapperLog 'THREE_LANE_STATUS_STALE_RELAUNCH' @{
+                stale_after_seconds = [int](Get-ThreeLaneStatusStaleSeconds)
+                cdp_port = $cdpPort
+            }
+            Start-Sleep -Seconds 1
             continue
         }
 
