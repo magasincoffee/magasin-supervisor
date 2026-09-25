@@ -27,7 +27,7 @@ test("P4 process truth requires fresh lane-status in addition to wrapper/node/ch
 test("P4 wrapper monitors Three-Lane status freshness and relaunches only Node", async () => {
   const wrapper = await read("../windows/run-supervisor.ps1");
   const start = wrapper.indexOf("function Invoke-MonitoredThreeLaneNode");
-  const end = wrapper.indexOf("if ((Test-Path $stop)", start);
+  const end = wrapper.indexOf("\nif ((Test-Path $stop)", start);
   assert.ok(start >= 0 && end > start);
 
   const monitor = wrapper.slice(start, end);
