@@ -67,7 +67,7 @@ $fingerprintBefore=Get-TargetFingerprint $configFile
 $regBefore=Get-Content $registryFile -Raw -Encoding UTF8|ConvertFrom-Json
 
 $sourcePanel=Get-Content (Join-Path $env:GITHUB_WORKSPACE 'windows\control-panel.ps1') -Raw -Encoding UTF8
-foreach($marker in @('RESET READY','$resetAllButton = New-Object Windows.Forms.Button','Request-RunnerRecovery','Request-LifecycleRecovery','for ($eventIndex = $events.Count - 1; $eventIndex -ge 0; $eventIndex--)')){
+foreach($marker in @('CONTROL PANEL V2','heroPanel','overviewPanel','$resetAllButton = New-Object Windows.Forms.Button','Request-RunnerRecovery','Request-LifecycleRecovery','for ($eventIndex = $events.Count - 1; $eventIndex -ge 0; $eventIndex--)')){
   if($sourcePanel -notmatch [regex]::Escape($marker)){
     throw "Latest source panel marker missing: $marker"
   }
@@ -124,7 +124,7 @@ if(Test-Path $legacy){
 }
 
 $installedPanel=Get-Content (Join-Path $runtime 'windows\control-panel.ps1') -Raw -Encoding UTF8
-foreach($marker in @('RESET READY','$resetAllButton = New-Object Windows.Forms.Button','Request-RunnerRecovery','Request-LifecycleRecovery','for ($eventIndex = $events.Count - 1; $eventIndex -ge 0; $eventIndex--)')){
+foreach($marker in @('CONTROL PANEL V2','heroPanel','overviewPanel','$resetAllButton = New-Object Windows.Forms.Button','Request-RunnerRecovery','Request-LifecycleRecovery','for ($eventIndex = $events.Count - 1; $eventIndex -ge 0; $eventIndex--)')){
   if($installedPanel -notmatch [regex]::Escape($marker)){
     throw "Installed panel marker missing: $marker"
   }
