@@ -94,7 +94,18 @@ try {
     if ($nodeExit) { break }
   }
 
-  if (-not $nodeExit) { throw "P7_LIVE_WRAPPER_NODE_EXIT_MISSING" }
+  if (-not $nodeExit) {
+    Write-Host "LIVE_P7_DIAG_WRAPPER_NODE_EXIT_FOUND=False"
+    if (Test-Path $wrapperLog) {
+      Write-Host "--- P7_WRAPPER_LOG_TAIL_BEGIN ---"
+      Get-Content -LiteralPath $wrapperLog -Tail 120 -Encoding UTF8 | ForEach-Object { Write-Host $_ }
+      Write-Host "--- P7_WRAPPER_LOG_TAIL_END ---"
+    } else {
+      Write-Host "LIVE_P7_DIAG_WRAPPER_LOG_PRESENT=False"
+    }
+    throw "P7_LIVE_WRAPPER_NODE_EXIT_MISSING"
+  }
+  Write-Host "LIVE_P7_DIAG_WRAPPER_NODE_EXIT_FOUND=True"
   if ([int]$nodeExit.cdp_port -lt 1) { throw "P7_LIVE_WRAPPER_CDP_PORT_MISSING" }
 
   $allowedKeys = @(
