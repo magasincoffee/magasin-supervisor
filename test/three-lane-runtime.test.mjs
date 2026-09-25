@@ -2,6 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 
+
+test("Three-Lane runtime honors SUPERVISOR_STATE_ROOT before legacy fallback", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /process\.env\.SUPERVISOR_STATE_ROOT/);
+  assert.match(source, /if \(configured\) return path\.resolve\(configured\)/);
+  assert.match(source, /MAGASIN", "BusinessOS", "supervisor"/);
+});
+
 test("active Three-Lane runtime contains no Brain auto-discovery path", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
