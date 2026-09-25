@@ -64,3 +64,5 @@ if(Test-Path $log){
 # post-repair verification trigger
 
 # brain-inflight verification trigger
+
+# post-marker-handshake response verification
