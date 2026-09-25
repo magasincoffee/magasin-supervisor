@@ -9,8 +9,8 @@ test("PowerShell state-root resolver honors persisted User/Machine binding befor
   const source = await read("state-root.ps1");
 
   assert.match(source, /Get-PersistedSupervisorStateRoot/);
-  assert.match(source, /EnvironmentVariableTarget.*User/s);
-  assert.match(source, /EnvironmentVariableTarget.*Machine/s);
+  assert.match(source, /foreach \(\$target in @\('User','Machine'\)\)/);
+  assert.match(source, /\[EnvironmentVariableTarget\]::\$target/);
   assert.match(source, /GetEnvironmentVariable/);
   assert.match(source, /Set-SupervisorStateRootBinding/);
   assert.match(source, /SetEnvironmentVariable/);
