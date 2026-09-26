@@ -2122,6 +2122,32 @@ function rolloverOldTargetMatches(registryLane, rollover) {
   return sha256(registryLane.work_url) === rollover.old_work_target_digest;
 }
 
+function buildWorkTargetBootstrap({ laneId, generation }) {
+  return [
+    "MAGASIN_WORK_TARGET_BOOTSTRAP_V1",
+    `lane_id=${laneId}`,
+    `work_generation=${generation}`,
+    "Đây chỉ là tin nhắn khởi tạo kênh Work mới. Chưa có task để thực hiện.",
+    "Hãy trả lời đúng một từ: READY"
+  ].join("\n");
+}
+
+async function initializeNewWorkConversation(page, {
+  laneId,
+  generation
+}) {
+  const bootstrap = buildWorkTargetBootstrap({ laneId, generation });
+  const sent = await sendComposerInstruction(page, bootstrap, { dryRun: false });
+  if (!sent.executed) {
+    const error = new Error(
+      `new Work conversation bootstrap was not sent: ${sent.rejection_class || sent.reason || "UNKNOWN"}`
+    );
+    error.code = "WORK_TARGET_BOOTSTRAP_SEND_FAILED";
+    throw error;
+  }
+  return waitForConversationUrl(page);
+}
+
 async function createBlankWorkTarget({
   adapter,
   scheduler,
@@ -2131,7 +2157,10 @@ async function createBlankWorkTarget({
 }) {
   if (!scheduler) {
     const page = await adapter.newChatPage("https://chatgpt.com/");
-    const url = await waitForConversationUrl(page);
+    const url = await initializeNewWorkConversation(page, {
+      laneId: lane.lane_id,
+      generation: expectedGeneration
+    });
     return { page, url, generation: expectedGeneration };
   }
 
@@ -2150,8 +2179,13 @@ async function createBlankWorkTarget({
     targetRevision: Number(registryLane.applied_work_url_revision || 0),
     generation: expectedGeneration
   }, async (page) => {
-    // TASK-RBT-006 invariant: blank target creation performs no task send.
-    return waitForConversationUrl(page);
+    // ChatGPT does not allocate a durable /c/<id> URL for an untouched blank
+    // composer. Send a non-task bootstrap first, then persist the URL. The
+    // actual Brain task is still sent only after target persistence + latch.
+    return initializeNewWorkConversation(page, {
+      laneId: lane.lane_id,
+      generation: expectedGeneration
+    });
   });
   return {
     page: created.page,
