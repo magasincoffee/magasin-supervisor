@@ -148,6 +148,17 @@ function normalizeComposerText(value) {
     .trim();
 }
 
+// ChatGPT's contenteditable composer may preserve the same visible instruction
+// while rewriting line breaks, tabs, or NBSP into equivalent rendered
+// whitespace. Use a render-equivalent identity only for send verification;
+// keep normalizeComposerText() strict for guarded stale-draft digests.
+function normalizeRenderedInstructionText(value) {
+  return normalizeComposerText(value)
+    .replace(/\u00A0/g, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
 async function readComposerText(composer) {
   if (!composer) return null;
 
@@ -177,7 +188,8 @@ async function readComposerText(composer) {
 async function composerContainsExactInstruction(composer, instruction) {
   const text = await readComposerText(composer);
   if (text === null) return null;
-  return normalizeComposerText(text) === normalizeComposerText(instruction);
+  return normalizeRenderedInstructionText(text) ===
+    normalizeRenderedInstructionText(instruction);
 }
 
 function normalizedComposerDigest(value) {
@@ -272,6 +284,8 @@ async function captureUserTurnState(page, instruction) {
       const normalize = (value) => String(value || "")
         .replace(/\u200B/g, "")
         .replace(/\r\n/g, "\n")
+        .replace(/\u00A0/g, " ")
+        .replace(/\s+/gu, " ")
         .trim();
       const wanted = normalize(expected);
       const turns = Array.from(
