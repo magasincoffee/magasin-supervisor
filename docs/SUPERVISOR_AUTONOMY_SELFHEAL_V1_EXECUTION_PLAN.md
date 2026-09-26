@@ -300,6 +300,39 @@ Never log:
 - auth tokens,
 - complete private conversation URLs.
 
+### P8 — Dispatch watchdog, heartbeat, bounded recovery, and repair escalation
+
+Operational thresholds:
+- heartbeat_interval = 30s
+- no_progress_warning = 180s
+- stalled_threshold = 300s
+- recovery_attempt_limit = 3
+- github_reconcile = before every retry
+- maintenance_lock = true during Supervisor repair
+
+Required behavior:
+1. Distinguish composer/message prepared from message confirmed sent.
+2. Emit bounded heartbeat/progress evidence while a task is active.
+3. At 180 seconds without confirmed progress, emit WARNING.
+4. At 300 seconds without confirmed progress, transition to STALLED.
+5. Attempt bounded recovery at most 3 times.
+6. Before every retry, reconcile durable lane state and GitHub task/PR/commit/merge truth.
+7. Recovery follows VERIFY_STATE -> RECOVER/RESUME; never blind refresh/retry.
+8. Exhausted recovery enters MAINTENANCE_LOCK and emits exactly one REPAIR_REQUIRED incident.
+9. Product dispatch remains frozen while Supervisor repair is active.
+10. Auto-generated repair requests must preserve incident_id, task_id, failure_type, last_good_state, last_action, elapsed_without_progress, and sanitized GitHub state.
+11. Repair must pass Brain VERIFY/ACCEPT before the frozen product task resumes.
+12. Failed repair acceptance can roll back to the last known-good Supervisor runtime.
+
+Acceptance:
+- a dispatch-send failure cannot remain silently RUNNING for hours;
+- 5 minutes with no progress becomes STALLED;
+- no blind duplicate send/merge/comment/commit after recovery;
+- three failed recovery attempts create one bounded repair incident;
+- product work is frozen during Supervisor repair;
+- accepted repair resumes the original task from reconciled durable state;
+- Owner STOP always wins.
+
 ## 5. Test plan
 
 ### Deterministic tests
@@ -394,6 +427,7 @@ P1 Brain reconciliation
 → P5 Control Panel observability  
 → P6 reset UI completion  
 → P7 logging hardening  
+→ P8 watchdog / heartbeat / bounded recovery / repair escalation  
 → deterministic CI  
 → live A/B/C/D/E  
 → cleanup temporary diagnostics  
@@ -424,3 +458,18 @@ Known failed-but-informative acceptance runs include:
 - 35946365347 — proved local THREE_LANE mode selection and Node launch after lifecycle fix; remaining stale Brain-send reconciliation still blocks full acceptance
 
 These run IDs are evidence anchors, not success claims for the final end-to-end system.
+
+
+## 10. GitHub execution tracking
+
+Canonical tracking issues:
+- P1 — #16 SUP-SELFHEAL-P1 — Brain stale-handshake reconciliation
+- P2 — #62 SUP-SELFHEAL-P2 — Owner/AUTO Work target policy
+- P3 — #63 SUP-SELFHEAL-P3 — Automatic Work replacement
+- P4 — #64 SUP-SELFHEAL-P4 — Runtime/status self-heal
+- P5 — #65 SUP-SELFHEAL-P5 — Control Panel observability
+- P6 — #66 SUP-SELFHEAL-P6 — RESET WORK STATE UI completion
+- P7 — #67 SUP-SELFHEAL-P7 — Persistent sanitized diagnostics
+- P8 — #68 SUP-SELFHEAL-P8 — Dispatch watchdog, heartbeat, bounded recovery, and repair escalation
+
+Execution remains strictly one bounded phase/task at a time. Each task returns evidence and stops for Brain VERIFY/ACCEPT/REJECT before the next task is dispatched.
