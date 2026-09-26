@@ -12,6 +12,17 @@ Write-Host "WRAPPER_ALIVE=$([bool]$truth.wrapper_alive)"
 Write-Host "THREE_LANE_ALIVE=$([bool]$truth.three_lane_alive)"
 Write-Host "CDP_HEALTHY=$([bool]$truth.cdp_healthy)"
 Write-Host "RUNTIME_HEALTHY=$([bool]$truth.healthy)"
+$ownerStop=Get-LifecycleOwnerStopState -Root $root
+Write-Host "OWNER_STOP_BLOCKED=$([bool]$ownerStop.blocked)"
+Write-Host "OWNER_STOP_REASON=$([string]$ownerStop.reason)"
+
+$configPath=Join-Path $root 'lanes.json'
+if(Test-Path $configPath){
+  $cfg=Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  foreach($c in @($cfg.lanes)){
+    Write-Host "CONFIG_LANE=$([string]$c.lane_id)|ENABLED=$([bool]$c.enabled)|WORK_REV=$([string]$c.work_url_revision)|WORK_MODE=$([string]$c.work_mode)"
+  }
+}
 
 $runtimeCli=Join-Path $root 'runtime\src\runtime\three-lane-cli.mjs'
 $runtimeWatchdog=Join-Path $root 'runtime\src\runtime\work-watchdog.mjs'
@@ -51,3 +62,23 @@ if(Test-Path $statusPath){
   Write-Host "LANE_STATUS_RAW=$status"
 }
 Write-Host 'POSTFIX_WATCHDOG_DIAG=PASS'
+
+
+$supervisorLog=Join-Path $root 'supervisor.log'
+if(Test-Path $supervisorLog){
+  Get-Content $supervisorLog -Tail 300 -Encoding UTF8 | ForEach-Object {
+    try{
+      $o=$_ | ConvertFrom-Json -ErrorAction Stop
+      $type=[string]$o.type
+      if($type -match 'TARGET_QUARANTINED|TARGET_QUARANTINE_CLEARED|LANE_ERROR|CDP|CHROME|OWNER|WORK_WATCHDOG|TARGET_REOPEN|WORK_TARGET'){
+        $lane=[string]$o.laneId
+        if(-not $lane){$lane=[string]$o.lane_id}
+        $reason=[string]$o.reason
+        $task=[string]$o.taskId
+        if(-not $task){$task=[string]$o.task_id}
+        Write-Host "RECENT_LOG=TYPE=$type|LANE=$lane|TASK=$task|REASON=$reason"
+      }
+    }catch{}
+  }
+}
+Write-Host 'POSTFIX_WATCHDOG_DETAIL_DIAG=PASS'
