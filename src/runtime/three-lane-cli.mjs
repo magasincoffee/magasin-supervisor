@@ -4725,49 +4725,65 @@ async function processLaneTurn({
       registryLane.last_brain_directive_digest = resumedDirective.digest;
       registryLane.task_id = null;
       registryLane.instruction_digest = null;
-      await atomicJsonWrite(registryPath, registry);
+
+      if (resumeResync.ownerResume) {
+        // An IDLE directive recovered from before STOP is historical truth, not
+        // authority to stay idle after a new Owner START. Consume it so it
+        // cannot be re-adopted, then force a fresh project review handshake.
+        registryLane.brain_request_sent = false;
+        registryLane.brain_request_inflight = null;
+        await atomicJsonWrite(registryPath, registry);
+        await safeLog(logPath, {
+          type: "LANE_OWNER_RESUME_BRAIN_FRESH_PROJECT_REVIEW",
+          laneId: lane.lane_id,
+          digest: resumedDirective.digest,
+          reason: `resume_revision=${Number(resumeResync.revision || 0)};recovered_idle=1`
+        });
+      } else {
+        await atomicJsonWrite(registryPath, registry);
+        await finalizeBrainResumeRecovery({
+          registryLane,
+          registry,
+          registryPath,
+          resumeResync
+        });
+        return laneStatus(
+          lane,
+          registryLane,
+          "READY",
+          "Brain hiện chưa có công việc mới."
+        );
+      }
+    } else {
+      await dispatchWork({
+        adapter,
+        lane,
+        registryLane,
+        directive: resumedDirective,
+        execute,
+        registry,
+        registryPath,
+        logPath,
+        scheduler,
+        stopPath,
+        configPath
+      });
       await finalizeBrainResumeRecovery({
         registryLane,
         registry,
         registryPath,
         resumeResync
       });
+
       return laneStatus(
         lane,
         registryLane,
-        "READY",
-        "Đã đồng bộ lại Brain sau khi bật luồng; hiện chưa có công việc mới."
+        registryLane.awaiting_work ? "WORKING" : "STARTING",
+        registryLane.awaiting_work
+          ? `Đã đồng bộ lại lệnh Brain và đang thực hiện ${registryLane.task_id}.`
+          : "Đã đồng bộ lại lệnh Brain và thực hiện một dispatch attempt; lane yield scheduler."
       );
     }
-
-    await dispatchWork({
-      adapter,
-      lane,
-      registryLane,
-      directive: resumedDirective,
-      execute,
-      registry,
-      registryPath,
-      logPath,
-      scheduler,
-      stopPath,
-      configPath
-    });
-    await finalizeBrainResumeRecovery({
-      registryLane,
-      registry,
-      registryPath,
-      resumeResync
-    });
-
-    return laneStatus(
-      lane,
-      registryLane,
-      registryLane.awaiting_work ? "WORKING" : "STARTING",
-      registryLane.awaiting_work
-        ? `Đã đồng bộ lại lệnh Brain và đang thực hiện ${registryLane.task_id}.`
-        : "Đã đồng bộ lại lệnh Brain và thực hiện một dispatch attempt; lane yield scheduler."
-    );
   }
 
   const resumeHandshakeSafelyIdle =
