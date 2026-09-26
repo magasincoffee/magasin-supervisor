@@ -3304,12 +3304,11 @@ async function resyncBrainAfterOwnerResume({
         if (typeof brainPage.bringToFront === "function") {
           await brainPage.bringToFront().catch(() => {});
         }
-        await brainPage.reload({
-          waitUntil: "domcontentloaded",
-          timeout: 30_000
-        });
+        // Owner resume is a soft resync only. A hard reload can replace or
+        // close the exact ChatGPT page and lose the composer state needed for
+        // safe reconciliation.
         if (typeof brainPage.waitForTimeout === "function") {
-          await brainPage.waitForTimeout(500);
+          await brainPage.waitForTimeout(700);
         }
       }
     );
