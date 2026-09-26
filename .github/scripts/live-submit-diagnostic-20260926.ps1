@@ -87,6 +87,7 @@ if (-not (Test-Path $diagRoot -PathType Container)) {
       Write-Host "SUBMIT_LAST_STAGE_FILE=$($lastStageFile.Name)"
       Write-Host "SUBMIT_LAST_STAGE=$([string]$stage.stage)"
       Write-Host "SUBMIT_LAST_STAGE_AT=$([string]$stage.captured_at)"
+      Write-Host "SUBMIT_LAST_STAGE_URL=$([string]$stage.url)"
       Write-Host "SUBMIT_COMPOSER_TEXT_LENGTH=$([int]$stage.composerTextLength)"
       Write-Host "SUBMIT_COMPOSER_TEXT_DIGEST=$([string]$stage.composerTextDigest)"
       Write-Host "SUBMIT_INSTRUCTION_DIGEST=$([string]$stage.instruction_digest)"
