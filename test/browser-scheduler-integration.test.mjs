@@ -39,7 +39,7 @@ test("bounded lane turn separates completed-result capture from relay mutation",
   const runtime = await read("../src/runtime/three-lane-cli.mjs");
   const turn = functionSlice(runtime, "async function processLaneTurn", "async function processLane(args)");
   const completed = turn.indexOf("markTaskCompleted");
-  const boundedReturn = turn.indexOf("relay mutation được tách sang bounded turn kế tiếp", completed);
+  const boundedReturn = turn.indexOf("relay văn bản được tách sang bounded turn kế tiếp", completed);
   const relay = turn.indexOf("relayWorkResult", boundedReturn);
   assert.ok(completed >= 0);
   assert.ok(boundedReturn > completed);
