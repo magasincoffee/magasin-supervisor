@@ -237,3 +237,20 @@ test("RBT-010 Control Panel V2 contains no screenshot relay UI", async () => {
   assert.doesNotMatch(source, /BÁO CÁO ẢNH|screenshot_path|relayScreenshotPath|reportInfoLabel|Report = \$reportValue/);
   assert.match(source, /THỬ LẠI RELAY/);
 });
+
+test("Control Panel enters the message loop before any initial blocking refresh", async () => {
+  const source = await fs.readFile(
+    new URL("../windows/control-panel.ps1", import.meta.url),
+    "utf8"
+  );
+
+  const launchTail = source.slice(source.lastIndexOf("$timer.Start()"));
+  assert.match(
+    launchTail,
+    /Ensure-Config \| Out-Null[\s\S]*\[void\]\$form\.ShowDialog\(\)/
+  );
+  assert.doesNotMatch(
+    launchTail,
+    /Ensure-Config \| Out-Null\s*Refresh-Ui\s*\[void\]\$form\.ShowDialog\(\)/
+  );
+});
