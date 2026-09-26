@@ -3882,14 +3882,6 @@ async function processLaneTurn({
         `ĐÃ YÊU CẦU THỬ LẠI RELAY — revision ${rearmOutcome.revision}; Brain chưa ổn định nên chưa mở retry epoch, intent vẫn pending.`
       );
     }
-    if (rearmOutcome.status === "EVIDENCE_MISSING") {
-      return laneStatus(
-        lane,
-        registryLane,
-        "WAIT_OWNER",
-        "Relay evidence hiện tại bị thiếu/hỏng. Robot giữ nguyên task và relay latch, không reset và không gửi lại."
-      );
-    }
   }
 
   if (registryLane.relay_inflight) {
