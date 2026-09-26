@@ -222,9 +222,9 @@ function New-DefaultConfig {
         schema_version = 'three-lane-config.v1'
         mode = 'THREE_LANE_V1'
         lanes = @(
-            [ordered]@{ lane_id='lane-1'; project_name='Dự án 1'; brain_url=''; brain_url_revision=0; work_url=''; work_url_revision=0; work_url_saved_at=$null; work_mode='AUTO'; relay_retry_rearm_revision=0; relay_retry_rearm_requested_at=$null; enabled=$false },
-            [ordered]@{ lane_id='lane-2'; project_name='Dự án 2'; brain_url=''; brain_url_revision=0; work_url=''; work_url_revision=0; work_url_saved_at=$null; work_mode='AUTO'; relay_retry_rearm_revision=0; relay_retry_rearm_requested_at=$null; enabled=$false },
-            [ordered]@{ lane_id='lane-3'; project_name='Dự án 3'; brain_url=''; brain_url_revision=0; work_url=''; work_url_revision=0; work_url_saved_at=$null; work_mode='AUTO'; relay_retry_rearm_revision=0; relay_retry_rearm_requested_at=$null; enabled=$false }
+            [ordered]@{ lane_id='lane-1'; project_name='Dự án 1'; brain_url=''; brain_url_revision=0; work_url=''; work_url_revision=0; work_url_saved_at=$null; work_mode='AUTO'; relay_retry_rearm_revision=0; relay_retry_rearm_requested_at=$null; resume_revision=0; resume_requested_at=$null; enabled=$false },
+            [ordered]@{ lane_id='lane-2'; project_name='Dự án 2'; brain_url=''; brain_url_revision=0; work_url=''; work_url_revision=0; work_url_saved_at=$null; work_mode='AUTO'; relay_retry_rearm_revision=0; relay_retry_rearm_requested_at=$null; resume_revision=0; resume_requested_at=$null; enabled=$false },
+            [ordered]@{ lane_id='lane-3'; project_name='Dự án 3'; brain_url=''; brain_url_revision=0; work_url=''; work_url_revision=0; work_url_saved_at=$null; work_mode='AUTO'; relay_retry_rearm_revision=0; relay_retry_rearm_requested_at=$null; resume_revision=0; resume_requested_at=$null; enabled=$false }
         )
     }
 }
@@ -439,10 +439,22 @@ function Save-Lane(
         $initialBrainRevision = if ([string]$lane.brain_url) { 1 } else { 0 }
         $lane | Add-Member -NotePropertyName 'brain_url_revision' -NotePropertyValue $initialBrainRevision
     }
+    if (-not $lane.PSObject.Properties['resume_revision']) {
+        $lane | Add-Member -NotePropertyName 'resume_revision' -NotePropertyValue 0
+    }
+    if (-not $lane.PSObject.Properties['resume_requested_at']) {
+        $lane | Add-Member -NotePropertyName 'resume_requested_at' -NotePropertyValue $null
+    }
 
+    $wasEnabled = [bool]$lane.enabled
     $newBrainUrl = if ($BrainUrl) { $BrainUrl.Trim() } else { '' }
     if ([string]$lane.brain_url -ne $newBrainUrl) {
         $lane.brain_url_revision = [int]$lane.brain_url_revision + 1
+    }
+
+    if ($Enabled -and -not $wasEnabled) {
+        $lane.resume_revision = [int]$lane.resume_revision + 1
+        $lane.resume_requested_at = [DateTimeOffset]::UtcNow.ToString('o')
     }
 
     $lane.project_name = if ($ProjectName) { $ProjectName.Trim() } else { $LaneId }
