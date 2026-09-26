@@ -21,6 +21,7 @@ function page() {
   let fills = 0;
   let clicks = 0;
   let composerText = "";
+  let submittedUserTurns = 0;
 
   const composer = () => ({
     first() { return this; },
@@ -34,6 +35,7 @@ function page() {
     async inputValue() { return composerText; },
     async click() {},
     async press(key) {
+      if (key === "Enter" && composerText) submittedUserTurns += 1;
       if (key === "Backspace" || key === "Enter") composerText = "";
     }
   });
@@ -44,6 +46,7 @@ function page() {
     async isEnabled() { return true; },
     async click() {
       clicks += 1;
+      if (composerText) submittedUserTurns += 1;
       composerText = "";
     }
   });
@@ -51,7 +54,16 @@ function page() {
   const p = {
     get fills() { return fills; },
     get clicks() { return clicks; },
-    async evaluate() { return [{ text: "", ariaLabel: "Send prompt", testId: "send-button" }]; },
+    async evaluate(fn) {
+      if (String(fn).includes("data-message-author-role")) {
+        return {
+          readable: true,
+          totalCount: submittedUserTurns,
+          exactMatchCount: submittedUserTurns
+        };
+      }
+      return [{ text: "", ariaLabel: "Send prompt", testId: "send-button" }];
+    },
     locator(selector) {
       if (
         selector.includes("prompt-textarea") ||

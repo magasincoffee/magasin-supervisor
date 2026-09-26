@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'state-root.ps1')
 $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
 $diagnosticsRoot = Join-Path $root 'diagnostics'
+$submitDiagnostics = Join-Path $diagnosticsRoot 'submit'
 $latest = Join-Path $diagnosticsRoot 'latest.json'
 $incidents = Join-Path $diagnosticsRoot 'incidents.ndjson'
 $status = Join-Path $root 'runtime-status.json'
@@ -22,6 +23,17 @@ if (Test-Path $incidents) {
     Get-Content $incidents -Tail 10 -Encoding UTF8 | ForEach-Object { Write-Host $_ }
 } else {
     Write-Host 'incidents.ndjson: missing'
+}
+
+$submitLatest = Join-Path $submitDiagnostics 'latest.json'
+$submitIncidents = Join-Path $submitDiagnostics 'incidents.ndjson'
+if (Test-Path $submitLatest) {
+    Write-Host '--- latest submit flight recorder incident ---'
+    Get-Content $submitLatest -Raw -Encoding UTF8 | Write-Host
+}
+if (Test-Path $submitIncidents) {
+    Write-Host '--- recent submit flight recorder incidents ---'
+    Get-Content $submitIncidents -Tail 5 -Encoding UTF8 | ForEach-Object { Write-Host $_ }
 }
 
 if (Test-Path $status) {

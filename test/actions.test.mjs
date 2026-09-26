@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { ACTIONS } from "../src/decision.mjs";
 import { executeDecision, sendComposerInstruction } from "../src/ui/actions.mjs";
 
+process.env.MAGASIN_SUBMIT_DEBUG = "off";
+
 function fakeLocator({
   visible = true,
   onClick = () => {},
@@ -44,6 +46,7 @@ function fakePage({
   fillError = null
 } = {}) {
   let composerText = "";
+  let submittedUserTurns = 0;
 
   const composer = () => fakeLocator({
     visible: composerVisible,
@@ -64,13 +67,23 @@ function fakePage({
     visible: true,
     enabled: true,
     onClick: () => {
+      if (composerText) submittedUserTurns += 1;
       composerText = "";
       onClick();
     }
   });
 
   return {
-    async evaluate() { return controls; },
+    async evaluate(fn) {
+      if (String(fn).includes("data-message-author-role")) {
+        return {
+          readable: true,
+          totalCount: submittedUserTurns,
+          exactMatchCount: submittedUserTurns
+        };
+      }
+      return controls;
+    },
     locator(selector) {
       if (
         selector.includes("prompt-textarea") ||
@@ -92,7 +105,10 @@ function fakePage({
         onInsertText(value);
       },
       async press(key) {
-        if (key === "Enter") composerText = "";
+        if (key === "Enter" && composerText) {
+          submittedUserTurns += 1;
+          composerText = "";
+        }
         onPress(key);
       }
     },
@@ -299,7 +315,13 @@ test("plaintext-only ChatGPT composer is accepted as an editable surface", async
       if (selector.includes("send-button")) return send;
       return composer;
     },
-    async evaluate() { return []; },
+    async evaluate(fn) {
+      if (String(fn).includes("data-message-author-role")) {
+        const sent = clicks > 0 && composerText === "" ? 1 : 0;
+        return { readable: true, totalCount: sent, exactMatchCount: sent };
+      }
+      return [];
+    },
     async waitForTimeout() {},
     async bringToFront() {},
     keyboard: { async press() {}, async insertText() {} },
@@ -352,7 +374,13 @@ test("fill success without persisted text falls back to a real keyboard insertio
       if (selector.includes("send-button")) return send;
       return composer;
     },
-    async evaluate() { return []; },
+    async evaluate(fn) {
+      if (String(fn).includes("data-message-author-role")) {
+        const sent = events.includes("send") && composerText === "" ? 1 : 0;
+        return { readable: true, totalCount: sent, exactMatchCount: sent };
+      }
+      return [];
+    },
     async waitForTimeout() {},
     async bringToFront() {},
     keyboard: {
@@ -406,7 +434,13 @@ test("composer send recovers an inert Send click with one bounded Enter", async 
       if (selector.includes("send-button")) return inertSend;
       return composer;
     },
-    async evaluate() { return []; },
+    async evaluate(fn) {
+      if (String(fn).includes("data-message-author-role")) {
+        const sent = (clicks > 0 || enters > 0) && composerText === "" ? 1 : 0;
+        return { readable: true, totalCount: sent, exactMatchCount: sent };
+      }
+      return [];
+    },
     async waitForTimeout() {},
     async bringToFront() {},
     keyboard: {
@@ -462,7 +496,13 @@ test("composer send fails closed when click and Enter are both inert", async () 
       if (selector.includes("send-button")) return inertSend;
       return composer;
     },
-    async evaluate() { return []; },
+    async evaluate(fn) {
+      if (String(fn).includes("data-message-author-role")) {
+        const sent = (clicks > 0 || enters > 0) && composerText === "" ? 1 : 0;
+        return { readable: true, totalCount: sent, exactMatchCount: sent };
+      }
+      return [];
+    },
     async waitForTimeout() {},
     async bringToFront() {},
     keyboard: {
@@ -487,6 +527,54 @@ test("composer send fails closed when click and Enter are both inert", async () 
   assert.equal(result.primary_submit_evidence, "instruction-still-present");
   assert.equal(result.submit_evidence, "instruction-still-present");
   assert.equal(composerText, "must not be reported as sent");
+});
+
+test("composer clear alone is not accepted without a matching new user turn", async () => {
+  let composerText = "";
+
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async fill(value) { composerText = value; },
+    async inputValue() { return composerText; },
+    async click() {},
+    async press() {}
+  };
+  const send = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() { composerText = ""; }
+  };
+  const page = {
+    locator(selector) {
+      if (selector.includes("send-button")) return send;
+      return composer;
+    },
+    async evaluate(fn) {
+      if (String(fn).includes("data-message-author-role")) {
+        return { readable: true, totalCount: 0, exactMatchCount: 0 };
+      }
+      return [];
+    },
+    async waitForTimeout() {},
+    async bringToFront() {},
+    keyboard: { async press() {}, async insertText() {} },
+    getByRole() { return send; }
+  };
+
+  const result = await sendComposerInstruction(
+    page,
+    "cleared but never persisted",
+    { dryRun: false }
+  );
+
+  assert.equal(result.executed, false);
+  assert.equal(result.rejection_class, "SEND_NOT_ACTUATED");
+  assert.equal(result.submit_evidence, "composer-changed");
+  assert.equal(result.user_turn_evidence, "matching-user-turn-not-observed");
 });
 
 test("RBT-010 UI action layer contains no attachment upload path", async () => {
