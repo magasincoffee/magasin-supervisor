@@ -74,7 +74,9 @@ if($enabledBefore -ne 0){
   $targetSrc=Join-Path $runtime 'src'
   $sourcePackage=Join-Path $env:GITHUB_WORKSPACE 'package.json'
   $targetPackage=Join-Path $runtime 'package.json'
-  foreach($p in @($sourceSrc,$targetSrc,$sourcePackage,$targetPackage)){
+  $sourcePanel=Join-Path $env:GITHUB_WORKSPACE 'windows\control-panel.ps1'
+  $targetPanel=Join-Path $runtime 'windows\control-panel.ps1'
+  foreach($p in @($sourceSrc,$targetSrc,$sourcePackage,$targetPackage,$sourcePanel,$targetPanel)){
     if(-not (Test-Path $p)){throw "Active-lane hotpatch missing required path: $p"}
   }
 
@@ -87,6 +89,12 @@ if($enabledBefore -ne 0){
 
   Write-Host 'ACTIVE_LANE_HOTPATCH_BEGIN=True'
   Copy-Item (Join-Path $sourceSrc '*') $targetSrc -Recurse -Force
+  Copy-Item $sourcePanel $targetPanel -Force
+
+  $sourcePanelHash=(Get-FileHash $sourcePanel -Algorithm SHA256).Hash
+  $targetPanelHash=(Get-FileHash $targetPanel -Algorithm SHA256).Hash
+  if($sourcePanelHash -ne $targetPanelHash){throw 'Hotpatch Control Panel hash mismatch.'}
+  Write-Host "HOTPATCH_CONTROL_PANEL_SHA256=$targetPanelHash"
 
   $sourceActions=Join-Path $sourceSrc 'ui\actions.mjs'
   $targetActions=Join-Path $targetSrc 'ui\actions.mjs'
@@ -132,6 +140,33 @@ if($enabledBefore -ne 0){
     }
   }
   if(-not $healthy){throw 'Hotpatch runtime did not become healthy within bounded wait.'}
+
+  # Refresh only the Owner Control Panel process so the live UI reflects the
+  # same source revision. The Supervisor wrapper/Three-Lane authority remains
+  # untouched after its bounded child restart above.
+  Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.CommandLine -and
+      $_.CommandLine -like '*control-panel.ps1*' -and
+      $_.CommandLine -notlike '*run-supervisor.ps1*'
+    } |
+    ForEach-Object {
+      Stop-Process -Id ([int]$_.ProcessId) -Force -ErrorAction SilentlyContinue
+      Write-Host "HOTPATCH_OLD_CONTROL_PANEL_STOPPED=$($_.ProcessId)"
+    }
+
+  Start-Sleep -Milliseconds 300
+  if(Test-Path $shortcutPath){
+    & explorer.exe $shortcutPath
+    Write-Host 'HOTPATCH_CONTROL_PANEL_REOPEN_REQUESTED=True'
+  }else{
+    $env:RUNNER_TRACKING_ID='MAGASIN_CONTROL_PANEL_PERSISTENT'
+    Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
+      '-NoLogo','-NoProfile','-ExecutionPolicy','Bypass',
+      '-File',('"' + $targetPanel + '"')
+    )
+    Write-Host 'HOTPATCH_CONTROL_PANEL_REOPEN_FALLBACK=True'
+  }
 
   $fingerprintAfter=Get-TargetFingerprint $configFile
   if($fingerprintBefore -ne $fingerprintAfter){throw 'Project target fingerprint changed during active-lane hotpatch.'}
