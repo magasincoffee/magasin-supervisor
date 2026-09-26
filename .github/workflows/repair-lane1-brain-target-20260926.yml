@@ -34,3 +34,5 @@ jobs:
           echo REPAIR_MACHINE=%COMPUTERNAME%
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\repair-lane1-brain-target-20260926.ps1" -TargetComputer "DESKTOP-4K7IM13"
           exit /b %ERRORLEVEL%
+
+# recheck after live submit repair
