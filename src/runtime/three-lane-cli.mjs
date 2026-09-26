@@ -1057,7 +1057,8 @@ async function adoptExistingBrainDirective({
   registryLane,
   registry,
   registryPath,
-  logPath
+  logPath,
+  allowResumeRecovery = false
 }) {
   const probe = await assertConversationSafe(adapter, page, { brain: true })
     .catch(() => null);
@@ -1096,14 +1097,30 @@ async function adoptExistingBrainDirective({
     try {
       evaluateBrainVerdictTransition(registryLane, candidate);
     } catch (error) {
+      const safelyIdleForResumeRecovery = Boolean(
+        allowResumeRecovery &&
+        !registryLane.awaiting_work &&
+        !registryLane.dispatch_inflight &&
+        !registryLane.relay_inflight
+      );
+      if (!safelyIdleForResumeRecovery) {
+        await safeLog(logPath, {
+          type: "LANE_BRAIN_STALE_DIRECTIVE_SKIPPED",
+          laneId: lane.lane_id,
+          taskId: candidate.action === "WORK" ? candidate.task_id : undefined,
+          digest: candidate.digest,
+          reason: String(error?.message || error).slice(0, 240)
+        });
+        return null;
+      }
+
       await safeLog(logPath, {
-        type: "LANE_BRAIN_STALE_DIRECTIVE_SKIPPED",
+        type: "LANE_BRAIN_DIRECTIVE_RESUME_RECOVERY",
         laneId: lane.lane_id,
         taskId: candidate.action === "WORK" ? candidate.task_id : undefined,
         digest: candidate.digest,
         reason: String(error?.message || error).slice(0, 240)
       });
-      return null;
     }
   }
 
@@ -2832,15 +2849,19 @@ async function resyncBrainAfterOwnerResume({
       ? -1
       : registryLane.applied_resume_revision
   );
-  if (revision <= applied) {
-    return { status: "NONE", probe: null };
+  const recoveryVersion = Number(
+    registryLane.brain_resume_recovery_version || 0
+  );
+  const needsMigrationRecovery = recoveryVersion < 1;
+  if (revision <= applied && !needsMigrationRecovery) {
+    return { status: "NONE", probe: null, recoveryAuthority: false };
   }
 
   await safeLog(logPath, {
     type: "LANE_OWNER_RESUME_BRAIN_RESYNC_INTENT",
     laneId: lane.lane_id,
     taskId: registryLane.task_id || undefined,
-    reason: `resume_revision=${revision};applied=${applied}`
+    reason: `resume_revision=${revision};applied=${applied};recovery_version=${recoveryVersion}`
   });
 
   try {
@@ -2876,6 +2897,7 @@ async function resyncBrainAfterOwnerResume({
   }
 
   registryLane.applied_resume_revision = revision;
+  registryLane.brain_resume_recovery_version = 1;
   await atomicJsonWrite(registryPath, registry);
 
   const probe = await assertConversationSafe(adapter, brainPage, { brain: true })
@@ -2884,9 +2906,14 @@ async function resyncBrainAfterOwnerResume({
     type: "LANE_OWNER_RESUME_BRAIN_RESYNC_APPLIED",
     laneId: lane.lane_id,
     taskId: registryLane.task_id || undefined,
-    reason: `resume_revision=${revision}`
+    reason: `resume_revision=${revision};migration=${needsMigrationRecovery ? 1 : 0}`
   });
-  return { status: "APPLIED", probe };
+  return {
+    status: "APPLIED",
+    probe,
+    recoveryAuthority: true,
+    migrationRecovery: needsMigrationRecovery
+  };
 }
 
 async function emitWorkTargetTransition({
@@ -4622,7 +4649,8 @@ async function processLaneTurn({
     registryLane,
     registry,
     registryPath,
-    logPath
+    logPath,
+    allowResumeRecovery: Boolean(resumeResync.recoveryAuthority)
   });
   if (resumedDirective) {
     await applyBrainVerdictDirective({

@@ -175,9 +175,11 @@ test("lane resume revision is durable and legacy registries request one migratio
     lanes: { "lane-1": {} }
   });
   assert.equal(legacy.lanes["lane-1"].applied_resume_revision, -1);
+  assert.equal(legacy.lanes["lane-1"].brain_resume_recovery_version, 0);
 
   const current = normalizeLaneRegistry(defaultLaneRegistry());
   assert.equal(current.lanes["lane-1"].applied_resume_revision, 0);
+  assert.equal(current.lanes["lane-1"].brain_resume_recovery_version, 1);
 });
 
 test("lane registry tracks the applied Owner Brain URL revision", () => {
