@@ -165,6 +165,29 @@ test("v43 valid completed Brain directive can complete a stuck first-handshake w
 });
 
 
+test("lane STOP then START reloads Brain once and adopts an already-visible unconsumed directive", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /async function resyncBrainAfterOwnerResume/);
+  assert.match(source, /LANE_OWNER_RESUME_BRAIN_RESYNC_INTENT/);
+  assert.match(source, /OWNER_LANE_RESUME_BRAIN_RESYNC/);
+  assert.match(source, /brainPage\.reload/);
+  assert.match(source, /registryLane\.applied_resume_revision = revision/);
+  assert.match(source, /const resumedDirective = await adoptExistingBrainDirective/);
+  assert.match(source, /directive: resumedDirective/);
+  assert.match(source, /Đã đồng bộ lại lệnh Brain/);
+  assert.doesNotMatch(
+    source.slice(
+      source.indexOf("async function resyncBrainAfterOwnerResume"),
+      source.indexOf("async function emitWorkTargetTransition")
+    ),
+    /last_brain_directive_digest\s*=\s*null/
+  );
+});
+
 test("v43 explicit Brain rebind clears only a blocked old-Brain dispatch when no Work result is pending", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
