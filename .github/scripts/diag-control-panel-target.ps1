@@ -360,6 +360,26 @@ Write-Host "RBT010_LEGACY_EVIDENCE_CLEAN=True"
 Write-Host "RBT010_PROCESS_HEALTHY=$([bool]$truth.healthy)"
 Write-Host "RBT010_LIVE_ACCEPTANCE=PASS"
 
+Write-Host "=== BRAIN RESUME NEXT WORK LIVE ACCEPTANCE ==="
+$repoRoot=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$installedThreeLane=Join-Path $root 'runtime\src\runtime\three-lane.mjs'
+$installedThreeLaneCli=Join-Path $root 'runtime\src\runtime\three-lane-cli.mjs'
+$repoThreeLane=Join-Path $repoRoot 'src\runtime\three-lane.mjs'
+$repoThreeLaneCli=Join-Path $repoRoot 'src\runtime\three-lane-cli.mjs'
+
+foreach($p in @($installedThreeLane,$installedThreeLaneCli,$repoThreeLane,$repoThreeLaneCli)){
+  if(-not (Test-Path $p)){throw "Brain resume next-work acceptance file missing: $p"}
+}
+
+$coreHashMatch=((Get-FileHash $installedThreeLane -Algorithm SHA256).Hash -eq (Get-FileHash $repoThreeLane -Algorithm SHA256).Hash)
+$cliHashMatch=((Get-FileHash $installedThreeLaneCli -Algorithm SHA256).Hash -eq (Get-FileHash $repoThreeLaneCli -Algorithm SHA256).Hash)
+if(-not $coreHashMatch){throw 'Installed three-lane.mjs does not match exact main'}
+if(-not $cliHashMatch){throw 'Installed three-lane-cli.mjs does not match exact main'}
+
+Write-Host "BRAIN_RESUME_NEXT_WORK_CORE_HASH_MATCH=$coreHashMatch"
+Write-Host "BRAIN_RESUME_NEXT_WORK_CLI_HASH_MATCH=$cliHashMatch"
+Write-Host "BRAIN_RESUME_NEXT_WORK_LIVE_ACCEPTANCE=PASS"
+
 
 Write-Host "=== CONTROL PANEL LAUNCH SMOKE ==="
 $panelScript=Join-Path $root 'runtime\windows\control-panel.ps1'
