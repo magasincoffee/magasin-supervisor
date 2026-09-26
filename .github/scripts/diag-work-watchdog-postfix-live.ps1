@@ -84,3 +84,22 @@ if(Test-Path $supervisorLog){
   }
 }
 Write-Host 'POSTFIX_WATCHDOG_DETAIL_DIAG=PASS'
+
+
+if(Test-Path $supervisorLog){
+  Get-Content $supervisorLog -Tail 180 -Encoding UTF8 | ForEach-Object {
+    try{
+      $o=$_ | ConvertFrom-Json -ErrorAction Stop
+      $type=[string]$o.type
+      $lane=[string]$o.laneId
+      if(-not $lane){$lane=[string]$o.lane_id}
+      $reason=[string]$o.reason
+      $task=[string]$o.taskId
+      if(-not $task){$task=[string]$o.task_id}
+      $ts=[string]$o.timestamp
+      if(-not $ts){$ts=[string]$o.at}
+      Write-Host "RECENT_ANY=TS=$ts|TYPE=$type|LANE=$lane|TASK=$task|REASON=$reason"
+    }catch{}
+  }
+}
+Write-Host 'POSTFIX_LOG_TYPE_DIAG=PASS'
