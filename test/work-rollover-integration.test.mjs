@@ -29,17 +29,22 @@ test("single conversationFull regex no longer directly authorizes create/rollove
   assert.match(runtime, /WORK_CAPACITY_STATES\.FULL_CONFIRMED/);
 });
 
-test("blank Work creation contains no task send and target persistence precedes dispatch latch", async () => {
+test("new Work creation bootstraps only channel identity before target persistence and task dispatch", async () => {
   const runtime = await read("../src/runtime/three-lane-cli.mjs");
   const blank = slice(
     runtime,
-    "async function createBlankWorkTarget",
+    "function buildWorkTargetBootstrap",
     "async function dispatchWork"
   );
-  assert.match(blank, /newChatPage/);
+  assert.match(blank, /MAGASIN_WORK_TARGET_BOOTSTRAP_V1/);
+  assert.match(blank, /sendComposerInstruction/);
   assert.match(blank, /waitForConversationUrl/);
-  assert.doesNotMatch(blank, /sendComposerInstruction/);
   assert.doesNotMatch(blank, /buildWorkDispatchInstruction/);
+  assert.match(blank, /Chưa có task để thực hiện/);
+
+  const bootstrapSend = blank.indexOf("sendComposerInstruction");
+  const waitForUrl = blank.indexOf("waitForConversationUrl", bootstrapSend);
+  assert.ok(bootstrapSend >= 0 && waitForUrl > bootstrapSend);
 
   const dispatch = slice(
     runtime,
