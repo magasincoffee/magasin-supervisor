@@ -125,22 +125,3 @@ export async function captureRecentConversationTurns(page, { limit = 30 } = {}) 
   }));
 }
 
-
-export async function captureCompletedAssistantTurnScreenshot(page, outputPath) {
-  if (!page) throw new TypeError("page is required");
-  if (typeof outputPath !== "string" || !outputPath.trim()) {
-    throw new Error("outputPath is required");
-  }
-
-  const locator = page.locator("[data-message-author-role='assistant']").last();
-  if (!(await locator.count().catch(() => 0))) {
-    throw new Error("completed assistant turn screenshot target is missing");
-  }
-
-  await locator.scrollIntoViewIfNeeded().catch(() => {});
-  await locator.screenshot({
-    path: outputPath,
-    type: "png"
-  });
-  return outputPath;
-}
