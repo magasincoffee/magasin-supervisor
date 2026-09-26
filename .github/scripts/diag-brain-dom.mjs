@@ -91,12 +91,45 @@ const expression = `(() => {
         .filter(Boolean),
       text: String(node.innerText || node.textContent || "").trim()
     }));
+  const marker = "<<<MAGASIN_LANE_DIRECTIVE_V1>>>";
+  const markerNodes = Array.from(document.querySelectorAll("main *"))
+    .filter((el) => {
+      const text = String(el.innerText || el.textContent || "");
+      if (!text.includes(marker)) return false;
+      return !Array.from(el.children || []).some((child) =>
+        String(child.innerText || child.textContent || "").includes(marker)
+      );
+    })
+    .slice(-12)
+    .map((el) => {
+      const lineage = [];
+      let node = el;
+      for (let depth = 0; node && depth < 6; depth += 1, node = node.parentElement) {
+        lineage.push({
+          tag: String(node.tagName || ""),
+          id: String(node.id || ""),
+          cls: String(node.className || "").slice(0, 180),
+          testid: String(node.getAttribute?.("data-testid") || ""),
+          role: String(node.getAttribute?.("role") || ""),
+          author: String(node.getAttribute?.("data-message-author-role") || ""),
+          messageId: String(node.getAttribute?.("data-message-id") || ""),
+          dataRole: String(node.getAttribute?.("data-role") || "")
+        });
+      }
+      const text = String(el.innerText || el.textContent || "").trim();
+      return {
+        text,
+        hasBrainRequestId: text.includes("brain_request_id="),
+        lineage
+      };
+    });
   const composer = document.querySelector("#prompt-textarea,[contenteditable='true'][role='textbox'],textarea");
   return {
     url: location.href,
     visibility: document.visibilityState,
     roleNodes,
     turnNodes,
+    markerNodes,
     composerPresent: Boolean(composer)
   };
 })()`;
@@ -132,4 +165,22 @@ for (let i = Math.max(0, turnNodes.length - 4); i < turnNodes.length; i += 1) {
   console.log(
     `BRAIN_DOM_TURN[${i}]=${String(item.testid || "")}|ROLES=${(item.roles || []).join(",")}|CHARS=${text.length}|DIGEST=${digest(text)}`
   );
+}
+
+const markerNodes = Array.isArray(dom?.markerNodes) ? dom.markerNodes : [];
+console.log(`BRAIN_DOM_MARKER_NODE_COUNT=${markerNodes.length}`);
+for (let i = Math.max(0, markerNodes.length - 6); i < markerNodes.length; i += 1) {
+  const item = markerNodes[i] || {};
+  const text = String(item.text || "");
+  console.log(`BRAIN_DOM_MARKER[${i}]=CHARS=${text.length}|DIGEST=${digest(text)}|REQUEST_ID=${Boolean(item.hasBrainRequestId)}`);
+  for (let depth = 0; depth < Math.min(4, (item.lineage || []).length); depth += 1) {
+    const n = item.lineage[depth] || {};
+    console.log(`BRAIN_DOM_LINEAGE[${i}][${depth}]=TAG=${n.tag}|ID=${n.id}|TESTID=${n.testid}|ROLE=${n.role}|AUTHOR=${n.author}|DATA_ROLE=${n.dataRole}|MESSAGE_ID=${n.messageId}|CLASS=${String(n.cls || "").replace(/[\r\n|]+/g," ").slice(0,180)}`);
+  }
+  try {
+    const directive = parseLaneDirective(text);
+    console.log(`BRAIN_DOM_MARKER_PARSE[${i}]=PASS|ACTION=${directive.action}|PLAN=${Boolean(directive.project_plan)}|TASKS=${directive.project_plan?.tasks?.length || 0}|DONE=${directive.project_plan?.completed_task_ids?.length || 0}|DIGEST=${directive.digest}`);
+  } catch (error) {
+    console.log(`BRAIN_DOM_MARKER_PARSE[${i}]=FAIL|ERROR=${String(error?.message || error).replace(/[\r\n]+/g," ").slice(0,260)}`);
+  }
 }
