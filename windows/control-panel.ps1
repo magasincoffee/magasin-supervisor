@@ -929,22 +929,46 @@ for ($i = 0; $i -lt 3; $i++) {
     $executionValue.AutoEllipsis = $true
     $summaryPanel.Controls.Add($executionValue)
 
+    $progressValue = New-Object Windows.Forms.Label
+    $progressValue.Location = New-Object Drawing.Point(10, 30)
+    $progressValue.Size = New-Object Drawing.Size(250, 20)
+    $progressValue.Font = New-Object Drawing.Font('Segoe UI Semibold', 8.5)
+    $progressValue.ForeColor = [Drawing.Color]::FromArgb(51,65,85)
+    $progressValue.Text = 'TIẾN ĐỘ DỰ ÁN: CHƯA CÓ KẾ HOẠCH'
+    $summaryPanel.Controls.Add($progressValue)
+
+    $progressBar = New-Object Windows.Forms.ProgressBar
+    $progressBar.Location = New-Object Drawing.Point(270, 33)
+    $progressBar.Size = New-Object Drawing.Size(455, 15)
+    $progressBar.Minimum = 0
+    $progressBar.Maximum = 100
+    $progressBar.Value = 0
+    $summaryPanel.Controls.Add($progressBar)
+
+    $progressPercent = New-Object Windows.Forms.Label
+    $progressPercent.Location = New-Object Drawing.Point(735, 29)
+    $progressPercent.Size = New-Object Drawing.Size(100, 22)
+    $progressPercent.TextAlign = 'MiddleRight'
+    $progressPercent.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
+    $progressPercent.Text = '—'
+    $summaryPanel.Controls.Add($progressPercent)
+
     $healthValue = New-Object Windows.Forms.Label
-    $healthValue.Location = New-Object Drawing.Point(10, 30)
-    $healthValue.Size = New-Object Drawing.Size(828, 34)
+    $healthValue.Location = New-Object Drawing.Point(10, 53)
+    $healthValue.Size = New-Object Drawing.Size(828, 30)
     $healthValue.Font = New-Object Drawing.Font('Segoe UI', 8.5)
     $healthValue.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
     $summaryPanel.Controls.Add($healthValue)
 
     $updatedValue = New-Object Windows.Forms.Label
-    $updatedValue.Location = New-Object Drawing.Point(10, 65)
+    $updatedValue.Location = New-Object Drawing.Point(10, 83)
     $updatedValue.Size = New-Object Drawing.Size(828, 18)
     $updatedValue.ForeColor = [Drawing.Color]::FromArgb(100,116,139)
     $summaryPanel.Controls.Add($updatedValue)
 
     $messageValue = New-Object Windows.Forms.Label
-    $messageValue.Location = New-Object Drawing.Point(10, 84)
-    $messageValue.Size = New-Object Drawing.Size(828, 38)
+    $messageValue.Location = New-Object Drawing.Point(10, 101)
+    $messageValue.Size = New-Object Drawing.Size(828, 21)
     $messageValue.AutoEllipsis = $true
     $summaryPanel.Controls.Add($messageValue)
 
@@ -979,6 +1003,9 @@ for ($i = 0; $i -lt 3; $i++) {
         Work = $workBox
         Status = $statusValue
         Execution = $executionValue
+        Progress = $progressValue
+        ProgressBar = $progressBar
+        ProgressPercent = $progressPercent
         Health = $healthValue
         Message = $messageValue
         Updated = $updatedValue
@@ -1434,6 +1461,34 @@ function Refresh-Ui {
             ' · THỜI GIAN: ' + $elapsed +
             ' · HOẠT ĐỘNG CUỐI: ' + $lastActivityAge +
             ' · GEN ' + [string]$workGeneration
+
+        $projectProgressKnown = [bool](Get-OptionalPropertyValue $st 'project_progress_known' $false)
+        $projectTotalTasks = [int](Get-OptionalPropertyValue $st 'project_total_tasks' 0)
+        $projectCompletedTasks = [int](Get-OptionalPropertyValue $st 'project_completed_tasks' 0)
+        $projectProgressRaw = Get-OptionalPropertyValue $st 'project_progress_percent' $null
+
+        if ($projectProgressKnown -and $projectTotalTasks -gt 0 -and $null -ne $projectProgressRaw) {
+            $projectProgressPercent = [Math]::Max(
+                0,
+                [Math]::Min(100, [int]$projectProgressRaw)
+            )
+            $ui.Progress.Text =
+                'TIẾN ĐỘ DỰ ÁN: ' +
+                [string]$projectCompletedTasks +
+                '/' +
+                [string]$projectTotalTasks +
+                ' TASK'
+            $ui.ProgressBar.Value = $projectProgressPercent
+            $ui.ProgressPercent.Text = [string]$projectProgressPercent + '%'
+        } elseif ($projectProgressKnown) {
+            $ui.Progress.Text = 'TIẾN ĐỘ DỰ ÁN: 0/0 TASK'
+            $ui.ProgressBar.Value = 0
+            $ui.ProgressPercent.Text = '0%'
+        } else {
+            $ui.Progress.Text = 'TIẾN ĐỘ DỰ ÁN: CHƯA CÓ KẾ HOẠCH'
+            $ui.ProgressBar.Value = 0
+            $ui.ProgressPercent.Text = '—'
+        }
 
         $brainHealth = Get-OptionalPropertyValue $st 'brain_target_health' (
             Get-OptionalPropertyValue $reg 'brain_target_health' $null
