@@ -2137,8 +2137,21 @@ async function initializeNewWorkConversation(page, {
   generation
 }) {
   const bootstrap = buildWorkTargetBootstrap({ laneId, generation });
+  const startedPersistable = isPersistableConversationUrl(String(page.url()));
   const sent = await sendComposerInstruction(page, bootstrap, { dryRun: false });
+
   if (!sent.executed) {
+    // On a brand-new ChatGPT page, a successful submit can navigate to the
+    // durable /c/<id> route before the newly-created user turn becomes
+    // queryable in the DOM. That URL transition is authoritative evidence that
+    // the bootstrap submit reached ChatGPT; do not discard it as a false
+    // SEND_NOT_ACTUATED result merely because turn text was not yet observable.
+    const currentUrl = String(page.url());
+    if (!startedPersistable && isPersistableConversationUrl(currentUrl)) {
+      const target = targetFromUrl(currentUrl);
+      return `${target.origin}${target.pathname}`;
+    }
+
     const error = new Error(
       `new Work conversation bootstrap was not sent: ${sent.rejection_class || sent.reason || "UNKNOWN"}`
     );
