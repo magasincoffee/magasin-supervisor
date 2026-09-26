@@ -47,6 +47,7 @@ function fakePage({
   onFill = () => {},
   onPress = () => {},
   onInsertText = () => {},
+  transformComposerText = (value) => value,
   fillError = null
 } = {}) {
   let composerText = "";
@@ -58,7 +59,7 @@ function fakePage({
     fillError,
     inputValue: () => composerText,
     onFill: (value) => {
-      composerText = value;
+      composerText = transformComposerText(value);
       onFill(value);
     },
     onPress: (key) => {
@@ -105,7 +106,7 @@ function fakePage({
     async bringToFront() {},
     keyboard: {
       async insertText(value) {
-        composerText = value;
+        composerText = transformComposerText(value);
         onInsertText(value);
       },
       async press(key) {
@@ -159,6 +160,26 @@ test("live continue fills canonical instruction and uses send control", async ()
   assert.equal(result.executed, true);
   assert.equal(filled, "canonical continue instruction");
   assert.equal(clicks, 1);
+});
+
+test("composer verification accepts render-equivalent whitespace before clicking Send", async () => {
+  let clicks = 0;
+  const controls = [{ text: "", ariaLabel: "Gửi", testId: "send-button" }];
+  const instruction = "line one\nline two\twith spacing";
+
+  const result = await sendComposerInstruction(
+    fakePage({
+      controls,
+      transformComposerText: (value) => value.replace(/[\n\t]/g, " "),
+      onClick: () => { clicks += 1; }
+    }),
+    instruction,
+    { dryRun: false }
+  );
+
+  assert.equal(result.executed, true);
+  assert.equal(clicks, 1);
+  assert.equal(result.send_method, "direct-control");
 });
 
 test("retry clicks only a recognized retry control", async () => {
