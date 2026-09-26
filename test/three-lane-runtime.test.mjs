@@ -740,3 +740,55 @@ test("dependency-blocked IDLE is rechecked while incomplete project tasks remain
   assert.match(segment, /MAX_BRAIN_IDLE_RECHECK_RETRIES/);
 });
 
+test("persistent soft blockers switch from three fast scans to autonomous bounded backoff", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /SOFT_IDLE_RECHECK_BASE_MS = 60_000/);
+  assert.match(source, /SOFT_IDLE_RECHECK_MAX_MS = 10 \* 60_000/);
+  assert.match(source, /function softIdleRecheckDelayMs/);
+  assert.match(source, /function scheduleSoftIdleRecheck/);
+  assert.match(source, /async function rearmDueSoftIdle/);
+  assert.match(source, /LANE_BRAIN_SOFT_IDLE_RECHECK_SCHEDULED/);
+  assert.match(source, /LANE_BRAIN_SOFT_IDLE_RECHECK_DUE/);
+
+  const idleStart = source.indexOf("async function rearmIncompleteProjectIdle");
+  const idleEnd = source.indexOf("async function hasRelayMarker", idleStart);
+  const idle = source.slice(idleStart, idleEnd);
+  assert.match(idle, /retries >= MAX_BRAIN_IDLE_RECHECK_RETRIES/);
+  assert.match(idle, /reason === "DEPENDENCY_BLOCKED" \|\| reason === "NO_SAFE_WORK"/);
+  assert.match(idle, /accepted_blocker: true/);
+  assert.match(idle, /next_recheck_at/);
+});
+
+test("due soft blocker rearms Brain only at a safely idle exact-once boundary", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const start = source.indexOf("async function rearmDueSoftIdle");
+  const end = source.indexOf("function projectProgressCounts", start);
+  const segment = source.slice(start, end);
+
+  assert.match(segment, /!registryLane\.task_id/);
+  assert.match(segment, /!registryLane\.awaiting_work/);
+  assert.match(segment, /!registryLane\.dispatch_inflight/);
+  assert.match(segment, /!registryLane\.relay_inflight/);
+  assert.match(segment, /registryLane\.brain_idle_recheck_retries = 0/);
+  assert.match(segment, /registryLane\.brain_request_sent = false/);
+  assert.match(segment, /registryLane\.brain_request_inflight = null/);
+});
+
+test("normal Brain gate processes delayed soft blocker before deciding whether to send", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const finalize = source.lastIndexOf("await finalizeBrainResumeRecovery", source.indexOf("if (!registryLane.brain_request_sent)"));
+  const due = source.indexOf("await rearmDueSoftIdle", finalize);
+  const request = source.indexOf("if (!registryLane.brain_request_sent)", due);
+  assert.ok(due > -1 && request > due);
+});
+
