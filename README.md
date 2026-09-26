@@ -10,12 +10,12 @@ Final migration evidence:
 
 Current approved runtime-change Source of Truth:
 
-- `docs/RBT_010_TEXT_ONLY_RELAY_AUTHORITY.json` — TASK-RBT-010, **OWNER AUTHORIZED / READY / NOT STARTED**
-- `docs/RBT_010_TEXT_ONLY_RELAY_PLAN.md` — bounded execution plan for clearing screenshot/attachment relay and moving to text-only exact-once result relay
+- `docs/RBT_010_TEXT_ONLY_RELAY_AUTHORITY.json` — TASK-RBT-010, **IMPLEMENTED / TEXT-ONLY RESULT RELAY**
+- `docs/RBT_010_TEXT_ONLY_RELAY_PLAN.md` — implementation and acceptance contract for text-only exact-once result relay
 
 The earlier MIG-007 authority manifest/plan/evidence remain historical pre-execution authority records. MIG-005/MIG-006 historical snapshots retain their original values and are not rewritten as current state.
 
-No additional migration task is canonically defined. TASK-RBT-010 is a separate authorized runtime-change task and does not alter the completed migration state until its own implementation is executed and qualified.
+No additional migration task is canonically defined. TASK-RBT-010 is a separate runtime change and does not alter the completed migration state.
 
 # MAGASIN Supervisor
 
@@ -62,6 +62,7 @@ Implementation roadmap:
 - TASK-RBT-007 — Control Panel Timeline & Resource UX — IMPLEMENTED in v2026-09-20.59
 - TASK-RBT-008 — Brain Planning Contract Runtime Hooks — IMPLEMENTED in v2026-09-20.60
 - TASK-RBT-009 — Integration / Overnight Soak / Cleanup — COMPLETE; FINAL 8H TIER B QUALIFIED BY MIG-006
+- TASK-RBT-010 — Text-Only Result Relay / Screenshot & Attachment Removal — IMPLEMENTED
 
 v2026-09-20.60 production truth includes TASK-RBT-002 event/timing foundation, TASK-RBT-003 Work target hot-swap/save, TASK-RBT-004 scheduler/tab budget, TASK-RBT-005 long-running Work watchdog, TASK-RBT-005A Owner-authorized relay retry recovery, TASK-RBT-006 multi-signal Work-full rollover, TASK-RBT-006A durable stale/missing target quarantine, TASK-RBT-006B deterministic explicit Owner START latch authority, TASK-RBT-007 Control Panel timeline/resource observability, and TASK-RBT-008 backward-compatible Brain planning/result-verdict runtime hooks. TASK-RBT-009 integration/overnight qualification is complete: MIG-006 run `35860156388` qualified the locked runtime candidate `218f330ee86eea4f0fb79ef9293bd43cf96a45de` for 28,843 seconds with 240 samples. The qualification was read-only and did not change runtime semantics.
 
@@ -113,7 +114,7 @@ A confirmed dispatch and Work completion are separate. Under the TASK-RBT target
 
 ### Work -> Brain
 
-Result relay carries a deterministic `relay_id=<id>` marker and the full Work result plus one screenshot.
+Result relay carries a deterministic `relay_id=<id>` marker and the full Work result as **text only**. It captures no result screenshot and uploads no attachment.
 
 Relay reconciliation in v2026-09-19.50 is marker-authoritative on the exact persisted Brain:
 
@@ -182,8 +183,8 @@ Runtime v2026-09-20.55 implements TASK-RBT-005A:
 - each Owner click persists a monotonic relay rearm revision; runtime applies a revision at most once;
 - runtime reopens the exact persisted Brain through the browser scheduler and reconciles the deterministic relay marker before changing retry state;
 - marker already present means canonical confirmation/dedupe with zero resend;
-- marker absent keeps the same relay ID, task, result digests, screenshot evidence, Brain/Work targets and pending Work state while opening one new three-attempt epoch;
-- missing/corrupt evidence fails closed without clearing the relay latch or destructively resetting the task;
+- marker absent keeps the same relay ID, task, result digests, Brain/Work targets and pending Work state while opening one new three-attempt epoch;
+- relay retry/rearm has no screenshot-file prerequisite; exact text identity and the deterministic relay marker remain authoritative;
 - Owner STOP/AUTOSTART_DISABLED remains authoritative: a saved intent can wait, but no send/reload/UI mutation occurs while stopped;
 - a later exhausted epoch requires a new Owner revision; there is no retry loop and no Brain/Work URL change requirement.
 
@@ -306,28 +307,20 @@ Target task timing includes:
 
 Runtime v2026-09-20.59 projects canonical task timing, watchdog/rollover/target-health/revision state into the additive `three-lane-status.v1` snapshot. Control Panel renders PROCESS TRUTH first, scheduler page-budget/mutation diagnostics, per-lane execution timing/state and a default 30-event bounded tail of `lane-events.ndjson`. The reader seeks from the end with a bounded byte window, tolerates partial/corrupt lines and concurrent appends, rejects events with fields outside the safe schema, and never renders URL/message/token/cookie/screenshot content. Control Panel reads only a bounded recent tail, not the full event history on every refresh.
 
-## Temporary evidence lifecycle
+## Text-only result relay
 
-Relay screenshots live under the local-only `lane-evidence` directory.
+TASK-RBT-010 removes the screenshot/attachment transport layer from Work → Brain result delivery:
 
-A screenshot remains only while referenced by an active `relay_inflight` latch. Bounded retries reuse the same evidence instead of recapturing it. It is deleted on:
-
-- marker-confirmed relay;
-- relay dedupe;
-- confirmed/deduped completion;
-- Brain rebind;
-- safe Work reset/rebind after active task preservation rules are satisfied;
-- invalid screenshot capture.
-
-Runtime startup and periodic bounded GC remove only orphan PNG evidence that is not referenced by any active relay latch in any lane. Cleanup is capped per pass.
-
-## Attachment send safety
-
-Attachment relay retries begin from a clean composer draft and remove stale attachment chips before re-upload. Composer readiness, fill, file upload and attachment readiness waits are bounded. This prevents an uncertain prior attempt from stacking duplicate draft text or attachments.
+- full Work result text is the relay payload;
+- `relay_id`, `response_digest`, `text_digest` and the deterministic relay marker remain exact-once authority;
+- new relay latches contain no `screenshot_path`;
+- legacy screenshot fields are stripped non-destructively while preserving task/relay identity and retry state;
+- there is no screenshot capture, file upload, attachment draft cleanup, screenshot evidence gate or periodic PNG GC in the active relay path;
+- the historical local `lane-evidence` directory is removed opportunistically on runtime startup.
 
 ## Cross-lane isolation
 
-Every loop iteration resolves state as `registry.lanes[lane.lane_id]`. A lane's task, Work target, dispatch latch, relay latch and evidence reference are never shared with another lane. Disabled lanes remain stopped and do not affect enabled lane state.
+Every loop iteration resolves state as `registry.lanes[lane.lane_id]`. A lane's task, Work target, dispatch latch and relay latch are never shared with another lane. Disabled lanes remain stopped and do not affect enabled lane state.
 
 The future scheduler shares only browser resources and a global mutation lease. It must not share lane task state.
 
