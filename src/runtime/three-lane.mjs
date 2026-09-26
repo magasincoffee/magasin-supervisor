@@ -293,6 +293,10 @@ export function defaultLaneRegistry() {
       brain_request_sent: false,
       project_plan_bootstrap_retries: 0,
       brain_idle_recheck_retries: 0,
+      brain_soft_idle_reason: null,
+      brain_soft_idle_digest: null,
+      brain_soft_idle_recheck_count: 0,
+      brain_soft_idle_recheck_not_before: null,
       awaiting_work: false,
       task_timing: defaultTaskTiming(),
       project_progress: defaultProjectProgress(),
@@ -359,6 +363,16 @@ export function normalizeLaneRegistry(value = {}) {
         0,
         Number(lane.brain_idle_recheck_retries || 0)
       ),
+      brain_soft_idle_reason:
+        String(lane.brain_soft_idle_reason || "").trim().toUpperCase() || null,
+      brain_soft_idle_digest:
+        String(lane.brain_soft_idle_digest || "").trim() || null,
+      brain_soft_idle_recheck_count: Math.max(
+        0,
+        Number(lane.brain_soft_idle_recheck_count || 0)
+      ),
+      brain_soft_idle_recheck_not_before:
+        String(lane.brain_soft_idle_recheck_not_before || "").trim() || null,
       awaiting_work: Boolean(lane.awaiting_work),
       task_timing: normalizeTaskTiming(lane.task_timing),
       project_progress: normalizeProjectProgress(lane.project_progress),
@@ -430,6 +444,8 @@ export function buildBrainStartRequest({ laneId, projectName }) {
     "Sau khi Robot relay result, Brain nên VERIFY rồi thêm optional previous_result tương quan task_id + relay_id với verdict ACCEPT hoặc REJECT. REJECT chỉ được dispatch correction cùng task hoặc WORK có correction_of trỏ đúng previous result; nếu cần Owner thì dùng IDLE.",
     "Chỉ trả IDLE khi thực sự chưa có việc an toàn/dependency-ready hoặc bắt buộc cần Owner; không trả IDLE chỉ vì Robot vừa được bật lại.",
     "Nếu project_plan vẫn còn task chưa hoàn thành mà trả IDLE, bắt buộc có idle_reason: DEPENDENCY_BLOCKED, NO_SAFE_WORK hoặc OWNER_REQUIRED. PROJECT_COMPLETE chỉ dùng khi mọi task trong plan đã hoàn thành.",
+    "DEPENDENCY_BLOCKED chỉ hợp lệ khi blocker nằm ngoài các task chưa hoàn thành mà Brain có thể giao trong project_plan. Nếu dependency chính là một task chưa DONE trong project_plan, phải giao task dependency đó cho Work thay vì IDLE.",
+    "NO_SAFE_WORK chỉ dùng cho một safety/external boundary thực sự; không dùng chỉ vì task lớn, khó, hoặc cần chia nhỏ. Robot sẽ tự recheck các soft blocker theo backoff nên không chờ Owner nhắc lại.",
     "Nếu chưa có việc an toàn để làm, trả IDLE nhưng handshake đầu/resume vẫn phải kèm project_plan đầy đủ:",
     LANE_DIRECTIVE_START,
     '{"action":"IDLE","idle_reason":"DEPENDENCY_BLOCKED","project_plan":{"tasks":[{"task_id":"TASK-ID","title":"Tên task"}],"completed_task_ids":[]}}',

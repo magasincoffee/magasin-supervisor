@@ -394,3 +394,40 @@ test("lane registry persists bounded Brain IDLE recheck retries", () => {
   assert.equal(normalized.lanes["lane-2"].brain_idle_recheck_retries, 0);
 });
 
+test("lane registry persists autonomous soft-IDLE recheck state", () => {
+  const defaults = defaultLaneRegistry();
+  const lane = defaults.lanes["lane-1"];
+  assert.equal(lane.brain_soft_idle_reason, null);
+  assert.equal(lane.brain_soft_idle_digest, null);
+  assert.equal(lane.brain_soft_idle_recheck_count, 0);
+  assert.equal(lane.brain_soft_idle_recheck_not_before, null);
+
+  const normalized = normalizeLaneRegistry({
+    lanes: {
+      "lane-1": {
+        brain_soft_idle_reason: "dependency_blocked",
+        brain_soft_idle_digest: "abc123",
+        brain_soft_idle_recheck_count: 3,
+        brain_soft_idle_recheck_not_before: "2026-09-26T05:00:00.000Z"
+      }
+    }
+  });
+  assert.equal(normalized.lanes["lane-1"].brain_soft_idle_reason, "DEPENDENCY_BLOCKED");
+  assert.equal(normalized.lanes["lane-1"].brain_soft_idle_digest, "abc123");
+  assert.equal(normalized.lanes["lane-1"].brain_soft_idle_recheck_count, 3);
+  assert.equal(
+    normalized.lanes["lane-1"].brain_soft_idle_recheck_not_before,
+    "2026-09-26T05:00:00.000Z"
+  );
+});
+
+test("Brain prompt forbids using an unfinished project task as a reason to stay IDLE", () => {
+  const text = buildBrainStartRequest({
+    laneId: "lane-1",
+    projectName: "Supervisor"
+  });
+  assert.match(text, /dependency chính là một task chưa DONE trong project_plan/);
+  assert.match(text, /phải giao task dependency đó cho Work thay vì IDLE/);
+  assert.match(text, /Robot sẽ tự recheck các soft blocker theo backoff/);
+});
+

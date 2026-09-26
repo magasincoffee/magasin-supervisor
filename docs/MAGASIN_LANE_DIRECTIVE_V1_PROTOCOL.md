@@ -245,6 +245,15 @@ TASK-RBT-008 keeps the protocol name and byte-exact markers unchanged. The legac
 
 `{"action":"IDLE"}`
 
+For current Supervisor automation, `IDLE` may also include an optional `idle_reason`:
+
+- `PROJECT_COMPLETE` — valid only when every task in the current project plan is complete;
+- `DEPENDENCY_BLOCKED` — temporary blocker outside the unfinished project tasks that Brain can dispatch;
+- `NO_SAFE_WORK` — temporary safety/external boundary;
+- `OWNER_REQUIRED` — explicit human input or authority is required.
+
+If the blocker is itself an unfinished task in `project_plan`, Brain must dispatch that dependency task instead of returning `IDLE`. `DEPENDENCY_BLOCKED` and `NO_SAFE_WORK` are soft blockers: Robot automatically rechecks Brain with bounded backoff (1m, 2m, 4m, 8m, then max 10m), so Owner does not need to prompt Brain again. Only `OWNER_REQUIRED` is an intentional human wait state.
+
 Optional `project_plan` is the project Source of Truth snapshot. It is backward-compatible at parser level, but the current first/resume Brain handshake requires it so the Robot can initialize project progress without rereading GitHub. Shape:
 
 ```json
