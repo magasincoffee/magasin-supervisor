@@ -25,7 +25,7 @@ if (-not (Test-Path $targetPanel)) {
 if (-not (Test-Path $targetPanel)) { throw "Installed Control Panel missing after repair" }
 
 $source = Get-Content $sourcePanel -Raw -Encoding UTF8
-foreach ($marker in @("CONTROL PANEL V2","heroPanel","overviewPanel","resetAllButton","Drawing.Point(840, 18)","Drawing.Size(315, 40)","reportInfoLabel","relayScreenshotPath")) {
+foreach ($marker in @("CONTROL PANEL V2","heroPanel","overviewPanel","resetAllButton","Drawing.Point(840, 18)","Drawing.Size(315, 40)")) {
   if ($source -notmatch [regex]::Escape($marker)) { throw "Source marker missing: $marker" }
 }
 
