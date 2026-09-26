@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+
 import { ACTIONS } from "../decision.mjs";
 import { beginSubmitFlightRecording } from "./submit-flight-recorder.mjs";
 
@@ -176,6 +178,89 @@ async function composerContainsExactInstruction(composer, instruction) {
   const text = await readComposerText(composer);
   if (text === null) return null;
   return normalizeComposerText(text) === normalizeComposerText(instruction);
+}
+
+function normalizedComposerDigest(value) {
+  return crypto
+    .createHash("sha256")
+    .update(normalizeComposerText(value), "utf8")
+    .digest("hex");
+}
+
+export async function discardComposerDraftIfDigest(
+  page,
+  expectedDigest,
+  { timeoutMs = 3_000 } = {}
+) {
+  const digest = String(expectedDigest || "").trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(digest)) {
+    return {
+      discarded: false,
+      reason: "invalid expected composer digest"
+    };
+  }
+
+  const composer = await waitForReadyComposer(page, { timeoutMs });
+  if (!composer) {
+    return {
+      discarded: false,
+      reason: "composer not ready for guarded draft discard"
+    };
+  }
+
+  const current = await readComposerText(composer);
+  if (current === null) {
+    return {
+      discarded: false,
+      reason: "composer text unreadable for guarded draft discard"
+    };
+  }
+
+  const normalized = normalizeComposerText(current);
+  if (!normalized) {
+    return {
+      discarded: false,
+      reason: "composer already empty"
+    };
+  }
+
+  if (normalizedComposerDigest(normalized) !== digest) {
+    return {
+      discarded: false,
+      reason: "composer draft digest mismatch"
+    };
+  }
+
+  const cleared = await clearComposerText(page, { timeoutMs });
+  if (!cleared.ready) {
+    return {
+      discarded: false,
+      reason: cleared.reason || "guarded composer clear failed"
+    };
+  }
+
+  const after = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+  if (!after) {
+    return {
+      discarded: true,
+      method: cleared.method,
+      evidence: "composer-disappeared-after-clear"
+    };
+  }
+
+  const afterText = await readComposerText(after);
+  if (afterText !== null && normalizeComposerText(afterText)) {
+    return {
+      discarded: false,
+      reason: "composer remained non-empty after guarded clear"
+    };
+  }
+
+  return {
+    discarded: true,
+    method: cleared.method,
+    evidence: "exact-digest-draft-cleared"
+  };
 }
 
 async function captureUserTurnState(page, instruction) {
