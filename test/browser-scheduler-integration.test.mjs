@@ -141,3 +141,12 @@ test("retry and long-running observation paths return before another lane unit c
   assert.match(turn.slice(dispatchPending, workIncomplete), /return laneStatus/);
   assert.match(turn.slice(workIncomplete, turn.indexOf("const captured", workIncomplete)), /return laneStatus/);
 });
+
+test("active lane rounds poll at no more than two seconds even under legacy wrapper cadence", async () => {
+  const runtime = await read("../src/runtime/three-lane-cli.mjs");
+  assert.match(runtime, /MAX_ACTIVE_ROUND_POLL_MS = 2_000/);
+  assert.match(runtime, /function activeRoundPollMs/);
+  assert.match(runtime, /Math\.min\(Number\(configuredPollMs\), MAX_ACTIVE_ROUND_POLL_MS\)/);
+  assert.match(runtime, /if \(turn\.round_complete\) \{[\s\S]*?delay\(activeRoundPollMs\(args\.pollMs\)\)/);
+});
+
