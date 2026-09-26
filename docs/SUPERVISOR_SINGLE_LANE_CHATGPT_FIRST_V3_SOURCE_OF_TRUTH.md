@@ -80,10 +80,11 @@ Delete now because their active planning/architecture authority is superseded:
 
 - `docs/THREE_LANE_V1_ARCHITECTURE.md`
 - `docs/ROBOT_BROWSER_SCHEDULER_OBSERVABILITY_ARCHITECTURE.md`
-- `docs/ROBOT_LIFECYCLE_TRUTH_ARCHITECTURE.md`
 - `docs/RBT_010_TEXT_ONLY_RELAY_PLAN.md`
 - `docs/RBT_010_TEXT_ONLY_RELAY_AUTHORITY.json`
 - `docs/MIG_007_FINAL_CLEANUP_PLAN.md`
+
+The old `docs/ROBOT_LIFECYCLE_TRUTH_ARCHITECTURE.md` content is removed and replaced by a minimal **non-canonical compatibility tombstone** because the current MIG-004 integrity workflow still requires that path to exist. The tombstone points only to this V3 Source of Truth and preserves no competing architecture authority.
 
 Retain historical evidence/closure for audit and rollback provenance; those files are **not** current architecture authority. Retain the directive protocol, project-adapter contract and state-root contract as supporting contracts. Legacy Three-Lane runtime code is kept isolated as rollback-only until V3 qualification/cutover; deleting runtime code now would remove the safe rollback path.
 
