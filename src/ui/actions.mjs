@@ -45,7 +45,6 @@ export function classifyComposerSendRejection(snapshot = {}) {
 
 const COMPOSER_SELECTORS = Object.freeze([
   "#prompt-textarea:visible",
-  "[data-testid='composer-text-input']:visible",
   "[contenteditable][role='textbox']:visible",
   "textarea:visible",
   "[contenteditable]:visible"
