@@ -1021,6 +1021,29 @@ async function rearmIncompleteProjectIdle({
   }
 
   const reason = String(directive.idle_reason || "").trim().toUpperCase();
+  const isSoftReason =
+    reason === "DEPENDENCY_BLOCKED" || reason === "NO_SAFE_WORK";
+  const scheduledNotBefore = String(
+    registryLane.brain_soft_idle_recheck_not_before || ""
+  ).trim();
+  const sameScheduledBlocker = Boolean(
+    isSoftReason &&
+    registryLane.brain_soft_idle_reason === reason &&
+    registryLane.brain_soft_idle_digest === directive.digest &&
+    scheduledNotBefore &&
+    Number.isFinite(Date.parse(scheduledNotBefore)) &&
+    Date.now() < Date.parse(scheduledNotBefore)
+  );
+  if (sameScheduledBlocker) {
+    return {
+      rearmed: false,
+      exhausted: false,
+      owner_required: false,
+      accepted_blocker: true,
+      next_recheck_at: scheduledNotBefore
+    };
+  }
+
   if (reason === "OWNER_REQUIRED") {
     registryLane.brain_idle_recheck_retries = 0;
     clearSoftIdleRecheck(registryLane);
@@ -1091,7 +1114,6 @@ async function rearmIncompleteProjectIdle({
   }
 
   registryLane.brain_idle_recheck_retries = retries + 1;
-  clearSoftIdleRecheck(registryLane);
   registryLane.brain_request_sent = false;
   registryLane.brain_request_inflight = null;
   await atomicJsonWrite(registryPath, registry);
