@@ -271,3 +271,80 @@ Write-Host "LIVE_DISPATCH_STALL_DIAG=PASS"
 # POST_SEND_FIX_LIVE_PROBE_V1
 
 # POST_HOTPATCH_DISPATCH_PROBE_V1
+
+
+Write-Host "=== RBT-010 LIVE ACCEPTANCE ==="
+$installedRuntime=Join-Path $root 'runtime'
+$runtimeThreeLane=Join-Path $installedRuntime 'src\runtime\three-lane-cli.mjs'
+$runtimeActions=Join-Path $installedRuntime 'src\ui\actions.mjs'
+$runtimeCapture=Join-Path $installedRuntime 'src\ui\message-capture.mjs'
+$runtimeControlPanel=Join-Path $installedRuntime 'windows\control-panel.ps1'
+$required=@($runtimeThreeLane,$runtimeActions,$runtimeCapture,$runtimeControlPanel)
+foreach($p in $required){
+  if(-not (Test-Path $p)){throw "RBT-010 installed file missing: $p"}
+}
+
+$threeLaneText=Get-Content $runtimeThreeLane -Raw -Encoding UTF8
+$actionsText=Get-Content $runtimeActions -Raw -Encoding UTF8
+$captureText=Get-Content $runtimeCapture -Raw -Encoding UTF8
+$panelText=Get-Content $runtimeControlPanel -Raw -Encoding UTF8
+
+$threeLaneForbidden=@(
+  'captureCompletedAssistantTurnScreenshot',
+  'sendComposerWithAttachment',
+  'screenshot_path',
+  'LANE_RESULT_SCREENSHOT_CAPTURED',
+  'EVIDENCE_MISSING'
+)
+foreach($needle in $threeLaneForbidden){
+  if($threeLaneText -match [regex]::Escape($needle)){
+    throw "RBT-010 forbidden Three-Lane token remains: $needle"
+  }
+}
+$actionsForbidden=@('sendComposerWithAttachment','setInputFiles','COMPOSER_ATTACHMENT_SEND')
+foreach($needle in $actionsForbidden){
+  if($actionsText -match [regex]::Escape($needle)){
+    throw "RBT-010 forbidden action token remains: $needle"
+  }
+}
+$captureForbidden=@('captureCompletedAssistantTurnScreenshot','locator.screenshot')
+foreach($needle in $captureForbidden){
+  if($captureText -match [regex]::Escape($needle)){
+    throw "RBT-010 forbidden capture token remains: $needle"
+  }
+}
+$panelForbidden=@('BÁO CÁO ẢNH','screenshot_path','relayScreenshotPath','reportInfoLabel')
+foreach($needle in $panelForbidden){
+  if($panelText -match [regex]::Escape($needle)){
+    throw "RBT-010 forbidden Control Panel token remains: $needle"
+  }
+}
+
+$registryPath=Join-Path $root 'lane-registry.json'
+if(-not (Test-Path $registryPath)){throw 'RBT-010 lane-registry.json missing'}
+$registryRaw=Get-Content $registryPath -Raw -Encoding UTF8
+if($registryRaw -match '"screenshot_path"'){
+  throw 'RBT-010 legacy screenshot_path still present in live registry'
+}
+
+$legacyEvidence=Join-Path $root 'lane-evidence'
+if(Test-Path $legacyEvidence){
+  $evidenceFiles=@(Get-ChildItem $legacyEvidence -File -Recurse -ErrorAction SilentlyContinue)
+  if($evidenceFiles.Count -gt 0){
+    throw "RBT-010 legacy lane-evidence still contains files: $($evidenceFiles.Count)"
+  }
+}
+
+$truth=Get-LifecycleProcessTruth -Root $root
+if($enabledCount -gt 0 -and -not $ownerStop.blocked -and -not $truth.healthy){
+  throw 'RBT-010 live runtime unhealthy after text-only hotpatch'
+}
+
+Write-Host "RBT010_TEXT_ONLY_RUNTIME=True"
+Write-Host "RBT010_SCREENSHOT_CAPTURE_REMOVED=True"
+Write-Host "RBT010_ATTACHMENT_UPLOAD_REMOVED=True"
+Write-Host "RBT010_SCREENSHOT_LATCH_FIELD_REMOVED=True"
+Write-Host "RBT010_CONTROL_PANEL_SCREENSHOT_UI_REMOVED=True"
+Write-Host "RBT010_LEGACY_EVIDENCE_CLEAN=True"
+Write-Host "RBT010_PROCESS_HEALTHY=$([bool]$truth.healthy)"
+Write-Host "RBT010_LIVE_ACCEPTANCE=PASS"
