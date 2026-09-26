@@ -387,7 +387,19 @@ $proc=Start-Process powershell.exe -PassThru -WindowStyle Hidden -ArgumentList @
 ) -RedirectStandardError $stderrPath -RedirectStandardOutput $stdoutPath
 
 Write-Host "CONTROL_PANEL_SMOKE_PID=$($proc.Id)"
-Start-Sleep -Seconds 4
+$smokeWatch=[Diagnostics.Stopwatch]::StartNew()
+$title=''
+$gp=$null
+while($smokeWatch.Elapsed.TotalSeconds -lt 12){
+  $proc.Refresh()
+  if($proc.HasExited){break}
+  $gp=Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
+  $title=if($gp){[string]$gp.MainWindowTitle}else{''}
+  if($title -match 'MAGASIN SUPERVISOR.*CONTROL CENTER'){break}
+  Start-Sleep -Milliseconds 200
+}
+$smokeWatch.Stop()
+Write-Host "CONTROL_PANEL_SMOKE_READY_MS=$([math]::Round($smokeWatch.Elapsed.TotalMilliseconds))"
 $proc.Refresh()
 if($proc.HasExited){
   Write-Host "CONTROL_PANEL_SMOKE_EXITED=True"
@@ -402,13 +414,11 @@ if($proc.HasExited){
   }
   throw 'Control Panel exited during smoke launch'
 }else{
-  $gp=Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
-  $title=if($gp){[string]$gp.MainWindowTitle}else{''}
   Write-Host "CONTROL_PANEL_SMOKE_EXITED=False"
   Write-Host "CONTROL_PANEL_SMOKE_TITLE=$title"
   if($title -notmatch 'MAGASIN SUPERVISOR.*CONTROL CENTER'){
     Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-    throw "Control Panel process stayed alive but V2 window title was not visible: $title"
+    throw "Control Panel process stayed alive but V2 window title was not visible within 12 seconds: $title"
   }
   Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
   Write-Host "CONTROL_PANEL_LAUNCH_SMOKE=PASS"

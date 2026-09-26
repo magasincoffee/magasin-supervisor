@@ -1515,5 +1515,9 @@ $timer.Add_Tick({ Refresh-Ui })
 $timer.Start()
 
 Ensure-Config | Out-Null
-Refresh-Ui
+
+# Enter the WinForms message loop before the first runtime refresh. Refresh-Ui
+# can perform runner/process recovery and CIM queries, so running it here before
+# ShowDialog can leave powershell.exe alive with no visible Control Center.
+# The 2-second UI timer performs the first refresh after the window is visible.
 [void]$form.ShowDialog()
