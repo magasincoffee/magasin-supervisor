@@ -37,6 +37,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Enforce Single-Lane V3 canonical source guards
+        run: node --test test/single-lane-v3-source-of-truth.test.mjs
+
       - name: Run decoupled platform core tests
         run: |
           node --test \
