@@ -1113,7 +1113,7 @@ async function inspectKnownTargetSendOutcome({
   preUserCount,
   preMaxTurnOrdinal,
   brain = false,
-  reload = false
+  extendedObservation = false
 }) {
   if (marker && await hasUserTurnMarker(page, marker)) {
     return "CONFIRMED";
@@ -1122,16 +1122,12 @@ async function inspectKnownTargetSendOutcome({
     return "CONFIRMED";
   }
 
-  if (reload) {
-    await page.reload({
-      waitUntil: "domcontentloaded",
-      timeout: 30_000
-    });
-  }
-
+  // Reconciliation is observation-only. A hard reload can replace/close the
+  // active ChatGPT page or temporarily remove the composer while a draft is
+  // still present.
   const observed = await waitForStableSendSurface(adapter, page, {
     brain,
-    timeoutMs: reload ? 15_000 : 4_000
+    timeoutMs: extendedObservation ? 15_000 : 4_000
   });
   const digests = observed.digests || [];
   if (marker && await hasUserTurnMarker(page, marker)) return "CONFIRMED";
@@ -1157,9 +1153,9 @@ async function inspectKnownTargetSendOutcome({
     return "UNCERTAIN";
   }
 
-  // Legacy v34/v35 latches may lack a baseline. Once the exact conversation
-  // has been hard-reloaded and reaches a stable assistant-complete surface,
-  // absence of the exact digest proves the attempted send was not persisted.
+  // Legacy latches may lack a baseline. Once the exact conversation reaches
+  // a stable assistant-complete surface without navigation, absence of the
+  // exact digest proves the attempted send was not persisted.
   return "NOT_CONFIRMED";
 }
 
