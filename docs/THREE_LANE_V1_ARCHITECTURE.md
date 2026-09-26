@@ -283,7 +283,7 @@ Local-only root:
 Current files include:
 
 - `lanes.json` — Owner configuration, Brain/Work URL revisions, lane enabled state.
-- `lane-registry.json` — durable task, dispatch, relay, Work generation and recovery state.
+- `lane-registry.json` — durable task, dispatch, relay, Work generation, recovery state, and per-lane `project_progress` Source of Truth.
 - `lane-status.json` — privacy-safe current status for Control Panel.
 - `lane-evidence\` — transient screenshots; deleted after relay lifecycle.
 - `supervisor.log` — metadata/errors only, no full message bodies.
@@ -331,6 +331,20 @@ Task metrics:
 - total elapsed
 
 The Control Panel reads only a bounded recent tail (20–50 events), not the whole history each refresh.
+
+## Project Source of Truth and progress
+
+Each lane keeps one durable `project_progress` record inside `lane-registry.json`. The first/resume Brain handshake supplies the full `project_plan` task list and any historical `completed_task_ids`. Browser tabs and GitHub pages are not the progress authority.
+
+Progress transitions are deterministic:
+
+- plan snapshot creates/reconciles the denominator;
+- confirmed Work dispatch marks the matching planned task `ACTIVE`;
+- correlated Brain `ACCEPT` marks the task `DONE`;
+- Brain `REJECT` leaves the task incomplete;
+- roadmap changes are applied only from a new full Brain `project_plan` snapshot.
+
+`lane-status.json` exposes only privacy-safe summary fields: whether the plan is known, total tasks, completed tasks, percent, active task ID, and progress update time. Control Center renders those fields as a per-lane progress bar such as `10/17 TASK · 59%`.
 
 ## Status model
 
