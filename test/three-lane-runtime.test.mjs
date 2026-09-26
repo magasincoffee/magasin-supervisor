@@ -220,6 +220,27 @@ test("lane STOP then START reloads Brain once and adopts an already-visible unco
   );
 });
 
+test("idle Owner resume rearms the Brain handshake when no directive is available", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /const ownerResume = revision > applied/);
+  assert.match(source, /resumeHandshakeSafelyIdle/);
+  assert.match(source, /Boolean\(resumeResync\.ownerResume\)/);
+  assert.match(source, /registryLane\.brain_request_sent = false/);
+  assert.match(source, /LANE_OWNER_RESUME_BRAIN_HANDSHAKE_REARMED/);
+  assert.match(source, /idle_no_directive=1/);
+  assert.match(source, /buildLegacyBrainStartRequestPreProjectReview/);
+
+  const rearm = source.indexOf("LANE_OWNER_RESUME_BRAIN_HANDSHAKE_REARMED");
+  const finalize = source.indexOf("await finalizeBrainResumeRecovery", rearm);
+  const requestGate = source.indexOf("if (!registryLane.brain_request_sent)", finalize);
+  assert.ok(rearm > -1 && finalize > rearm && requestGate > finalize);
+});
+
+
 test("v43 explicit Brain rebind clears only a blocked old-Brain dispatch when no Work result is pending", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
