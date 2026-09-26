@@ -91,10 +91,17 @@ if($enabledBefore -ne 0){
   Copy-Item (Join-Path $sourceSrc '*') $targetSrc -Recurse -Force
   Copy-Item $sourcePanel $targetPanel -Force
 
-  $sourcePanelHash=(Get-FileHash $sourcePanel -Algorithm SHA256).Hash
-  $targetPanelHash=(Get-FileHash $targetPanel -Algorithm SHA256).Hash
-  if($sourcePanelHash -ne $targetPanelHash){throw 'Hotpatch Control Panel hash mismatch.'}
-  Write-Host "HOTPATCH_CONTROL_PANEL_SHA256=$targetPanelHash"
+  # Windows PowerShell 5.1 decodes UTF-8 scripts without BOM as the active
+  # ANSI code page. Re-encode the installed Control Panel exactly like the
+  # canonical full installer so Vietnamese UI strings remain parse-safe.
+  $panelText=Get-Content $targetPanel -Raw -Encoding UTF8
+  $utf8Bom=New-Object System.Text.UTF8Encoding($true)
+  [System.IO.File]::WriteAllText($targetPanel,$panelText,$utf8Bom)
+
+  $targetPanelText=Get-Content $targetPanel -Raw -Encoding UTF8
+  $sourcePanelText=Get-Content $sourcePanel -Raw -Encoding UTF8
+  if($targetPanelText -ne $sourcePanelText){throw 'Hotpatch Control Panel content mismatch after UTF-8 BOM rewrite.'}
+  Write-Host 'HOTPATCH_CONTROL_PANEL_UTF8_BOM=True'
 
   $sourceActions=Join-Path $sourceSrc 'ui\actions.mjs'
   $targetActions=Join-Path $targetSrc 'ui\actions.mjs'
