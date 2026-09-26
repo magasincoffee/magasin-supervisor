@@ -37,7 +37,8 @@ test("Brain start request reviews the active project and dispatches the next Wor
   assert.match(text, /rà soát trạng thái và tiến độ mới nhất của dự án/);
   assert.match(text, /phải giao ngay đúng một việc cho Work/);
   assert.match(text, /không chỉ tóm tắt, lập kế hoạch bằng prose hoặc chờ Owner nhắc lại/);
-  assert.match(text, /không trả IDLE chỉ vì Robot vừa được bật lại/);
+  assert.match(text, /không trả IDLE chỉ vì task kế tiếp theo thứ tự đang bị chặn/);
+  assert.match(text, /rà soát TOÀN BỘ task chưa hoàn thành/);
   assert.match(text, /"action":"WORK"/);
 
   const legacy = buildLegacyBrainStartRequestPreProjectReview({
@@ -392,5 +393,16 @@ test("lane registry persists bounded Brain IDLE recheck retries", () => {
   });
   assert.equal(normalized.lanes["lane-1"].brain_idle_recheck_retries, 2);
   assert.equal(normalized.lanes["lane-2"].brain_idle_recheck_retries, 0);
+});
+
+test("Brain start request scans the whole incomplete plan before accepting IDLE", () => {
+  const text = buildBrainStartRequest({
+    laneId: "lane-1",
+    projectName: "Supervisor"
+  });
+
+  assert.match(text, /không còn bất kỳ phần việc an toàn\/dependency-ready nào trong toàn bộ project_plan/);
+  assert.match(text, /rà soát TOÀN BỘ task chưa hoàn thành/);
+  assert.match(text, /chọn một task khác nếu có bất kỳ task nào dependency-ready\/an toàn/);
 });
 

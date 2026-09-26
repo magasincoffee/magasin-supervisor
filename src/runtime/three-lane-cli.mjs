@@ -940,17 +940,10 @@ async function rearmIncompleteProjectIdle({
       accepted_blocker: false
     };
   }
-  if (reason === "DEPENDENCY_BLOCKED" || reason === "NO_SAFE_WORK") {
-    registryLane.brain_idle_recheck_retries = 0;
-    await atomicJsonWrite(registryPath, registry);
-    return {
-      rearmed: false,
-      exhausted: false,
-      owner_required: false,
-      accepted_blocker: true
-    };
-  }
-
+  // DEPENDENCY_BLOCKED and NO_SAFE_WORK are not permanent authorities while
+  // the project still has pending tasks. Brain must first re-scan the whole
+  // plan for an alternate dependency-ready task. This avoids freezing the
+  // lane because only the next sequential task is blocked.
   const retries = Math.max(
     0,
     Number(registryLane.brain_idle_recheck_retries || 0)
@@ -990,7 +983,9 @@ async function rearmIncompleteProjectIdle({
     idle_reason: reason || null,
     reason: reason === "PROJECT_COMPLETE"
       ? "project_complete_with_pending_tasks"
-      : "idle_without_blocking_reason"
+      : reason === "DEPENDENCY_BLOCKED" || reason === "NO_SAFE_WORK"
+        ? "incomplete_project_blocker_requires_whole_plan_rescan"
+        : "idle_without_blocking_reason"
   });
   return {
     rearmed: true,
