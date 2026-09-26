@@ -275,8 +275,8 @@ function findSafeControl(controls, pattern, allowedTestIds = []) {
 }
 
 const DIRECT_SEND_SELECTORS = Object.freeze([
-  'button#composer-submit-button:visible',
   'button[data-testid="send-button"]:visible',
+  'button#composer-submit-button:visible',
   'button[data-testid="composer-submit-button"]:visible',
   'button[data-testid="composer-send-button"]:visible',
   'button[data-testid*="send" i]:visible',
