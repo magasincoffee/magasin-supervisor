@@ -182,7 +182,7 @@ test("Brain resume recovery is bounded and not durably consumed before the recov
   const resyncStart = source.indexOf("async function resyncBrainAfterOwnerResume");
   const finalizeStart = source.indexOf("async function finalizeBrainResumeRecovery");
   const resyncOnly = source.slice(resyncStart, finalizeStart);
-  assert.doesNotMatch(resyncOnly, /registryLane\.applied_resume_revision\s*=/);
+  assert.doesNotMatch(resyncOnly, /registryLane\.applied_resume_revision\s*=\s*(?!=)/);
   assert.doesNotMatch(resyncOnly, /registryLane\.brain_resume_recovery_version\s*=\s*1/);
 
   const resumedScan = source.indexOf("const resumedDirective = await adoptExistingBrainDirective");
@@ -200,7 +200,9 @@ test("lane STOP then START reloads Brain once and adopts an already-visible unco
   assert.match(source, /LANE_OWNER_RESUME_BRAIN_RESYNC_INTENT/);
   assert.match(source, /OWNER_LANE_RESUME_BRAIN_RESYNC/);
   assert.match(source, /brainPage\.reload/);
-  assert.match(source, /registryLane\.applied_resume_revision = revision/);
+  assert.match(source, /async function finalizeBrainResumeRecovery/);
+  assert.match(source, /registryLane\.applied_resume_revision = Number/);
+  assert.match(source, /resumeResync\.revision \|\| 0/);
   assert.match(source, /registryLane\.brain_resume_recovery_version = 1/);
   assert.match(source, /needsMigrationRecovery/);
   assert.match(source, /allowResumeRecovery/);
