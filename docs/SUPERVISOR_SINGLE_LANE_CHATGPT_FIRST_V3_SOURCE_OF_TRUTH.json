@@ -1,7 +1,7 @@
 {
   "schema_version": "supervisor-single-lane-chatgpt-first-v3.sot.v1",
-  "status": "OWNER_APPROVED_ARCHITECTURE_PIVOT__READY_FOR_IMPLEMENTATION_AFTER_SOT_VERIFY",
-  "task_id": "SL3-P0-A1",
+  "status": "OWNER_APPROVED_ARCHITECTURE_PIVOT__SL3_P0_A2_READY_FOR_VERIFY",
+  "task_id": "SL3-P0-A2",
   "repository": "magasincoffee/magasin-supervisor",
   "baseline_main_sha": "1b5779fb1652e691f25cc5f0f5b586a74b1fc012",
   "plan_branch": "sl3/sl3-p0-a1-source-of-truth-pivot-20260926",
@@ -1289,5 +1289,248 @@
         "no merge/deploy/hotpatch unless separately Owner-authorized"
       ]
     }
-  ]
+  ],
+  "accepted_source_of_truth_head": "c801604ab0de442215f1bccf32210aae0cb6279a",
+  "invariant_rollback_lock": {
+    "schema_version": "sl3-p0-a2-invariant-rollback-lock.v1",
+    "task_id": "SL3-P0-A2",
+    "state": "READY_FOR_VERIFY",
+    "released_three_lane_baseline_main_sha": "1b5779fb1652e691f25cc5f0f5b586a74b1fc012",
+    "accepted_v3_source_of_truth_head": "c801604ab0de442215f1bccf32210aae0cb6279a",
+    "source_authority": "V3_CANONICAL_ONLY__LEGACY_THREE_LANE_RBT_IS_AUDIT_AND_ROLLBACK_PROVENANCE_ONLY",
+    "runtime_behavior_changed": false,
+    "invariant_evidence": [
+      {
+        "invariant_id": "OWNER_STOP_AUTOSTART_DISABLED_PRECEDENCE",
+        "rule": "Owner STOP/AUTOSTART_DISABLED blocks startup, recovery and automation; only explicit Owner START may clear the latches.",
+        "evidence": [
+          {
+            "path": "windows/lifecycle-truth.ps1",
+            "symbol": "Get-LifecycleOwnerStopState / Invoke-LifecycleRecoveryStart",
+            "proof": "STOP or AUTOSTART_DISABLED => blocked; OWNER_STOP returned before recovery"
+          },
+          {
+            "path": "windows/run-supervisor.ps1",
+            "symbol": "wrapper launch/outer loop gate",
+            "proof": "launch exits and loop is gated while STOP or AUTOSTART_DISABLED exists"
+          }
+        ]
+      },
+      {
+        "invariant_id": "ONE_BOUNDED_TASK_BRAIN_CONTRACT",
+        "rule": "Exactly one roadmap task is active; Work stops after evidence; Brain verifies before ACCEPT/REJECT and NEXT PLAN.",
+        "evidence": [
+          {
+            "path": "docs/MAGASIN_LANE_DIRECTIVE_V1_PROTOCOL.md",
+            "symbol": "sections 7 and 12",
+            "proof": "one directive/task stop boundary plus PLAN→DISPATCH→VERIFY→ACCEPT/REJECT→NEXT PLAN"
+          },
+          {
+            "path": "src/runtime/three-lane.mjs",
+            "symbol": "parseLaneDirective / parsePreviousResult",
+            "proof": "narrow fail-closed directive and correlated previous-result schema"
+          }
+        ]
+      },
+      {
+        "invariant_id": "DETERMINISTIC_EXACT_ONCE_DISPATCH_RELAY_IDENTITY",
+        "rule": "dispatch_id and relay_id remain stable across retry/reconciliation; stale or mismatched identities fail closed; relay confirmation is not semantic ACCEPT.",
+        "evidence": [
+          {
+            "path": "src/runtime/three-lane-cli.mjs",
+            "symbol": "Work dispatch latch construction",
+            "proof": "dispatchId derived from lane_id|task_id|directive identity digest; persisted latch identity is verified before reuse"
+          },
+          {
+            "path": "src/runtime/three-lane-cli.mjs",
+            "symbol": "relay_inflight reconciliation",
+            "proof": "relay_id, response_digest and text_digest bind retries and marker confirmation"
+          },
+          {
+            "path": "src/runtime/three-lane.mjs",
+            "symbol": "parsePreviousResult",
+            "proof": "Brain verdict requires task_id plus relay_id correlation"
+          }
+        ]
+      },
+      {
+        "invariant_id": "TEXT_ONLY_RESULT_RELAY",
+        "rule": "Work result relay authority is text-only; screenshots/files are not transport authority.",
+        "evidence": [
+          {
+            "path": "src/runtime/three-lane-cli.mjs",
+            "symbol": "relay send path",
+            "proof": "persists relay identity/digests then sends relay.text through Brain composer"
+          },
+          {
+            "path": "src/runtime/relay-reconciliation.mjs",
+            "symbol": "migrateLegacyBlockedRelayLatches",
+            "proof": "removes legacy screenshot_path while preserving relay identity/retry state"
+          }
+        ]
+      },
+      {
+        "invariant_id": "DURABLE_INTENT_BEFORE_REPLAY_SENSITIVE_EFFECT",
+        "rule": "Persist durable identity/intent before dispatch, relay or watchdog actions whose replay could duplicate or become ambiguous.",
+        "evidence": [
+          {
+            "path": "src/runtime/three-lane-cli.mjs",
+            "symbol": "dispatch_inflight",
+            "proof": "PERSISTED_NOT_SENT latch atomically written before Work send"
+          },
+          {
+            "path": "src/runtime/three-lane-cli.mjs",
+            "symbol": "relay_inflight / beginRelaySendAttempt",
+            "proof": "relay latch and attempt state atomically written before Brain send"
+          },
+          {
+            "path": "src/runtime/three-lane-cli.mjs",
+            "symbol": "beginWatchdogContinueIntent",
+            "proof": "watchdog Continue intent atomically written before ACTIONS.CONTINUE execution"
+          }
+        ]
+      },
+      {
+        "invariant_id": "EXACT_TARGET_IDENTITY_BOUNDED_RECOVERY_NO_RELOAD_STORM",
+        "rule": "Actions bind to exact Brain/Work target identity; deterministic unavailable targets quarantine; recovery is finite and cannot reload storm.",
+        "evidence": [
+          {
+            "path": "src/runtime/target-health.mjs",
+            "symbol": "targetHealthIdentity / evaluateTargetAvailability",
+            "proof": "SHA-256 target identity plus deterministic missing/access-denied/stable-redirect classification"
+          },
+          {
+            "path": "src/runtime/browser-scheduler.mjs",
+            "symbol": "acquireExactPage",
+            "proof": "exact target descriptor is mandatory"
+          },
+          {
+            "path": "src/runtime/work-watchdog.mjs",
+            "symbol": "WORK_WATCHDOG_DEFAULTS",
+            "proof": "reloadBudgetPerEpoch=1 and continueBudgetPerEpoch=1 with cooldown"
+          }
+        ]
+      },
+      {
+        "invariant_id": "AUTH_MFA_CAPTCHA_SECURITY_FAIL_CLOSED",
+        "rule": "Auth/MFA/CAPTCHA/security/destructive/admin/ambiguous states stop automation rather than bypass controls.",
+        "evidence": [
+          {
+            "path": "src/runtime/three-lane-cli.mjs",
+            "symbol": "hardStopObservation",
+            "proof": "AUTH_REQUIRED, MFA_REQUIRED, CAPTCHA, DESTRUCTIVE_ACTION, ADMIN_ESCALATION and AMBIGUOUS_DECISION are hard-stop observations"
+          },
+          {
+            "path": "src/runtime/work-watchdog.mjs",
+            "symbol": "evaluateWorkWatchdog",
+            "proof": "securityBlocked returns BLOCKED_SECURITY"
+          }
+        ]
+      },
+      {
+        "invariant_id": "PRIVACY_NO_SECRETS_PRIVATE_URLS_CHAT_BODIES_IN_GIT",
+        "rule": "Git/source evidence and persistent diagnostics contain sanitized IDs/digests/reason metadata only; no credentials, tokens/cookies, full private conversation URLs or chat bodies.",
+        "evidence": [
+          {
+            "path": "src/runtime/three-lane-cli.mjs",
+            "symbol": "safeLog",
+            "proof": "explicit allowlist excludes message body, raw target URL, cookies and tokens"
+          },
+          {
+            "path": "src/runtime/lane-events.mjs",
+            "symbol": "EVENT_KEYS",
+            "proof": "event schema uses correlation metadata including target_digest rather than raw private target data"
+          },
+          {
+            "path": "docs/SUPERVISOR_SINGLE_LANE_CHATGPT_FIRST_V3_SOURCE_OF_TRUTH.md",
+            "symbol": "accepted head preserved invariants",
+            "proof": "explicit privacy prohibition is V3 authority"
+          }
+        ]
+      },
+      {
+        "invariant_id": "PROCESS_TRUTH_OUTRANKS_PERSISTED_RECOVERY",
+        "rule": "Live process/browser/CDP truth outranks persisted recovery state; persisted state is recovery-only.",
+        "evidence": [
+          {
+            "path": "src/runtime/three-lane-cli.mjs",
+            "symbol": "writeLaneStatus",
+            "proof": "truth_order is PROCESS_TRUTH then LANE_TRUTH then PERSISTED_RECOVERY_STATE; persisted_state_role=RECOVERY_ONLY; process_truth_required=true"
+          },
+          {
+            "path": "windows/lifecycle-truth.ps1",
+            "symbol": "Get-LifecycleProcessTruth",
+            "proof": "health derives from authoritative wrapper child, dedicated Chrome and CDP process truth"
+          }
+        ]
+      },
+      {
+        "invariant_id": "OWNER_EXPLICIT_MERGE_DEPLOY",
+        "rule": "Merge, deploy, hotpatch and production cutover require separate explicit Owner instruction.",
+        "evidence": [
+          {
+            "path": "docs/SUPERVISOR_SINGLE_LANE_CHATGPT_FIRST_V3_SOURCE_OF_TRUTH.md",
+            "symbol": "accepted head sections 1 and 11",
+            "proof": "production remains unchanged until Owner cutover; merge/deploy/hotpatch is Owner-explicit only"
+          },
+          {
+            "path": "docs/SUPERVISOR_SINGLE_LANE_CHATGPT_FIRST_V3_SOURCE_OF_TRUTH.json",
+            "symbol": "accepted A1 execution authority",
+            "proof": "canonical V3 authority does not grant autonomous merge/deploy"
+          }
+        ]
+      }
+    ],
+    "rollback_boundary": {
+      "production_authority_until_cutover": "RELEASED_THREE_LANE_BASELINE",
+      "qualification_and_cutover_rule": "V3 must pass locked qualification gates and then receive explicit Owner cutover authority.",
+      "rollback_only_legacy_entry_points": [
+        "windows/run-supervisor.ps1",
+        "src/runtime/three-lane-cli.mjs",
+        "src/runtime/three-lane.mjs"
+      ],
+      "delete_legacy_before_v3_qualification": false,
+      "preserve_on_rollback": [
+        "canonical state root",
+        "active task",
+        "dispatch_inflight and relay_inflight latches",
+        "Brain/Work exact targets and revisions",
+        "dedicated browser profile",
+        "exact-once identities"
+      ],
+      "rollback_must_not": [
+        "clear or bypass STOP/AUTOSTART_DISABLED",
+        "reset task/latches/targets/profile as a side effect of rollback",
+        "replay an irreversible or replay-sensitive browser effect before durable-intent reconciliation",
+        "promote legacy Three-Lane/RBT planning back to forward source authority",
+        "skip V3 qualification",
+        "begin SL3-P0-A3"
+      ],
+      "source_evidence": [
+        {
+          "path": "src/runtime/three-lane-cli.mjs",
+          "symbol": "Owner-authorized maintenance reset path",
+          "proof": "destructive task/latch reset is explicitly separate from normal target save/recovery"
+        },
+        {
+          "path": "windows/run-supervisor.ps1",
+          "symbol": "state root / dedicated browser profile / Owner-stop gates",
+          "proof": "normal released entry point reuses state root/profile and obeys STOP/AUTOSTART_DISABLED"
+        },
+        {
+          "path": "docs/SUPERVISOR_SINGLE_LANE_CHATGPT_FIRST_V3_SOURCE_OF_TRUTH.json",
+          "symbol": "source_cleanup.runtime_code_policy",
+          "proof": "legacy Three-Lane runtime code retained as rollback-only until V3 qualification and Owner cutover"
+        }
+      ]
+    },
+    "semantic_sync": {
+      "markdown_section": "3.1 Preserved invariant evidence lock — SL3-P0-A2; 3.2 Rollback boundary lock — SL3-P0-A2",
+      "json_field": "invariant_rollback_lock",
+      "required_equivalence": true
+    },
+    "stop_boundary": "READY_FOR_VERIFY",
+    "next_task": "SL3-P0-A3",
+    "next_task_started": false
+  }
 }

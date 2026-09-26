@@ -45,6 +45,34 @@ Normal-path polling is forbidden as the primary completion detector. The preferr
 - private chat bodies, tokens, cookies and full private URLs never enter Git.
 - production merge/deploy requires explicit Owner instruction.
 
+### 3.1 Preserved invariant evidence lock — SL3-P0-A2
+
+This lock is derived from the released Three-Lane baseline at `1b5779fb1652e691f25cc5f0f5b586a74b1fc012` plus the Brain-accepted V3 Source-of-Truth head `c801604ab0de442215f1bccf32210aae0cb6279a`. It preserves safety/correctness semantics while V3 replaces the execution architecture; legacy Three-Lane/RBT planning does **not** regain forward authority.
+
+| Invariant | Locked V3 meaning | Released/source evidence |
+|---|---|---|
+| Owner STOP / AUTOSTART_DISABLED precedence | No startup, recovery, dispatch, relay or browser mutation may bypass Owner STOP/AUTOSTART_DISABLED. Explicit Owner START is the only authority that may clear those latches. | `windows/lifecycle-truth.ps1::Get-LifecycleOwnerStopState()` makes either latch `blocked=true`; `Invoke-LifecycleRecoveryStart()` returns `OWNER_STOP` before recovery. `windows/run-supervisor.ps1` exits before launch and gates its loop on both latches. |
+| One-bounded-task Brain contract | Exactly one roadmap task may be active; Work returns evidence then stops; Brain must VERIFY before ACCEPT/REJECT and before NEXT PLAN. | `docs/MAGASIN_LANE_DIRECTIVE_V1_PROTOCOL.md` §§7/12; `src/runtime/three-lane.mjs::parseLaneDirective()` fails closed on malformed/nonnarrow directives and correlates `previous_result`. |
+| Deterministic exact-once `dispatch_id` / `relay_id` | Identity is stable across reconciliation/retry and stale/mismatched identities fail closed; transport confirmation is not semantic ACCEPT. | `src/runtime/three-lane-cli.mjs` derives `dispatchId = sha256(lane_id|task_id|directive_digest).slice(0,32)`, persists `dispatch_inflight`, and verifies identity before reuse; relay reconciliation keys on durable `relay_id`/response/text digests and marker confirmation. `src/runtime/three-lane.mjs::parsePreviousResult()` requires correlated `task_id` + `relay_id`. |
+| Text-only result relay | The Brain relay payload is text; screenshots/files are not relay authority. | `src/runtime/three-lane-cli.mjs` persists only relay identity/digests then sends `relay.text` through the Brain composer; `src/runtime/relay-reconciliation.mjs::migrateLegacyBlockedRelayLatches()` explicitly removes legacy `screenshot_path` while preserving relay identity/retry state. |
+| Durable intent/state before replay-sensitive effect | Where an action could duplicate or become ambiguous after crash/restart, durable identity/intent is written before the browser effect. | Dispatch: `dispatch_inflight` + `PERSISTED_NOT_SENT` are atomically written before send. Relay: `relay_inflight` and send-attempt state are atomically written before `sendComposerInstruction()`. Watchdog Continue: `beginWatchdogContinueIntent()` is atomically written before `executeDecision(ACTIONS.CONTINUE)`. |
+| Exact target identity + bounded recovery / no reload storm | Brain/Work actions bind to the exact conversation identity; deterministic missing/access-denied/stable redirect quarantine; recovery has finite budgets and cannot reload indefinitely. | `src/runtime/target-health.mjs::targetHealthIdentity()` requires SHA-256 target digest and `evaluateTargetAvailability()` distinguishes deterministic unavailability. `src/runtime/browser-scheduler.mjs::acquireExactPage()` requires an exact target descriptor. `src/runtime/work-watchdog.mjs` bounds each recovery epoch to one reload + one continue with cooldown. |
+| Auth/MFA/CAPTCHA/security fail-closed | Authentication, MFA, CAPTCHA, destructive/admin escalation and ambiguous security decisions stop automation rather than bypassing controls. | `src/runtime/three-lane-cli.mjs::hardStopObservation()` hard-stops on `AUTH_REQUIRED`, `MFA_REQUIRED`, `CAPTCHA`, `DESTRUCTIVE_ACTION`, `ADMIN_ESCALATION`, `AMBIGUOUS_DECISION`; watchdog also exposes `BLOCKED_SECURITY`. |
+| Privacy / no secrets, private URLs or chat bodies in Git | Persistent diagnostics/evidence use IDs, digests, reason codes and sanitized metadata; credentials, tokens/cookies, full private conversation URLs and chat bodies are excluded from Git/source evidence. | `src/runtime/three-lane-cli.mjs::safeLog()` allowlists timestamp/type/lane/task/relay/digest/reason/error only; `src/runtime/lane-events.mjs` event schema allowlists correlation fields such as `target_digest` rather than raw targets. Accepted V3 SoT also forbids private chat bodies/tokens/cookies/full private URLs entering Git. |
+| Process truth outranks persisted recovery state | Persisted recovery state is never sufficient evidence that runtime/browser processes are healthy. | `src/runtime/three-lane-cli.mjs::writeLaneStatus()` writes `truth_order=[PROCESS_TRUTH, LANE_TRUTH, PERSISTED_RECOVERY_STATE]`, `persisted_state_role=RECOVERY_ONLY`, `process_truth_required=true`; `windows/lifecycle-truth.ps1::Get-LifecycleProcessTruth()` derives wrapper/child/Chrome/CDP health from live processes. |
+| Owner-explicit merge/deploy | Development/CI/verification may proceed, but merge, deploy, hotpatch and production cutover require a separate explicit Owner instruction. | Brain-accepted canonical V3 authority at `c801604ab0de442215f1bccf32210aae0cb6279a`, §§1/11 and JSON execution policy; this A2 lock does not grant merge/deploy authority. |
+
+### 3.2 Rollback boundary lock — SL3-P0-A2
+
+1. **Current production authority remains the released Three-Lane baseline** at `1b5779fb1652e691f25cc5f0f5b586a74b1fc012` until a locked V3 candidate completes the required qualification gates and the Owner explicitly authorizes cutover.
+2. The Brain-accepted V3 Source-of-Truth input for this lock is exactly `c801604ab0de442215f1bccf32210aae0cb6279a`.
+3. Legacy runtime code and entry points — including `windows/run-supervisor.ps1`, `src/runtime/three-lane-cli.mjs` and `src/runtime/three-lane.mjs` — remain **rollback-only**, not forward architecture authority, and must not be deleted before V3 qualification/cutover.
+4. A rollback must preserve the existing canonical state root and must **not** reset the active task, dispatch/relay latches, Brain/Work targets or revisions, dedicated browser profile, or exact-once identities. `src/runtime/three-lane-cli.mjs` explicitly reserves destructive state reset for the separate Owner-authorized maintenance path; normal startup/recovery is not permission to clear state.
+5. A rollback must not bypass or clear Owner STOP/AUTOSTART_DISABLED. Those latches remain higher authority than recovery/startup.
+6. Rollback may restore the released executable path only from a safe boundary; it must not replay an irreversible/replay-sensitive browser effect without reconciling the durable intent/latch first.
+7. Historical Three-Lane/RBT evidence remains audit/rollback provenance only. It does not become V3 planning authority and cannot be used to skip SL3 qualification or Owner cutover.
+8. No A2 change mutates production runtime, Chrome/profile, local lane/task state, targets, latches, or historical evidence.
+
 ## 4. Removed from the target architecture
 
 - three simultaneously active lanes.
@@ -252,4 +280,8 @@ Every implementation task follows **PLAN → DISPATCH → VERIFY → ACCEPT/REJE
 
 ## 12. Current task boundary
 
-This Source-of-Truth pivot is **SL3-P0-A1**. It is documentation/repository-authority work only. It does not change the production runtime, restart Chrome, mutate local lane state, or deploy V3. After this change is independently verified, the next task is **SL3-P0-A2**.
+**SL3-P0-A1 is Brain-accepted at `c801604ab0de442215f1bccf32210aae0cb6279a`.** The only active task represented by this change is **SL3-P0-A2 — Lock preserved invariants and rollback boundary from released runtime**.
+
+A2 changes documentation/repository authority only. It does not change runtime behavior, restart Chrome, mutate production/local lane or task state, alter Brain/Work targets/latches/profile, merge/deploy/hotpatch V3, or begin SL3-P0-A3.
+
+**SL3-P0-A2 stop state: READY_FOR_VERIFY.** SL3-P0-A3 remains NOT STARTED until Brain VERIFY/ACCEPT.
