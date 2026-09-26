@@ -107,6 +107,43 @@ Forward-development boundary after A4:
 - V3 must not be implemented by incrementally turning the legacy Three-Lane runtime into Single-Lane via a few flags/conditionals.
 - SL3-P1-A1 is the next dependency-correct task, but remains **NOT STARTED** until Brain VERIFY/ACCEPT of A4.
 
+### 3.4 Single-Lane config and durable registry schema — SL3-P1-A1
+
+SL3-P1-A1 defines the **pure schema/state contract** for the forward Single-Lane V3 runtime. It does not read or write files, migrate legacy state, activate V3, wire `run-supervisor`, dispatch Work, relay results, or change browser behavior.
+
+Canonical module: `src/runtime/single-lane-state.mjs`.
+
+State files are intentionally isolated from legacy rollback state:
+
+| Role | V3 file | Legacy rollback file |
+|---|---|---|
+| Owner/config intent | `single-lane-config.json` | `lanes.json` |
+| Durable runtime registry | `single-lane-registry.json` | `lane-registry.json` |
+
+The V3 filenames must never alias the legacy filenames. SL3-P1-A1 performs **no automatic migration** and **no legacy file mutation**; explicit legacy reading/migration belongs to SL3-P1-A2.
+
+**Config ownership — Owner/configuration intent only:**
+
+- exactly one `project_name` and `enabled` flag;
+- requested Brain target plus `brain_url_revision`;
+- requested Work target plus `work_url_revision`, save timestamp and `work_mode`;
+- explicit Work-state reset, relay-retry rearm and resume request revisions/timestamps;
+- no `lanes`, `lane_id`, scheduler/fairness/page-budget or cross-lane state.
+
+**Registry ownership — applied durable orchestration/recovery state only:**
+
+- applied Brain/Work target revisions, Work generation and pending Work target intent;
+- task identity, instruction/result/verdict identities and exact-once `dispatch_inflight` / `relay_inflight`;
+- applied reset/rearm/resume revisions and Brain request recovery state;
+- durable task timing, project progress, Work watchdog/rollover and target-health state;
+- no lane map, lane id, round-robin position, cross-lane lease or cross-lane mutation lock.
+
+**Process truth is not registry authority.** The registry must never claim that Supervisor, Chrome, CDP or any other process is alive. Runtime/process liveness remains externally observed process truth, consistent with the accepted invariant that process truth outranks persisted recovery state.
+
+The schema is fail-closed: explicit wrong schema/mode, legacy `lanes`/`lane_id`, invalid revisions, invalid modes and wrong primitive/object types are rejected. Valid V3 durable identities/latches are cloned and preserved, never regenerated or silently cleared by normalization.
+
+Accepted A4 parent for this schema is exactly `09deca9adb977cb2ef0f93c6b7ad33425b1fb720`. A4's `legacy_runtime_freeze` remains unchanged and authoritative for rollback semantics. SL3-P1-A2 is the next dependency-correct task, but remains **NOT STARTED** until Brain VERIFY/ACCEPT of P1-A1.
+
 ## 4. Removed from the target architecture
 
 - three simultaneously active lanes.
@@ -314,8 +351,8 @@ Every implementation task follows **PLAN → DISPATCH → VERIFY → ACCEPT/REJE
 
 ## 12. Current task boundary
 
-SL3-P0-A1/A2/A3 are accepted predecessors. The exact accepted A3 parent for this change is `067e22af981c5042f17d06adaf6ae5e7ba42ec5c`.
+SL3-P0-A1/A2/A3/A4 are accepted predecessors. The exact accepted A4 parent for this change is `09deca9adb977cb2ef0f93c6b7ad33425b1fb720`.
 
-The only active task represented by this change is **SL3-P0-A4 — Freeze Three-Lane as rollback-only legacy runtime until V3 cutover**. A4 is documentation/authority/test-guard work only: it does not change runtime behavior, implement Single-Lane runtime, restart Chrome, mutate production/local Supervisor state, alter Brain/Work targets/latches/profile, merge/deploy/hotpatch, or change Robot durable project progress.
+The only active task represented by this change is **SL3-P1-A1 — Define single-lane config and durable registry schema**. P1-A1 is schema/foundation work only: it does not migrate Three-Lane state, read/write legacy state files, activate V3, wire production runtime, dispatch/relay browser work, change browser behavior, restart Chrome, mutate production/local Supervisor state, alter legacy rollback entry points, merge/deploy/hotpatch, or change Robot durable project progress.
 
-**SL3-P0-A4 stop state: READY_FOR_VERIFY.** The next dependency-correct task is **SL3-P1-A1 — Define single-lane config and durable registry schema**, but SL3-P1-A1 remains **NOT STARTED** until Brain VERIFY/ACCEPT of A4.
+**SL3-P1-A1 stop state: READY_FOR_VERIFY.** The next dependency-correct task is **SL3-P1-A2 — Implement legacy three-lane state reader and safe single-lane migration adapter**, but SL3-P1-A2 remains **NOT STARTED** until Brain VERIFY/ACCEPT of P1-A1.

@@ -1,7 +1,7 @@
 {
   "schema_version": "supervisor-single-lane-chatgpt-first-v3.sot.v1",
-  "status": "OWNER_APPROVED_ARCHITECTURE_PIVOT__SL3_P0_A4_READY_FOR_VERIFY",
-  "task_id": "SL3-P0-A4",
+  "status": "OWNER_APPROVED_ARCHITECTURE_PIVOT__SL3_P1_A1_READY_FOR_VERIFY",
+  "task_id": "SL3-P1-A1",
   "repository": "magasincoffee/magasin-supervisor",
   "baseline_main_sha": "1b5779fb1652e691f25cc5f0f5b586a74b1fc012",
   "plan_branch": "sl3/sl3-p0-a1-source-of-truth-pivot-20260926",
@@ -1607,6 +1607,68 @@
     },
     "stop_boundary": "READY_FOR_VERIFY",
     "next_task": "SL3-P1-A1",
+    "next_task_started": false
+  },
+  "single_lane_state_schema": {
+    "schema_version": "sl3-p1-a1-single-lane-state-schema.v1",
+    "task_id": "SL3-P1-A1",
+    "state": "READY_FOR_VERIFY",
+    "accepted_a4_head": "09deca9adb977cb2ef0f93c6b7ad33425b1fb720",
+    "module_path": "src/runtime/single-lane-state.mjs",
+    "runtime_mode": "SINGLE_LANE_V3",
+    "config_schema": "single-lane-config.v1",
+    "registry_schema": "single-lane-registry.v1",
+    "config_filename": "single-lane-config.json",
+    "registry_filename": "single-lane-registry.json",
+    "legacy_config_filename": "lanes.json",
+    "legacy_registry_filename": "lane-registry.json",
+    "config_ownership": [
+      "project_name",
+      "enabled",
+      "requested Brain target and brain_url_revision",
+      "requested Work target and work_url_revision/work_mode/save timestamp",
+      "work_state_reset_revision request",
+      "relay_retry_rearm_revision request",
+      "resume_revision request"
+    ],
+    "registry_ownership": [
+      "applied target revisions",
+      "work generation and pending Work target",
+      "task and instruction identity",
+      "dispatch_inflight and relay_inflight exact-once latches",
+      "result relay and verdict identity",
+      "durable Brain request/recovery state",
+      "task timing and project progress",
+      "work watchdog and rollover",
+      "Brain/Work target health"
+    ],
+    "process_truth_policy": "NOT_PERSISTED_AS_RUNTIME_LIVENESS_AUTHORITY",
+    "topology_policy": {
+      "exactly_one_project_config": true,
+      "lanes_field_allowed": false,
+      "lane_id_allowed": false,
+      "scheduler_metadata_allowed": false,
+      "fairness_or_page_budget_state_allowed": false,
+      "cross_lane_state_allowed": false
+    },
+    "state_file_isolation": {
+      "v3_files_must_differ_from_legacy": true,
+      "legacy_files_read_in_a1": false,
+      "legacy_files_written_in_a1": false,
+      "legacy_files_renamed_in_a1": false,
+      "legacy_files_deleted_in_a1": false
+    },
+    "legacy_state_mutated": false,
+    "automatic_migration": false,
+    "automatic_runtime_activation": false,
+    "runtime_behavior_changed": false,
+    "semantic_sync": {
+      "markdown_section": "3.4 Single-Lane config and durable registry schema — SL3-P1-A1",
+      "json_field": "single_lane_state_schema",
+      "required_equivalence": true
+    },
+    "stop_boundary": "READY_FOR_VERIFY",
+    "next_task": "SL3-P1-A2",
     "next_task_started": false
   }
 }
