@@ -1,0 +1,999 @@
+{
+  "schema_version": "supervisor-runtime-v2-self-upgrade.v2",
+  "status": "PLANNED",
+  "canonical_main_sha_at_sync": "1b5779fb1652e691f25cc5f0f5b586a74b1fc012",
+  "plan_branch": "sv2/sv2-p0-e1-source-of-truth-sync-20260926",
+  "deployment_authority": "OWNER_EXPLICIT_ONLY",
+  "execution_policy": {
+    "robot_may_self_modify": true,
+    "robot_may_run_ci": true,
+    "robot_may_open_prs": true,
+    "robot_may_merge_or_deploy": false,
+    "stop_at": "READY_FOR_OWNER_DEPLOY",
+    "protect_active_lanes": true,
+    "owner_stop_precedence": true,
+    "exact_once_required": true,
+    "active_lane_rule": "Do not interrupt dispatch_inflight, relay_inflight, an unconsumed Work result, or an unsafe mutation boundary."
+  },
+  "downtime_targets_seconds": {
+    "src_hotpatch_or_three_lane_child": {
+      "target_min": 5,
+      "target_max": 15
+    },
+    "wrapper_restart": {
+      "target_min": 15,
+      "target_max": 30
+    },
+    "dedicated_chrome_restart": {
+      "target_max": 60
+    }
+  },
+  "brain_contract": {
+    "one_bounded_task_at_a_time": true,
+    "verify_before_next": true,
+    "target_active_implementation_minutes": [
+      10,
+      20
+    ],
+    "deployment_instruction_required": true,
+    "disruptive_steps_marker": "DEFER_UNTIL_OWNER_DEPLOY"
+  },
+  "phases": [
+    {
+      "phase_id": "SV2-P0-A",
+      "priority": "P0",
+      "title": "Runtime V2 state-machine extraction",
+      "estimate_hours": [
+        6,
+        9
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "phase_id": "SV2-P0-B",
+      "priority": "P0",
+      "title": "End-to-end causality and trace correlation",
+      "estimate_hours": [
+        3,
+        4
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "phase_id": "SV2-P0-C",
+      "priority": "P0",
+      "title": "Dispatch self-heal and bounded repair escalation",
+      "estimate_hours": [
+        4,
+        6
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "phase_id": "SV2-P0-D",
+      "priority": "P0",
+      "title": "ChatGPT DOM compatibility layer",
+      "estimate_hours": [
+        3,
+        4
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "phase_id": "SV2-P0-E",
+      "priority": "P0",
+      "title": "Repository Source-of-Truth cleanup",
+      "estimate_hours": [
+        1,
+        2
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "phase_id": "SV2-P1-A",
+      "priority": "P1",
+      "title": "Pipeline latency telemetry",
+      "estimate_hours": [
+        3,
+        5
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "phase_id": "SV2-P1-B",
+      "priority": "P1",
+      "title": "Priority and event-assisted scheduler",
+      "estimate_hours": [
+        4,
+        6
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "phase_id": "SV2-P1-C",
+      "priority": "P1",
+      "title": "Transaction revision and recovery journal",
+      "estimate_hours": [
+        3,
+        5
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "phase_id": "SV2-P1-D",
+      "priority": "P1",
+      "title": "Control Center WHY NOT MOVING view",
+      "estimate_hours": [
+        3,
+        5
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "phase_id": "SV2-P1-E",
+      "priority": "P1",
+      "title": "Event and log lifecycle hardening",
+      "estimate_hours": [
+        2,
+        3
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "phase_id": "SV2-P1-F",
+      "priority": "P1",
+      "title": "Runtime identity and canonical state-root cleanup",
+      "estimate_hours": [
+        2,
+        3
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "phase_id": "SV2-P2",
+      "priority": "P2",
+      "title": "Optional fast browser executor",
+      "estimate_hours": [
+        6,
+        10
+      ],
+      "production_impact_during_development": "NONE"
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "SV2-P0-E1",
+      "id": "SV2-P0-E1",
+      "title": "Synchronize repository Source of Truth with granular Runtime V2 roadmap",
+      "phase": "SV2-P0-E",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-A1",
+      "id": "SV2-P0-A1",
+      "title": "Inventory current runtime responsibilities and parity fixtures",
+      "phase": "SV2-P0-A",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-A2",
+      "id": "SV2-P0-A2",
+      "title": "Extract observation boundary",
+      "phase": "SV2-P0-A",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-A3",
+      "id": "SV2-P0-A3",
+      "title": "Extract correlation boundary",
+      "phase": "SV2-P0-A",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-A4",
+      "id": "SV2-P0-A4",
+      "title": "Define pure reducer transition contract",
+      "phase": "SV2-P0-A",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-A5",
+      "id": "SV2-P0-A5",
+      "title": "Add durable transition adapter",
+      "phase": "SV2-P0-A",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-A6",
+      "id": "SV2-P0-A6",
+      "title": "Extract effect executor",
+      "phase": "SV2-P0-A",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-A7",
+      "id": "SV2-P0-A7",
+      "title": "Add confirmation stage",
+      "phase": "SV2-P0-A",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-A8",
+      "id": "SV2-P0-A8",
+      "title": "Rewire compatibility shell",
+      "phase": "SV2-P0-A",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-A9",
+      "id": "SV2-P0-A9",
+      "title": "Pass state-machine parity regression gate",
+      "phase": "SV2-P0-A",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-B1",
+      "id": "SV2-P0-B1",
+      "title": "Define causal identifier schema",
+      "phase": "SV2-P0-B",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-B2",
+      "id": "SV2-P0-B2",
+      "title": "Correlate Brain request to directive",
+      "phase": "SV2-P0-B",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-B3",
+      "id": "SV2-P0-B3",
+      "title": "Correlate directive to Work dispatch",
+      "phase": "SV2-P0-B",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-B4",
+      "id": "SV2-P0-B4",
+      "title": "Correlate dispatch to Work result",
+      "phase": "SV2-P0-B",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-B5",
+      "id": "SV2-P0-B5",
+      "title": "Correlate Work result to Brain relay",
+      "phase": "SV2-P0-B",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-B6",
+      "id": "SV2-P0-B6",
+      "title": "Correlate Brain relay to verdict",
+      "phase": "SV2-P0-B",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-B7",
+      "id": "SV2-P0-B7",
+      "title": "Persist and reconcile trace chain across restart",
+      "phase": "SV2-P0-B",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-B8",
+      "id": "SV2-P0-B8",
+      "title": "Reject stale cross-task responses",
+      "phase": "SV2-P0-B",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-B9",
+      "id": "SV2-P0-B9",
+      "title": "Expose privacy-safe trace diagnostics",
+      "phase": "SV2-P0-B",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-B10",
+      "id": "SV2-P0-B10",
+      "title": "Pass causality regression gate",
+      "phase": "SV2-P0-B",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-C1",
+      "id": "SV2-P0-C1",
+      "title": "Reconcile self-heal prerequisites with issues #62-#68",
+      "phase": "SV2-P0-C",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-C2",
+      "id": "SV2-P0-C2",
+      "title": "Emit heartbeat and progress evidence",
+      "phase": "SV2-P0-C",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-C3",
+      "id": "SV2-P0-C3",
+      "title": "Emit no-progress warning after 180 seconds",
+      "phase": "SV2-P0-C",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-C4",
+      "id": "SV2-P0-C4",
+      "title": "Transition eligible work to STALLED after 300 seconds",
+      "phase": "SV2-P0-C",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-C5",
+      "id": "SV2-P0-C5",
+      "title": "Persist bounded recovery-attempt state",
+      "phase": "SV2-P0-C",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-C6",
+      "id": "SV2-P0-C6",
+      "title": "Reconcile durable and GitHub truth before every retry",
+      "phase": "SV2-P0-C",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-C7",
+      "id": "SV2-P0-C7",
+      "title": "Choose safe resume, resend, or Work-replacement action without blind mutation",
+      "phase": "SV2-P0-C",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-C8",
+      "id": "SV2-P0-C8",
+      "title": "Enter maintenance lock and create one bounded repair incident after recovery exhaustion",
+      "phase": "SV2-P0-C",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-C9",
+      "id": "SV2-P0-C9",
+      "title": "Require Brain VERIFY/ACCEPT for Supervisor repair result",
+      "phase": "SV2-P0-C",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-C10",
+      "id": "SV2-P0-C10",
+      "title": "Resume frozen product task from reconciled durable state after accepted repair",
+      "phase": "SV2-P0-C",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-C11",
+      "id": "SV2-P0-C11",
+      "title": "Provide rollback path and pass induced-stall/restart acceptance",
+      "phase": "SV2-P0-C",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-D1",
+      "id": "SV2-P0-D1",
+      "title": "Capture current ChatGPT DOM fixture corpus",
+      "phase": "SV2-P0-D",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-D2",
+      "id": "SV2-P0-D2",
+      "title": "Define selector profile and capability contract",
+      "phase": "SV2-P0-D",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-D3",
+      "id": "SV2-P0-D3",
+      "title": "Implement modern message-turn adapter",
+      "phase": "SV2-P0-D",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-D4",
+      "id": "SV2-P0-D4",
+      "title": "Implement legacy fallback message-turn adapter",
+      "phase": "SV2-P0-D",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-D5",
+      "id": "SV2-P0-D5",
+      "title": "Select adapters by ordered capability detection",
+      "phase": "SV2-P0-D",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-D6",
+      "id": "SV2-P0-D6",
+      "title": "Fail closed with explicit DOM_UNSUPPORTED state",
+      "phase": "SV2-P0-D",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-D7",
+      "id": "SV2-P0-D7",
+      "title": "Add bounded DOM recovery without reload storms",
+      "phase": "SV2-P0-D",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-D8",
+      "id": "SV2-P0-D8",
+      "title": "Pass DOM compatibility fixture and regression gate",
+      "phase": "SV2-P0-D",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-E2",
+      "id": "SV2-P0-E2",
+      "title": "Verify PR #80 supersession against main and reconcile disposition",
+      "phase": "SV2-P0-E",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-E3",
+      "id": "SV2-P0-E3",
+      "title": "Verify PR #95 supersession against main and reconcile disposition",
+      "phase": "SV2-P0-E",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-E4",
+      "id": "SV2-P0-E4",
+      "title": "Reconcile PR #15 and issues #62-#68 against main without losing parent history",
+      "phase": "SV2-P0-E",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-E5",
+      "id": "SV2-P0-E5",
+      "title": "Consolidate canonical Runtime V2 roadmap references for Brain and Robot",
+      "phase": "SV2-P0-E",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P0-E6",
+      "id": "SV2-P0-E6",
+      "title": "Validate Source-of-Truth consumers and stale-plan guards",
+      "phase": "SV2-P0-E",
+      "priority": "P0",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-A1",
+      "id": "SV2-P1-A1",
+      "title": "Define canonical latency stage timestamps",
+      "phase": "SV2-P1-A",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-A2",
+      "id": "SV2-P1-A2",
+      "title": "Instrument Brain response completion to detection latency",
+      "phase": "SV2-P1-A",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-A3",
+      "id": "SV2-P1-A3",
+      "title": "Instrument Work dispatch intent to confirmed-send latency",
+      "phase": "SV2-P1-A",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-A4",
+      "id": "SV2-P1-A4",
+      "title": "Instrument Work response completion to capture and Brain relay latency",
+      "phase": "SV2-P1-A",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-A5",
+      "id": "SV2-P1-A5",
+      "title": "Instrument Brain relay to verdict and next-directive latency",
+      "phase": "SV2-P1-A",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-A6",
+      "id": "SV2-P1-A6",
+      "title": "Persist and aggregate latency telemetry",
+      "phase": "SV2-P1-A",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-A7",
+      "id": "SV2-P1-A7",
+      "title": "Expose current-step latency telemetry in Control Center",
+      "phase": "SV2-P1-A",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-A8",
+      "id": "SV2-P1-A8",
+      "title": "Pass telemetry regression gate",
+      "phase": "SV2-P1-A",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-B1",
+      "id": "SV2-P1-B1",
+      "title": "Define scheduler priority contract",
+      "phase": "SV2-P1-B",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-B2",
+      "id": "SV2-P1-B2",
+      "title": "Add event-assisted wakeup for result-ready and relay confirmation",
+      "phase": "SV2-P1-B",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-B3",
+      "id": "SV2-P1-B3",
+      "title": "Add event-assisted wakeup for dispatch confirmation and send recovery",
+      "phase": "SV2-P1-B",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-B4",
+      "id": "SV2-P1-B4",
+      "title": "Add event-assisted wakeup for Brain directive adoption",
+      "phase": "SV2-P1-B",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-B5",
+      "id": "SV2-P1-B5",
+      "title": "Add idle-planning wakeup path",
+      "phase": "SV2-P1-B",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-B6",
+      "id": "SV2-P1-B6",
+      "title": "Keep bounded polling watchdog fallback with fairness",
+      "phase": "SV2-P1-B",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-B7",
+      "id": "SV2-P1-B7",
+      "title": "Pass scheduler priority and recovery regression gate",
+      "phase": "SV2-P1-B",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-C1",
+      "id": "SV2-P1-C1",
+      "title": "Add monotonic state_revision",
+      "phase": "SV2-P1-C",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-C2",
+      "id": "SV2-P1-C2",
+      "title": "Add append-only transition journal",
+      "phase": "SV2-P1-C",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-C3",
+      "id": "SV2-P1-C3",
+      "title": "Persist transition intent before effect execution",
+      "phase": "SV2-P1-C",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-C4",
+      "id": "SV2-P1-C4",
+      "title": "Confirm effects against journaled transition identity",
+      "phase": "SV2-P1-C",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-C5",
+      "id": "SV2-P1-C5",
+      "title": "Resume from last committed transition after crash or restart",
+      "phase": "SV2-P1-C",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-C6",
+      "id": "SV2-P1-C6",
+      "title": "Migrate ambiguous boolean combinations toward explicit transition states",
+      "phase": "SV2-P1-C",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-C7",
+      "id": "SV2-P1-C7",
+      "title": "Pass crash/restart journal regression gate",
+      "phase": "SV2-P1-C",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-D1",
+      "id": "SV2-P1-D1",
+      "title": "Define WHY NOT MOVING projection contract",
+      "phase": "SV2-P1-D",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-D2",
+      "id": "SV2-P1-D2",
+      "title": "Project current step, waiting-for reason, and state age",
+      "phase": "SV2-P1-D",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-D3",
+      "id": "SV2-P1-D3",
+      "title": "Project retry count and last confirmed action",
+      "phase": "SV2-P1-D",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-D4",
+      "id": "SV2-P1-D4",
+      "title": "Project safe reason code and project progress",
+      "phase": "SV2-P1-D",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-D5",
+      "id": "SV2-P1-D5",
+      "title": "Project runtime, process, and CDP truth independently",
+      "phase": "SV2-P1-D",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-D6",
+      "id": "SV2-P1-D6",
+      "title": "Render WHY NOT MOVING in Control Center",
+      "phase": "SV2-P1-D",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-D7",
+      "id": "SV2-P1-D7",
+      "title": "Pass Control Center observability regression gate",
+      "phase": "SV2-P1-D",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-E1",
+      "id": "SV2-P1-E1",
+      "title": "Define bounded append-only event segment rotation",
+      "phase": "SV2-P1-E",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-E2",
+      "id": "SV2-P1-E2",
+      "title": "Normalize correlation fields across runtime diagnostics",
+      "phase": "SV2-P1-E",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-E3",
+      "id": "SV2-P1-E3",
+      "title": "Enforce privacy-safe redaction for chat bodies, tokens, and private URLs",
+      "phase": "SV2-P1-E",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-E4",
+      "id": "SV2-P1-E4",
+      "title": "Reconstruct incidents from sanitized identifiers and timestamps",
+      "phase": "SV2-P1-E",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-E5",
+      "id": "SV2-P1-E5",
+      "title": "Pass rotation, boundedness, and privacy regression gate",
+      "phase": "SV2-P1-E",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-F1",
+      "id": "SV2-P1-F1",
+      "title": "Expose exact runtime Git SHA and build manifest",
+      "phase": "SV2-P1-F",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-F2",
+      "id": "SV2-P1-F2",
+      "title": "Audit canonical Supervisor state root",
+      "phase": "SV2-P1-F",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-F3",
+      "id": "SV2-P1-F3",
+      "title": "Define migration-safety guard for legacy BusinessOS fallback",
+      "phase": "SV2-P1-F",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-F4",
+      "id": "SV2-P1-F4",
+      "title": "Remove state-root ambiguity after migration guard passes",
+      "phase": "SV2-P1-F",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P1-F5",
+      "id": "SV2-P1-F5",
+      "title": "Pass runtime identity and state-root regression gate",
+      "phase": "SV2-P1-F",
+      "priority": "P1",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P21",
+      "id": "SV2-P21",
+      "title": "Define optional executor benchmark harness",
+      "phase": "SV2-P2",
+      "priority": "P2",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P22",
+      "id": "SV2-P22",
+      "title": "Implement optional fast executor adapter behind feature gate",
+      "phase": "SV2-P2",
+      "priority": "P2",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P23",
+      "id": "SV2-P23",
+      "title": "Preserve current Chromium/CDP executor as fallback",
+      "phase": "SV2-P2",
+      "priority": "P2",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P24",
+      "id": "SV2-P24",
+      "title": "Compare correctness, latency, and recovery parity",
+      "phase": "SV2-P2",
+      "priority": "P2",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-P25",
+      "id": "SV2-P25",
+      "title": "Pass optional-executor acceptance gate",
+      "phase": "SV2-P2",
+      "priority": "P2",
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "task_id": "SV2-DEPLOY",
+      "id": "SV2-DEPLOY",
+      "title": "Owner-authorized production deployment and live acceptance",
+      "phase": "DEPLOY",
+      "priority": "DEPLOY",
+      "production_impact_during_development": "NONE",
+      "deployment_gate": true
+    }
+  ],
+  "supersession_audit": [
+    {
+      "kind": "pull_request",
+      "number": 80,
+      "observed_state": "OPEN",
+      "proposed_status": "CANDIDATE_SUPERSEDED_BY_MAIN",
+      "evidence_main_sha": "1b5779fb1652e691f25cc5f0f5b586a74b1fc012",
+      "evidence": [
+        "main contains LANE_OWNER_RESUME_BRAIN_FRESH_PROJECT_REVIEW",
+        "main contains fresh project-review Brain prompt",
+        "main contains owner-resume historical-IDLE regression coverage"
+      ],
+      "action_in_this_task": "AUDIT_ONLY_NO_STATE_CHANGE"
+    },
+    {
+      "kind": "pull_request",
+      "number": 95,
+      "observed_state": "OPEN",
+      "proposed_status": "CANDIDATE_SUPERSEDED_BY_MAIN",
+      "evidence_main_sha": "1b5779fb1652e691f25cc5f0f5b586a74b1fc012",
+      "evidence": [
+        "main contains buildBrainBlockedRecheckRequest",
+        "main contains rearmIncompleteProjectIdle",
+        "main contains incomplete_project_blocker_requires_whole_plan_rescan",
+        "main contains dependency-blocked IDLE recheck regression coverage"
+      ],
+      "note": "Candidate only; reconcile exact scheduling/backoff semantics before any PR disposition.",
+      "action_in_this_task": "AUDIT_ONLY_NO_STATE_CHANGE"
+    },
+    {
+      "kind": "pull_request",
+      "number": 15,
+      "observed_state": "OPEN_DRAFT",
+      "proposed_status": "PARENT_SELFHEAL_REFERENCE",
+      "action_in_this_task": "REFERENCE_ONLY_NO_STATE_CHANGE"
+    },
+    {
+      "kind": "pull_request",
+      "number": 13,
+      "observed_state": "OPEN_DRAFT",
+      "proposed_status": "FUTURE_OPTIONAL_EXECUTOR",
+      "action_in_this_task": "REFERENCE_ONLY_NO_STATE_CHANGE"
+    }
+  ],
+  "backlog_reconciliation": [
+    {
+      "kind": "issue",
+      "number": 62,
+      "title": "SUP-SELFHEAL-P2 — Owner/AUTO Work target policy",
+      "observed_state": "OPEN",
+      "proposed_status": "BACKLOG_RECONCILE_NO_CLOSE",
+      "action_in_this_task": "NO_CLOSE_NO_STATE_CHANGE"
+    },
+    {
+      "kind": "issue",
+      "number": 63,
+      "title": "SUP-SELFHEAL-P3 — Automatic Work replacement",
+      "observed_state": "OPEN",
+      "proposed_status": "BACKLOG_RECONCILE_NO_CLOSE",
+      "action_in_this_task": "NO_CLOSE_NO_STATE_CHANGE"
+    },
+    {
+      "kind": "issue",
+      "number": 64,
+      "title": "SUP-SELFHEAL-P4 — Runtime/status self-heal",
+      "observed_state": "OPEN",
+      "proposed_status": "BACKLOG_RECONCILE_NO_CLOSE",
+      "action_in_this_task": "NO_CLOSE_NO_STATE_CHANGE"
+    },
+    {
+      "kind": "issue",
+      "number": 65,
+      "title": "SUP-SELFHEAL-P5 — Control Panel observability",
+      "observed_state": "OPEN",
+      "proposed_status": "BACKLOG_RECONCILE_NO_CLOSE",
+      "action_in_this_task": "NO_CLOSE_NO_STATE_CHANGE"
+    },
+    {
+      "kind": "issue",
+      "number": 66,
+      "title": "SUP-SELFHEAL-P6 — RESET WORK STATE UI completion",
+      "observed_state": "OPEN",
+      "proposed_status": "BACKLOG_RECONCILE_NO_CLOSE",
+      "action_in_this_task": "NO_CLOSE_NO_STATE_CHANGE"
+    },
+    {
+      "kind": "issue",
+      "number": 67,
+      "title": "SUP-SELFHEAL-P7 — Persistent sanitized diagnostics",
+      "observed_state": "OPEN",
+      "proposed_status": "BACKLOG_RECONCILE_NO_CLOSE",
+      "action_in_this_task": "NO_CLOSE_NO_STATE_CHANGE"
+    },
+    {
+      "kind": "issue",
+      "number": 68,
+      "title": "SUP-SELFHEAL-P8 — Dispatch watchdog, heartbeat, bounded recovery, and repair escalation",
+      "observed_state": "OPEN",
+      "proposed_status": "BACKLOG_RECONCILE_NO_CLOSE",
+      "action_in_this_task": "NO_CLOSE_NO_STATE_CHANGE"
+    }
+  ],
+  "total_core_active_hours": [
+    27,
+    41
+  ],
+  "expected_wall_clock_days": [
+    2,
+    3
+  ],
+  "p2_optional": true,
+  "source_of_truth_sync": {
+    "task_id": "SV2-P0-E1",
+    "state": "READY_FOR_VERIFY",
+    "source_plan_pr": 99,
+    "source_plan_head": "f5d93822ca66e5baad3e4bb75cf8c56e2c063b12",
+    "synced_main_sha": "1b5779fb1652e691f25cc5f0f5b586a74b1fc012",
+    "execution_branch": "sv2/sv2-p0-e1-source-of-truth-sync-20260926",
+    "production_mutation": false,
+    "merge_or_deploy_authorized": false
+  }
+}
