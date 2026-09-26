@@ -29,6 +29,7 @@ if([string]::IsNullOrWhiteSpace($base)){throw 'Cannot resolve local app data roo
 
 $legacy=Join-Path $base 'MAGASIN\BusinessOS\supervisor'
 $runtime=Join-Path $canonical 'runtime'
+$browserProfile=Join-Path $canonical 'browser_profile'
 $configFile=Join-Path $canonical 'lanes.json'
 $registryFile=Join-Path $canonical 'lane-registry.json'
 $desktop=[Environment]::GetFolderPath('Desktop')
@@ -203,6 +204,27 @@ if($enabledBefore -ne 0){
   Write-Host 'PROJECT_STATE_PRESERVED=True'
   Write-Host 'UPDATE_RESULT=HOTPATCH_ENABLED_LANES'
   exit 0
+}
+
+# With all lanes disabled there is no active Brain/Work execution to preserve.
+# Retire only the dedicated Robot Chrome profile so the next Owner START/manual
+# open is guaranteed to launch with the current anti-throttling flags. Never
+# touch the Owner's normal Chrome profile.
+$dedicatedChrome=@(
+  Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.CommandLine -and
+      $_.CommandLine -like "*$browserProfile*"
+    }
+)
+foreach($chromeProcess in $dedicatedChrome){
+  Stop-Process -Id ([int]$chromeProcess.ProcessId) -Force -ErrorAction SilentlyContinue
+  Write-Host "OLD_DEDICATED_CHROME_STOPPED=$($chromeProcess.ProcessId)"
+}
+if($dedicatedChrome.Count -gt 0){
+  Write-Host 'DEDICATED_CHROME_FAST_RESTART_ARMED=True'
+}else{
+  Write-Host 'DEDICATED_CHROME_ALREADY_ABSENT=True'
 }
 
 $sourcePanel=Get-Content (Join-Path $env:GITHUB_WORKSPACE 'windows\control-panel.ps1') -Raw -Encoding UTF8
