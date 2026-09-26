@@ -11,6 +11,11 @@ import {
   defaultTargetHealth,
   normalizeTargetHealth
 } from "./target-health.mjs";
+import {
+  defaultProjectProgress,
+  normalizeProjectProgress,
+  parseProjectPlan
+} from "./project-progress.mjs";
 
 export const THREE_LANE_MODE = "THREE_LANE_V1";
 export const LANE_DIRECTIVE_START = "<<<MAGASIN_LANE_DIRECTIVE_V1>>>";
@@ -112,20 +117,33 @@ export function parseLaneDirective(text) {
   const action = String(payload?.action || "").toUpperCase();
 
   if (action === "IDLE") {
-    assertNarrowObject(payload, new Set(["action", "previous_result"]), "directive");
+    assertNarrowObject(
+      payload,
+      new Set(["action", "previous_result", "project_plan"]),
+      "directive"
+    );
     const previousResult = parsePreviousResult(payload.previous_result);
+    const projectPlan = parseProjectPlan(payload.project_plan);
     const result = {
       schema_version: "lane-directive.v1",
       action: "IDLE",
       digest: sha256(jsonText)
     };
     if (previousResult) result.previous_result = previousResult;
+    if (projectPlan) result.project_plan = projectPlan;
     return result;
   }
   if (action !== "WORK") throw new Error("unsupported lane directive action");
   assertNarrowObject(
     payload,
-    new Set(["action", "task_id", "instruction", "previous_result", "correction_of"]),
+    new Set([
+      "action",
+      "task_id",
+      "instruction",
+      "previous_result",
+      "correction_of",
+      "project_plan"
+    ]),
     "directive"
   );
 
@@ -138,6 +156,7 @@ export function parseLaneDirective(text) {
 
   const previousResult = parsePreviousResult(payload.previous_result);
   const correctionOf = parseCorrectionOf(payload.correction_of);
+  const projectPlan = parseProjectPlan(payload.project_plan);
   if (correctionOf && !previousResult) {
     throw new Error("correction_of requires previous_result");
   }
@@ -152,6 +171,7 @@ export function parseLaneDirective(text) {
   };
   if (previousResult) result.previous_result = previousResult;
   if (correctionOf) result.correction_of = correctionOf;
+  if (projectPlan) result.project_plan = projectPlan;
   return result;
 }
 
@@ -256,6 +276,7 @@ export function defaultLaneRegistry() {
       brain_request_sent: false,
       awaiting_work: false,
       task_timing: defaultTaskTiming(),
+      project_progress: defaultProjectProgress(),
       work_watchdog: defaultWorkWatchdog(),
       work_rollover: null,
       brain_target_health: defaultTargetHealth(),
@@ -313,6 +334,7 @@ export function normalizeLaneRegistry(value = {}) {
       brain_request_sent: Boolean(lane.brain_request_sent),
       awaiting_work: Boolean(lane.awaiting_work),
       task_timing: normalizeTaskTiming(lane.task_timing),
+      project_progress: normalizeProjectProgress(lane.project_progress),
       work_watchdog: normalizeWorkWatchdog(lane.work_watchdog),
       work_rollover: normalizeWorkRollover(lane.work_rollover),
       brain_target_health: normalizeTargetHealth(lane.brain_target_health),
@@ -366,6 +388,9 @@ export function buildBrainStartRequest({ laneId, projectName }) {
     "Robot chỉ làm việc theo lệnh trong cuộc trò chuyện Brain URL mà Owner đã chọn cho đúng luồng này.",
     "Bạn hãy đọc lại dự án đang thực hiện và giao phần việc tiếp theo cho Work.",
     "Trước khi chọn WORK hoặc IDLE, hãy rà soát trạng thái và tiến độ mới nhất của dự án trong ngữ cảnh Brain hiện tại, xác định phần việc còn thiếu và dependency của bước kế tiếp.",
+    "Ở handshake này, bắt buộc kèm project_plan đầy đủ để Robot lưu Source of Truth tiến độ: tasks là toàn bộ task đã biết của dự án theo thứ tự kế hoạch; completed_task_ids là các task đã hoàn thành trước thời điểm handshake. Mỗi task phải có task_id ổn định và title ngắn.",
+    'project_plan mẫu: {"tasks":[{"task_id":"TASK-1","title":"Outcome 1"},{"task_id":"TASK-2","title":"Outcome 2"}],"completed_task_ids":["TASK-1"]}',
+    "Sau handshake, chỉ cần gửi lại project_plan khi kế hoạch thay đổi. Robot tự đánh dấu ACTIVE khi dispatch và DONE chỉ khi Brain ACCEPT kết quả.",
     "Contract: PLAN → DISPATCH → VERIFY → ACCEPT/REJECT → NEXT PLAN. Không cần lộ chain-of-thought; chỉ trả contract/output máy đọc được.",
     "Trước WORK: chọn đúng một primary outcome, dependency đã thỏa hoặc nêu rõ, scope bounded, Definition of Done rõ, evidence phải trả rõ và stop boundary rõ trong instruction.",
     "Target planning: khoảng <=20 phút active implementation nếu chia được; nếu >30 phút và chia an toàn được thì chia nhỏ trước dispatch. Đây KHÔNG phải runtime timeout; long-running hợp lệ vẫn do watchdog activity contract xử lý.",
@@ -373,13 +398,13 @@ export function buildBrainStartRequest({ laneId, projectName }) {
     "Nếu có phần việc an toàn và dependency-ready tiếp theo, phải giao ngay đúng một việc cho Work bằng block; không chỉ tóm tắt, lập kế hoạch bằng prose hoặc chờ Owner nhắc lại.",
     "Hãy giao đúng một việc tiếp theo bằng block:",
     LANE_DIRECTIVE_START,
-    '{"action":"WORK","task_id":"TASK-ID","instruction":"Một outcome; dependency; scope; DoD; evidence; safety/stop boundary."}',
+    '{"action":"WORK","task_id":"TASK-ID","instruction":"Một outcome; dependency; scope; DoD; evidence; safety/stop boundary.","project_plan":{"tasks":[{"task_id":"TASK-ID","title":"Tên task"}],"completed_task_ids":[]}}',
     LANE_DIRECTIVE_END,
     "Sau khi Robot relay result, Brain nên VERIFY rồi thêm optional previous_result tương quan task_id + relay_id với verdict ACCEPT hoặc REJECT. REJECT chỉ được dispatch correction cùng task hoặc WORK có correction_of trỏ đúng previous result; nếu cần Owner thì dùng IDLE.",
     "Chỉ trả IDLE khi thực sự chưa có việc an toàn/dependency-ready hoặc bắt buộc cần Owner; không trả IDLE chỉ vì Robot vừa được bật lại.",
-    "Nếu chưa có việc an toàn để làm, trả:",
+    "Nếu chưa có việc an toàn để làm, trả IDLE nhưng handshake đầu/resume vẫn phải kèm project_plan đầy đủ:",
     LANE_DIRECTIVE_START,
-    '{"action":"IDLE"}',
+    '{"action":"IDLE","project_plan":{"tasks":[{"task_id":"TASK-ID","title":"Tên task"}],"completed_task_ids":[]}}',
     LANE_DIRECTIVE_END,
     "Không yêu cầu Robot tự tìm Brain khác. Không yêu cầu Robot tự tạo Brain mới."
   ].join("\n");
@@ -461,7 +486,7 @@ export function buildLaneResultRelay({
       "",
       "VERIFY kết quả này theo DoD/evidence trước khi lập NEXT PLAN. RESULT_RELAY_CONFIRMED chỉ là transport fact, không tự động là ACCEPT.",
       `Nếu hỗ trợ planning contract, directive tiếp theo thêm previous_result={"task_id":"${taskId}","relay_id":"${relayId}","verdict":"ACCEPT|REJECT","reason_code":"ALLOWLISTED_CODE"}.`,
-      "Sau ACCEPT có thể trả dependency-correct WORK hoặc IDLE. Sau REJECT chỉ trả correction cùng task_id, hoặc WORK có correction_of={task_id,relay_id} trỏ đúng result bị reject; nếu cần Owner thì IDLE. Không gửi prose ngoài directive khi Robot polling."
+      "Sau ACCEPT có thể trả dependency-correct WORK hoặc IDLE. Sau REJECT chỉ trả correction cùng task_id, hoặc WORK có correction_of={task_id,relay_id} trỏ đúng result bị reject; nếu cần Owner thì IDLE. Nếu roadmap/task list thay đổi, kèm project_plan đầy đủ mới để cập nhật Source of Truth. Không gửi prose ngoài directive khi Robot polling."
     ].join("\n")
   };
 }

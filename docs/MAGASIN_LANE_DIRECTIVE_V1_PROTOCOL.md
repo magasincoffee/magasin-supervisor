@@ -245,6 +245,29 @@ TASK-RBT-008 keeps the protocol name and byte-exact markers unchanged. The legac
 
 `{"action":"IDLE"}`
 
+Optional `project_plan` is the project Source of Truth snapshot. It is backward-compatible at parser level, but the current first/resume Brain handshake requires it so the Robot can initialize project progress without rereading GitHub. Shape:
+
+```json
+{
+  "project_plan": {
+    "tasks": [
+      { "task_id": "TASK-1", "title": "Foundation" },
+      { "task_id": "TASK-2", "title": "Runtime" }
+    ],
+    "completed_task_ids": ["TASK-1"]
+  }
+}
+```
+
+Rules:
+- `tasks` is the full currently-known project task list, in planning order, maximum 200 entries;
+- every task ID is stable and unique and follows the normal `task_id` format;
+- `completed_task_ids` is only for bootstrapping work already completed before this progress model was present;
+- after bootstrap, the Robot marks a planned task `ACTIVE` only after dispatch confirmation;
+- the Robot marks a planned task `DONE` only when Brain returns a correlated `previous_result.verdict=ACCEPT`;
+- REJECT never increments completed count;
+- resend the full `project_plan` only when the roadmap/task list changes.
+
 A Brain that has just received a Robot result relay may add one optional `previous_result` object:
 
 ```json

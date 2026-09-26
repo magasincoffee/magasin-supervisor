@@ -196,3 +196,36 @@ test("projection contains no URL, message body, cookie, token or screenshot fiel
     assert.equal(Object.prototype.hasOwnProperty.call(out, forbidden), false);
   }
 });
+
+test("project source-of-truth progress is projected as safe counts and percent", () => {
+  const out = projectLaneOperationalStatus(
+    config(),
+    registry({
+      project_progress: {
+        schema_version: "project-progress.v1",
+        plan_known: true,
+        plan_digest: "a".repeat(64),
+        tasks: [
+          { task_id: "TASK-1", title: "One", state: "DONE", completed_at: "2026-09-21T01:00:00.000Z" },
+          { task_id: "TASK-2", title: "Two", state: "DONE", completed_at: "2026-09-21T01:10:00.000Z" },
+          { task_id: "TASK-3", title: "Three", state: "ACTIVE", completed_at: null },
+          { task_id: "TASK-4", title: "Four", state: "PENDING", completed_at: null }
+        ],
+        updated_at: "2026-09-21T01:10:00.000Z"
+      }
+    }),
+    "WORKING",
+    {},
+    { now: NOW }
+  );
+
+  assert.equal(out.project_progress_known, true);
+  assert.equal(out.project_total_tasks, 4);
+  assert.equal(out.project_completed_tasks, 2);
+  assert.equal(out.project_progress_percent, 50);
+  assert.equal(out.project_active_task_id, "TASK-3");
+  assert.equal(out.project_progress_updated_at, "2026-09-21T01:10:00.000Z");
+  assert.equal("project_plan" in out, false);
+  assert.equal("project_tasks" in out, false);
+});
+

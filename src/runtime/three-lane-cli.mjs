@@ -120,6 +120,11 @@ import {
 import {
   evaluateBrainVerdictTransition
 } from "./brain-planning.mjs";
+import {
+  applyProjectPlan,
+  markProjectTaskAccepted,
+  markProjectTaskActive
+} from "./project-progress.mjs";
 
 const SUPERVISOR_RUNTIME_VERSION = "2026-09-20.60";
 const WATCHDOG_CONTINUE_INSTRUCTION = "Tiếp tục thực hiện.";
@@ -766,11 +771,40 @@ async function applyBrainVerdictDirective({
   registry,
   registryPath
 }) {
+  let registryChanged = false;
+
+  if (directive.project_plan) {
+    const planned = applyProjectPlan(
+      registryLane.project_progress,
+      directive.project_plan,
+      { activeTaskId: registryLane.task_id }
+    );
+    registryLane.project_progress = planned.progress;
+    registryChanged = registryChanged || planned.changed;
+  }
+
   const transition = evaluateBrainVerdictTransition(registryLane, directive);
+  if (transition.state !== "LEGACY" && transition.changed) {
+    registryLane.last_result_verdict = transition.record;
+    registryChanged = true;
+
+    if (transition.record.verdict === "ACCEPT") {
+      const accepted = markProjectTaskAccepted(
+        registryLane.project_progress,
+        transition.record.task_id,
+        { at: transition.record.recorded_at }
+      );
+      registryLane.project_progress = accepted.progress;
+      registryChanged = registryChanged || accepted.changed;
+    }
+  }
+
+  if (registryChanged) {
+    await atomicJsonWrite(registryPath, registry);
+  }
+
   if (transition.state === "LEGACY" || !transition.changed) return transition;
 
-  registryLane.last_result_verdict = transition.record;
-  await atomicJsonWrite(registryPath, registry);
   await emitLaneEvent({
     timestamp: transition.record.recorded_at,
     lane_id: lane.lane_id,
@@ -932,6 +966,13 @@ async function finalizeConfirmedDispatch({
   registryLane.last_dispatch_id = latch.dispatch_id || registryLane.last_dispatch_id || null;
   registryLane.awaiting_work = true;
   registryLane.dispatch_inflight = null;
+
+  const activeProgress = markProjectTaskActive(
+    registryLane.project_progress,
+    latch.task_id,
+    { at: startedAt }
+  );
+  registryLane.project_progress = activeProgress.progress;
   await atomicJsonWrite(registryPath, registry);
 
   if (started.changed) {

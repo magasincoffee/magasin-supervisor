@@ -254,3 +254,20 @@ test("Control Panel enters the message loop before any initial blocking refresh"
     /Ensure-Config \| Out-Null\s*Refresh-Ui\s*\[void\]\$form\.ShowDialog\(\)/
   );
 });
+
+test("Control Panel shows durable project task progress and percent per lane", async () => {
+  const source = await fs.readFile(
+    new URL("../windows/control-panel.ps1", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /Windows\.Forms\.ProgressBar/);
+  assert.match(source, /TIẾN ĐỘ DỰ ÁN: CHƯA CÓ KẾ HOẠCH/);
+  assert.match(source, /project_progress_known/);
+  assert.match(source, /project_total_tasks/);
+  assert.match(source, /project_completed_tasks/);
+  assert.match(source, /project_progress_percent/);
+  assert.match(source, /' TASK'/);
+  assert.match(source, /\+ '%'/);
+});
+

@@ -6,6 +6,7 @@ import { normalizeWorkWatchdog } from "./work-watchdog.mjs";
 import { normalizeWorkRollover } from "./work-rollover.mjs";
 import { normalizeTargetHealth } from "./target-health.mjs";
 import { normalizeStoredBrainVerdict } from "./brain-planning.mjs";
+import { projectProgressSummary } from "./project-progress.mjs";
 
 function safeIso(value) {
   if (!value) return null;
@@ -54,6 +55,7 @@ export function projectLaneOperationalStatus(
   const relay = registryLane.relay_inflight || null;
   const relayExhausted = Boolean(relay?.retry_exhausted);
   const lastVerdict = normalizeStoredBrainVerdict(registryLane.last_result_verdict);
+  const projectProgress = projectProgressSummary(registryLane.project_progress);
   const requestedRearmRevision = Number(
     configLane.relay_retry_rearm_revision || 0
   );
@@ -98,6 +100,12 @@ export function projectLaneOperationalStatus(
     rollover_phase: rollover?.stage || null,
     brain_target_health: brainHealth,
     work_target_health: workHealth,
+    project_progress_known: projectProgress.known,
+    project_total_tasks: projectProgress.total_tasks,
+    project_completed_tasks: projectProgress.completed_tasks,
+    project_progress_percent: projectProgress.percent,
+    project_active_task_id: projectProgress.active_task_id,
+    project_progress_updated_at: projectProgress.updated_at,
     last_result_verdict: lastVerdict
       ? {
           task_id: lastVerdict.task_id,

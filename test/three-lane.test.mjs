@@ -306,3 +306,30 @@ test("Work dispatch envelope carries deterministic machine marker without changi
   assert.match(text, /Do one safe thing\./);
   assert.equal(workDispatchMarker(dispatchId), "dispatch_id=abc123");
 });
+
+test("Brain directive accepts a full project_plan snapshot for source-of-truth progress", () => {
+  const directive = parseLaneDirective(
+    '<<<MAGASIN_LANE_DIRECTIVE_V1>>>\n' +
+    '{"action":"WORK","task_id":"TASK-2","instruction":"Do task 2",' +
+    '"project_plan":{"tasks":[{"task_id":"TASK-1","title":"Foundation"},' +
+    '{"task_id":"TASK-2","title":"Runtime"}],"completed_task_ids":["TASK-1"]}}' +
+    '\n<<<END_MAGASIN_LANE_DIRECTIVE_V1>>>'
+  );
+
+  assert.equal(directive.project_plan.schema_version, "project-plan.v1");
+  assert.equal(directive.project_plan.tasks.length, 2);
+  assert.deepEqual(directive.project_plan.completed_task_ids, ["TASK-1"]);
+});
+
+test("Brain start request requires project source-of-truth on initial and resume handshake", () => {
+  const text = buildBrainStartRequest({
+    laneId: "lane-1",
+    projectName: "Supervisor"
+  });
+
+  assert.match(text, /bắt buộc kèm project_plan đầy đủ/);
+  assert.match(text, /completed_task_ids/);
+  assert.match(text, /Robot tự đánh dấu ACTIVE khi dispatch và DONE chỉ khi Brain ACCEPT/);
+  assert.match(text, /"project_plan":\{"tasks":/);
+});
+
