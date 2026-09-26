@@ -570,3 +570,26 @@ test("Brain start request explicitly requires project reread and immediate Work 
   assert.match(prompt, /không chỉ tóm tắt, lập kế hoạch bằng prose hoặc chờ Owner nhắc lại/);
   assert.match(prompt, /Chỉ trả IDLE khi thực sự chưa có việc an toàn\/dependency-ready hoặc bắt buộc cần Owner/);
 });
+
+test("project source-of-truth updates from Brain plan, dispatch and ACCEPT lifecycle", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  const verdictStart = source.indexOf("async function applyBrainVerdictDirective");
+  const verdictEnd = source.indexOf("async function hasRelayMarker", verdictStart);
+  const verdictPath = source.slice(verdictStart, verdictEnd);
+  assert.match(verdictPath, /applyProjectPlan/);
+  assert.match(verdictPath, /directive\.project_plan/);
+  assert.match(verdictPath, /markProjectTaskAccepted/);
+  assert.match(verdictPath, /transition\.record\.verdict === "ACCEPT"/);
+
+  const dispatchStart = source.indexOf("async function finalizeConfirmedDispatch");
+  const dispatchEnd = source.indexOf("async function reconcileBrainRequest", dispatchStart);
+  const dispatchPath = source.slice(dispatchStart, dispatchEnd);
+  assert.match(dispatchPath, /markProjectTaskActive/);
+  assert.match(dispatchPath, /registryLane\.project_progress/);
+  assert.match(dispatchPath, /latch\.task_id/);
+});
+
