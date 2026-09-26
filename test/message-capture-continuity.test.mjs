@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   captureAssistantTurnDigests,
+  captureAssistantTurnAfterUserMarker,
   captureRecentConversationTurns,
   captureUserTurnDigests,
   digestCapturedResponse
@@ -75,5 +76,56 @@ test("capture layer includes the live ChatGPT modern DOM selectors", async () =>
   assert.match(source, /compareDocumentPosition/);
   assert.match(source, /modern-user/);
   assert.match(source, /modern-assistant/);
+});
+
+test("Work result capture ignores an old assistant reply before the current dispatch marker", async () => {
+  const marker = "dispatch_id=dispatch-new";
+  const page = {
+    async evaluate() {
+      return [
+        { role: "user", text: "dispatch_id=dispatch-old\nold task", turn: 1, chars: 33 },
+        { role: "assistant", text: "OLD TEST RESULT", turn: 2, chars: 15 },
+        { role: "user", text: `${marker}\nnew task`, turn: 3, chars: 32 }
+      ];
+    }
+  };
+
+  const captured = await captureAssistantTurnAfterUserMarker(page, marker);
+  assert.equal(captured, null);
+});
+
+test("Work result capture accepts only the assistant reply after the current dispatch marker", async () => {
+  const marker = "dispatch_id=dispatch-new";
+  const page = {
+    async evaluate() {
+      return [
+        { role: "user", text: "dispatch_id=dispatch-old\nold task", turn: 1, chars: 33 },
+        { role: "assistant", text: "OLD TEST RESULT", turn: 2, chars: 15 },
+        { role: "user", text: `${marker}\nnew task`, turn: 3, chars: 32 },
+        { role: "assistant", text: "NEW TEST RESULT", turn: 4, chars: 15 }
+      ];
+    }
+  };
+
+  const captured = await captureAssistantTurnAfterUserMarker(page, marker);
+  assert.equal(captured.text, "NEW TEST RESULT");
+  assert.equal(captured.turn, 4);
+  assert.equal(captured.digest, digestCapturedResponse("NEW TEST RESULT"));
+});
+
+test("a later unrelated user turn breaks Work result correlation", async () => {
+  const marker = "dispatch_id=dispatch-new";
+  const page = {
+    async evaluate() {
+      return [
+        { role: "user", text: `${marker}\nnew task`, turn: 1, chars: 32 },
+        { role: "user", text: "manual Owner message", turn: 2, chars: 20 },
+        { role: "assistant", text: "reply to Owner", turn: 3, chars: 14 }
+      ];
+    }
+  };
+
+  const captured = await captureAssistantTurnAfterUserMarker(page, marker);
+  assert.equal(captured, null);
 });
 
