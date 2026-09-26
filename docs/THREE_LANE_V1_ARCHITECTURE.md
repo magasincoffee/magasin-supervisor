@@ -332,6 +332,12 @@ Task metrics:
 
 The Control Panel reads only a bounded recent tail (20–50 events), not the whole history each refresh.
 
+## Autonomous soft-IDLE recovery
+
+An incomplete project must not depend on Owner repeatedly asking Brain to continue. Brain may return `DEPENDENCY_BLOCKED` or `NO_SAFE_WORK` only as a temporary soft blocker. Supervisor persists the blocker and automatically rechecks the exact Brain conversation with bounded exponential backoff: 1, 2, 4, 8, then at most 10 minutes. A WORK directive clears the soft-blocker schedule immediately.
+
+If the supposed dependency is another unfinished task in the same `project_plan`, Brain is required to dispatch that dependency task instead of remaining IDLE. `OWNER_REQUIRED` is the only incomplete-project IDLE reason that intentionally waits for human intervention.
+
 ## Project Source of Truth and progress
 
 Each lane keeps one durable `project_progress` record inside `lane-registry.json`. The first/resume Brain handshake supplies the full `project_plan` task list and any historical `completed_task_ids`. Browser tabs and GitHub pages are not the progress authority.
