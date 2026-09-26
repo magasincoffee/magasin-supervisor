@@ -699,3 +699,18 @@ test("Brain directive parse errors are observable instead of silently swallowed"
   assert.match(source, /captured\.chars/);
 });
 
+test("migration recovery IDLE uses the same project-plan and pending-task guards", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const resumed = source.indexOf('if (resumedDirective.action === "IDLE")');
+  const end = source.indexOf("const resumeHandshakeSafelyIdle", resumed);
+  const segment = source.slice(resumed, end);
+
+  assert.match(segment, /rearmMissingProjectPlanAfterIdle/);
+  assert.match(segment, /rearmIncompleteProjectIdle/);
+  assert.match(segment, /Recovered IDLE chưa đủ điều kiện dừng/);
+  assert.match(segment, /Brain IDLE không đáp ứng contract/);
+});
+
