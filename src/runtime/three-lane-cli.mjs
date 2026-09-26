@@ -879,6 +879,7 @@ async function rearmMissingProjectPlanAfterIdle({
   }
 
   registryLane.project_plan_bootstrap_retries = retries + 1;
+  clearSoftIdleRecheck(registryLane);
   registryLane.brain_request_sent = false;
   registryLane.brain_request_inflight = null;
   await atomicJsonWrite(registryPath, registry);
@@ -1046,15 +1047,17 @@ async function rearmIncompleteProjectIdle({
       directive,
       reason
     );
-    await atomicJsonWrite(registryPath, registry);
-    await safeLog(logPath, {
-      type: "LANE_BRAIN_SOFT_IDLE_RECHECK_SCHEDULED",
-      laneId: lane.lane_id,
-      digest: directive.digest,
-      reason,
-      recheck_count: scheduled.recheck_count,
-      next_recheck_at: scheduled.next_recheck_at
-    });
+    if (scheduled.changed) {
+      await atomicJsonWrite(registryPath, registry);
+      await safeLog(logPath, {
+        type: "LANE_BRAIN_SOFT_IDLE_RECHECK_SCHEDULED",
+        laneId: lane.lane_id,
+        digest: directive.digest,
+        reason,
+        recheck_count: scheduled.recheck_count,
+        next_recheck_at: scheduled.next_recheck_at
+      });
+    }
     return {
       rearmed: false,
       exhausted: false,
