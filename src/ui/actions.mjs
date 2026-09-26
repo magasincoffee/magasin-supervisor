@@ -1,4 +1,5 @@
 import { ACTIONS } from "../decision.mjs";
+import { beginSubmitFlightRecording } from "./submit-flight-recorder.mjs";
 
 const SAFE_RETRY_RE = /^(try again|retry|thử lại)$/i;
 const SAFE_CONTINUE_RE = /^(continue generating|continue response|tiếp tục tạo|tiếp tục)$/i;
@@ -175,6 +176,80 @@ async function composerContainsExactInstruction(composer, instruction) {
   const text = await readComposerText(composer);
   if (text === null) return null;
   return normalizeComposerText(text) === normalizeComposerText(instruction);
+}
+
+async function captureUserTurnState(page, instruction) {
+  if (!page || typeof page.evaluate !== "function") {
+    return { readable: false, totalCount: 0, exactMatchCount: 0 };
+  }
+  try {
+    return await page.evaluate((expected) => {
+      const normalize = (value) => String(value || "")
+        .replace(/\u200B/g, "")
+        .replace(/\r\n/g, "\n")
+        .trim();
+      const wanted = normalize(expected);
+      const turns = Array.from(
+        document.querySelectorAll('[data-message-author-role="user"]')
+      );
+      let exactMatchCount = 0;
+      for (const node of turns) {
+        const text = normalize(node.innerText || node.textContent || "");
+        if (text === wanted) exactMatchCount += 1;
+      }
+      return {
+        readable: true,
+        totalCount: turns.length,
+        exactMatchCount
+      };
+    }, instruction);
+  } catch {
+    return { readable: false, totalCount: 0, exactMatchCount: 0 };
+  }
+}
+
+async function waitForMatchingUserTurn(
+  page,
+  instruction,
+  baseline,
+  { timeoutMs = 8_000, intervalMs = 200 } = {}
+) {
+  const attempts = Math.max(1, Math.ceil(timeoutMs / intervalMs));
+  let readable = false;
+  let sawAdditionalUserTurn = false;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const current = await captureUserTurnState(page, instruction);
+    if (current.readable) {
+      readable = true;
+      if (current.totalCount > Number(baseline?.totalCount || 0)) {
+        sawAdditionalUserTurn = true;
+      }
+      if (
+        current.exactMatchCount >
+        Number(baseline?.exactMatchCount || 0)
+      ) {
+        return {
+          confirmed: true,
+          evidence: "matching-user-turn-observed",
+          totalCount: current.totalCount
+        };
+      }
+    }
+
+    if (attempt < attempts - 1 && typeof page.waitForTimeout === "function") {
+      await page.waitForTimeout(intervalMs);
+    }
+  }
+
+  return {
+    confirmed: false,
+    evidence: !readable
+      ? "user-turn-state-unreadable"
+      : sawAdditionalUserTurn
+        ? "new-user-turn-text-mismatch"
+        : "matching-user-turn-not-observed"
+  };
 }
 
 async function setComposerText(
@@ -355,7 +430,7 @@ async function waitForReadyDirectSendControl(
 
 async function clickReadyDirectSendControl(
   page,
-  { timeoutMs = 5_000, composer = null } = {}
+  { timeoutMs = 5_000, composer = null, recorder = null } = {}
 ) {
   const control = await waitForReadyDirectSendControl(page, {
     timeoutMs,
@@ -368,6 +443,11 @@ async function clickReadyDirectSendControl(
   }
 
   let method = "direct-control";
+  await recorder?.capture?.("before-submit-click", {
+    selector: control.selector,
+    scope: control.scope,
+    method
+  }).catch?.(() => {});
   try {
     // Prefer a normal actionability-checked click. A forced click can report
     // success while ChatGPT is replacing/covering the live submit control.
@@ -541,96 +621,203 @@ export async function sendComposerInstruction(
     };
   }
 
-  const textSet = await setComposerText(page, instruction);
-  if (!textSet.ready) {
-    return {
-      executed: false,
-      dryRun: false,
-      action: ACTIONS.CONTINUE,
-      reason: textSet.reason,
-      rejection_class: SEND_REJECTION_CLASSES.COMPOSER_NOT_READY
-    };
-  }
+  const recorder = await beginSubmitFlightRecording(page, instruction);
+  const finish = async (result, { error = null } = {}) => {
+    const stage = result?.executed ? "send-confirmed" : "send-failed";
+    await recorder.capture(stage, {
+      selector: result?.send_selector || null,
+      scope: result?.send_scope || null,
+      method: result?.send_method || null
+    }).catch(() => {});
+    const diagnosticDir = await recorder.finish({
+      success: Boolean(result?.executed),
+      result,
+      error
+    }).catch(() => null);
+    return diagnosticDir
+      ? { ...result, diagnostic_dir: diagnosticDir }
+      : result;
+  };
 
-  // Prefer a Send control from the same composer form before falling back to
-  // page-wide semantics. This prevents unrelated visible controls elsewhere in
-  // a long ChatGPT conversation from being treated as the active submit button.
-  const directSend = await clickReadyDirectSendControl(page, {
-    composer: textSet.composer
-  });
-  let sendMethod = directSend?.method || null;
-  let sendSelector = directSend?.selector || null;
-  let sendScope = directSend?.scope || null;
+  try {
+    const baselineUserTurns = await captureUserTurnState(page, instruction);
+    await recorder.capture("before-type").catch(() => {});
 
-  if (!directSend) {
-    const afterFill = await inspectActionSurface(page);
-    if (afterFill.sendControl) {
-      await clickControlBySemantic(page, afterFill.sendControl);
-      sendMethod = "semantic-control";
-      sendScope = "page-semantic";
-    } else {
-      const composer = await waitForReadyComposer(page, { timeoutMs: 2_000 });
-      if (!composer) {
-        throw new Error("composer disappeared before send");
-      }
-      const persisted = await composerContainsExactInstruction(
-        composer,
-        instruction
-      );
-      if (persisted === false) {
-        return {
-          executed: false,
-          dryRun: false,
-          action: ACTIONS.CONTINUE,
-          reason: "composer lost instruction before send",
-          rejection_class: SEND_REJECTION_CLASSES.COMPOSER_NOT_READY
-        };
-      }
-      await composer.click({ timeout: 1_500 });
-      if (page.keyboard && typeof page.keyboard.press === "function") {
-        await page.keyboard.press("Enter");
-      } else {
-        await composer.press("Enter", { timeout: 2_000 });
-      }
-      sendMethod = "enter-fallback";
-      sendScope = "composer";
-    }
-  }
-
-  // A successful Playwright click is not sufficient evidence that ChatGPT
-  // accepted the message. Require a local composer state transition before the
-  // caller may advance the durable send latch to SEND_CLICKED. If the exact
-  // instruction is still present, fail closed; the outer reconciliation pass
-  // will reload the exact Work target and prove whether a user turn persisted
-  // before any retry is allowed.
-  let submission = await waitForComposerSubmission(page, instruction);
-  const primarySubmitEvidence = submission.evidence;
-
-  // If an explicit Send control was clicked but the exact instruction is still
-  // present after a bounded observation window, the first actuation is proven
-  // inert. Only in that state is one alternate Enter actuation safe: there is
-  // still no local evidence that ChatGPT accepted the turn, so this does not
-  // blindly replay an uncertain send.
-  if (
-    !submission.confirmed &&
-    submission.evidence === "instruction-still-present" &&
-    sendMethod !== "enter-fallback"
-  ) {
-    const enterRecovery = await pressComposerEnter(page, instruction);
-    if (enterRecovery.executed) {
-      sendMethod = sendMethod
-        ? `${sendMethod}+${enterRecovery.method}`
-        : enterRecovery.method;
-      sendScope = sendScope || "composer";
-      submission = await waitForComposerSubmission(page, instruction, {
-        timeoutMs: 2_500
+    const textSet = await setComposerText(page, instruction);
+    if (!textSet.ready) {
+      return await finish({
+        executed: false,
+        dryRun: false,
+        action: ACTIONS.CONTINUE,
+        reason: textSet.reason,
+        rejection_class: SEND_REJECTION_CLASSES.COMPOSER_NOT_READY
       });
     }
-  }
+    await recorder.capture("after-type").catch(() => {});
 
-  if (!submission.confirmed) {
-    return {
-      executed: false,
+    // Prefer a Send control from the same composer form before falling back to
+    // page-wide semantics. This prevents unrelated visible controls elsewhere in
+    // a long ChatGPT conversation from being treated as the active submit button.
+    const directSend = await clickReadyDirectSendControl(page, {
+      composer: textSet.composer,
+      recorder
+    });
+    let sendMethod = directSend?.method || null;
+    let sendSelector = directSend?.selector || null;
+    let sendScope = directSend?.scope || null;
+
+    if (directSend) {
+      await recorder.capture("after-primary-submit", {
+        selector: sendSelector,
+        scope: sendScope,
+        method: sendMethod
+      }).catch(() => {});
+    }
+
+    if (!directSend) {
+      const afterFill = await inspectActionSurface(page);
+      if (afterFill.sendControl) {
+        sendSelector = afterFill.sendControl.testId
+          ? `[data-testid="${afterFill.sendControl.testId}"]`
+          : null;
+        sendScope = "page-semantic";
+        sendMethod = "semantic-control";
+        await recorder.capture("before-semantic-submit", {
+          selector: sendSelector,
+          scope: sendScope,
+          method: sendMethod
+        }).catch(() => {});
+        await clickControlBySemantic(page, afterFill.sendControl);
+        await recorder.capture("after-primary-submit", {
+          selector: sendSelector,
+          scope: sendScope,
+          method: sendMethod
+        }).catch(() => {});
+      } else {
+        const composer = await waitForReadyComposer(page, { timeoutMs: 2_000 });
+        if (!composer) {
+          throw new Error("composer disappeared before send");
+        }
+        const persisted = await composerContainsExactInstruction(
+          composer,
+          instruction
+        );
+        if (persisted === false) {
+          return await finish({
+            executed: false,
+            dryRun: false,
+            action: ACTIONS.CONTINUE,
+            reason: "composer lost instruction before send",
+            rejection_class: SEND_REJECTION_CLASSES.COMPOSER_NOT_READY
+          });
+        }
+        sendMethod = "enter-fallback";
+        sendScope = "composer";
+        await recorder.capture("before-enter-submit", {
+          scope: sendScope,
+          method: sendMethod
+        }).catch(() => {});
+        await composer.click({ timeout: 1_500 });
+        if (page.keyboard && typeof page.keyboard.press === "function") {
+          await page.keyboard.press("Enter");
+        } else {
+          await composer.press("Enter", { timeout: 2_000 });
+        }
+        await recorder.capture("after-primary-submit", {
+          scope: sendScope,
+          method: sendMethod
+        }).catch(() => {});
+      }
+    }
+
+    // A successful Playwright click is not sufficient evidence that ChatGPT
+    // accepted the message. Require a local composer transition first.
+    let submission = await waitForComposerSubmission(page, instruction);
+    const primarySubmitEvidence = submission.evidence;
+
+    // If the explicit Send click was inert and the exact instruction remains,
+    // one bounded Enter recovery is safe because local evidence still proves
+    // that no submission transition occurred.
+    if (
+      !submission.confirmed &&
+      submission.evidence === "instruction-still-present" &&
+      sendMethod !== "enter-fallback"
+    ) {
+      await recorder.capture("before-enter-recovery", {
+        selector: sendSelector,
+        scope: "composer",
+        method: "enter-recovery"
+      }).catch(() => {});
+      const enterRecovery = await pressComposerEnter(page, instruction);
+      if (enterRecovery.executed) {
+        sendMethod = sendMethod
+          ? `${sendMethod}+${enterRecovery.method}`
+          : enterRecovery.method;
+        sendScope = sendScope || "composer";
+        await recorder.capture("after-enter-recovery", {
+          selector: sendSelector,
+          scope: sendScope,
+          method: sendMethod
+        }).catch(() => {});
+        submission = await waitForComposerSubmission(page, instruction, {
+          timeoutMs: 2_500
+        });
+      }
+    }
+
+    if (!submission.confirmed) {
+      return await finish({
+        executed: false,
+        dryRun: false,
+        action: ACTIONS.CONTINUE,
+        target: "COMPOSER_SEND",
+        input_method: textSet.method,
+        send_method: sendMethod,
+        send_selector: sendSelector,
+        send_scope: sendScope,
+        primary_submit_evidence: primarySubmitEvidence,
+        submit_evidence: submission.evidence,
+        user_turn_evidence: "not-checked",
+        reason: "send control and bounded Enter recovery did not actuate composer submission",
+        rejection_class: SEND_REJECTION_CLASSES.SEND_NOT_ACTUATED
+      });
+    }
+
+    // Do not advance durable send latches only because the editor cleared.
+    // Confirm that a new matching user turn actually appeared in the
+    // conversation. This closes the gap where a click/Enter mutates the
+    // composer but never creates a ChatGPT turn.
+    const userTurn = await waitForMatchingUserTurn(
+      page,
+      instruction,
+      baselineUserTurns
+    );
+    await recorder.capture("after-user-turn-verification", {
+      selector: sendSelector,
+      scope: sendScope,
+      method: sendMethod
+    }).catch(() => {});
+
+    if (!userTurn.confirmed) {
+      return await finish({
+        executed: false,
+        dryRun: false,
+        action: ACTIONS.CONTINUE,
+        target: "COMPOSER_SEND",
+        input_method: textSet.method,
+        send_method: sendMethod,
+        send_selector: sendSelector,
+        send_scope: sendScope,
+        primary_submit_evidence: primarySubmitEvidence,
+        submit_evidence: submission.evidence,
+        user_turn_evidence: userTurn.evidence,
+        reason: "composer transitioned but a matching new user turn was not observed",
+        rejection_class: SEND_REJECTION_CLASSES.SEND_NOT_ACTUATED
+      });
+    }
+
+    return await finish({
+      executed: true,
       dryRun: false,
       action: ACTIONS.CONTINUE,
       target: "COMPOSER_SEND",
@@ -640,23 +827,16 @@ export async function sendComposerInstruction(
       send_scope: sendScope,
       primary_submit_evidence: primarySubmitEvidence,
       submit_evidence: submission.evidence,
-      reason: "send control and bounded Enter recovery did not actuate composer submission",
-      rejection_class: SEND_REJECTION_CLASSES.SEND_NOT_ACTUATED
-    };
+      user_turn_evidence: userTurn.evidence
+    });
+  } catch (error) {
+    await recorder.capture("send-exception").catch(() => {});
+    await recorder.finish({
+      success: false,
+      error
+    }).catch(() => {});
+    throw error;
   }
-
-  return {
-    executed: true,
-    dryRun: false,
-    action: ACTIONS.CONTINUE,
-    target: "COMPOSER_SEND",
-    input_method: textSet.method,
-    send_method: sendMethod,
-    send_selector: sendSelector,
-    send_scope: sendScope,
-    primary_submit_evidence: primarySubmitEvidence,
-    submit_evidence: submission.evidence
-  };
 }
 
 export async function executeDecision({
