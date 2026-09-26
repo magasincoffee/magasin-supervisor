@@ -33,7 +33,10 @@ function normalizeTitle(value, taskId) {
 export function parseProjectPlan(value) {
   if (value === undefined || value === null) return null;
   assertObject(value, "project_plan");
-  assertFields(value, new Set(["tasks", "completed_task_ids"]), "project_plan");
+  assertFields(value, new Set(["schema_version", "tasks", "completed_task_ids"]), "project_plan");
+  if (value.schema_version !== undefined && value.schema_version !== "project-plan.v1") {
+    throw new Error("unsupported project_plan schema_version");
+  }
 
   if (!Array.isArray(value.tasks)) {
     throw new Error("project_plan.tasks must be an array");
