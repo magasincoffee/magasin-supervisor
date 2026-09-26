@@ -103,3 +103,28 @@ if(Test-Path $supervisorLog){
   }
 }
 Write-Host 'POSTFIX_LOG_TYPE_DIAG=PASS'
+
+
+if(Test-Path $registryPath){
+  $reg2=Get-Content $registryPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  $lane2=$reg2.lanes.'lane-2'
+  if($lane2 -and $lane2.project_progress){
+    Write-Host "SV2_PLAN_KNOWN=$([bool]$lane2.project_progress.plan_known)"
+    Write-Host "SV2_PLAN_UPDATED_AT=$([string]$lane2.project_progress.updated_at)"
+    foreach($t in @($lane2.project_progress.tasks)){
+      $id=[string]$t.task_id
+      if(-not $id){$id=[string]$t.id}
+      if($id -eq 'SV2-P0-E1'){
+        Write-Host "SV2_TASK_JSON=$($t | ConvertTo-Json -Depth 12 -Compress)"
+      }
+    }
+  }
+  if($lane2){
+    foreach($name in @('task_id','instruction_digest','last_brain_directive_digest','last_dispatch_id','work_generation','applied_work_url_revision')){
+      if($lane2.PSObject.Properties[$name]){
+        Write-Host "SV2_LANE_$($name.ToUpper())=$([string]$lane2.$name)"
+      }
+    }
+  }
+}
+Write-Host 'SV2_TASK_DETAIL_DIAG=PASS'
