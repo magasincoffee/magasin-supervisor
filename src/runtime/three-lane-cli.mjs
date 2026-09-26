@@ -131,6 +131,7 @@ const WATCHDOG_CONTINUE_INSTRUCTION = "Tiếp tục thực hiện.";
 const BRAIN_RESUME_OBSERVATION_TIMEOUT_MS = 15_000;
 const MAX_ACTIVE_ROUND_POLL_MS = 2_000;
 const MAX_PROJECT_PLAN_BOOTSTRAP_RETRIES = 3;
+const MAX_BRAIN_IDLE_RECHECK_RETRIES = 3;
 
 function activeRoundPollMs(configuredPollMs) {
   return Math.min(Number(configuredPollMs), MAX_ACTIVE_ROUND_POLL_MS);
@@ -779,6 +780,14 @@ async function applyBrainVerdictDirective({
 }) {
   let registryChanged = false;
 
+  if (
+    directive?.action === "WORK" &&
+    Number(registryLane.brain_idle_recheck_retries || 0) !== 0
+  ) {
+    registryLane.brain_idle_recheck_retries = 0;
+    registryChanged = true;
+  }
+
   if (directive.project_plan) {
     const planned = applyProjectPlan(
       registryLane.project_progress,
@@ -877,6 +886,118 @@ async function rearmMissingProjectPlanAfterIdle({
     reason: "idle_without_project_plan"
   });
   return { rearmed: true, exhausted: false };
+}
+
+function projectProgressCounts(progress) {
+  const tasks = Array.isArray(progress?.tasks) ? progress.tasks : [];
+  const total = tasks.length;
+  const done = tasks.filter((task) => String(task?.state || "") === "DONE").length;
+  return { total, done, pending: Math.max(0, total - done) };
+}
+
+async function rearmIncompleteProjectIdle({
+  lane,
+  registryLane,
+  directive,
+  registry,
+  registryPath,
+  logPath
+}) {
+  if (
+    directive?.action !== "IDLE" ||
+    !Boolean(registryLane.project_progress?.plan_known)
+  ) {
+    return {
+      rearmed: false,
+      exhausted: false,
+      owner_required: false,
+      accepted_blocker: false
+    };
+  }
+
+  const counts = projectProgressCounts(registryLane.project_progress);
+  if (counts.pending <= 0) {
+    if (Number(registryLane.brain_idle_recheck_retries || 0) !== 0) {
+      registryLane.brain_idle_recheck_retries = 0;
+      await atomicJsonWrite(registryPath, registry);
+    }
+    return {
+      rearmed: false,
+      exhausted: false,
+      owner_required: false,
+      accepted_blocker: false
+    };
+  }
+
+  const reason = String(directive.idle_reason || "").trim().toUpperCase();
+  if (reason === "OWNER_REQUIRED") {
+    registryLane.brain_idle_recheck_retries = 0;
+    await atomicJsonWrite(registryPath, registry);
+    return {
+      rearmed: false,
+      exhausted: false,
+      owner_required: true,
+      accepted_blocker: false
+    };
+  }
+  if (reason === "DEPENDENCY_BLOCKED" || reason === "NO_SAFE_WORK") {
+    registryLane.brain_idle_recheck_retries = 0;
+    await atomicJsonWrite(registryPath, registry);
+    return {
+      rearmed: false,
+      exhausted: false,
+      owner_required: false,
+      accepted_blocker: true
+    };
+  }
+
+  const retries = Math.max(
+    0,
+    Number(registryLane.brain_idle_recheck_retries || 0)
+  );
+  registryLane.last_brain_directive_digest = directive.digest;
+  registryLane.task_id = null;
+  registryLane.instruction_digest = null;
+
+  if (retries >= MAX_BRAIN_IDLE_RECHECK_RETRIES) {
+    await atomicJsonWrite(registryPath, registry);
+    await safeLog(logPath, {
+      type: "LANE_BRAIN_IDLE_CONTRACT_EXHAUSTED",
+      laneId: lane.lane_id,
+      digest: directive.digest,
+      retries,
+      pending_tasks: counts.pending,
+      idle_reason: reason || null
+    });
+    return {
+      rearmed: false,
+      exhausted: true,
+      owner_required: false,
+      accepted_blocker: false
+    };
+  }
+
+  registryLane.brain_idle_recheck_retries = retries + 1;
+  registryLane.brain_request_sent = false;
+  registryLane.brain_request_inflight = null;
+  await atomicJsonWrite(registryPath, registry);
+  await safeLog(logPath, {
+    type: "LANE_BRAIN_IDLE_CONTRACT_REARMED",
+    laneId: lane.lane_id,
+    digest: directive.digest,
+    retry: retries + 1,
+    pending_tasks: counts.pending,
+    idle_reason: reason || null,
+    reason: reason === "PROJECT_COMPLETE"
+      ? "project_complete_with_pending_tasks"
+      : "idle_without_blocking_reason"
+  });
+  return {
+    rearmed: true,
+    exhausted: false,
+    owner_required: false,
+    accepted_blocker: false
+  };
 }
 
 async function hasRelayMarker(page, relayId) {
@@ -4956,12 +5077,19 @@ async function processLaneTurn({
   let directive = null;
   try {
     directive = parseLaneDirective(captured.text);
-  } catch {
+  } catch (error) {
+    await safeLog(logPath, {
+      type: "LANE_BRAIN_DIRECTIVE_PARSE_ERROR",
+      laneId: lane.lane_id,
+      digest: captured.digest,
+      chars: Number(captured.chars || 0),
+      reason: String(error?.message || error).slice(0, 260)
+    });
     return laneStatus(
       lane,
       registryLane,
       "WAITING_BRAIN",
-      "Bộ não chưa trả block MAGASIN_LANE_DIRECTIVE_V1 hợp lệ."
+      "Bộ não đã trả lời nhưng directive không hợp lệ; Robot đang chờ block máy đọc được."
     );
   }
 
@@ -4994,6 +5122,50 @@ async function processLaneTurn({
         "Brain đã nhiều lần trả IDLE nhưng không kèm project_plan; Robot dừng an toàn để tránh gửi lặp vô hạn."
       );
     }
+
+    if (directive.action === "IDLE") {
+      const idleCheck = await rearmIncompleteProjectIdle({
+        lane,
+        registryLane,
+        directive,
+        registry,
+        registryPath,
+        logPath
+      });
+      if (idleCheck.rearmed) {
+        return laneStatus(
+          lane,
+          registryLane,
+          "WAITING_BRAIN",
+          "Project còn task chưa hoàn thành; Robot đang yêu cầu Brain giao WORK hoặc nêu blocker hợp lệ."
+        );
+      }
+      if (idleCheck.exhausted) {
+        return laneStatus(
+          lane,
+          registryLane,
+          "WAIT_OWNER",
+          "Brain liên tục trả IDLE không hợp lệ trong khi dự án còn task; Robot dừng an toàn sau 3 lần recheck."
+        );
+      }
+      if (idleCheck.owner_required) {
+        return laneStatus(
+          lane,
+          registryLane,
+          "WAIT_OWNER",
+          "Brain xác nhận cần Owner trước khi có thể tiếp tục dự án."
+        );
+      }
+      if (idleCheck.accepted_blocker) {
+        return laneStatus(
+          lane,
+          registryLane,
+          "READY",
+          `Brain đang IDLE có lý do hợp lệ: ${directive.idle_reason}.`
+        );
+      }
+    }
+
     return laneStatus(
       lane,
       registryLane,
@@ -5037,6 +5209,53 @@ async function processLaneTurn({
         "Brain đã nhiều lần trả IDLE nhưng không kèm project_plan; Robot dừng an toàn để tránh gửi lặp vô hạn."
       );
     }
+
+    const idleCheck = await rearmIncompleteProjectIdle({
+      lane,
+      registryLane,
+      directive,
+      registry,
+      registryPath,
+      logPath
+    });
+    if (idleCheck.rearmed) {
+      return laneStatus(
+        lane,
+        registryLane,
+        "WAITING_BRAIN",
+        "Project còn task chưa hoàn thành; Robot đang yêu cầu Brain giao WORK hoặc nêu blocker hợp lệ."
+      );
+    }
+    if (idleCheck.exhausted) {
+      return laneStatus(
+        lane,
+        registryLane,
+        "WAIT_OWNER",
+        "Brain liên tục trả IDLE không hợp lệ trong khi dự án còn task; Robot dừng an toàn sau 3 lần recheck."
+      );
+    }
+    if (idleCheck.owner_required) {
+      return laneStatus(
+        lane,
+        registryLane,
+        "WAIT_OWNER",
+        "Brain xác nhận cần Owner trước khi có thể tiếp tục dự án."
+      );
+    }
+    if (idleCheck.accepted_blocker) {
+      registryLane.last_brain_directive_digest = directive.digest;
+      registryLane.task_id = null;
+      registryLane.instruction_digest = null;
+      await atomicJsonWrite(registryPath, registry);
+      return laneStatus(
+        lane,
+        registryLane,
+        "READY",
+        `Brain đang IDLE có lý do hợp lệ: ${directive.idle_reason}.`
+      );
+    }
+
+    registryLane.brain_idle_recheck_retries = 0;
     registryLane.last_brain_directive_digest = directive.digest;
     registryLane.task_id = null;
     registryLane.instruction_digest = null;
