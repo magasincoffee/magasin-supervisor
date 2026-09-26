@@ -165,6 +165,31 @@ test("v43 valid completed Brain directive can complete a stuck first-handshake w
 });
 
 
+test("Brain resume recovery is bounded and not durably consumed before the recovery scan completes", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /BRAIN_RESUME_OBSERVATION_TIMEOUT_MS = 15_000/);
+  assert.match(source, /async function withBoundedObservation/);
+  assert.match(source, /Brain resume safety probe/);
+  assert.match(source, /Brain resume directive scan/);
+  assert.match(source, /Brain post-resume probe/);
+  assert.match(source, /error\.code = "ETIMEDOUT"/);
+  assert.match(source, /async function finalizeBrainResumeRecovery/);
+
+  const resyncStart = source.indexOf("async function resyncBrainAfterOwnerResume");
+  const finalizeStart = source.indexOf("async function finalizeBrainResumeRecovery");
+  const resyncOnly = source.slice(resyncStart, finalizeStart);
+  assert.doesNotMatch(resyncOnly, /registryLane\.applied_resume_revision\s*=/);
+  assert.doesNotMatch(resyncOnly, /registryLane\.brain_resume_recovery_version\s*=\s*1/);
+
+  const resumedScan = source.indexOf("const resumedDirective = await adoptExistingBrainDirective");
+  const finalizeAfterScan = source.indexOf("await finalizeBrainResumeRecovery", resumedScan);
+  assert.ok(resumedScan >= 0 && finalizeAfterScan > resumedScan);
+});
+
 test("lane STOP then START reloads Brain once and adopts an already-visible unconsumed directive", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
