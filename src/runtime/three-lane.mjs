@@ -353,9 +353,9 @@ export function buildLegacyBrainStartRequestV59({ laneId, projectName }) {
     LANE_DIRECTIVE_START,
     '{"action":"WORK","task_id":"TASK-ID","instruction":"Chỉ thị đầy đủ, tự đủ ngữ cảnh cho Work chat."}',
     LANE_DIRECTIVE_END,
-    "Nếu chưa có việc an toàn để làm, trả IDLE nhưng handshake đầu/resume vẫn phải kèm project_plan đầy đủ:",
+    "Nếu chưa có việc an toàn để làm, trả:",
     LANE_DIRECTIVE_START,
-    '{"action":"IDLE","project_plan":{"tasks":[{"task_id":"TASK-ID","title":"Tên task"}],"completed_task_ids":[]}}',
+    '{"action":"IDLE"}',
     LANE_DIRECTIVE_END,
     "Không yêu cầu Robot tự tìm Brain khác. Không yêu cầu Robot tự tạo Brain mới."
   ].join("\n");
@@ -371,7 +371,7 @@ export function buildLegacyBrainStartRequestPreProjectReview({ laneId, projectNa
     "Work phải làm đúng một task rồi trả evidence/result và DỪNG; Work không tự chọn roadmap hoặc tự bắt đầu task tiếp theo.",
     "Hãy giao đúng một việc tiếp theo bằng block:",
     LANE_DIRECTIVE_START,
-    '{"action":"WORK","task_id":"TASK-ID","instruction":"Một outcome; dependency; scope; DoD; evidence; safety/stop boundary.","project_plan":{"tasks":[{"task_id":"TASK-ID","title":"Tên task"}],"completed_task_ids":[]}}',
+    '{"action":"WORK","task_id":"TASK-ID","instruction":"Một outcome; dependency; scope; DoD; evidence; safety/stop boundary."}',
     LANE_DIRECTIVE_END,
     "Sau khi Robot relay result, Brain nên VERIFY rồi thêm optional previous_result tương quan task_id + relay_id với verdict ACCEPT hoặc REJECT. REJECT chỉ được dispatch correction cùng task hoặc WORK có correction_of trỏ đúng previous result; nếu cần Owner thì dùng IDLE.",
     "Nếu chưa có việc an toàn để làm, trả:",
@@ -398,13 +398,13 @@ export function buildBrainStartRequest({ laneId, projectName }) {
     "Nếu có phần việc an toàn và dependency-ready tiếp theo, phải giao ngay đúng một việc cho Work bằng block; không chỉ tóm tắt, lập kế hoạch bằng prose hoặc chờ Owner nhắc lại.",
     "Hãy giao đúng một việc tiếp theo bằng block:",
     LANE_DIRECTIVE_START,
-    '{"action":"WORK","task_id":"TASK-ID","instruction":"Một outcome; dependency; scope; DoD; evidence; safety/stop boundary."}',
+    '{"action":"WORK","task_id":"TASK-ID","instruction":"Một outcome; dependency; scope; DoD; evidence; safety/stop boundary.","project_plan":{"tasks":[{"task_id":"TASK-ID","title":"Tên task"}],"completed_task_ids":[]}}',
     LANE_DIRECTIVE_END,
     "Sau khi Robot relay result, Brain nên VERIFY rồi thêm optional previous_result tương quan task_id + relay_id với verdict ACCEPT hoặc REJECT. REJECT chỉ được dispatch correction cùng task hoặc WORK có correction_of trỏ đúng previous result; nếu cần Owner thì dùng IDLE.",
     "Chỉ trả IDLE khi thực sự chưa có việc an toàn/dependency-ready hoặc bắt buộc cần Owner; không trả IDLE chỉ vì Robot vừa được bật lại.",
-    "Nếu chưa có việc an toàn để làm, trả:",
+    "Nếu chưa có việc an toàn để làm, trả IDLE nhưng handshake đầu/resume vẫn phải kèm project_plan đầy đủ:",
     LANE_DIRECTIVE_START,
-    '{"action":"IDLE"}',
+    '{"action":"IDLE","project_plan":{"tasks":[{"task_id":"TASK-ID","title":"Tên task"}],"completed_task_ids":[]}}',
     LANE_DIRECTIVE_END,
     "Không yêu cầu Robot tự tìm Brain khác. Không yêu cầu Robot tự tạo Brain mới."
   ].join("\n");
