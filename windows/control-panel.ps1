@@ -8,6 +8,35 @@ param(
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class MagasinControlPanelWindow {
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+}
+"@
+
+$existingPanel = Get-Process -Name powershell -ErrorAction SilentlyContinue |
+    Where-Object {
+        $_.Id -ne $PID -and
+        $_.MainWindowHandle -ne 0 -and
+        $_.MainWindowTitle -match 'MAGASIN SUPERVISOR.*CONTROL CENTER'
+    } |
+    Select-Object -First 1
+
+if ($existingPanel) {
+    [void][MagasinControlPanelWindow]::ShowWindow($existingPanel.MainWindowHandle, 9)
+    Start-Sleep -Milliseconds 120
+    [void][MagasinControlPanelWindow]::SetForegroundWindow($existingPanel.MainWindowHandle)
+    exit 0
+}
+
 $ErrorActionPreference = 'Stop'
 
 function Get-ControlPanelViewportLayout([Drawing.Rectangle]$WorkingArea) {
