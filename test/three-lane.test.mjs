@@ -160,6 +160,26 @@ test("legacy saved Brain URL is migrated to revision 1", () => {
   assert.equal(config.lanes[0].brain_url_revision, 1);
 });
 
+test("lane resume revision is durable and legacy registries request one migration resync", () => {
+  const config = normalizeLaneConfig({
+    lanes: [{
+      lane_id: "lane-1",
+      resume_revision: 4,
+      resume_requested_at: "2026-09-26T01:00:00.000Z"
+    }]
+  });
+  assert.equal(config.lanes[0].resume_revision, 4);
+  assert.equal(config.lanes[0].resume_requested_at, "2026-09-26T01:00:00.000Z");
+
+  const legacy = normalizeLaneRegistry({
+    lanes: { "lane-1": {} }
+  });
+  assert.equal(legacy.lanes["lane-1"].applied_resume_revision, -1);
+
+  const current = normalizeLaneRegistry(defaultLaneRegistry());
+  assert.equal(current.lanes["lane-1"].applied_resume_revision, 0);
+});
+
 test("lane registry tracks the applied Owner Brain URL revision", () => {
   const registry = normalizeLaneRegistry({
     lanes: {

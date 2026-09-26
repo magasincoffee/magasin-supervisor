@@ -171,6 +171,8 @@ export function defaultLaneConfig() {
       work_state_reset_revision: 0,
       relay_retry_rearm_revision: 0,
       relay_retry_rearm_requested_at: null,
+      resume_revision: 0,
+      resume_requested_at: null,
       enabled: false
     }))
   };
@@ -202,6 +204,9 @@ export function normalizeLaneConfig(value = {}) {
         relay_retry_rearm_revision: Number(lane.relay_retry_rearm_revision || 0),
         relay_retry_rearm_requested_at:
           String(lane.relay_retry_rearm_requested_at || "").trim() || null,
+        resume_revision: Number(lane.resume_revision || 0),
+        resume_requested_at:
+          String(lane.resume_requested_at || "").trim() || null,
         enabled: Boolean(lane.enabled)
       };
     })
@@ -245,6 +250,7 @@ export function defaultLaneRegistry() {
       dispatch_inflight: null,
       relay_inflight: null,
       applied_relay_retry_rearm_revision: 0,
+      applied_resume_revision: 0,
       brain_request_inflight: null,
       brain_request_sent: false,
       awaiting_work: false,
@@ -294,6 +300,10 @@ export function normalizeLaneRegistry(value = {}) {
       relay_inflight: lane.relay_inflight || null,
       applied_relay_retry_rearm_revision:
         Number(lane.applied_relay_retry_rearm_revision || 0),
+      applied_resume_revision:
+        lane.applied_resume_revision === undefined
+          ? -1
+          : Number(lane.applied_resume_revision || 0),
       brain_request_inflight: lane.brain_request_inflight || null,
       brain_request_sent: Boolean(lane.brain_request_sent),
       awaiting_work: Boolean(lane.awaiting_work),
