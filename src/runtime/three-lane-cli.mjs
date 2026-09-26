@@ -122,6 +122,31 @@ import {
 
 const SUPERVISOR_RUNTIME_VERSION = "2026-09-20.60";
 const WATCHDOG_CONTINUE_INSTRUCTION = "Tiếp tục thực hiện.";
+const BRAIN_RESUME_OBSERVATION_TIMEOUT_MS = 15_000;
+
+async function withBoundedObservation(factory, {
+  timeoutMs = BRAIN_RESUME_OBSERVATION_TIMEOUT_MS,
+  label = "bounded observation"
+} = {}) {
+  let timer = null;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(factory),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error(
+            `${label} ETIMEDOUT after ${timeoutMs}ms`
+          );
+          error.code = "ETIMEDOUT";
+          error.name = "TimeoutError";
+          reject(error);
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 let laneEventSink = null;
 let laneEventErrorLogPath = null;
@@ -1060,12 +1085,22 @@ async function adoptExistingBrainDirective({
   logPath,
   allowResumeRecovery = false
 }) {
-  const probe = await assertConversationSafe(adapter, page, { brain: true })
-    .catch(() => null);
+  const probe = await withBoundedObservation(
+    () => assertConversationSafe(adapter, page, { brain: true }),
+    { label: "Brain resume safety probe" }
+  ).catch((error) => {
+    if (isTransientNavigationError(error)) throw error;
+    return null;
+  });
   if (!probe || probe.snapshot.responseRunning) return null;
 
-  const turns = await captureRecentConversationTurns(page, { limit: 30 })
-    .catch(() => []);
+  const turns = await withBoundedObservation(
+    () => captureRecentConversationTurns(page, { limit: 30 }),
+    { label: "Brain resume directive scan" }
+  ).catch((error) => {
+    if (isTransientNavigationError(error)) throw error;
+    return [];
+  });
   if (!turns.length) return null;
 
   let candidate = null;
@@ -2896,12 +2931,13 @@ async function resyncBrainAfterOwnerResume({
     return { status: "RETRY", probe: null };
   }
 
-  registryLane.applied_resume_revision = revision;
-  registryLane.brain_resume_recovery_version = 1;
-  await atomicJsonWrite(registryPath, registry);
-
-  const probe = await assertConversationSafe(adapter, brainPage, { brain: true })
-    .catch(() => null);
+  const probe = await withBoundedObservation(
+    () => assertConversationSafe(adapter, brainPage, { brain: true }),
+    { label: "Brain post-resume probe" }
+  ).catch((error) => {
+    if (isTransientNavigationError(error)) throw error;
+    return null;
+  });
   await safeLog(logPath, {
     type: "LANE_OWNER_RESUME_BRAIN_RESYNC_APPLIED",
     laneId: lane.lane_id,
@@ -2912,8 +2948,25 @@ async function resyncBrainAfterOwnerResume({
     status: "APPLIED",
     probe,
     recoveryAuthority: true,
-    migrationRecovery: needsMigrationRecovery
+    migrationRecovery: needsMigrationRecovery,
+    revision
   };
+}
+
+async function finalizeBrainResumeRecovery({
+  registryLane,
+  registry,
+  registryPath,
+  resumeResync
+}) {
+  if (!resumeResync?.recoveryAuthority) return;
+  registryLane.applied_resume_revision = Number(
+    resumeResync.revision || 0
+  );
+  if (resumeResync.migrationRecovery) {
+    registryLane.brain_resume_recovery_version = 1;
+  }
+  await atomicJsonWrite(registryPath, registry);
 }
 
 async function emitWorkTargetTransition({
@@ -4666,6 +4719,12 @@ async function processLaneTurn({
       registryLane.task_id = null;
       registryLane.instruction_digest = null;
       await atomicJsonWrite(registryPath, registry);
+      await finalizeBrainResumeRecovery({
+        registryLane,
+        registry,
+        registryPath,
+        resumeResync
+      });
       return laneStatus(
         lane,
         registryLane,
@@ -4687,6 +4746,12 @@ async function processLaneTurn({
       stopPath,
       configPath
     });
+    await finalizeBrainResumeRecovery({
+      registryLane,
+      registry,
+      registryPath,
+      resumeResync
+    });
 
     return laneStatus(
       lane,
@@ -4697,6 +4762,13 @@ async function processLaneTurn({
         : "Đã đồng bộ lại lệnh Brain và thực hiện một dispatch attempt; lane yield scheduler."
     );
   }
+
+  await finalizeBrainResumeRecovery({
+    registryLane,
+    registry,
+    registryPath,
+    resumeResync
+  });
 
   if (!registryLane.brain_request_sent) {
     const directive = await ensureBrainRequest({
