@@ -70,7 +70,8 @@ function fakePage({
     async waitForTimeout() {},
     async bringToFront() {},
     keyboard: {
-      async insertText(value) { onInsertText(value); }
+      async insertText(value) { onInsertText(value); },
+      async press(key) { onPress(key); }
     },
     getByRole() {
       return fakeLocator({ visible: true, onClick });
@@ -215,6 +216,28 @@ test("dynamic composer send never clicks Continue-generating as a substitute", a
   assert.equal(clicks, 1);
 });
 
+test("long conversations bypass the 200-control snapshot and click the exact send button", async () => {
+  let clicks = 0;
+  const controls = Array.from({ length: 260 }, (_, index) => ({
+    text: "Other control " + index,
+    ariaLabel: "",
+    testId: null,
+    disabled: false
+  }));
+
+  const result = await sendComposerInstruction(
+    fakePage({
+      controls,
+      onClick: () => { clicks += 1; }
+    }),
+    "dispatch must be sent even in a long conversation",
+    { dryRun: false }
+  );
+
+  assert.equal(result.executed, true);
+  assert.equal(clicks, 1);
+});
+
 
 test("attachment relay fills text before upload and waits for explicit enabled Send", async () => {
   const events = [];
@@ -253,6 +276,17 @@ test("disabled Send control is never selected as an attachment send target", asy
   );
 });
 
+
+test("composer send prefers an exact visible send-button selector before bounded snapshot fallback", async () => {
+  const source = await import("node:fs/promises").then((fs) =>
+    fs.readFile(new URL("../src/ui/actions.mjs", import.meta.url), "utf8")
+  );
+
+  assert.match(source, /DIRECT_SEND_SELECTORS/);
+  assert.match(source, /data-testid="send-button"/);
+  assert.match(source, /clickReadyDirectSendControl/);
+  assert.match(source, /force: true/);
+});
 
 test("live composer send uses bounded editable readiness instead of a 60s implicit fill wait", async () => {
   const source = await import("node:fs/promises").then((fs) =>

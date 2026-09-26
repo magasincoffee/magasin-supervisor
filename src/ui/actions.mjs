@@ -192,6 +192,52 @@ function findSafeControl(controls, pattern, allowedTestIds = []) {
   }) || null;
 }
 
+const DIRECT_SEND_SELECTORS = Object.freeze([
+  'button[data-testid="send-button"]:visible',
+  'button[aria-label*="Send" i]:visible',
+  'button[aria-label*="Gửi" i]:visible'
+]);
+
+async function findReadyDirectSendControl(page) {
+  for (const selector of DIRECT_SEND_SELECTORS) {
+    const button = page.locator(selector).first();
+    const visible = await button.isVisible().catch(() => false);
+    if (!visible) continue;
+    const enabled = typeof button.isEnabled === "function"
+      ? await button.isEnabled().catch(() => false)
+      : true;
+    if (enabled) return { button, selector };
+  }
+  return null;
+}
+
+async function waitForReadyDirectSendControl(
+  page,
+  { timeoutMs = 3_000, intervalMs = 100 } = {}
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    const control = await findReadyDirectSendControl(page);
+    if (control) return control;
+    await page.waitForTimeout(intervalMs);
+  }
+  return null;
+}
+
+async function clickReadyDirectSendControl(
+  page,
+  { timeoutMs = 3_000 } = {}
+) {
+  const control = await waitForReadyDirectSendControl(page, { timeoutMs });
+  if (!control) return false;
+
+  // The selector is already constrained to the visible, enabled composer send
+  // control. Force-click avoids long actionability waits caused by transient
+  // ChatGPT animations/overlays while preserving the exact semantic target.
+  await control.button.click({ timeout: 2_000, force: true });
+  return true;
+}
+
 export async function inspectActionSurface(page) {
   if (!page) throw new TypeError("page is required");
 
@@ -267,15 +313,26 @@ export async function sendComposerInstruction(
     };
   }
 
-  const afterFill = await inspectActionSurface(page);
-  if (afterFill.sendControl) {
-    await clickControlBySemantic(page, afterFill.sendControl);
-  } else {
-    const composer = await waitForReadyComposer(page, { timeoutMs: 2_000 });
-    if (!composer) {
-      throw new Error("composer disappeared before send");
+  // Prefer the exact composer send control directly. Long ChatGPT
+  // conversations can contain more than 200 visible buttons, so the bounded
+  // semantic snapshot may omit the blue send control beside the composer.
+  const directSendClicked = await clickReadyDirectSendControl(page);
+  if (!directSendClicked) {
+    const afterFill = await inspectActionSurface(page);
+    if (afterFill.sendControl) {
+      await clickControlBySemantic(page, afterFill.sendControl);
+    } else {
+      const composer = await waitForReadyComposer(page, { timeoutMs: 2_000 });
+      if (!composer) {
+        throw new Error("composer disappeared before send");
+      }
+      await composer.click({ timeout: 1_500 });
+      if (page.keyboard && typeof page.keyboard.press === "function") {
+        await page.keyboard.press("Enter");
+      } else {
+        await composer.press("Enter", { timeout: 2_000 });
+      }
     }
-    await composer.press("Enter", { timeout: 2_000 });
   }
 
   return {
@@ -410,8 +467,14 @@ async function waitForAttachmentReady(
 
   while (Date.now() <= deadline) {
     const composer = await firstReadyComposer(page);
-    const surface = await inspectActionSurface(page).catch(() => null);
+    const directSend = composer
+      ? await findReadyDirectSendControl(page)
+      : null;
+    if (composer && directSend) {
+      return { ready: true, directSend: true };
+    }
 
+    const surface = await inspectActionSurface(page).catch(() => null);
     if (composer && surface?.sendControl) {
       return { ready: true, sendControl: surface.sendControl };
     }
@@ -517,7 +580,12 @@ export async function sendComposerWithAttachment(
   }
 
   try {
-    await clickControlBySemantic(page, ready.sendControl);
+    if (ready.directSend) {
+      const clicked = await clickReadyDirectSendControl(page, { timeoutMs: 2_000 });
+      if (!clicked) throw new Error("direct send control disappeared before attachment send");
+    } else {
+      await clickControlBySemantic(page, ready.sendControl);
+    }
   } catch (error) {
     await resetAttachmentDraft(page, { timeoutMs: 2_000 });
     throw error;
