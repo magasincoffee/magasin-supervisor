@@ -50,8 +50,10 @@ test("canonical desktop updater hotpatches source and restarts only Three-Lane w
   assert.match(source, /ACTIVE_LANE_HOTPATCH_BEGIN=True/);
   assert.match(source, /Copy-Item \(Join-Path \$sourceSrc '\*'\) \$targetSrc -Recurse -Force/);
   assert.match(source, /HOTPATCH_ACTIONS_SHA256/);
-  assert.match(source, /HOTPATCH_CONTROL_PANEL_SHA256/);
+  assert.match(source, /HOTPATCH_CONTROL_PANEL_UTF8_BOM=True/);
   assert.match(source, /Copy-Item \$sourcePanel \$targetPanel -Force/);
+  assert.match(source, /UTF8Encoding\(\$true\)/);
+  assert.match(source, /WriteAllText\(\$targetPanel,\$panelText,\$utf8Bom\)/);
   assert.match(source, /HOTPATCH_OLD_CONTROL_PANEL_STOPPED/);
   assert.match(source, /HOTPATCH_CONTROL_PANEL_REOPEN_REQUESTED/);
   assert.match(source, /ParentProcessId -eq \$wrapperPid/);
