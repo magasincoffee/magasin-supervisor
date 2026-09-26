@@ -242,7 +242,7 @@ test("repeated identical Work observation does not move activity timestamp or em
   assert.equal(timing.last_activity_at, T1);
 });
 
-test("one actual safe progress change updates last_activity_at exactly once", () => {
+test("response-running UI state changes are telemetry but do not refresh progress time", () => {
   const timing = defaultTaskTiming();
   markTaskStarted(timing, { taskId: TASK_ID, at: T1 });
   const baseline = buildSafeWorkObservation({
@@ -256,22 +256,25 @@ test("one actual safe progress change updates last_activity_at exactly once", ()
     at: "2026-09-20T00:00:06.000Z"
   });
 
-  const progress = { ...baseline, response_running: true };
-  const first = observeWorkActivity(timing, progress, {
+  const running = { ...baseline, response_running: true };
+  const first = observeWorkActivity(timing, running, {
     at: "2026-09-20T00:00:07.000Z"
   });
   assert.equal(first.changed, true);
+  assert.equal(first.progress_changed, false);
   assert.equal(first.event_due, true);
   assert.equal(first.reason_code, "RESPONSE_RUNNING_CHANGED");
-  assert.equal(timing.last_activity_at, "2026-09-20T00:00:07.000Z");
+  assert.equal(timing.last_activity_at, T1);
 
-  const duplicate = observeWorkActivity(timing, progress, {
+  const duplicate = observeWorkActivity(timing, running, {
     at: "2026-09-20T00:00:20.000Z"
   });
   assert.equal(duplicate.changed, false);
+  assert.equal(duplicate.progress_changed, false);
   assert.equal(duplicate.event_due, false);
-  assert.equal(timing.last_activity_at, "2026-09-20T00:00:07.000Z");
+  assert.equal(timing.last_activity_at, T1);
 });
+
 
 test("assistant char-count activity is restart-safe and deterministically coalesced", () => {
   const timing = defaultTaskTiming();
@@ -289,6 +292,8 @@ test("assistant char-count activity is restart-safe and deterministically coales
     last_assistant_char_count: 120
   }, { at: "2026-09-20T00:00:10.000Z" });
   assert.equal(first.event_due, true);
+  assert.equal(first.progress_changed, true);
+  assert.equal(timing.last_activity_at, "2026-09-20T00:00:10.000Z");
 
   const restarted = normalizeTaskTiming(JSON.parse(JSON.stringify(timing)));
   const withinWindow = observeWorkActivity(restarted, {
@@ -304,6 +309,38 @@ test("assistant char-count activity is restart-safe and deterministically coales
     last_assistant_char_count: 160
   }, { at: "2026-09-20T00:00:41.000Z" });
   assert.equal(afterWindow.event_due, true);
+});
+
+test("temporary DOM count shrink and rebound cannot fake fresh progress", () => {
+  const timing = defaultTaskTiming();
+  markTaskStarted(timing, { taskId: TASK_ID, at: T1 });
+  const baseline = buildSafeWorkObservation({
+    userMessageCount: 4,
+    assistantMessageCount: 4,
+    maxConversationTurnOrdinal: 8,
+    responseRunning: true,
+    lastAssistantCharCount: 500
+  }, false);
+  observeWorkActivity(timing, baseline, {
+    at: "2026-09-20T00:00:06.000Z"
+  });
+
+  const shrunk = observeWorkActivity(timing, {
+    ...baseline,
+    user_message_count: 3,
+    assistant_message_count: 3,
+    max_turn_ordinal: 6,
+    last_assistant_char_count: 420
+  }, { at: "2026-09-20T00:01:00.000Z" });
+  assert.equal(shrunk.progress_changed, false);
+  assert.equal(timing.last_activity_at, T1);
+
+  const rebound = observeWorkActivity(timing, baseline, {
+    at: "2026-09-20T00:02:00.000Z"
+  });
+  assert.equal(rebound.changed, false);
+  assert.equal(rebound.progress_changed, false);
+  assert.equal(timing.last_activity_at, T1);
 });
 
 test("restart normalization preserves all known timing state", () => {
