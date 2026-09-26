@@ -10,6 +10,8 @@ import {
   normalizeLaneConfig,
   defaultLaneRegistry,
   normalizeLaneRegistry,
+  buildBrainStartRequest,
+  buildLegacyBrainStartRequestPreProjectReview,
   buildWorkDispatchInstruction,
   workDispatchMarker,
   buildLaneResultRelay
@@ -21,6 +23,33 @@ test("Three-Lane contract has exactly three fixed isolated lane IDs", () => {
   assert.equal(defaultLaneConfig().lanes.length, 3);
   assert.equal(Object.keys(defaultLaneRegistry().lanes).length, 3);
 });
+
+test("Brain start request reviews the active project and dispatches the next Work task", () => {
+  const text = buildBrainStartRequest({
+    laneId: "lane-1",
+    projectName: "Supervisor"
+  });
+
+  assert.match(
+    text,
+    /Bạn hãy đọc lại dự án đang thực hiện và giao phần việc tiếp theo cho Work\./
+  );
+  assert.match(text, /rà soát trạng thái và tiến độ mới nhất của dự án/);
+  assert.match(text, /phải giao ngay đúng một việc cho Work/);
+  assert.match(text, /không chỉ tóm tắt, lập kế hoạch bằng prose hoặc chờ Owner nhắc lại/);
+  assert.match(text, /không trả IDLE chỉ vì Robot vừa được bật lại/);
+  assert.match(text, /"action":"WORK"/);
+
+  const legacy = buildLegacyBrainStartRequestPreProjectReview({
+    laneId: "lane-1",
+    projectName: "Supervisor"
+  });
+  assert.doesNotMatch(
+    legacy,
+    /Bạn hãy đọc lại dự án đang thực hiện và giao phần việc tiếp theo cho Work\./
+  );
+});
+
 
 test("Brain and Work targets require explicit ChatGPT conversation URLs", () => {
   assert.equal(
