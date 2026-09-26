@@ -38,6 +38,7 @@ import {
   defaultLaneRegistry,
   normalizeLaneRegistry,
   buildBrainStartRequest,
+  buildBrainBlockedRecheckRequest,
   buildLegacyBrainStartRequestV59,
   buildLegacyBrainStartRequestPreProjectReview,
   buildWorkRolloverInstruction,
@@ -1291,6 +1292,37 @@ async function reconcileBrainRequest({
   return "BLOCKED";
 }
 
+function buildCurrentBrainRequest({ lane, registryLane }) {
+  const retry = Math.max(
+    0,
+    Number(registryLane?.brain_idle_recheck_retries || 0)
+  );
+  const progress = registryLane?.project_progress;
+  const pendingTasks = Array.isArray(progress?.tasks)
+    ? progress.tasks.filter((task) => String(task?.state || "") === "PENDING")
+    : [];
+
+  if (retry > 0 && Boolean(progress?.plan_known) && pendingTasks.length > 0) {
+    const totalTasks = Array.isArray(progress.tasks) ? progress.tasks.length : 0;
+    const completedTasks = Array.isArray(progress.tasks)
+      ? progress.tasks.filter((task) => String(task?.state || "") === "DONE").length
+      : 0;
+    return buildBrainBlockedRecheckRequest({
+      laneId: lane.lane_id,
+      projectName: lane.project_name,
+      pendingTasks,
+      completedTasks,
+      totalTasks,
+      retry
+    });
+  }
+
+  return buildBrainStartRequest({
+    laneId: lane.lane_id,
+    projectName: lane.project_name
+  });
+}
+
 async function adoptExistingBrainDirective({
   adapter,
   page,
@@ -1380,6 +1412,7 @@ async function adoptExistingBrainDirective({
   // Owner/user content or later assistant output means the older directive is
   // stale and must not be adopted.
   const expectedStartDigests = new Set([
+    sha256(buildCurrentBrainRequest({ lane, registryLane })),
     sha256(buildBrainStartRequest({
       laneId: lane.lane_id,
       projectName: lane.project_name
@@ -1491,11 +1524,9 @@ async function ensureBrainRequest({
 
   const requestId = randomUUID().replace(/-/g, "");
   const marker = `brain_request_id=${requestId}`;
+  const requestBody = buildCurrentBrainRequest({ lane, registryLane });
   const request = [
-    buildBrainStartRequest({
-      laneId: lane.lane_id,
-      projectName: lane.project_name
-    }),
+    requestBody,
     marker
   ].join("\n");
   const digest = sha256(request);

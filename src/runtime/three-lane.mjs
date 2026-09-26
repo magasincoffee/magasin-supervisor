@@ -439,6 +439,43 @@ export function buildBrainStartRequest({ laneId, projectName }) {
   ].join("\n");
 }
 
+
+export function buildBrainBlockedRecheckRequest({
+  laneId,
+  projectName,
+  pendingTasks = [],
+  completedTasks = 0,
+  totalTasks = 0,
+  retry = 1
+}) {
+  const tasks = Array.isArray(pendingTasks)
+    ? pendingTasks.slice(0, 30).map((task) => {
+        const taskId = String(task?.task_id || "").trim().slice(0, 80);
+        const title = String(task?.title || "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 180);
+        return title ? `- ${taskId}: ${title}` : `- ${taskId}`;
+      }).filter((line) => line !== "- ")
+    : [];
+
+  return [
+    `Bạn là BỘ NÃO của ${laneId} — ${projectName}.`,
+    `Robot đang recheck blocker lần ${Math.max(1, Number(retry) || 1)} vì Source of Truth còn ${tasks.length} task pending; tiến độ hiện tại ${Number(completedTasks || 0)}/${Number(totalTasks || 0)}.`,
+    "Hãy rà soát TOÀN BỘ task pending dưới đây, không chỉ task đầu tiên theo thứ tự:",
+    ...tasks,
+    "Nếu bất kỳ task nào dependency-ready/an toàn, PHẢI trả đúng một WORK directive cho task đó.",
+    "Nếu blocker hiện tại tự nó có thể được Work điều tra, sửa, verify, merge hoặc gỡ dependency thì hãy giao chính task unblock đó cho Work.",
+    "Không lặp lại DEPENDENCY_BLOCKED/NO_SAFE_WORK chỉ vì một task cụ thể đang bị chặn.",
+    "Chỉ dùng OWNER_REQUIRED khi thực sự cần quyết định/thông tin/quyền từ Owner mà Work không thể tự giải quyết.",
+    "Nếu toàn bộ task còn lại thực sự không thể chạy, có thể trả IDLE với idle_reason phù hợp.",
+    "Không cần gửi lại project_plan nếu roadmap không thay đổi.",
+    LANE_DIRECTIVE_START,
+    '{"action":"WORK","task_id":"TASK-ID","instruction":"Một outcome; dependency; scope; DoD; evidence; safety/stop boundary."}',
+    LANE_DIRECTIVE_END
+  ].join("\n");
+}
+
 export function buildWorkRolloverInstruction({ projectName, taskId, instruction }) {
   return [
     `Tiếp tục Work chat cho dự án ${projectName}.`,
