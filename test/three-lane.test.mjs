@@ -37,7 +37,8 @@ test("Brain start request reviews the active project and dispatches the next Wor
   assert.match(text, /rà soát trạng thái và tiến độ mới nhất của dự án/);
   assert.match(text, /phải giao ngay đúng một việc cho Work/);
   assert.match(text, /không chỉ tóm tắt, lập kế hoạch bằng prose hoặc chờ Owner nhắc lại/);
-  assert.match(text, /không trả IDLE chỉ vì Robot vừa được bật lại/);
+  assert.match(text, /không trả IDLE chỉ vì task kế tiếp theo thứ tự đang bị chặn/);
+  assert.match(text, /rà soát TOÀN BỘ task chưa hoàn thành/);
   assert.match(text, /"action":"WORK"/);
 
   const legacy = buildLegacyBrainStartRequestPreProjectReview({
