@@ -254,11 +254,11 @@ if(Test-Path $supervisorLog){
       $obj=$line | ConvertFrom-Json -ErrorAction Stop
       $type=[string]$obj.type
       if($type -match 'LANE_WORK_(SEND|DISPATCH)|LANE_ERROR|BROWSER|MUTATION'){
-        $laneId=[string]$obj.laneId
+        $laneId=[string]$obj.lane_id
         if(-not $laneId -or $laneId -eq 'lane-1'){
           $reason=[string]$obj.reason
-          $errorName=[string]$obj.errorName
-          $taskId=[string]$obj.taskId
+          $errorName=[string]$obj.error_name
+          $taskId=[string]$obj.task_id
           $digest=[string]$obj.digest
           Write-Host "DISPATCH_LOG=TYPE=$type|TASK=$taskId|ERROR=$errorName|REASON=$reason|DIGEST=$digest"
         }
