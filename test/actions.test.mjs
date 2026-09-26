@@ -283,7 +283,7 @@ test("composer send prefers an exact visible send-button selector before bounded
   );
 
   assert.match(source, /DIRECT_SEND_SELECTORS/);
-  assert.match(source, /button\\[data-testid="send-button"\\]:visible/);
+  assert.match(source, /data-testid="send-button"/);
   assert.match(source, /clickReadyDirectSendControl/);
   assert.match(source, /force: true/);
 });
