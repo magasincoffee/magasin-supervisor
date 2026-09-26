@@ -19,11 +19,23 @@ export function canonicalConversationPathname(pathname) {
   return raw;
 }
 
+export function conversationIdentityPathname(pathname) {
+  const canonical = canonicalConversationPathname(pathname);
+  if (!isConversationPathname(canonical)) return canonical;
+
+  // ChatGPT can expose the same conversation either as /c/<id> or inside
+  // a Project/GPT route such as /g/g-p-.../c/<id>. Target identity must
+  // follow the conversation id, not the presentation/container pathname.
+  const nested = canonical.match(/\/c\/(?:WEB:)?([0-9a-fA-F-]{36})\/?$/);
+  if (nested) return `/c/${nested[1]}`;
+  return canonical;
+}
+
 export function isPersistableConversationUrl(value) {
   try {
     const url = value instanceof URL ? value : new URL(value);
     targetFromUrl(url);
-    return !/^\/c\/WEB:/i.test(url.pathname);
+    return !/\/c\/WEB:/i.test(url.pathname);
   } catch {
     return false;
   }
@@ -38,7 +50,7 @@ export function targetFromUrl(value) {
   }
   return {
     origin: "https://chatgpt.com",
-    pathname: canonicalConversationPathname(url.pathname)
+    pathname: conversationIdentityPathname(url.pathname)
   };
 }
 
@@ -46,8 +58,8 @@ export function pageMatchesTarget(value, target) {
   try {
     const url = value instanceof URL ? value : new URL(value);
     return url.origin === target?.origin &&
-      canonicalConversationPathname(url.pathname) ===
-      canonicalConversationPathname(target?.pathname);
+      conversationIdentityPathname(url.pathname) ===
+      conversationIdentityPathname(target?.pathname);
   } catch {
     return false;
   }

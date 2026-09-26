@@ -251,3 +251,34 @@ test("transient WEB conversation routes are never persisted as canonical Work ta
   );
   assert.equal(isPersistableConversationUrl("https://chatgpt.com/"), false);
 });
+
+test("Project/GPT conversation routes share one canonical conversation identity", () => {
+  const uuid = "6ab6b646-4804-43ec-99dd-415b1f123456";
+  const projectRoute =
+    `https://chatgpt.com/g/g-p-6ab5e241a9108191b8c17331941aecf5-magasin-webapp/c/${uuid}`;
+  const directRoute = `https://chatgpt.com/c/${uuid}`;
+
+  assert.deepEqual(
+    targetFromUrl(projectRoute),
+    { origin: "https://chatgpt.com", pathname: `/c/${uuid}` }
+  );
+  assert.equal(
+    pageMatchesTarget(projectRoute, targetFromUrl(directRoute)),
+    true
+  );
+  assert.equal(
+    pageMatchesTarget(directRoute, targetFromUrl(projectRoute)),
+    true
+  );
+});
+
+test("nested transient WEB conversation routes are not persistable", () => {
+  const uuid = "6ab6b646-4804-43ec-99dd-415b1f123456";
+  assert.equal(
+    isPersistableConversationUrl(
+      `https://chatgpt.com/g/g-p-project/c/WEB:${uuid}`
+    ),
+    false
+  );
+});
+
