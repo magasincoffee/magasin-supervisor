@@ -782,12 +782,14 @@ async function applyBrainVerdictDirective({
 }) {
   let registryChanged = false;
 
-  if (
-    directive?.action === "WORK" &&
-    Number(registryLane.brain_idle_recheck_retries || 0) !== 0
-  ) {
-    registryLane.brain_idle_recheck_retries = 0;
-    registryChanged = true;
+  if (directive?.action === "WORK") {
+    if (Number(registryLane.brain_idle_recheck_retries || 0) !== 0) {
+      registryLane.brain_idle_recheck_retries = 0;
+      registryChanged = true;
+    }
+    if (clearSoftIdleRecheck(registryLane)) {
+      registryChanged = true;
+    }
   }
 
   if (directive.project_plan) {
@@ -1003,27 +1005,31 @@ async function rearmIncompleteProjectIdle({
 
   const counts = projectProgressCounts(registryLane.project_progress);
   if (counts.pending <= 0) {
-    if (Number(registryLane.brain_idle_recheck_retries || 0) !== 0) {
-      registryLane.brain_idle_recheck_retries = 0;
-      await atomicJsonWrite(registryPath, registry);
-    }
+    const changed =
+      Number(registryLane.brain_idle_recheck_retries || 0) !== 0 ||
+      clearSoftIdleRecheck(registryLane);
+    registryLane.brain_idle_recheck_retries = 0;
+    if (changed) await atomicJsonWrite(registryPath, registry);
     return {
       rearmed: false,
       exhausted: false,
       owner_required: false,
-      accepted_blocker: false
+      accepted_blocker: false,
+      next_recheck_at: null
     };
   }
 
   const reason = String(directive.idle_reason || "").trim().toUpperCase();
   if (reason === "OWNER_REQUIRED") {
     registryLane.brain_idle_recheck_retries = 0;
+    clearSoftIdleRecheck(registryLane);
     await atomicJsonWrite(registryPath, registry);
     return {
       rearmed: false,
       exhausted: false,
       owner_required: true,
-      accepted_blocker: false
+      accepted_blocker: false,
+      next_recheck_at: null
     };
   }
   // DEPENDENCY_BLOCKED and NO_SAFE_WORK are not permanent authorities while
@@ -1039,6 +1045,32 @@ async function rearmIncompleteProjectIdle({
   registryLane.instruction_digest = null;
 
   if (retries >= MAX_BRAIN_IDLE_RECHECK_RETRIES) {
+    if (reason === "DEPENDENCY_BLOCKED" || reason === "NO_SAFE_WORK") {
+      registryLane.brain_idle_recheck_retries = 0;
+      const scheduled = scheduleSoftIdleRecheck(
+        registryLane,
+        directive,
+        reason
+      );
+      await atomicJsonWrite(registryPath, registry);
+      await safeLog(logPath, {
+        type: "LANE_BRAIN_SOFT_IDLE_RECHECK_SCHEDULED",
+        laneId: lane.lane_id,
+        digest: directive.digest,
+        reason,
+        recheck_count: scheduled.recheck_count,
+        next_recheck_at: scheduled.next_recheck_at
+      });
+      return {
+        rearmed: false,
+        exhausted: false,
+        owner_required: false,
+        accepted_blocker: true,
+        next_recheck_at: scheduled.next_recheck_at
+      };
+    }
+
+    clearSoftIdleRecheck(registryLane);
     await atomicJsonWrite(registryPath, registry);
     await safeLog(logPath, {
       type: "LANE_BRAIN_IDLE_CONTRACT_EXHAUSTED",
@@ -1052,11 +1084,13 @@ async function rearmIncompleteProjectIdle({
       rearmed: false,
       exhausted: true,
       owner_required: false,
-      accepted_blocker: false
+      accepted_blocker: false,
+      next_recheck_at: null
     };
   }
 
   registryLane.brain_idle_recheck_retries = retries + 1;
+  clearSoftIdleRecheck(registryLane);
   registryLane.brain_request_sent = false;
   registryLane.brain_request_inflight = null;
   await atomicJsonWrite(registryPath, registry);
