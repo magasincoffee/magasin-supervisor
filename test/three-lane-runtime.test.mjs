@@ -714,3 +714,24 @@ test("migration recovery IDLE uses the same project-plan and pending-task guards
   assert.match(segment, /Brain IDLE không đáp ứng contract/);
 });
 
+test("dependency-blocked IDLE is rechecked while incomplete project tasks remain", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  const start = source.indexOf("async function rearmIncompleteProjectIdle");
+  const end = source.indexOf("async function hasRelayMarker", start);
+  const segment = source.slice(start, end);
+
+  assert.match(segment, /DEPENDENCY_BLOCKED and NO_SAFE_WORK are not permanent authorities/);
+  assert.doesNotMatch(
+    segment,
+    /if \(reason === "DEPENDENCY_BLOCKED" \|\| reason === "NO_SAFE_WORK"\) \{[\s\S]*?accepted_blocker: true/
+  );
+  assert.match(segment, /incomplete_project_blocker_requires_whole_plan_rescan/);
+  assert.match(segment, /brain_request_sent = false/);
+  assert.match(segment, /brain_idle_recheck_retries = retries \+ 1/);
+  assert.match(segment, /MAX_BRAIN_IDLE_RECHECK_RETRIES/);
+});
+
