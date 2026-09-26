@@ -694,6 +694,21 @@ test("Owner-required stops immediately while dependency blockers are rechecked",
   );
 });
 
+test("Brain directive parsing retries bounded reconstruction of trailing assistant fragments", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /LANE_BRAIN_DIRECTIVE_FRAGMENT_CAPTURE_RECOVERED/);
+  assert.match(source, /const recentTurns = await captureRecentConversationTurns/);
+  assert.match(source, /if \(turn\.role === "user"\) break/);
+  assert.match(source, /fragments\.unshift\(String\(turn\.text\)\)/);
+  assert.match(source, /const compositeText = fragments\.join\("\\n"\)/);
+  assert.match(source, /directive = parseLaneDirective\(compositeText\)/);
+  assert.match(source, /not a schema relaxation/);
+});
+
 test("Brain directive parse errors are observable instead of silently swallowed", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),

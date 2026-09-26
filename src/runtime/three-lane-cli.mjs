@@ -5189,22 +5189,63 @@ async function processLaneTurn({
   }
 
   let directive = null;
+  let directiveParseError = null;
   try {
     directive = parseLaneDirective(captured.text);
   } catch (error) {
-    await safeLog(logPath, {
-      type: "LANE_BRAIN_DIRECTIVE_PARSE_ERROR",
-      laneId: lane.lane_id,
-      digest: captured.digest,
-      chars: Number(captured.chars || 0),
-      reason: String(error?.message || error).slice(0, 260)
-    });
-    return laneStatus(
-      lane,
-      registryLane,
-      "WAITING_BRAIN",
-      "Bộ não đã trả lời nhưng directive không hợp lệ; Robot đang chờ block máy đọc được."
-    );
+    directiveParseError = error;
+
+    // The current ChatGPT UI can split one assistant response across multiple
+    // rendered Markdown roots. If the single captured fragment is not
+    // parseable, rebuild only the assistant fragments after the latest user
+    // turn and retry once. Never cross a newer user turn, so an old directive
+    // cannot be adopted as a response to a different request.
+    const recentTurns = await captureRecentConversationTurns(brainPage, {
+      limit: 30
+    }).catch(() => []);
+    const fragments = [];
+    for (let index = recentTurns.length - 1; index >= 0; index -= 1) {
+      const turn = recentTurns[index];
+      if (turn.role === "user") break;
+      if (turn.role === "assistant" && turn.text) {
+        fragments.unshift(String(turn.text));
+      }
+    }
+
+    if (fragments.length > 1) {
+      const compositeText = fragments.join("\n");
+      try {
+        directive = parseLaneDirective(compositeText);
+        await safeLog(logPath, {
+          type: "LANE_BRAIN_DIRECTIVE_FRAGMENT_CAPTURE_RECOVERED",
+          laneId: lane.lane_id,
+          digest: sha256(compositeText),
+          chars: compositeText.length,
+          reason: `fragments=${fragments.length}`
+        });
+      } catch {
+        // Preserve the first parse failure below; the composite retry is only
+        // a bounded DOM-fragment recovery path, not a schema relaxation.
+      }
+    }
+
+    if (!directive) {
+      await safeLog(logPath, {
+        type: "LANE_BRAIN_DIRECTIVE_PARSE_ERROR",
+        laneId: lane.lane_id,
+        digest: captured.digest,
+        chars: Number(captured.chars || 0),
+        reason: String(
+          directiveParseError?.message || directiveParseError
+        ).slice(0, 260)
+      });
+      return laneStatus(
+        lane,
+        registryLane,
+        "WAITING_BRAIN",
+        "Bộ não đã trả lời nhưng Robot chưa ghép được đầy đủ directive từ giao diện ChatGPT; đang chờ lượt đọc kế tiếp."
+      );
+    }
   }
 
   // Exact duplicate directives are already durable. However, a legacy IDLE
