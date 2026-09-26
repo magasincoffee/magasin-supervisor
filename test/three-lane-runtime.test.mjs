@@ -740,3 +740,31 @@ test("dependency-blocked IDLE is rechecked while incomplete project tasks remain
   assert.match(segment, /MAX_BRAIN_IDLE_RECHECK_RETRIES/);
 });
 
+test("Brain recheck request uses durable pending-task Source of Truth context", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  const start = source.indexOf("function buildCurrentBrainRequest");
+  const end = source.indexOf("async function adoptExistingBrainDirective", start);
+  const segment = source.slice(start, end);
+
+  assert.match(segment, /brain_idle_recheck_retries/);
+  assert.match(segment, /project_progress/);
+  assert.match(segment, /state \|\| ""\) === "PENDING"/);
+  assert.match(segment, /buildBrainBlockedRecheckRequest/);
+  assert.match(segment, /completedTasks/);
+  assert.match(segment, /totalTasks/);
+
+  const requestStart = source.indexOf("const requestId = randomUUID");
+  const requestEnd = source.indexOf("const digest = sha256\(request\)", requestStart);
+  const requestPath = source.slice(requestStart, requestEnd);
+  assert.match(requestPath, /buildCurrentBrainRequest\(\{ lane, registryLane \}\)/);
+
+  const adoptionStart = source.indexOf("const expectedStartDigests = new Set");
+  const adoptionEnd = source.indexOf("const laterTurns", adoptionStart);
+  const adoptionPath = source.slice(adoptionStart, adoptionEnd);
+  assert.match(adoptionPath, /sha256\(buildCurrentBrainRequest\(\{ lane, registryLane \}\)\)/);
+});
+
