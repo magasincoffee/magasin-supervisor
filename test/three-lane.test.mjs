@@ -11,6 +11,7 @@ import {
   defaultLaneRegistry,
   normalizeLaneRegistry,
   buildBrainStartRequest,
+  buildBrainBlockedRecheckRequest,
   buildLegacyBrainStartRequestPreProjectReview,
   buildWorkDispatchInstruction,
   workDispatchMarker,
@@ -404,5 +405,28 @@ test("Brain start request scans the whole incomplete plan before accepting IDLE"
   assert.match(text, /không còn bất kỳ phần việc an toàn\/dependency-ready nào trong toàn bộ project_plan/);
   assert.match(text, /rà soát TOÀN BỘ task chưa hoàn thành/);
   assert.match(text, /chọn một task khác nếu có bất kỳ task nào dependency-ready\/an toàn/);
+});
+
+test("Brain blocker recheck names concrete pending tasks and prefers an unblocker WORK", () => {
+  const text = buildBrainBlockedRecheckRequest({
+    laneId: "lane-1",
+    projectName: "Supervisor",
+    pendingTasks: [
+      { task_id: "UI2-007-MERGE", title: "Reconcile Employee Schedule merge" },
+      { task_id: "UI2-008", title: "Employee Availability and Swap/Give" }
+    ],
+    completedTasks: 9,
+    totalTasks: 20,
+    retry: 2
+  });
+
+  assert.match(text, /recheck blocker lần 2/);
+  assert.match(text, /tiến độ hiện tại 9\/20/);
+  assert.match(text, /UI2-007-MERGE: Reconcile Employee Schedule merge/);
+  assert.match(text, /UI2-008: Employee Availability and Swap\/Give/);
+  assert.match(text, /PHẢI trả đúng một WORK directive/);
+  assert.match(text, /giao chính task unblock đó cho Work/);
+  assert.match(text, /Chỉ dùng OWNER_REQUIRED/);
+  assert.doesNotMatch(text, /project_plan mẫu/);
 });
 
