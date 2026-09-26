@@ -32,7 +32,7 @@ test("main loop schedules one enabled lane turn at a time instead of processing 
   const selectedLane = loop.indexOf("const lane = config.lanes.find((item) => item.lane_id === turn.lane_id)");
   const selectedProcess = loop.indexOf("statuses[lane.lane_id] = await processLane(", selectedLane);
   assert.ok(selectedLane >= 0 && selectedProcess > selectedLane);
-  assert.match(loop, /if \(turn\.round_complete\) \{[\s\S]*?await delay\(args\.pollMs\)/);
+  assert.match(loop, /if \(turn\.round_complete\) \{[\s\S]*?await delay\(activeRoundPollMs\(args\.pollMs\)\)/);
 });
 
 test("completed-result state is durable before same-turn exact-once relay mutation", async () => {
