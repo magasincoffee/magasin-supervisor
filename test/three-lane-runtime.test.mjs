@@ -609,3 +609,52 @@ test("completed Work relays to Brain in the same scheduler turn", async () => {
   assert.match(segment, /await ensureBrainPage\(\)/);
 });
 
+test("legacy or duplicate IDLE cannot freeze READY before project Source of Truth exists", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /MAX_PROJECT_PLAN_BOOTSTRAP_RETRIES = 3/);
+  assert.match(source, /async function rearmMissingProjectPlanAfterIdle/);
+  assert.match(source, /directive\?\.action !== "IDLE"/);
+  assert.match(source, /registryLane\.project_progress\?\.plan_known/);
+  assert.match(source, /LANE_PROJECT_PLAN_BOOTSTRAP_REARMED/);
+  assert.match(source, /idle_without_project_plan/);
+  assert.match(source, /LANE_PROJECT_PLAN_BOOTSTRAP_EXHAUSTED/);
+
+  const duplicateStart = source.indexOf(
+    "if (directive.digest === registryLane.last_brain_directive_digest)"
+  );
+  const duplicateEnd = source.indexOf(
+    "await applyBrainVerdictDirective",
+    duplicateStart
+  );
+  const duplicatePath = source.slice(duplicateStart, duplicateEnd);
+  assert.match(duplicatePath, /rearmMissingProjectPlanAfterIdle/);
+  assert.match(duplicatePath, /"WAITING_BRAIN"/);
+  assert.match(duplicatePath, /IDLE cũ chưa có kế hoạch dự án/);
+
+  const freshIdleStart = source.indexOf(
+    'if (directive.action === "IDLE")',
+    duplicateEnd
+  );
+  const freshIdleEnd = source.indexOf("await dispatchWork", freshIdleStart);
+  const freshIdlePath = source.slice(freshIdleStart, freshIdleEnd);
+  assert.match(freshIdlePath, /rearmMissingProjectPlanAfterIdle/);
+  assert.match(freshIdlePath, /Brain trả IDLE nhưng chưa có project_plan/);
+});
+
+test("receiving a project_plan clears bootstrap retry debt", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const start = source.indexOf("async function applyBrainVerdictDirective");
+  const end = source.indexOf("async function rearmMissingProjectPlanAfterIdle", start);
+  const segment = source.slice(start, end);
+
+  assert.match(segment, /if \(directive\.project_plan\)/);
+  assert.match(segment, /registryLane\.project_plan_bootstrap_retries = 0/);
+});
+
