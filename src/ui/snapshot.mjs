@@ -145,20 +145,58 @@ export async function collectSafeUiSnapshot(page) {
         ) ||
         /verify you are human|xác minh bạn là người|captcha/.test(haystack);
 
-      const assistantMessages = Array.from(
-        document.querySelectorAll("[data-message-author-role='assistant']")
-      );
-      const userMessages = Array.from(
-        document.querySelectorAll("[data-message-author-role='user']")
-      );
-      const conversationMessages = Array.from(
-        document.querySelectorAll("[data-message-author-role]")
-      );
+      const legacyRoleSelector = "[data-message-author-role]";
+      const modernUserSelector = "main .text-size-chat.whitespace-pre-wrap";
+      const modernAssistantSelector = "main [class*='MarkdownRoot-']";
+      const messageRecords = [];
+      const seenMessageNodes = new Set();
+
+      const pushMessage = (node, role, source) => {
+        if (!node || seenMessageNodes.has(node)) return;
+        const normalizedRole = String(role || "").trim();
+        if (normalizedRole !== "user" && normalizedRole !== "assistant") return;
+        const style = getComputedStyle(node);
+        if (style.display === "none" || style.visibility === "hidden") return;
+        if (source !== "legacy" && node.closest(legacyRoleSelector)) return;
+        if (source === "modern-assistant") {
+          const ancestor = node.parentElement?.closest(modernAssistantSelector);
+          if (ancestor && ancestor !== node) return;
+        }
+        const text = String(node.innerText || node.textContent || "").trim();
+        if (!text) return;
+        seenMessageNodes.add(node);
+        messageRecords.push({ node, role: normalizedRole, text });
+      };
+
+      for (const node of document.querySelectorAll(legacyRoleSelector)) {
+        pushMessage(
+          node,
+          String(node.getAttribute("data-message-author-role") || ""),
+          "legacy"
+        );
+      }
+      for (const node of document.querySelectorAll(modernUserSelector)) {
+        pushMessage(node, "user", "modern-user");
+      }
+      for (const node of document.querySelectorAll(modernAssistantSelector)) {
+        pushMessage(node, "assistant", "modern-assistant");
+      }
+
+      messageRecords.sort((a, b) => {
+        if (a.node === b.node) return 0;
+        const relation = a.node.compareDocumentPosition(b.node);
+        if (relation & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+        if (relation & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+        return 0;
+      });
+
+      const assistantMessages = messageRecords.filter((item) => item.role === "assistant");
+      const userMessages = messageRecords.filter((item) => item.role === "user");
+      const conversationMessages = messageRecords;
       const lastMessage = conversationMessages.at(-1) || null;
-      const lastMessageRole = lastMessage
-        ? String(lastMessage.getAttribute("data-message-author-role") || "")
-        : null;
-      const lastAssistant = assistantMessages.at(-1) || null;
+      const lastMessageRole = lastMessage?.role || null;
+      const lastAssistantRecord = assistantMessages.at(-1) || null;
+      const lastAssistant = lastAssistantRecord?.node || null;
       const main = document.querySelector("main");
       const mainBusy = Boolean(
         main && (
@@ -177,7 +215,7 @@ export async function collectSafeUiSnapshot(page) {
         )
       );
       const lastAssistantCharCount = Number(
-        (lastAssistant && lastAssistant.textContent && lastAssistant.textContent.length) || 0
+        lastAssistantRecord?.text?.length || 0
       );
 
       const modelSwitching =
@@ -203,7 +241,9 @@ export async function collectSafeUiSnapshot(page) {
         .filter((value) => Number.isFinite(value));
 
       const maxConversationTurnOrdinal =
-        turnOrdinals.length ? Math.max(...turnOrdinals) : 0;
+        turnOrdinals.length
+          ? Math.max(...turnOrdinals)
+          : conversationMessages.length;
 
       const responseRunning =
         hasStopControl ||
@@ -295,9 +335,7 @@ export async function collectSafeUiSnapshot(page) {
         lastAssistantCharCount,
         userMessageCount: userMessages.length,
         lastMessageRole,
-        lastMessageCharCount: Number(
-          (lastMessage && lastMessage.textContent && lastMessage.textContent.length) || 0
-        ),
+        lastMessageCharCount: Number(lastMessage?.text?.length || 0),
         mainBusy,
         mainTextCharCount: Number(
           (main && main.textContent && main.textContent.length) || 0
