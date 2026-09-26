@@ -632,3 +632,19 @@ if(Test-Path $supervisorLog){
 }
 Write-Host "BRAIN_PLAN_LIVE_STATE_V2=PASS"
 
+Write-Host "=== BRAIN DOM CDP DIAG ==="
+try{
+  $domDiag=Join-Path $PSScriptRoot 'diag-brain-dom.mjs'
+  if(Test-Path $domDiag){
+    $domOut=& node $domDiag $root 2>&1
+    $domExit=$LASTEXITCODE
+    foreach($line in @($domOut)){ Write-Host "BRAIN_DOM_OUT=$line" }
+    Write-Host "BRAIN_DOM_EXIT=$domExit"
+  }else{
+    Write-Host "BRAIN_DOM_SCRIPT_MISSING=True"
+  }
+}catch{
+  Write-Host "BRAIN_DOM_ERROR=$($_.Exception.Message)"
+}
+Write-Host "BRAIN_DOM_CDP_DIAG=PASS"
+
