@@ -201,15 +201,11 @@ test("Control Panel V2 keeps reset-all in the always-visible hero zone under DPI
   assert.match(source, /LÀM SẠCH TẤT CẢ DỰ ÁN/);
 });
 
-test("Control Panel V2 surfaces automatic result screenshot relay state without exposing evidence paths", async () => {
+test("RBT-010 Control Panel V2 contains no screenshot relay UI", async () => {
   const source = await fs.readFile(
     new URL("../windows/control-panel.ps1", import.meta.url),
     "utf8"
   );
-  assert.match(source, /BÁO CÁO ẢNH: Robot tự chụp kết quả Work và gửi kèm về Brain khi relay/);
-  assert.match(source, /BÁO CÁO ẢNH: ĐÃ CHỤP/);
-  assert.match(source, /BÁO CÁO ẢNH: TỰ ĐỘNG CHỤP/);
-  assert.match(source, /Get-OptionalPropertyValue \$relayInflight 'screenshot_path'/);
-  assert.match(source, /Report = \$reportValue/);
-  assert.doesNotMatch(source, /\$ui\.Report\.Text\s*=\s*\$relayScreenshotPath/);
+  assert.doesNotMatch(source, /BÁO CÁO ẢNH|screenshot_path|relayScreenshotPath|reportInfoLabel|Report = \$reportValue/);
+  assert.match(source, /THỬ LẠI RELAY/);
 });
