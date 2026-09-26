@@ -276,6 +276,7 @@ function findSafeControl(controls, pattern, allowedTestIds = []) {
 
 const DIRECT_SEND_SELECTORS = Object.freeze([
   'button[data-testid="send-button"]:visible',
+  'button#composer-submit-button:visible',
   'button[data-testid="composer-submit-button"]:visible',
   'button[data-testid="composer-send-button"]:visible',
   'button[data-testid*="send" i]:visible',
@@ -283,6 +284,11 @@ const DIRECT_SEND_SELECTORS = Object.freeze([
   'button[aria-label*="Gửi" i]:visible',
   'button[title*="Send" i]:visible',
   'button[title*="Gửi" i]:visible'
+]);
+
+const FORM_SEND_SELECTORS = Object.freeze([
+  ...DIRECT_SEND_SELECTORS,
+  'button[type="submit"]:visible'
 ]);
 
 async function composerFormScope(composer) {
@@ -312,7 +318,10 @@ async function findReadyDirectSendControl(page, composer = null) {
   scopes.push({ root: page, scope: "page" });
 
   for (const candidate of scopes) {
-    for (const selector of DIRECT_SEND_SELECTORS) {
+    const selectors = candidate.scope === "composer-form"
+      ? FORM_SEND_SELECTORS
+      : DIRECT_SEND_SELECTORS;
+    for (const selector of selectors) {
       const button = candidate.root.locator(selector).first();
       const visible = await button.isVisible().catch(() => false);
       if (!visible) continue;
@@ -382,6 +391,38 @@ async function clickReadyDirectSendControl(
     selector: control.selector,
     scope: control.scope,
     method
+  };
+}
+
+async function pressComposerEnter(page, instruction) {
+  const composer = await waitForReadyComposer(page, { timeoutMs: 2_000 });
+  if (!composer) {
+    return {
+      executed: false,
+      reason: "composer disappeared before Enter recovery"
+    };
+  }
+
+  const persisted = await composerContainsExactInstruction(
+    composer,
+    instruction
+  );
+  if (persisted === false) {
+    return {
+      executed: false,
+      reason: "composer changed before Enter recovery"
+    };
+  }
+
+  await composer.click({ timeout: 1_500 });
+  if (page.keyboard && typeof page.keyboard.press === "function") {
+    await page.keyboard.press("Enter");
+  } else {
+    await composer.press("Enter", { timeout: 2_000 });
+  }
+  return {
+    executed: true,
+    method: "enter-recovery"
   };
 }
 
@@ -562,7 +603,31 @@ export async function sendComposerInstruction(
   // instruction is still present, fail closed; the outer reconciliation pass
   // will reload the exact Work target and prove whether a user turn persisted
   // before any retry is allowed.
-  const submission = await waitForComposerSubmission(page, instruction);
+  let submission = await waitForComposerSubmission(page, instruction);
+  const primarySubmitEvidence = submission.evidence;
+
+  // If an explicit Send control was clicked but the exact instruction is still
+  // present after a bounded observation window, the first actuation is proven
+  // inert. Only in that state is one alternate Enter actuation safe: there is
+  // still no local evidence that ChatGPT accepted the turn, so this does not
+  // blindly replay an uncertain send.
+  if (
+    !submission.confirmed &&
+    submission.evidence === "instruction-still-present" &&
+    sendMethod !== "enter-fallback"
+  ) {
+    const enterRecovery = await pressComposerEnter(page, instruction);
+    if (enterRecovery.executed) {
+      sendMethod = sendMethod
+        ? `${sendMethod}+${enterRecovery.method}`
+        : enterRecovery.method;
+      sendScope = sendScope || "composer";
+      submission = await waitForComposerSubmission(page, instruction, {
+        timeoutMs: 2_500
+      });
+    }
+  }
+
   if (!submission.confirmed) {
     return {
       executed: false,
@@ -573,8 +638,9 @@ export async function sendComposerInstruction(
       send_method: sendMethod,
       send_selector: sendSelector,
       send_scope: sendScope,
+      primary_submit_evidence: primarySubmitEvidence,
       submit_evidence: submission.evidence,
-      reason: "send control did not actuate composer submission",
+      reason: "send control and bounded Enter recovery did not actuate composer submission",
       rejection_class: SEND_REJECTION_CLASSES.SEND_NOT_ACTUATED
     };
   }
@@ -588,6 +654,7 @@ export async function sendComposerInstruction(
     send_method: sendMethod,
     send_selector: sendSelector,
     send_scope: sendScope,
+    primary_submit_evidence: primarySubmitEvidence,
     submit_evidence: submission.evidence
   };
 }

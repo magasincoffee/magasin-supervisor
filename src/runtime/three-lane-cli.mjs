@@ -1559,7 +1559,21 @@ async function ensureBrainRequest({
     });
     return null;
   }
-  if (!sent.executed) return null;
+  if (!sent.executed) {
+    await safeLog(logPath, {
+      type: "LANE_BRAIN_SEND_NOT_EXECUTED",
+      laneId: lane.lane_id,
+      digest,
+      reason: sent.rejection_class || sent.reason || "UNKNOWN",
+      sendReason: sent.reason || null,
+      sendMethod: sent.send_method || null,
+      sendSelector: sent.send_selector || null,
+      sendScope: sent.send_scope || null,
+      primarySubmitEvidence: sent.primary_submit_evidence || null,
+      submitEvidence: sent.submit_evidence || null
+    });
+    return null;
+  }
 
   const confirmed = await waitForUserTurnMarker(page, marker);
   if (!confirmed) {
