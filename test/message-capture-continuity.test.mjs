@@ -4,10 +4,12 @@ import assert from "node:assert/strict";
 import {
   captureAssistantTurnDigests,
   captureAssistantTurnAfterUserMarker,
+  captureCompletedAssistantTurn,
   captureRecentConversationTurns,
   captureUserTurnDigests,
   digestCapturedResponse
 } from "../src/ui/message-capture.mjs";
+import { parseLaneDirective } from "../src/runtime/three-lane.mjs";
 
 test("assistant continuity capture returns only deterministic digests to the runtime", async () => {
   const page = {
@@ -76,6 +78,47 @@ test("capture layer includes the live ChatGPT modern DOM selectors", async () =>
   assert.match(source, /compareDocumentPosition/);
   assert.match(source, /modern-user/);
   assert.match(source, /modern-assistant/);
+});
+
+test("fragmented modern assistant roots for one conversation turn are coalesced before directive parsing", async () => {
+  const page = {
+    async evaluate() {
+      return [
+        {
+          role: "user",
+          text: "Brain handshake",
+          turn: 40,
+          chars: 15
+        },
+        {
+          role: "assistant",
+          text: "<<<MAGASIN_LANE_DIRECTIVE_V1>>>",
+          turn: 41,
+          chars: 32
+        },
+        {
+          role: "assistant",
+          text: '{"action":"WORK","task_id":"TASK-41","instruction":"Do one bounded thing."}',
+          turn: 41,
+          chars: 76
+        },
+        {
+          role: "assistant",
+          text: "<<<END_MAGASIN_LANE_DIRECTIVE_V1>>>",
+          turn: 41,
+          chars: 36
+        }
+      ];
+    }
+  };
+
+  const captured = await captureCompletedAssistantTurn(page);
+  assert.ok(captured);
+  assert.match(captured.text, /MAGASIN_LANE_DIRECTIVE_V1/);
+  const directive = parseLaneDirective(captured.text);
+  assert.equal(directive.action, "WORK");
+  assert.equal(directive.task_id, "TASK-41");
+  assert.equal(directive.instruction, "Do one bounded thing.");
 });
 
 test("Work result capture ignores an old assistant reply before the current dispatch marker", async () => {
