@@ -4963,6 +4963,30 @@ async function processLaneTurn({
           reason: `resume_revision=${Number(resumeResync.revision || 0)};recovered_idle=1`
         });
       } else {
+        const bootstrap = await rearmMissingProjectPlanAfterIdle({
+          lane,
+          registryLane,
+          directive: resumedDirective,
+          registry,
+          registryPath,
+          logPath
+        });
+        const idleCheck = bootstrap.rearmed || bootstrap.exhausted
+          ? {
+              rearmed: false,
+              exhausted: false,
+              owner_required: false,
+              accepted_blocker: false
+            }
+          : await rearmIncompleteProjectIdle({
+              lane,
+              registryLane,
+              directive: resumedDirective,
+              registry,
+              registryPath,
+              logPath
+            });
+
         await atomicJsonWrite(registryPath, registry);
         await finalizeBrainResumeRecovery({
           registryLane,
@@ -4970,11 +4994,38 @@ async function processLaneTurn({
           registryPath,
           resumeResync
         });
+
+        if (bootstrap.rearmed || idleCheck.rearmed) {
+          return laneStatus(
+            lane,
+            registryLane,
+            "WAITING_BRAIN",
+            "Recovered IDLE chưa đủ điều kiện dừng; Robot đang tự yêu cầu Brain tiếp tục kế hoạch."
+          );
+        }
+        if (bootstrap.exhausted || idleCheck.exhausted) {
+          return laneStatus(
+            lane,
+            registryLane,
+            "WAIT_OWNER",
+            "Brain IDLE không đáp ứng contract sau số lần recheck cho phép."
+          );
+        }
+        if (idleCheck.owner_required) {
+          return laneStatus(
+            lane,
+            registryLane,
+            "WAIT_OWNER",
+            "Brain xác nhận cần Owner trước khi có thể tiếp tục dự án."
+          );
+        }
         return laneStatus(
           lane,
           registryLane,
           "READY",
-          "Brain hiện chưa có công việc mới."
+          idleCheck.accepted_blocker
+            ? `Brain đang IDLE có lý do hợp lệ: ${resumedDirective.idle_reason}.`
+            : "Brain hiện chưa có công việc mới."
         );
       }
     } else {
