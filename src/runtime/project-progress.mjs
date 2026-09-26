@@ -165,15 +165,25 @@ export function applyProjectPlan(
     };
   });
 
-  const next = {
+  const candidate = {
     schema_version: "project-progress.v1",
     plan_known: true,
     plan_digest: canonicalPlanDigest(parsed),
     tasks,
-    updated_at: at
+    updated_at: previous.updated_at
   };
-  const changed = JSON.stringify(previous) !== JSON.stringify(next);
-  return { progress: next, changed };
+  const changed = JSON.stringify({
+    ...previous,
+    updated_at: null
+  }) !== JSON.stringify({
+    ...candidate,
+    updated_at: null
+  });
+  if (!changed) return { progress: previous, changed: false };
+  return {
+    progress: { ...candidate, updated_at: at },
+    changed: true
+  };
 }
 
 export function markProjectTaskActive(
