@@ -2518,9 +2518,8 @@ async function dispatchWork({
 
   if (!sent.executed) {
     const rejectionProbe = await adapter.probePage(page).catch(() => null);
-    const rejectionClass = classifyComposerSendRejection(
-      rejectionProbe?.snapshot || {}
-    );
+    const rejectionClass = sent.rejection_class ||
+      classifyComposerSendRejection(rejectionProbe?.snapshot || {});
     latch.last_send_rejection = rejectionClass;
 
     if (rejectionClass === SEND_REJECTION_CLASSES.CAPACITY_REJECTED) {
@@ -2574,7 +2573,10 @@ async function dispatchWork({
       laneId: lane.lane_id,
       taskId: directive.task_id,
       digest: instructionDigest,
-      reason: rejectionClass
+      reason: rejectionClass,
+      sendReason: sent.reason || null,
+      sendMethod: sent.send_method || null,
+      submitEvidence: sent.submit_evidence || null
     });
     return;
   }
