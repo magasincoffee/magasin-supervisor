@@ -82,13 +82,25 @@ test("crossing 25m emits long-running exactly once and never reloads in 25-30m b
   assert.equal(repeated.state.reload_count, 0);
 });
 
-test(">30m responseRunning=true stays WORKING_LONG without reload", () => {
+test(">30m stale responseRunning=true without real progress enters STALL_CHECK", () => {
   const result = evaluate({
     minutes: 35,
     responseRunning: true,
     taskTiming: timing({ activity: 0 })
   });
+  assert.equal(result.decision, WORK_WATCHDOG_DECISIONS.STALL_CHECK);
+  assert.equal(result.state.phase, WORK_WATCHDOG_PHASES.STALL_CHECK);
+  assert.equal(result.state.reload_count, 0);
+});
+
+test(">30m responseRunning with progress under 5m old stays WORKING_LONG", () => {
+  const result = evaluate({
+    minutes: 35,
+    responseRunning: true,
+    taskTiming: timing({ activity: 33 })
+  });
   assert.equal(result.decision, WORK_WATCHDOG_DECISIONS.WORKING_LONG);
+  assert.equal(result.reason_code, "WATCHDOG_RESPONSE_RUNNING");
   assert.equal(result.state.reload_count, 0);
 });
 
