@@ -69,16 +69,18 @@ test("Brain and Work exact targets carry scheduler lane/revision/generation meta
   assert.match(turn, /generation: Number\(registryLane\.work_generation/);
 });
 
-test("all destructive sends and reconcile reloads are guarded by global mutation lease", async () => {
+test("all destructive sends remain guarded while send reconciliation stays observation-only", async () => {
   const runtime = await read("../src/runtime/three-lane-cli.mjs");
   assert.match(runtime, /reason: "BRAIN_REQUEST_SEND"/);
-  assert.match(runtime, /reason: "BRAIN_RECONCILE_RELOAD"/);
-  assert.match(runtime, /reason: "WORK_RECONCILE_RELOAD"/);
   assert.match(runtime, /"WORK_DISPATCH_SEND"/);
   assert.match(runtime, /"WORK_ROLLOVER_DISPATCH_SEND"/);
   assert.match(runtime, /runBrowserMutation\([\s\S]*?WORK_ROLLOVER_DISPATCH_SEND[\s\S]*?sendComposerInstruction/);
   assert.match(runtime, /reason: "RESULT_RELAY_SEND"/);
   assert.match(runtime, /scheduler\.createPageUnderMutation/);
+  assert.match(runtime, /LANE_BRAIN_SEND_RECONCILE_OBSERVE/);
+  assert.match(runtime, /LANE_WORK_SEND_RECONCILE_OBSERVE/);
+  assert.doesNotMatch(runtime, /reason: "BRAIN_RECONCILE_RELOAD"/);
+  assert.doesNotMatch(runtime, /reason: "WORK_RECONCILE_RELOAD"/);
 });
 
 test("adapter exposes page count, safe composer-artifact guard and close primitive without second browser", async () => {
