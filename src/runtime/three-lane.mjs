@@ -251,6 +251,7 @@ export function defaultLaneRegistry() {
       relay_inflight: null,
       applied_relay_retry_rearm_revision: 0,
       applied_resume_revision: 0,
+      brain_resume_recovery_version: 1,
       brain_request_inflight: null,
       brain_request_sent: false,
       awaiting_work: false,
@@ -304,6 +305,10 @@ export function normalizeLaneRegistry(value = {}) {
         lane.applied_resume_revision === undefined
           ? -1
           : Number(lane.applied_resume_revision || 0),
+      brain_resume_recovery_version:
+        lane.brain_resume_recovery_version === undefined
+          ? 0
+          : Number(lane.brain_resume_recovery_version || 0),
       brain_request_inflight: lane.brain_request_inflight || null,
       brain_request_sent: Boolean(lane.brain_request_sent),
       awaiting_work: Boolean(lane.awaiting_work),
