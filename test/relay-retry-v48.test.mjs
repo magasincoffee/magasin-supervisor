@@ -40,13 +40,16 @@ test("v48 retry backoff becomes ready only after retry_not_before", () => {
   assert.equal(relayRetryState(latch, now + 15_000), RELAY_RETRY_STATES.READY);
 });
 
-test("v48 retry state preserves relay identity and screenshot evidence", () => {
+test("RBT-010 retry state preserves text relay identity without screenshot state", () => {
   const latch = {
     relay_id: "relay-1",
-    screenshot_path: "C:/evidence/relay-1.png"
+    response_digest: "a".repeat(64),
+    text_digest: "b".repeat(64)
   };
   beginRelaySendAttempt(latch);
   scheduleRelayRetry(latch, { now: 0 });
   assert.equal(latch.relay_id, "relay-1");
-  assert.equal(latch.screenshot_path, "C:/evidence/relay-1.png");
+  assert.equal(latch.response_digest, "a".repeat(64));
+  assert.equal(latch.text_digest, "b".repeat(64));
+  assert.equal("screenshot_path" in latch, false);
 });

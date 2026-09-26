@@ -13,12 +13,10 @@ import {
   SEND_REJECTION_CLASSES,
   classifyComposerSendRejection,
   executeDecision,
-  sendComposerInstruction,
-  sendComposerWithAttachment
+  sendComposerInstruction
 } from "../ui/actions.mjs";
 import {
   captureCompletedAssistantTurn,
-  captureCompletedAssistantTurnScreenshot,
   captureRecentConversationTurns,
   captureUserTurnDigests,
   captureUserTurnTexts
@@ -48,7 +46,6 @@ import {
 } from "./three-lane.mjs";
 import {
   classifyRelayMarkerState,
-  activeRelayScreenshotPaths,
   migrateLegacyBlockedRelayLatches
 } from "./relay-reconciliation.mjs";
 import {
@@ -696,16 +693,8 @@ function relayMarker(relayId) {
   return `relay_id=${relayId}`;
 }
 
-async function unlinkRelayScreenshot(latch) {
-  const screenshotPath = String(latch?.screenshot_path || "").trim();
-  if (!screenshotPath) return false;
-  await fs.unlink(screenshotPath).catch(() => {});
-  return true;
-}
-
 async function clearRelayInflight(registryLane) {
   const latch = registryLane?.relay_inflight || null;
-  if (latch) await unlinkRelayScreenshot(latch);
   if (registryLane) registryLane.relay_inflight = null;
   return latch;
 }
@@ -770,36 +759,6 @@ async function applyBrainVerdictDirective({
     work_generation: Number(registryLane.work_generation || 0)
   });
   return transition;
-}
-
-async function cleanupOrphanRelayEvidence({
-  evidenceDir,
-  registry,
-  logPath,
-  maxDeletes = 24
-}) {
-  await fs.mkdir(evidenceDir, { recursive: true });
-  const active = new Set(
-    [...activeRelayScreenshotPaths(registry)].map((item) => path.resolve(item))
-  );
-  const entries = await fs.readdir(evidenceDir, { withFileTypes: true })
-    .catch(() => []);
-  let deleted = 0;
-  for (const entry of entries) {
-    if (deleted >= maxDeletes) break;
-    if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".png")) continue;
-    const candidate = path.resolve(evidenceDir, entry.name);
-    if (active.has(candidate)) continue;
-    await fs.unlink(candidate).catch(() => {});
-    deleted += 1;
-  }
-  if (deleted > 0) {
-    await safeLog(logPath, {
-      type: "LANE_RELAY_ORPHAN_EVIDENCE_CLEANED",
-      reason: `count=${deleted}`
-    });
-  }
-  return deleted;
 }
 
 async function hasRelayMarker(page, relayId) {
@@ -2454,7 +2413,7 @@ async function reconcileRelayInflight({
   }
 
   // Stable Brain + missing relay marker proves the previous send did not
-  // persist. Keep the same latch/screenshot, back off, and count the attempt
+  // persist. Keep the same text relay latch, back off, and count the attempt
   // instead of clearing evidence and recapturing forever.
   const scheduled = scheduleRelayRetry(latch);
   await atomicJsonWrite(registryPath, registry);
@@ -2480,13 +2439,11 @@ async function relayWorkResult({
   adapter,
   lane,
   brainPage,
-  workPage,
   registryLane,
   captured,
   execute,
   registry,
   registryPath,
-  evidenceDir,
   logPath,
   scheduler = null
 }) {
@@ -2569,31 +2526,11 @@ async function relayWorkResult({
   }
 
   if (!latch) {
-    await fs.mkdir(evidenceDir, { recursive: true });
-    const screenshotPath = path.join(
-      evidenceDir,
-      `${lane.lane_id}-${relay.relay_id}.png`
-    );
-    await captureCompletedAssistantTurnScreenshot(workPage, screenshotPath);
-    const screenshotStat = await fs.stat(screenshotPath);
-    if (!screenshotStat.isFile() || screenshotStat.size <= 0) {
-      await fs.unlink(screenshotPath).catch(() => {});
-      throw new Error("Work result screenshot was not created correctly");
-    }
-    await safeLog(logPath, {
-      type: "LANE_RESULT_SCREENSHOT_CAPTURED",
-      laneId: lane.lane_id,
-      taskId: registryLane.task_id,
-      relayId: relay.relay_id,
-      digest: relay.response_digest
-    });
-
     const relayBaseline = await captureSendBaseline(adapter, brainPage);
     latch = {
       relay_id: relay.relay_id,
       response_digest: relay.response_digest,
       text_digest: sha256(relay.text),
-      screenshot_path: screenshotPath,
       attempt_count: 0,
       retry_not_before: null,
       retry_exhausted: false,
@@ -2602,30 +2539,6 @@ async function relayWorkResult({
     };
     registryLane.relay_inflight = latch;
     await atomicJsonWrite(registryPath, registry);
-  }
-
-  if (relayRetryState(latch) === RELAY_RETRY_STATES.EXHAUSTED) {
-    return "EXHAUSTED";
-  }
-
-  const screenshotPath = String(latch.screenshot_path || "").trim();
-  const screenshotStat = screenshotPath
-    ? await fs.stat(screenshotPath).catch(() => null)
-    : null;
-  if (!screenshotStat?.isFile() || screenshotStat.size <= 0) {
-    latch.retry_exhausted = true;
-    latch.retry_not_before = null;
-    latch.last_attempt_state = "EVIDENCE_MISSING";
-    await atomicJsonWrite(registryPath, registry);
-    await safeLog(logPath, {
-      type: "LANE_RESULT_RELAY_EVIDENCE_MISSING",
-      laneId: lane.lane_id,
-      taskId: registryLane.task_id,
-      relayId: relay.relay_id,
-      digest: relay.response_digest,
-      reason: "FAIL_CLOSED_LATCH_PRESERVED"
-    });
-    return "EVIDENCE_MISSING";
   }
 
   if (!execute) return "PENDING";
@@ -2638,10 +2551,9 @@ async function relayWorkResult({
     sent = await runBrowserMutation(
       scheduler,
       { laneId: lane.lane_id, role: "BRAIN", page: brainPage, reason: "RESULT_RELAY_SEND" },
-      () => sendComposerWithAttachment(
+      () => sendComposerInstruction(
         brainPage,
         relay.text,
-        screenshotPath,
         { dryRun: false }
       )
     );
@@ -3104,26 +3016,6 @@ async function applyOwnerRelayRetryRearm({
       reasonCode: "OWNER_RELAY_REARM_DEDUPED"
     });
     return { status: "DEDUPED", revision };
-  }
-
-  const screenshotPath = String(latch.screenshot_path || "").trim();
-  const screenshotStat = screenshotPath
-    ? await fs.stat(screenshotPath).catch(() => null)
-    : null;
-  if (!screenshotStat?.isFile() || screenshotStat.size <= 0) {
-    registryLane.applied_relay_retry_rearm_revision = revision;
-    latch.retry_exhausted = true;
-    latch.retry_not_before = null;
-    latch.last_attempt_state = "EVIDENCE_MISSING";
-    await atomicJsonWrite(registryPath, registry);
-    await safeLog(logPath, {
-      type: "LANE_OWNER_RELAY_REARM_EVIDENCE_MISSING",
-      laneId: lane.lane_id,
-      taskId: registryLane.task_id,
-      relayId: latch.relay_id,
-      reason: `revision=${revision};fail_closed=true`
-    });
-    return { status: "EVIDENCE_MISSING", revision };
   }
 
   const outcome = rearmRelayRetry(latch, {
@@ -3799,7 +3691,6 @@ async function processLaneTurn({
   execute,
   registry,
   registryPath,
-  evidenceDir,
   logPath,
   scheduler = null,
   stopPath = null,
@@ -3989,14 +3880,6 @@ async function processLaneTurn({
         registryLane,
         "RECOVERING",
         `ĐÃ YÊU CẦU THỬ LẠI RELAY — revision ${rearmOutcome.revision}; Brain chưa ổn định nên chưa mở retry epoch, intent vẫn pending.`
-      );
-    }
-    if (rearmOutcome.status === "EVIDENCE_MISSING") {
-      return laneStatus(
-        lane,
-        registryLane,
-        "WAIT_OWNER",
-        "Relay evidence hiện tại bị thiếu/hỏng. Robot giữ nguyên task và relay latch, không reset và không gửi lại."
       );
     }
   }
@@ -4578,7 +4461,7 @@ async function processLaneTurn({
         lane,
         registryLane,
         "RELAYING_RESULT",
-        "Đã capture completed result; relay mutation được tách sang bounded turn kế tiếp."
+        "Đã nhận completed result; relay văn bản được tách sang bounded turn kế tiếp."
       );
     }
 
@@ -4587,13 +4470,11 @@ async function processLaneTurn({
       adapter,
       lane,
       brainPage,
-      workPage,
       registryLane,
       captured,
       execute,
       registry,
       registryPath,
-      evidenceDir,
       logPath,
       scheduler
     });
@@ -4607,17 +4488,12 @@ async function processLaneTurn({
           "RELAY HẾT LƯỢT THỬ — kiểm tra Brain rồi bấm THỬ LẠI RELAY. Robot không tự retry thêm và không gửi trùng."
         );
       }
-      if (
-        relayOutcome === "EVIDENCE_MISSING" ||
-        relayOutcome === "EVIDENCE_MISMATCH"
-      ) {
+      if (relayOutcome === "EVIDENCE_MISMATCH") {
         return laneStatus(
           lane,
           registryLane,
           "WAIT_OWNER",
-          relayOutcome === "EVIDENCE_MISMATCH"
-            ? "Kết quả Work hiện tại không còn khớp relay latch đã persist. Robot fail-closed, giữ nguyên task/evidence và không gửi."
-            : "Relay evidence bị thiếu/hỏng. Robot giữ nguyên relay latch và task; không destructive reset."
+"Kết quả Work hiện tại không còn khớp relay latch đã persist. Robot fail-closed, giữ nguyên task và không gửi."
         );
       }
       return laneStatus(
@@ -4800,7 +4676,6 @@ const root = localRoot();
 const configPath = path.join(root, "lanes.json");
 const registryPath = path.join(root, "lane-registry.json");
 const statusPath = path.join(root, "lane-status.json");
-const evidenceDir = path.join(root, "lane-evidence");
 const logPath = path.join(root, "supervisor.log");
 const eventPath = path.join(root, "lane-events.ndjson");
 const stopPath = path.join(root, "STOP");
@@ -4823,14 +4698,9 @@ if (startupRelayMigrations > 0) {
     reason: `count=${startupRelayMigrations}`
   });
 }
-await cleanupOrphanRelayEvidence({
-  evidenceDir,
-  registry,
-  logPath
-});
+await fs.rm(path.join(root, "lane-evidence"), { recursive: true, force: true }).catch(() => {});
 
 const statuses = {};
-let evidenceCleanupTicks = 0;
 let adapter = null;
 let scheduler = null;
 let cdpRecoveryFailures = 0;
@@ -4908,16 +4778,6 @@ try {
       });
     }
 
-    evidenceCleanupTicks += 1;
-    if (evidenceCleanupTicks >= 12) {
-      await cleanupOrphanRelayEvidence({
-        evidenceDir,
-        registry,
-        logPath
-      });
-      evidenceCleanupTicks = 0;
-    }
-
     const turn = scheduler.nextEnabledTurn(config.lanes);
     if (!turn.lane_id) {
       await scheduler.trimToBudget();
@@ -4937,7 +4797,6 @@ try {
         execute: args.execute,
         registry,
         registryPath,
-        evidenceDir,
         logPath,
         scheduler,
         stopPath,

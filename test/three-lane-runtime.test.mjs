@@ -45,7 +45,7 @@ test("Work URL is Robot-managed and rollover requires FULL_CONFIRMED rather than
   assert.match(source, /Work conversation is missing; automatic replacement is denied/);
 });
 
-test("Work result relay captures screenshot and sends screenshot plus full text", async () => {
+test("RBT-010 Work result relay sends full text only with exact-once identity", async () => {
   const runtime = await fs.readFile(
     new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
     "utf8"
@@ -59,13 +59,13 @@ test("Work result relay captures screenshot and sends screenshot plus full text"
     "utf8"
   );
 
-  assert.match(runtime, /captureCompletedAssistantTurnScreenshot/);
-  assert.match(runtime, /sendComposerWithAttachment/);
   assert.match(runtime, /buildLaneResultRelay/);
-  assert.match(runtime, /fs\.unlink\(screenshotPath\)/);
-  assert.match(capture, /locator\.screenshot/);
-  assert.match(actions, /setInputFiles/);
-  assert.match(actions, /COMPOSER_ATTACHMENT_SEND/);
+  assert.match(runtime, /sendComposerInstruction/);
+  assert.match(runtime, /response_digest/);
+  assert.match(runtime, /text_digest/);
+  assert.doesNotMatch(runtime, /captureCompletedAssistantTurnScreenshot|sendComposerWithAttachment|screenshot_path|LANE_RESULT_SCREENSHOT_CAPTURED/);
+  assert.doesNotMatch(capture, /locator\.screenshot|captureCompletedAssistantTurnScreenshot/);
+  assert.doesNotMatch(actions, /setInputFiles|COMPOSER_ATTACHMENT_SEND|sendComposerWithAttachment/);
 });
 
 test("dispatch and relay use exact-once inflight latches", async () => {
@@ -338,17 +338,16 @@ test("v38 result relay uses relay_id marker rather than full DOM text digest for
 });
 
 
-test("v38 result relay validates screenshot and logs attachment lifecycle", async () => {
+test("RBT-010 result relay keeps bounded send lifecycle without screenshot gates", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
     "utf8"
   );
 
-  assert.match(source, /LANE_RESULT_SCREENSHOT_CAPTURED/);
   assert.match(source, /LANE_RESULT_RELAY_NOT_EXECUTED/);
   assert.match(source, /LANE_RESULT_RELAY_SEND_CLICKED/);
-  assert.match(source, /screenshotStat\.size <= 0/);
   assert.match(source, /reconcile_runtime_version/);
+  assert.doesNotMatch(source, /LANE_RESULT_SCREENSHOT_CAPTURED|screenshotStat|EVIDENCE_MISSING|screenshot_path/);
 });
 
 test("v43 can recover the latest valid directive when only duplicate Robot handshake turns follow it", async () => {

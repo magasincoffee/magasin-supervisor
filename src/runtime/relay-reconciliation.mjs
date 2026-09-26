@@ -13,28 +13,30 @@ export function classifyRelayMarkerState({
   return RELAY_RECONCILE_OUTCOMES.NOT_CONFIRMED;
 }
 
-export function activeRelayScreenshotPaths(registry) {
-  const active = new Set();
-  for (const lane of Object.values(registry?.lanes || {})) {
-    const screenshotPath = String(
-      lane?.relay_inflight?.screenshot_path || ""
-    ).trim();
-    if (screenshotPath) active.add(screenshotPath);
-  }
-  return active;
-}
-
-
 export function migrateLegacyBlockedRelayLatches(registry) {
   let migrated = 0;
   for (const lane of Object.values(registry?.lanes || {})) {
     const latch = lane?.relay_inflight;
-    if (!latch?.reconcile_blocked) continue;
-    latch.reconcile_blocked = false;
-    delete latch.reconcile_started_at;
-    delete latch.reconcile_reloaded;
-    delete latch.reconcile_runtime_version;
-    migrated += 1;
+    if (!latch) continue;
+
+    let changed = false;
+    if (latch.reconcile_blocked) {
+      latch.reconcile_blocked = false;
+      delete latch.reconcile_started_at;
+      delete latch.reconcile_reloaded;
+      delete latch.reconcile_runtime_version;
+      changed = true;
+    }
+
+    // RBT-010: screenshot files are no longer part of relay authority.
+    // Preserve relay identity/retry state while removing only the obsolete
+    // transport field from legacy persisted latches.
+    if (Object.prototype.hasOwnProperty.call(latch, "screenshot_path")) {
+      delete latch.screenshot_path;
+      changed = true;
+    }
+
+    if (changed) migrated += 1;
   }
   return migrated;
 }

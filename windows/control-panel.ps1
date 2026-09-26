@@ -705,13 +705,6 @@ $resourceLabel.Font = New-Object Drawing.Font('Segoe UI', 8.5)
 $resourceLabel.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
 $overviewPanel.Controls.Add($resourceLabel)
 
-$reportInfoLabel = New-Object Windows.Forms.Label
-$reportInfoLabel.Location = New-Object Drawing.Point(252, 72)
-$reportInfoLabel.Size = New-Object Drawing.Size(590, 20)
-$reportInfoLabel.Text = 'BÁO CÁO ẢNH: Robot tự chụp kết quả Work và gửi kèm về Brain khi relay.'
-$reportInfoLabel.ForeColor = [Drawing.Color]::FromArgb(51,65,85)
-$overviewPanel.Controls.Add($reportInfoLabel)
-
 $runtimeStartButton = New-Object Windows.Forms.Button
 $runtimeStartButton.Location = New-Object Drawing.Point(864, 10)
 $runtimeStartButton.Size = New-Object Drawing.Size(286, 36)
@@ -908,16 +901,9 @@ for ($i = 0; $i -lt 3; $i++) {
     $updatedValue.ForeColor = [Drawing.Color]::FromArgb(100,116,139)
     $summaryPanel.Controls.Add($updatedValue)
 
-    $reportValue = New-Object Windows.Forms.Label
-    $reportValue.Location = New-Object Drawing.Point(10, 84)
-    $reportValue.Size = New-Object Drawing.Size(828, 18)
-    $reportValue.Font = New-Object Drawing.Font('Segoe UI Semibold', 8.5)
-    $reportValue.ForeColor = [Drawing.Color]::FromArgb(51,65,85)
-    $summaryPanel.Controls.Add($reportValue)
-
     $messageValue = New-Object Windows.Forms.Label
-    $messageValue.Location = New-Object Drawing.Point(10, 103)
-    $messageValue.Size = New-Object Drawing.Size(828, 20)
+    $messageValue.Location = New-Object Drawing.Point(10, 84)
+    $messageValue.Size = New-Object Drawing.Size(828, 38)
     $messageValue.AutoEllipsis = $true
     $summaryPanel.Controls.Add($messageValue)
 
@@ -955,7 +941,6 @@ for ($i = 0; $i -lt 3; $i++) {
         Health = $healthValue
         Message = $messageValue
         Updated = $updatedValue
-        Report = $reportValue
         Start = $startButton
         Stop = $stopButton
         OpenBrain = $openBrain
@@ -1334,18 +1319,6 @@ function Refresh-Ui {
         }
         $ui.RetryRelay.Visible = $relayExhausted
         $ui.RetryRelay.Enabled = [bool]($relayExhausted -and -not $relayRearmPending)
-
-        $relayScreenshotPath = [string](Get-OptionalPropertyValue $relayInflight 'screenshot_path' '')
-        $relayScreenshotPresent = -not [string]::IsNullOrWhiteSpace($relayScreenshotPath)
-        if ($relayScreenshotPresent -and $relayExhausted) {
-            $ui.Report.Text = 'BÁO CÁO ẢNH: ĐÃ GIỮ EVIDENCE · relay đang chờ bạn xử lý'
-        } elseif ($relayScreenshotPresent) {
-            $ui.Report.Text = 'BÁO CÁO ẢNH: ĐÃ CHỤP · đang gửi kèm kết quả về Brain'
-        } elseif ($enabled) {
-            $ui.Report.Text = 'BÁO CÁO ẢNH: TỰ ĐỘNG CHỤP khi Work hoàn tất'
-        } else {
-            $ui.Report.Text = 'BÁO CÁO ẢNH: SẴN SÀNG khi luồng chạy'
-        }
 
         $laneStatusValue = [string](Get-OptionalPropertyValue $st 'status' '')
         $state = Get-ControlPanelEffectiveLaneState -Enabled $enabled -OwnerStopped ([bool]$ownerStop.blocked) -ProcessHealthy ([bool]$processTruth.healthy) -ProcessState $processState -LaneStatus $laneStatusValue

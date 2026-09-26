@@ -2,14 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { ACTIONS } from "../src/decision.mjs";
-import { executeDecision, sendComposerInstruction, sendComposerWithAttachment } from "../src/ui/actions.mjs";
+import { executeDecision, sendComposerInstruction } from "../src/ui/actions.mjs";
 
 function fakeLocator({
   visible = true,
   onClick = () => {},
   onFill = () => {},
   onPress = () => {},
-  onSetFiles = () => {},
   fillError = null,
   enabled = true,
   editable = true,
@@ -26,8 +25,7 @@ function fakeLocator({
       if (fillError) throw fillError;
       onFill(value);
     },
-    async press(key) { onPress(key); },
-    async setInputFiles(value) { onSetFiles(value); }
+    async press(key) { onPress(key); }
   };
 }
 
@@ -37,10 +35,8 @@ function fakePage({
   onClick = () => {},
   onFill = () => {},
   onPress = () => {},
-  onSetFiles = () => {},
   onInsertText = () => {},
-  fillError = null,
-  fileInputPresent = true
+  fillError = null
 } = {}) {
   return {
     async evaluate() { return controls; },
@@ -52,14 +48,6 @@ function fakePage({
           onFill,
           onPress,
           fillError
-        });
-      }
-      if (selector.includes("input[type='file']")) {
-        return fakeLocator({
-          visible: fileInputPresent,
-          enabled: true,
-          count: fileInputPresent ? 1 : 0,
-          onSetFiles
         });
       }
       if (selector.includes("data-testid")) {
@@ -239,43 +227,16 @@ test("long conversations bypass the 200-control snapshot and click the exact sen
 });
 
 
-test("attachment relay fills text before upload and waits for explicit enabled Send", async () => {
-  const events = [];
-  const controls = [{
-    text: "",
-    ariaLabel: "Send prompt",
-    testId: "send-button",
-    disabled: false
-  }];
-
-  const result = await sendComposerWithAttachment(
-    fakePage({
-      controls,
-      onFill: () => { events.push("fill"); },
-      onSetFiles: () => { events.push("attach"); },
-      onClick: () => { events.push("send"); }
-    }),
-    "relay full text",
-    "C:\\temp\\work.png",
-    { dryRun: false }
-  );
-
-  assert.equal(result.executed, true);
-  assert.deepEqual(events, ["fill", "fill", "attach", "send"]);
-});
-
-test("disabled Send control is never selected as an attachment send target", async () => {
+test("RBT-010 UI action layer contains no attachment upload path", async () => {
   const source = await import("node:fs/promises").then((fs) =>
     fs.readFile(new URL("../src/ui/actions.mjs", import.meta.url), "utf8")
   );
-  assert.match(source, /if \(control\.disabled\) return false/);
-  assert.match(source, /attachment upload did not become ready before timeout/);
-  assert.doesNotMatch(
-    source,
-    /await input\.setInputFiles\(filePath\);[\s\S]{0,200}await composer\.fill\(instruction\)/
-  );
-});
 
+  assert.doesNotMatch(source, /setInputFiles/);
+  assert.doesNotMatch(source, /COMPOSER_ATTACHMENT_SEND/);
+  assert.doesNotMatch(source, /sendComposerWithAttachment/);
+  assert.match(source, /page\.bringToFront/);
+});
 
 test("composer send prefers an exact visible send-button selector before bounded snapshot fallback", async () => {
   const source = await import("node:fs/promises").then((fs) =>
@@ -300,23 +261,6 @@ test("live composer send uses bounded editable readiness instead of a 60s implic
   assert.match(source, /composer\.fill\(instruction, \{ timeout: 2_500 \}\)/);
   assert.match(source, /page\.keyboard\.insertText\(instruction\)/);
   assert.match(source, /did not become editable before bounded timeout/);
-});
-
-
-test("attachment relay retry resets stale draft and attachments with bounded waits", async () => {
-  const source = await import("node:fs/promises").then((fs) =>
-    fs.readFile(new URL("../src/ui/actions.mjs", import.meta.url), "utf8")
-  );
-
-  assert.match(source, /async function resetAttachmentDraft/);
-  assert.match(source, /clearExistingAttachments/);
-  assert.match(source, /maxRemovals = 8/);
-  assert.match(source, /async function clearComposerText/);
-  assert.match(source, /composer\.fill\("", \{ timeout: 1_500 \}\)/);
-  assert.match(source, /keyboardClearComposer/);
-  assert.match(source, /setInputFiles\(filePath, \{ timeout: 10_000 \}\)/);
-  assert.match(source, /timeoutMs = 20_000/);
-  assert.match(source, /await resetAttachmentDraft\(page, \{ timeoutMs: 2_000 \}\)/);
 });
 
 
@@ -350,33 +294,3 @@ test("v49 composer transaction falls back to keyboard after detached fill timeou
   assert.equal(events.at(-1), "send");
 });
 
-test("v49 attachment relay uses keyboard fallback without duplicating attachment send", async () => {
-  const events = [];
-  let fillCalls = 0;
-  const timeout = new Error("locator.fill: Timeout 2500ms exceeded");
-  timeout.name = "TimeoutError";
-  const controls = [{
-    text: "",
-    ariaLabel: "Send prompt",
-    testId: "send-button",
-    disabled: false
-  }];
-
-  const result = await sendComposerWithAttachment(
-    fakePage({
-      controls,
-      fillError: timeout,
-      onFill: () => { fillCalls += 1; },
-      onInsertText: () => { events.push("insert"); },
-      onSetFiles: () => { events.push("attach"); },
-      onClick: () => { events.push("send"); }
-    }),
-    "relay with fallback",
-    "C:\\temp\\relay.png",
-    { dryRun: false }
-  );
-
-  assert.equal(result.executed, true);
-  assert.equal(fillCalls, 0);
-  assert.deepEqual(events, ["insert", "attach", "send"]);
-});

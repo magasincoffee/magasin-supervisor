@@ -24,7 +24,6 @@ function exhaustedLatch() {
     relay_id: "a".repeat(32),
     response_digest: "b".repeat(64),
     text_digest: "c".repeat(64),
-    screenshot_path: "C:/evidence/relay.png",
     attempt_count: 3,
     retry_not_before: null,
     retry_exhausted: true,
@@ -84,13 +83,12 @@ test("Owner rearm while relay is not exhausted is a consumed safe NOOP", () => {
   assert.equal(JSON.stringify(latch), before);
 });
 
-test("exhausted relay opens one new bounded epoch without changing relay identity/evidence", () => {
+test("RBT-010 exhausted relay opens one new bounded epoch without changing text relay identity", () => {
   const latch = exhaustedLatch();
   const identity = {
     relay_id: latch.relay_id,
     response_digest: latch.response_digest,
-    text_digest: latch.text_digest,
-    screenshot_path: latch.screenshot_path
+    text_digest: latch.text_digest
   };
   const outcome = rearmRelayRetry(latch, { revision: 1, appliedRevision: 0 });
   assert.equal(outcome.status, RELAY_REARM_STATES.REARMED);
@@ -102,8 +100,7 @@ test("exhausted relay opens one new bounded epoch without changing relay identit
   assert.deepEqual({
     relay_id: latch.relay_id,
     response_digest: latch.response_digest,
-    text_digest: latch.text_digest,
-    screenshot_path: latch.screenshot_path
+    text_digest: latch.text_digest
   }, identity);
 });
 
@@ -150,7 +147,7 @@ test("each rearmed epoch remains bounded to three attempts and never auto-rearms
   assert.equal(latch.retry_epoch, 1);
 });
 
-test("runtime reconciles exact relay marker before rearm and preserves evidence on missing/corrupt file", async () => {
+test("RBT-010 runtime reconciles exact relay marker before rearm without screenshot prerequisites", async () => {
   const runtime = await fs.readFile(
     new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
     "utf8"
@@ -164,20 +161,12 @@ test("runtime reconciles exact relay marker before rearm and preserves evidence 
   assert.ok(exhaustedPath.indexOf("waitForStableSendSurface") < exhaustedPath.indexOf("rearmRelayRetry"));
   assert.match(exhaustedPath, /BRAIN_NOT_READY/);
   assert.match(apply, /finalizeConfirmedRelay/);
-  assert.match(apply, /EVIDENCE_MISSING/);
+  assert.doesNotMatch(apply, /screenshot_path|EVIDENCE_MISSING|fs\.stat/);
   assert.doesNotMatch(apply, /clearRelayInflight/);
   assert.doesNotMatch(apply, /dispatchWork/);
   assert.doesNotMatch(apply, /sendComposer/);
   assert.doesNotMatch(apply, /registryLane\.task_id\s*=/);
   assert.doesNotMatch(apply, /registryLane\.awaiting_work\s*=/);
-
-  const evidenceBranch = runtime.slice(
-    runtime.indexOf("const screenshotPath = String(latch.screenshot_path"),
-    runtime.indexOf("if (!execute) return", runtime.indexOf("const screenshotPath = String(latch.screenshot_path"))
-  );
-  assert.match(evidenceBranch, /FAIL_CLOSED_LATCH_PRESERVED/);
-  assert.doesNotMatch(evidenceBranch, /clearRelayInflight/);
-  assert.match(runtime, /relayOutcome === "EVIDENCE_MISSING"/);
   assert.match(runtime, /RESULT_IDENTITY_MISMATCH/);
   assert.match(runtime, /FAIL_CLOSED_RECONSTRUCTED_RESULT_MISMATCH/);
   assert.match(runtime, /return "EVIDENCE_MISMATCH"/);
@@ -268,5 +257,5 @@ test("installed-runtime acceptance fixture is production-state-free", async () =
   assert.match(fixture, /TASK_RESULT_TARGETS_PRESERVED=True/);
   assert.match(fixture, /MARKER_RECONCILE_BEFORE_REARM=True/);
   assert.match(fixture, /NO_AUTO_REARM=True/);
-  assert.doesNotMatch(fixture, /LOCALAPPDATA|lane-registry\.json|lanes\.json|sendComposerWithAttachment/);
+  assert.doesNotMatch(fixture, /LOCALAPPDATA|lane-registry\.json|lanes\.json|sendComposerWithAttachment|screenshot_path\s*:/);
 });
