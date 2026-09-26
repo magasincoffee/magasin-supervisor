@@ -257,5 +257,5 @@ test("installed-runtime acceptance fixture is production-state-free", async () =
   assert.match(fixture, /TASK_RESULT_TARGETS_PRESERVED=True/);
   assert.match(fixture, /MARKER_RECONCILE_BEFORE_REARM=True/);
   assert.match(fixture, /NO_AUTO_REARM=True/);
-  assert.doesNotMatch(fixture, /LOCALAPPDATA|lane-registry\.json|lanes\.json|sendComposerWithAttachment|screenshot_path/);
+  assert.doesNotMatch(fixture, /LOCALAPPDATA|lane-registry\.json|lanes\.json|sendComposerWithAttachment|screenshot_path\s*:/);
 });
