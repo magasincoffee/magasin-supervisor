@@ -245,6 +245,8 @@ TASK-RBT-008 keeps the protocol name and byte-exact markers unchanged. The legac
 
 `{"action":"IDLE"}`
 
+For incomplete projects, `OWNER_REQUIRED` is the only intentional human-wait reason. `DEPENDENCY_BLOCKED` and `NO_SAFE_WORK` first trigger bounded whole-plan rescans; if the same soft blocker persists, Supervisor moves to automatic delayed rechecks with bounded backoff (1m, 2m, 4m, 8m, then max 10m) instead of requiring Owner to prompt Brain again. If the dependency is itself an unfinished project task, Brain must dispatch that dependency (or a dependency-ready ancestor) rather than stay IDLE.
+
 Optional `project_plan` is the project Source of Truth snapshot. It is backward-compatible at parser level, but the current first/resume Brain handshake requires it so the Robot can initialize project progress without rereading GitHub. Shape:
 
 ```json
