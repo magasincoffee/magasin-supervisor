@@ -10,6 +10,7 @@ export const SEND_REJECTION_CLASSES = Object.freeze({
   AUTH_SECURITY: "AUTH_SECURITY",
   TRANSIENT: "TRANSIENT",
   COMPOSER_NOT_READY: "COMPOSER_NOT_READY",
+  SEND_NOT_ACTUATED: "SEND_NOT_ACTUATED",
   UNKNOWN: "UNKNOWN"
 });
 
@@ -284,26 +285,59 @@ const DIRECT_SEND_SELECTORS = Object.freeze([
   'button[title*="Gửi" i]:visible'
 ]);
 
-async function findReadyDirectSendControl(page) {
-  for (const selector of DIRECT_SEND_SELECTORS) {
-    const button = page.locator(selector).first();
-    const visible = await button.isVisible().catch(() => false);
-    if (!visible) continue;
-    const enabled = typeof button.isEnabled === "function"
-      ? await button.isEnabled().catch(() => false)
-      : true;
-    if (enabled) return { button, selector };
+async function composerFormScope(composer) {
+  if (!composer || typeof composer.locator !== "function") return null;
+  try {
+    const form = composer.locator("xpath=ancestor::form[1]").first();
+    const count = typeof form.count === "function"
+      ? await form.count().catch(() => 0)
+      : 1;
+    if (!count) return null;
+    if (
+      typeof form.isVisible === "function" &&
+      !(await form.isVisible().catch(() => false))
+    ) {
+      return null;
+    }
+    return form;
+  } catch {
+    return null;
+  }
+}
+
+async function findReadyDirectSendControl(page, composer = null) {
+  const scopes = [];
+  const form = await composerFormScope(composer);
+  if (form) scopes.push({ root: form, scope: "composer-form" });
+  scopes.push({ root: page, scope: "page" });
+
+  for (const candidate of scopes) {
+    for (const selector of DIRECT_SEND_SELECTORS) {
+      const button = candidate.root.locator(selector).first();
+      const visible = await button.isVisible().catch(() => false);
+      if (!visible) continue;
+      const enabled = typeof button.isEnabled === "function"
+        ? await button.isEnabled().catch(() => false)
+        : true;
+      if (enabled) {
+        return {
+          button,
+          selector,
+          scope: candidate.scope
+        };
+      }
+    }
   }
   return null;
 }
 
 async function waitForReadyDirectSendControl(
   page,
-  { timeoutMs = 3_000, intervalMs = 100 } = {}
+  { timeoutMs = 3_000, intervalMs = 100, composer = null } = {}
 ) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() <= deadline) {
-    const control = await findReadyDirectSendControl(page);
+    const control = await findReadyDirectSendControl(page, composer);
     if (control) return control;
     await page.waitForTimeout(intervalMs);
   }
@@ -312,16 +346,85 @@ async function waitForReadyDirectSendControl(
 
 async function clickReadyDirectSendControl(
   page,
-  { timeoutMs = 5_000 } = {}
+  { timeoutMs = 5_000, composer = null } = {}
 ) {
-  const control = await waitForReadyDirectSendControl(page, { timeoutMs });
+  const control = await waitForReadyDirectSendControl(page, {
+    timeoutMs,
+    composer
+  });
   if (!control) return null;
 
-  // The selector is already constrained to the visible, enabled composer send
-  // control. Force-click avoids long actionability waits caused by transient
-  // ChatGPT animations/overlays while preserving the exact semantic target.
-  await control.button.click({ timeout: 2_000, force: true });
-  return control.selector;
+  if (typeof control.button.scrollIntoViewIfNeeded === "function") {
+    await control.button.scrollIntoViewIfNeeded({ timeout: 1_500 }).catch(() => {});
+  }
+
+  let method = "direct-control";
+  try {
+    // Prefer a normal actionability-checked click. A forced click can report
+    // success while ChatGPT is replacing/covering the live submit control.
+    await control.button.click({ timeout: 2_500 });
+  } catch (clickError) {
+    if (typeof control.button.evaluate === "function") {
+      try {
+        await control.button.evaluate((el) => el.click());
+        method = "direct-dom-control";
+      } catch {
+        await control.button.click({ timeout: 2_000, force: true });
+        method = "direct-force-control";
+      }
+    } else {
+      await control.button.click({ timeout: 2_000, force: true });
+      method = "direct-force-control";
+    }
+  }
+
+  return {
+    selector: control.selector,
+    scope: control.scope,
+    method
+  };
+}
+
+async function waitForComposerSubmission(
+  page,
+  instruction,
+  { timeoutMs = 2_000, intervalMs = 125 } = {}
+) {
+  const attempts = Math.max(1, Math.ceil(timeoutMs / intervalMs));
+  let readable = false;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const composer = await firstReadyComposer(page);
+    if (!composer) {
+      return {
+        confirmed: true,
+        evidence: "composer-disappeared"
+      };
+    }
+
+    const stillExact = await composerContainsExactInstruction(
+      composer,
+      instruction
+    );
+    if (stillExact === false) {
+      return {
+        confirmed: true,
+        evidence: "composer-changed"
+      };
+    }
+    if (stillExact !== null) readable = true;
+
+    if (attempt < attempts - 1 && typeof page.waitForTimeout === "function") {
+      await page.waitForTimeout(intervalMs);
+    }
+  }
+
+  return {
+    confirmed: false,
+    evidence: readable
+      ? "instruction-still-present"
+      : "composer-state-unreadable"
+  };
 }
 
 export async function inspectActionSurface(page) {
@@ -408,17 +511,22 @@ export async function sendComposerInstruction(
     };
   }
 
-  // Prefer the exact composer send control directly. Long ChatGPT
-  // conversations can contain more than 200 visible buttons, so the bounded
-  // semantic snapshot may omit the blue send control beside the composer.
-  const directSendSelector = await clickReadyDirectSendControl(page);
-  let sendMethod = directSendSelector ? "direct-control" : null;
+  // Prefer a Send control from the same composer form before falling back to
+  // page-wide semantics. This prevents unrelated visible controls elsewhere in
+  // a long ChatGPT conversation from being treated as the active submit button.
+  const directSend = await clickReadyDirectSendControl(page, {
+    composer: textSet.composer
+  });
+  let sendMethod = directSend?.method || null;
+  let sendSelector = directSend?.selector || null;
+  let sendScope = directSend?.scope || null;
 
-  if (!directSendSelector) {
+  if (!directSend) {
     const afterFill = await inspectActionSurface(page);
     if (afterFill.sendControl) {
       await clickControlBySemantic(page, afterFill.sendControl);
       sendMethod = "semantic-control";
+      sendScope = "page-semantic";
     } else {
       const composer = await waitForReadyComposer(page, { timeoutMs: 2_000 });
       if (!composer) {
@@ -444,7 +552,31 @@ export async function sendComposerInstruction(
         await composer.press("Enter", { timeout: 2_000 });
       }
       sendMethod = "enter-fallback";
+      sendScope = "composer";
     }
+  }
+
+  // A successful Playwright click is not sufficient evidence that ChatGPT
+  // accepted the message. Require a local composer state transition before the
+  // caller may advance the durable send latch to SEND_CLICKED. If the exact
+  // instruction is still present, fail closed; the outer reconciliation pass
+  // will reload the exact Work target and prove whether a user turn persisted
+  // before any retry is allowed.
+  const submission = await waitForComposerSubmission(page, instruction);
+  if (!submission.confirmed) {
+    return {
+      executed: false,
+      dryRun: false,
+      action: ACTIONS.CONTINUE,
+      target: "COMPOSER_SEND",
+      input_method: textSet.method,
+      send_method: sendMethod,
+      send_selector: sendSelector,
+      send_scope: sendScope,
+      submit_evidence: submission.evidence,
+      reason: "send control did not actuate composer submission",
+      rejection_class: SEND_REJECTION_CLASSES.SEND_NOT_ACTUATED
+    };
   }
 
   return {
@@ -454,7 +586,9 @@ export async function sendComposerInstruction(
     target: "COMPOSER_SEND",
     input_method: textSet.method,
     send_method: sendMethod,
-    send_selector: directSendSelector || null
+    send_selector: sendSelector,
+    send_scope: sendScope,
+    submit_evidence: submission.evidence
   };
 }
 
