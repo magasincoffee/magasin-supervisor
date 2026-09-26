@@ -51,7 +51,6 @@ const registry = normalizeLaneRegistry({
         relay_id: RELAY_ID,
         response_digest: RESPONSE_DIGEST,
         text_digest: TEXT_DIGEST,
-        screenshot_path: "C:/fixture/relay.png",
         attempt_count: 3,
         retry_not_before: null,
         retry_exhausted: true,
@@ -76,8 +75,7 @@ const truthBefore = JSON.stringify({
   pending_work_url_revision: lane.pending_work_url_revision,
   relay_id: latch.relay_id,
   response_digest: latch.response_digest,
-  text_digest: latch.text_digest,
-  screenshot_path: latch.screenshot_path
+  text_digest: latch.text_digest
 });
 
 const first = rearmRelayRetry(latch, {
@@ -135,8 +133,7 @@ const truthAfter = JSON.stringify({
   pending_work_url_revision: lane.pending_work_url_revision,
   relay_id: latch.relay_id,
   response_digest: latch.response_digest,
-  text_digest: latch.text_digest,
-  screenshot_path: latch.screenshot_path
+  text_digest: latch.text_digest
 });
 assert.equal(truthAfter, truthBefore);
 
@@ -153,9 +150,8 @@ assert.ok(exhaustedApplySource.indexOf("hasRelayMarker") < exhaustedApplySource.
 assert.ok(exhaustedApplySource.indexOf("waitForStableSendSurface") < exhaustedApplySource.indexOf("rearmRelayRetry"));
 assert.match(exhaustedApplySource, /BRAIN_NOT_READY/);
 assert.match(applySource, /finalizeConfirmedRelay/);
-assert.match(applySource, /EVIDENCE_MISSING/);
+assert.doesNotMatch(applySource, /screenshot_path|EVIDENCE_MISSING|fs\.stat/);
 assert.doesNotMatch(applySource, /clearRelayInflight/);
-assert.match(runtimeSource, /relayOutcome === "EVIDENCE_MISSING"/);
 assert.match(runtimeSource, /RESULT_IDENTITY_MISMATCH/);
 assert.match(runtimeSource, /FAIL_CLOSED_RECONSTRUCTED_RESULT_MISMATCH/);
 assert.match(runtimeSource, /if \(args\.relayRearmFixture\)/);
@@ -169,6 +165,6 @@ console.log("RELAY_REARM_FIXTURE_NEW_REVISION_OPENS_ONE_EPOCH=True");
 console.log("RELAY_REARM_FIXTURE_MARKER_RECONCILE_BEFORE_REARM=True");
 console.log("RELAY_REARM_FIXTURE_STABLE_BRAIN_GATE=True");
 console.log("RELAY_REARM_FIXTURE_RESULT_IDENTITY_FAIL_CLOSED=True");
-console.log("RELAY_REARM_FIXTURE_EVIDENCE_FAIL_CLOSED=True");
+console.log("RELAY_REARM_FIXTURE_TEXT_ONLY=True");
 console.log("RELAY_REARM_FIXTURE_TASK_RESULT_TARGETS_PRESERVED=True");
 console.log("RELAY_REARM_FIXTURE_NO_WORK_DISPATCH_RESET=True");
