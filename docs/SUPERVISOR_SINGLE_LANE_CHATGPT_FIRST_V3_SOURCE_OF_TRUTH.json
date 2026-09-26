@@ -52,8 +52,7 @@
       "docs/THREE_LANE_V1_ARCHITECTURE.md",
       "docs/ROBOT_BROWSER_SCHEDULER_OBSERVABILITY_ARCHITECTURE.md",
       "docs/RBT_010_TEXT_ONLY_RELAY_PLAN.md",
-      "docs/RBT_010_TEXT_ONLY_RELAY_AUTHORITY.json",
-      "docs/MIG_007_FINAL_CLEANUP_PLAN.md"
+      "docs/RBT_010_TEXT_ONLY_RELAY_AUTHORITY.json"
     ],
     "retain_historical_evidence": [
       "docs/THREE_LANE_V1_RELEASE_EVIDENCE.md",
@@ -81,9 +80,10 @@
     ],
     "runtime_code_policy": "DO_NOT_DELETE_LEGACY_THREE_LANE_RUNTIME_CODE_BEFORE_V3_QUALIFICATION_AND_OWNER_CUTOVER; KEEP AS ROLLBACK_ONLY",
     "replace_with_compatibility_tombstone": [
-      "docs/ROBOT_LIFECYCLE_TRUTH_ARCHITECTURE.md"
+      "docs/ROBOT_LIFECYCLE_TRUTH_ARCHITECTURE.md",
+      "docs/MIG_007_FINAL_CLEANUP_PLAN.md"
     ],
-    "compatibility_tombstone_reason": "Current MIG-004 integrity guard requires the path to exist; old architecture content/authority is removed and the tombstone points only to V3 canonical Source of Truth."
+    "compatibility_tombstone_reason": "Current MIG-004 integrity and historical MIG-007 regression guards require selected legacy paths/markers to exist; old planning/architecture content and authority are removed, leaving only non-canonical pointers to V3."
   },
   "recovery_contract": {
     "transient_load_failure": [
