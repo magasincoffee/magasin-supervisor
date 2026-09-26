@@ -132,6 +132,8 @@ const BRAIN_RESUME_OBSERVATION_TIMEOUT_MS = 15_000;
 const MAX_ACTIVE_ROUND_POLL_MS = 2_000;
 const MAX_PROJECT_PLAN_BOOTSTRAP_RETRIES = 3;
 const MAX_BRAIN_IDLE_RECHECK_RETRIES = 3;
+const SOFT_IDLE_RECHECK_BASE_MS = 60_000;
+const SOFT_IDLE_RECHECK_MAX_MS = 10 * 60_000;
 
 function activeRoundPollMs(configuredPollMs) {
   return Math.min(Number(configuredPollMs), MAX_ACTIVE_ROUND_POLL_MS);
@@ -886,6 +888,90 @@ async function rearmMissingProjectPlanAfterIdle({
     reason: "idle_without_project_plan"
   });
   return { rearmed: true, exhausted: false };
+}
+
+function clearSoftIdleRecheck(registryLane) {
+  const changed = Boolean(
+    registryLane.brain_soft_idle_reason ||
+    registryLane.brain_soft_idle_digest ||
+    registryLane.brain_soft_idle_recheck_not_before ||
+    Number(registryLane.brain_soft_idle_recheck_count || 0) !== 0
+  );
+  registryLane.brain_soft_idle_reason = null;
+  registryLane.brain_soft_idle_digest = null;
+  registryLane.brain_soft_idle_recheck_count = 0;
+  registryLane.brain_soft_idle_recheck_not_before = null;
+  return changed;
+}
+
+function softIdleRecheckDelayMs(count) {
+  const exponent = Math.max(0, Math.min(4, Number(count || 0)));
+  return Math.min(
+    SOFT_IDLE_RECHECK_MAX_MS,
+    SOFT_IDLE_RECHECK_BASE_MS * (2 ** exponent)
+  );
+}
+
+function scheduleSoftIdleRecheck(registryLane, directive, reason, { now = Date.now() } = {}) {
+  const digest = String(directive?.digest || "");
+  const sameBlocker =
+    registryLane.brain_soft_idle_digest === digest &&
+    registryLane.brain_soft_idle_reason === reason;
+  const priorCount = sameBlocker
+    ? Number(registryLane.brain_soft_idle_recheck_count || 0)
+    : 0;
+  const nextCount = priorCount + 1;
+  const delayMs = softIdleRecheckDelayMs(priorCount);
+  const nextAt = new Date(now + delayMs).toISOString();
+
+  registryLane.brain_soft_idle_reason = reason;
+  registryLane.brain_soft_idle_digest = digest;
+  registryLane.brain_soft_idle_recheck_count = nextCount;
+  registryLane.brain_soft_idle_recheck_not_before = nextAt;
+
+  return {
+    next_recheck_at: nextAt,
+    recheck_count: nextCount,
+    delay_ms: delayMs
+  };
+}
+
+async function rearmDueSoftIdle({
+  lane,
+  registryLane,
+  registry,
+  registryPath,
+  logPath,
+  now = Date.now()
+}) {
+  const notBefore = String(
+    registryLane.brain_soft_idle_recheck_not_before || ""
+  ).trim();
+  if (!notBefore) return false;
+
+  const dueAt = Date.parse(notBefore);
+  if (!Number.isFinite(dueAt) || now < dueAt) return false;
+
+  const safelyIdle = Boolean(
+    !registryLane.task_id &&
+    !registryLane.awaiting_work &&
+    !registryLane.dispatch_inflight &&
+    !registryLane.relay_inflight
+  );
+  if (!safelyIdle) return false;
+
+  registryLane.brain_idle_recheck_retries = 0;
+  registryLane.brain_request_sent = false;
+  registryLane.brain_request_inflight = null;
+  registryLane.brain_soft_idle_recheck_not_before = null;
+  await atomicJsonWrite(registryPath, registry);
+  await safeLog(logPath, {
+    type: "LANE_BRAIN_SOFT_IDLE_RECHECK_DUE",
+    laneId: lane.lane_id,
+    reason: registryLane.brain_soft_idle_reason,
+    recheck_count: Number(registryLane.brain_soft_idle_recheck_count || 0)
+  });
+  return true;
 }
 
 function projectProgressCounts(progress) {
