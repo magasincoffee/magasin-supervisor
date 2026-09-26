@@ -88,6 +88,9 @@ if (-not (Test-Path $diagRoot -PathType Container)) {
       Write-Host "SUBMIT_LAST_STAGE=$([string]$stage.stage)"
       Write-Host "SUBMIT_LAST_STAGE_AT=$([string]$stage.captured_at)"
       Write-Host "SUBMIT_COMPOSER_TEXT_LENGTH=$([int]$stage.composerTextLength)"
+      Write-Host "SUBMIT_COMPOSER_TEXT_DIGEST=$([string]$stage.composerTextDigest)"
+      Write-Host "SUBMIT_INSTRUCTION_DIGEST=$([string]$stage.instruction_digest)"
+      Write-Host "SUBMIT_COMPOSER_DIGEST_MATCH=$([string]$stage.composerTextDigest -eq [string]$stage.instruction_digest)"
       Write-Host "SUBMIT_USER_TURN_COUNT=$([int]$stage.userTurnCount)"
       if ($stage.composer) {
         Write-Host "SUBMIT_COMPOSER=TAG=$([string]$stage.composer.tag)|ID=$([string]$stage.composer.id)|ROLE=$([string]$stage.composer.role)|TESTID=$([string]$stage.composer.testid)|CONTENTEDITABLE=$([string]$stage.composer.contenteditable)|DISABLED=$([bool]$stage.composer.disabled)|VISIBLE=$([bool]$stage.composer.visible)"
@@ -118,6 +121,7 @@ if (-not (Test-Path $diagRoot -PathType Container)) {
         Write-Host "SUBMIT_SUMMARY_PRIMARY=$([string]$summary.result.primary_submit_evidence)"
         Write-Host "SUBMIT_SUMMARY_EVIDENCE=$([string]$summary.result.submit_evidence)"
         Write-Host "SUBMIT_SUMMARY_USER_TURN=$([string]$summary.result.user_turn_evidence)"
+        Write-Host "SUBMIT_SUMMARY_REASON=$([string]$summary.result.reason)"
       }
       if ($summary.error) {
         Write-Host "SUBMIT_SUMMARY_ERROR_NAME=$([string]$summary.error.name)"
@@ -138,6 +142,7 @@ if (-not (Test-Path $diagRoot -PathType Container)) {
       Write-Host "SUBMIT_LATEST_METHOD=$([string]$latest.result.send_method)"
       Write-Host "SUBMIT_LATEST_EVIDENCE=$([string]$latest.result.submit_evidence)"
       Write-Host "SUBMIT_LATEST_USER_TURN=$([string]$latest.result.user_turn_evidence)"
+      Write-Host "SUBMIT_LATEST_REASON=$([string]$latest.result.reason)"
     }
     if ($latest.error) {
       Write-Host "SUBMIT_LATEST_ERROR_NAME=$([string]$latest.error.name)"
