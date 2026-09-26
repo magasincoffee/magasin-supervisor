@@ -5,7 +5,6 @@ import fs from "node:fs/promises";
 import {
   RELAY_RECONCILE_OUTCOMES,
   classifyRelayMarkerState,
-  activeRelayScreenshotPaths,
   migrateLegacyBlockedRelayLatches
 } from "../src/runtime/relay-reconciliation.mjs";
 import {
@@ -36,24 +35,33 @@ test("v44 busy Brain keeps relay PENDING without forcing a retry", () => {
   );
 });
 
-test("active relay screenshot inventory is cross-lane isolated", () => {
+test("RBT-010 legacy relay screenshot fields migrate without changing relay identity", () => {
   const registry = normalizeLaneRegistry({
     lanes: {
       "lane-1": {
-        relay_inflight: { screenshot_path: "C:/evidence/lane-1-a.png" }
+        relay_inflight: {
+          relay_id: "r1",
+          response_digest: "a".repeat(64),
+          text_digest: "b".repeat(64),
+          screenshot_path: "C:/evidence/lane-1-a.png"
+        }
       },
       "lane-2": {
-        relay_inflight: { screenshot_path: "C:/evidence/lane-2-b.png" }
+        relay_inflight: {
+          relay_id: "r2",
+          screenshot_path: "C:/evidence/lane-2-b.png"
+        }
       },
-      "lane-3": {
-        relay_inflight: null
-      }
+      "lane-3": { relay_inflight: null }
     }
   });
-  assert.deepEqual(
-    [...activeRelayScreenshotPaths(registry)].sort(),
-    ["C:/evidence/lane-1-a.png", "C:/evidence/lane-2-b.png"]
-  );
+  const migrated = migrateLegacyBlockedRelayLatches(registry);
+  assert.equal(migrated, 2);
+  assert.equal(registry.lanes["lane-1"].relay_inflight.relay_id, "r1");
+  assert.equal(registry.lanes["lane-1"].relay_inflight.response_digest, "a".repeat(64));
+  assert.equal(registry.lanes["lane-1"].relay_inflight.text_digest, "b".repeat(64));
+  assert.equal("screenshot_path" in registry.lanes["lane-1"].relay_inflight, false);
+  assert.equal("screenshot_path" in registry.lanes["lane-2"].relay_inflight, false);
 });
 
 test("lane-1-only config does not enable or mutate other lane identities", () => {
@@ -106,7 +114,7 @@ test("relay confirmation, Brain change and explicit maintenance reset clear evid
   );
 
   assert.match(source, /async function clearRelayInflight/);
-  assert.match(source, /await unlinkRelayScreenshot\(latch\)/);
+  assert.doesNotMatch(source, /unlinkRelayScreenshot|screenshot_path/);
   assert.match(source, /LANE_RESULT_RELAY_DEDUPED_BY_MARKER[\s\S]*?return "CONFIRMED";/);
   assert.match(source, /await clearRelayInflight\(registryLane\)/);
   assert.match(source, /async function finalizeConfirmedRelay/);
@@ -123,16 +131,13 @@ test("relay confirmation, Brain change and explicit maintenance reset clear evid
   assert.match(maintenanceReset, /await clearRelayInflight\(registryLane\)/);
 });
 
-test("v44 orphan screenshot GC is bounded and preserves every active lane reference", async () => {
+test("RBT-010 removes screenshot GC and performs only one legacy lane-evidence cleanup on boot", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
     "utf8"
   );
-  assert.match(source, /async function cleanupOrphanRelayEvidence/);
-  assert.match(source, /maxDeletes = 24/);
-  assert.match(source, /activeRelayScreenshotPaths\(registry\)/);
-  assert.match(source, /if \(active\.has\(candidate\)\) continue/);
-  assert.match(source, /if \(deleted >= maxDeletes\) break/);
+  assert.doesNotMatch(source, /cleanupOrphanRelayEvidence|activeRelayScreenshotPaths/);
+  assert.match(source, /fs\.rm\(path\.join\(root, "lane-evidence"\), \{ recursive: true, force: true \}\)/);
 });
 
 test("v44 preserves Owner Brain hot-swap contract while cleaning only relay evidence", async () => {
@@ -201,7 +206,8 @@ test("v45 startup migration clears only legacy relay blocked metadata across all
   assert.equal(registry.lanes["lane-1"].relay_inflight.reconcile_blocked, false);
   assert.equal(registry.lanes["lane-2"].relay_inflight.reconcile_blocked, false);
   assert.equal(registry.lanes["lane-1"].relay_inflight.relay_id, "r1");
-  assert.equal(registry.lanes["lane-1"].relay_inflight.screenshot_path, "C:/evidence/lane-1.png");
+  assert.equal("screenshot_path" in registry.lanes["lane-1"].relay_inflight, false);
+  assert.equal("screenshot_path" in registry.lanes["lane-2"].relay_inflight, false);
   assert.equal("reconcile_reloaded" in registry.lanes["lane-1"].relay_inflight, false);
   assert.equal("reconcile_runtime_version" in registry.lanes["lane-1"].relay_inflight, false);
   assert.equal("reconcile_started_at" in registry.lanes["lane-1"].relay_inflight, false);
@@ -219,7 +225,7 @@ test("current runtime performs blocked relay migration before lane processing", 
 });
 
 
-test("v48 relay retries reuse one screenshot and stop after a bounded budget", async () => {
+test("RBT-010 relay retries preserve text identity and contain no screenshot or attachment dependency", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
     "utf8"
@@ -230,21 +236,19 @@ test("v48 relay retries reuse one screenshot and stop after a bounded budget", a
 
   assert.match(relay, /beginRelaySendAttempt\(latch\)/);
   assert.match(relay, /scheduleRelayRetry\(latch\)/);
-  assert.match(relay, /return "EXHAUSTED"/);
-  const screenshotCaptures = relay.match(/captureCompletedAssistantTurnScreenshot/g) || [];
-  assert.equal(screenshotCaptures.length, 1);
-  const createEvidence = relay.indexOf("if (!latch) {");
-  const captureEvidence = relay.indexOf("captureCompletedAssistantTurnScreenshot");
-  assert.ok(createEvidence >= 0);
-  assert.ok(captureEvidence > createEvidence);
-  assert.match(relay, /const screenshotPath = String\(latch\.screenshot_path/);
+  assert.match(relay, /sendComposerInstruction/);
+  assert.match(relay, /response_digest/);
+  assert.match(relay, /text_digest/);
+  assert.doesNotMatch(relay, /screenshot|attachment|EVIDENCE_MISSING/);
 });
 
-test("v48 attachment relay foregrounds Brain before composer probing", async () => {
+test("RBT-010 text relay foregrounds the exact Brain page before composer mutation", async () => {
   const actions = await fs.readFile(
     new URL("../src/ui/actions.mjs", import.meta.url),
     "utf8"
   );
   assert.match(actions, /page\.bringToFront/);
-  assert.match(actions, /COMPOSER_ATTACHMENT_SEND/);
+  assert.match(actions, /sendComposerInstruction/);
+  assert.doesNotMatch(actions, /sendComposerWithAttachment|setInputFiles|COMPOSER_ATTACHMENT_SEND/);
 });
+
