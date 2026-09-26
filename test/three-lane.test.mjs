@@ -406,3 +406,39 @@ test("Brain start request scans the whole incomplete plan before accepting IDLE"
   assert.match(text, /chọn một task khác nếu có bất kỳ task nào dependency-ready\/an toàn/);
 });
 
+test("lane registry persists delayed soft-blocker recheck schedule", () => {
+  const defaults = defaultLaneRegistry().lanes["lane-1"];
+  assert.equal(defaults.brain_soft_idle_reason, null);
+  assert.equal(defaults.brain_soft_idle_digest, null);
+  assert.equal(defaults.brain_soft_idle_recheck_count, 0);
+  assert.equal(defaults.brain_soft_idle_recheck_not_before, null);
+
+  const normalized = normalizeLaneRegistry({
+    lanes: {
+      "lane-1": {
+        brain_soft_idle_reason: "dependency_blocked",
+        brain_soft_idle_digest: "abc123",
+        brain_soft_idle_recheck_count: 2,
+        brain_soft_idle_recheck_not_before: "2026-09-26T05:30:00.000Z"
+      }
+    }
+  }).lanes["lane-1"];
+
+  assert.equal(normalized.brain_soft_idle_reason, "DEPENDENCY_BLOCKED");
+  assert.equal(normalized.brain_soft_idle_digest, "abc123");
+  assert.equal(normalized.brain_soft_idle_recheck_count, 2);
+  assert.equal(normalized.brain_soft_idle_recheck_not_before, "2026-09-26T05:30:00.000Z");
+});
+
+test("Brain prompt makes internal dependency tasks dispatchable and soft blockers self-rechecking", () => {
+  const text = buildBrainStartRequest({
+    laneId: "lane-1",
+    projectName: "Supervisor"
+  });
+  assert.match(text, /dependency chính là một task chưa DONE trong project_plan/);
+  assert.match(text, /dependency-ready ancestor/);
+  assert.match(text, /DEPEDENCY_BLOCKED|DEPENDENCY_BLOCKED/);
+  assert.match(text, /backoff tự động/);
+  assert.match(text, /Owner không cần nhắc Brain tiếp tục/);
+});
+
