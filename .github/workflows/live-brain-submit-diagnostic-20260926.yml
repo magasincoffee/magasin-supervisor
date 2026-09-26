@@ -46,3 +46,5 @@ jobs:
 # diagnostic revision 6 after Work rollover capacity fix
 
 # diagnostic revision 7 after Work bootstrap deployment
+
+# diagnostic revision 8 bootstrap send outcome
