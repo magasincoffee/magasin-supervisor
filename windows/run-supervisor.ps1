@@ -237,6 +237,10 @@ try {
                 '--no-first-run',
                 '--no-default-browser-check',
                 '--start-minimized',
+                '--disable-background-timer-throttling',
+                '--disable-backgrounding-occluded-windows',
+                '--disable-renderer-backgrounding',
+                '--disable-features=CalculateNativeWinOcclusion',
                 'https://chatgpt.com/'
             )
 
@@ -295,9 +299,23 @@ try {
 
         Push-Location $runtime
         try {
-            $nodeArgs = @($entryPoint, '--cdp-url', $cdpBaseUrl, '--poll-ms', '5000')
+            $pollMs = if ($env:SUPERVISOR_THREE_LANE_POLL_MS) {
+                [string]$env:SUPERVISOR_THREE_LANE_POLL_MS
+            } else {
+                '2000'
+            }
+            $pageBudget = if ($env:SUPERVISOR_CHATGPT_PAGE_BUDGET) {
+                [string]$env:SUPERVISOR_CHATGPT_PAGE_BUDGET
+            } else {
+                '4'
+            }
+
+            $nodeArgs = @($entryPoint, '--cdp-url', $cdpBaseUrl, '--poll-ms', $pollMs)
             if ($entryPoint -eq 'src/runtime/three-lane-cli.mjs') {
-                $nodeArgs += @('--wrapper-pid', [string]$PID)
+                $nodeArgs += @(
+                    '--wrapper-pid', [string]$PID,
+                    '--page-budget', $pageBudget
+                )
             }
             if ($entryPoint -in @('src/runtime/brain-worker-cli.mjs','src/runtime/supervisor-loop-cli.mjs')) {
                 if (-not [string]::IsNullOrWhiteSpace($projectAdapterPath)) {
