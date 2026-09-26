@@ -104,6 +104,16 @@ $ownerStop=Get-LifecycleOwnerStopState -Root $root
 $processTruth=Get-LifecycleProcessTruth -Root $root
 $enabledCount=Get-EnabledLaneCount -Root $root
 Write-Host "LIVE_ENABLED_LANES=$enabledCount"
+try {
+  $liveCfg=Get-Content (Join-Path $root 'lanes.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+  $liveLane1=@($liveCfg.lanes | Where-Object { [string]$_.lane_id -eq 'lane-1' } | Select-Object -First 1)[0]
+  if($liveLane1){
+    Write-Host "LIVE_LANE1_RESUME_REVISION=$([string]$liveLane1.resume_revision)"
+    Write-Host "LIVE_LANE1_RESUME_REQUESTED_AT=$([string]$liveLane1.resume_requested_at)"
+  }
+}catch{
+  Write-Host "LIVE_RESUME_CONFIG_READ_ERROR=$($_.Exception.Message)"
+}
 Write-Host "LIVE_OWNER_STOP=$([bool]$ownerStop.blocked)"
 Write-Host "LIVE_STOP_PRESENT=$([bool]$ownerStop.stop_present)"
 Write-Host "LIVE_AUTOSTART_DISABLED_PRESENT=$([bool]$ownerStop.autostart_disabled_present)"
@@ -221,6 +231,7 @@ if(Test-Path $registryPath){
       Write-Host "DISPATCH_TASK_ID=$([string]$lane.task_id)"
       Write-Host "DISPATCH_AWAITING_WORK=$([bool]$lane.awaiting_work)"
       Write-Host "DISPATCH_LAST_BRAIN_DIGEST=$([string]$lane.last_brain_directive_digest)"
+      Write-Host "DISPATCH_APPLIED_RESUME_REVISION=$([string]$lane.applied_resume_revision)"
       Write-Host "DISPATCH_LAST_ID=$([string]$lane.last_dispatch_id)"
       Write-Host "DISPATCH_WORK_URL_PRESENT=$(-not [string]::IsNullOrWhiteSpace([string]$lane.work_url))"
       if($lane.dispatch_inflight){
