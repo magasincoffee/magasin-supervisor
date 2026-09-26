@@ -130,6 +130,7 @@ const SUPERVISOR_RUNTIME_VERSION = "2026-09-20.60";
 const WATCHDOG_CONTINUE_INSTRUCTION = "Tiếp tục thực hiện.";
 const BRAIN_RESUME_OBSERVATION_TIMEOUT_MS = 15_000;
 const MAX_ACTIVE_ROUND_POLL_MS = 2_000;
+const MAX_PROJECT_PLAN_BOOTSTRAP_RETRIES = 3;
 
 function activeRoundPollMs(configuredPollMs) {
   return Math.min(Number(configuredPollMs), MAX_ACTIVE_ROUND_POLL_MS);
@@ -786,6 +787,10 @@ async function applyBrainVerdictDirective({
     );
     registryLane.project_progress = planned.progress;
     registryChanged = registryChanged || planned.changed;
+    if (Number(registryLane.project_plan_bootstrap_retries || 0) !== 0) {
+      registryLane.project_plan_bootstrap_retries = 0;
+      registryChanged = true;
+    }
   }
 
   const transition = evaluateBrainVerdictTransition(registryLane, directive);
@@ -824,6 +829,54 @@ async function applyBrainVerdictDirective({
     work_generation: Number(registryLane.work_generation || 0)
   });
   return transition;
+}
+
+async function rearmMissingProjectPlanAfterIdle({
+  lane,
+  registryLane,
+  directive,
+  registry,
+  registryPath,
+  logPath
+}) {
+  if (
+    directive?.action !== "IDLE" ||
+    Boolean(registryLane.project_progress?.plan_known)
+  ) {
+    return { rearmed: false, exhausted: false };
+  }
+
+  const retries = Math.max(
+    0,
+    Number(registryLane.project_plan_bootstrap_retries || 0)
+  );
+  registryLane.last_brain_directive_digest = directive.digest;
+  registryLane.task_id = null;
+  registryLane.instruction_digest = null;
+
+  if (retries >= MAX_PROJECT_PLAN_BOOTSTRAP_RETRIES) {
+    await atomicJsonWrite(registryPath, registry);
+    await safeLog(logPath, {
+      type: "LANE_PROJECT_PLAN_BOOTSTRAP_EXHAUSTED",
+      laneId: lane.lane_id,
+      digest: directive.digest,
+      retries
+    });
+    return { rearmed: false, exhausted: true };
+  }
+
+  registryLane.project_plan_bootstrap_retries = retries + 1;
+  registryLane.brain_request_sent = false;
+  registryLane.brain_request_inflight = null;
+  await atomicJsonWrite(registryPath, registry);
+  await safeLog(logPath, {
+    type: "LANE_PROJECT_PLAN_BOOTSTRAP_REARMED",
+    laneId: lane.lane_id,
+    digest: directive.digest,
+    retry: retries + 1,
+    reason: "idle_without_project_plan"
+  });
+  return { rearmed: true, exhausted: false };
 }
 
 async function hasRelayMarker(page, relayId) {
@@ -4912,10 +4965,35 @@ async function processLaneTurn({
     );
   }
 
-  // Exact duplicate directives are already durable. Short-circuit before
-  // re-evaluating previous_result because processing the first copy may have
-  // legitimately advanced/cleared task_id (for example ACCEPT + IDLE).
+  // Exact duplicate directives are already durable. However, a legacy IDLE
+  // without a project plan must not freeze a lane forever at READY. Bootstrap
+  // the project Source of Truth first, then normal duplicate short-circuiting
+  // can resume.
   if (directive.digest === registryLane.last_brain_directive_digest) {
+    const bootstrap = await rearmMissingProjectPlanAfterIdle({
+      lane,
+      registryLane,
+      directive,
+      registry,
+      registryPath,
+      logPath
+    });
+    if (bootstrap.rearmed) {
+      return laneStatus(
+        lane,
+        registryLane,
+        "WAITING_BRAIN",
+        "IDLE cũ chưa có kế hoạch dự án; Robot đang tự yêu cầu Brain cập nhật project_plan."
+      );
+    }
+    if (bootstrap.exhausted) {
+      return laneStatus(
+        lane,
+        registryLane,
+        "WAIT_OWNER",
+        "Brain đã nhiều lần trả IDLE nhưng không kèm project_plan; Robot dừng an toàn để tránh gửi lặp vô hạn."
+      );
+    }
     return laneStatus(
       lane,
       registryLane,
@@ -4935,6 +5013,30 @@ async function processLaneTurn({
   });
 
   if (directive.action === "IDLE") {
+    const bootstrap = await rearmMissingProjectPlanAfterIdle({
+      lane,
+      registryLane,
+      directive,
+      registry,
+      registryPath,
+      logPath
+    });
+    if (bootstrap.rearmed) {
+      return laneStatus(
+        lane,
+        registryLane,
+        "WAITING_BRAIN",
+        "Brain trả IDLE nhưng chưa có project_plan; Robot đang tự yêu cầu cập nhật Source of Truth."
+      );
+    }
+    if (bootstrap.exhausted) {
+      return laneStatus(
+        lane,
+        registryLane,
+        "WAIT_OWNER",
+        "Brain đã nhiều lần trả IDLE nhưng không kèm project_plan; Robot dừng an toàn để tránh gửi lặp vô hạn."
+      );
+    }
     registryLane.last_brain_directive_digest = directive.digest;
     registryLane.task_id = null;
     registryLane.instruction_digest = null;
