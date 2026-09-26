@@ -34,3 +34,5 @@ jobs:
           echo DIAG_MACHINE=%COMPUTERNAME%
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\live-submit-diagnostic-20260926.ps1" -TargetComputer "DESKTOP-4K7IM13"
           exit /b %ERRORLEVEL%
+
+# diagnostic revision 2
