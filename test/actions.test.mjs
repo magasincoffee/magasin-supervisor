@@ -373,7 +373,8 @@ test("fill success without persisted text falls back to a real keyboard insertio
 
   assert.equal(result.executed, true);
   assert.equal(result.input_method, "keyboard");
-  assert.equal(composerText, "must persist before send");
+  assert.equal(composerText, "");
+  assert.equal(result.submit_evidence, "composer-changed");
   assert.ok(events.includes("fill"));
   assert.ok(events.includes("insert:must persist before send"));
   assert.equal(events.at(-1), "send");
