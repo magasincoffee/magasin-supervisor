@@ -76,7 +76,11 @@ if($enabledBefore -ne 0){
   $targetPackage=Join-Path $runtime 'package.json'
   $sourcePanel=Join-Path $env:GITHUB_WORKSPACE 'windows\control-panel.ps1'
   $targetPanel=Join-Path $runtime 'windows\control-panel.ps1'
-  foreach($p in @($sourceSrc,$targetSrc,$sourcePackage,$targetPackage,$sourcePanel,$targetPanel)){
+  $sourceWrapper=Join-Path $env:GITHUB_WORKSPACE 'windows\run-supervisor.ps1'
+  $targetWrapper=Join-Path $runtime 'windows\run-supervisor.ps1'
+  $sourceOpenChat=Join-Path $env:GITHUB_WORKSPACE 'windows\open-supervisor-chat.ps1'
+  $targetOpenChat=Join-Path $runtime 'windows\open-supervisor-chat.ps1'
+  foreach($p in @($sourceSrc,$targetSrc,$sourcePackage,$targetPackage,$sourcePanel,$targetPanel,$sourceWrapper,$targetWrapper,$sourceOpenChat,$targetOpenChat)){
     if(-not (Test-Path $p)){throw "Active-lane hotpatch missing required path: $p"}
   }
 
@@ -90,6 +94,9 @@ if($enabledBefore -ne 0){
   Write-Host 'ACTIVE_LANE_HOTPATCH_BEGIN=True'
   Copy-Item (Join-Path $sourceSrc '*') $targetSrc -Recurse -Force
   Copy-Item $sourcePanel $targetPanel -Force
+  Copy-Item $sourceWrapper $targetWrapper -Force
+  Copy-Item $sourceOpenChat $targetOpenChat -Force
+  Write-Host 'HOTPATCH_WINDOWS_LAUNCHERS_REFRESHED=True'
 
   # Windows PowerShell 5.1 decodes UTF-8 scripts without BOM as the active
   # ANSI code page. Re-encode the installed Control Panel exactly like the
