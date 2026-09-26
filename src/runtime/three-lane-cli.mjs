@@ -17,6 +17,7 @@ import {
 } from "../ui/actions.mjs";
 import {
   captureCompletedAssistantTurn,
+  captureAssistantTurnAfterUserMarker,
   captureRecentConversationTurns,
   captureUserTurnDigests,
   captureUserTurnTexts
@@ -4818,13 +4819,23 @@ async function processLaneTurn({
       );
     }
 
-    const captured = await captureCompletedAssistantTurn(workPage);
+    const currentDispatchMarker = registryLane.last_dispatch_id
+      ? workDispatchMarker(registryLane.last_dispatch_id)
+      : null;
+    const captured = currentDispatchMarker
+      ? await captureAssistantTurnAfterUserMarker(
+          workPage,
+          currentDispatchMarker
+        )
+      : await captureCompletedAssistantTurn(workPage);
     if (!captured) {
       return laneStatus(
         lane,
         registryLane,
         "WORKING",
-        "Đang chờ Work chat hoàn tất câu trả lời."
+        currentDispatchMarker
+          ? "Đang chờ câu trả lời Work thuộc đúng dispatch hiện tại; bỏ qua kết quả cũ trong lịch sử chat."
+          : "Đang chờ Work chat hoàn tất câu trả lời."
       );
     }
 
