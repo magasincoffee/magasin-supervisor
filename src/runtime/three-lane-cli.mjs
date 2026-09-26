@@ -12,6 +12,7 @@ import {
 import {
   SEND_REJECTION_CLASSES,
   classifyComposerSendRejection,
+  discardComposerDraftIfDigest,
   executeDecision,
   inspectActionSurface,
   sendComposerInstruction
@@ -613,6 +614,84 @@ async function writeLaneStatus(statusPath, statuses, scheduler = null) {
   });
 }
 
+function normalizedComposerDigest(value) {
+  return sha256(
+    String(value || "")
+      .replace(/\u200B/g, "")
+      .replace(/\r\n/g, "\n")
+      .trim()
+  );
+}
+
+function classifyConversationRoleEvidence(turns = []) {
+  let latest = null;
+  const brainPatterns = [
+    /<<<MAGASIN_LANE_DIRECTIVE_V1>>>/i,
+    /\bbrain_request_id=[0-9a-f]+\b/i,
+    /Bạn là BỘ NÃO của lane-/i,
+    /(?:vai trò|role)\s*(?:là|:)?\s*(?:BRAIN|BỘ NÃO)\b/i
+  ];
+  const workPatterns = [
+    /\bMAGASIN_WORK_DISPATCH_V1\b/i,
+    /\bWORK_EXECUTION_CONTRACT_V1\b/i,
+    /Bạn là WORK\b/i,
+    /(?:vai trò|role)\s*(?:là|:)?\s*WORK\b/i
+  ];
+  for (let index = 0; index < turns.length; index += 1) {
+    const turn = turns[index] || {};
+    const text = String(turn.text || "");
+    const brain = brainPatterns.some((pattern) => pattern.test(text));
+    const work = workPatterns.some((pattern) => pattern.test(text));
+    if (brain === work) continue;
+    latest = {
+      role: brain ? "BRAIN" : "WORK",
+      turn: Number(turn.turn || index + 1),
+      message_role: String(turn.role || ""),
+      digest: turn.digest || sha256(text)
+    };
+  }
+  return latest;
+}
+
+async function assertBrainConversationRole(page) {
+  const turns = await captureRecentConversationTurns(page, { limit: 40 })
+    .catch(() => []);
+  const evidence = classifyConversationRoleEvidence(turns);
+  if (evidence?.role === "WORK") {
+    const error = new Error(
+      "BRAIN_ROLE_MISMATCH: selected Brain URL contains newer Work-role evidence; choose the Brain conversation before Robot sends."
+    );
+    error.code = "BRAIN_ROLE_MISMATCH";
+    throw error;
+  }
+  return evidence;
+}
+
+async function discardKnownStaleDraft({
+  page,
+  digest,
+  logPath,
+  type,
+  laneId,
+  taskId = null
+}) {
+  const result = await discardComposerDraftIfDigest(page, digest)
+    .catch((error) => ({
+      discarded: false,
+      reason: String(error?.message || error).slice(0, 180)
+    }));
+  await safeLog(logPath, {
+    type: result.discarded ? type : `${type}_SKIPPED`,
+    laneId,
+    taskId: taskId || undefined,
+    digest,
+    reason: result.discarded
+      ? (result.evidence || result.method || "exact-digest-draft-cleared")
+      : (result.reason || "draft_not_discarded")
+  });
+  return result;
+}
+
 async function assertConversationSafe(adapter, page, {
   brain = false,
   allowFull = false
@@ -634,6 +713,7 @@ async function assertConversationSafe(adapter, page, {
       ? "Brain conversation is full; Owner must provide a replacement Brain URL"
       : "Work conversation is full");
   }
+  if (brain) await assertBrainConversationRole(page);
   return probe;
 }
 
@@ -1058,7 +1138,7 @@ async function inspectKnownTargetSendOutcome({
   preUserCount,
   preMaxTurnOrdinal,
   brain = false,
-  reload = false
+  extendedObservation = false
 }) {
   if (marker && await hasUserTurnMarker(page, marker)) {
     return "CONFIRMED";
@@ -1067,16 +1147,12 @@ async function inspectKnownTargetSendOutcome({
     return "CONFIRMED";
   }
 
-  if (reload) {
-    await page.reload({
-      waitUntil: "domcontentloaded",
-      timeout: 30_000
-    });
-  }
-
+  // Reconciliation is observation-only. A hard reload can replace/close the
+  // active ChatGPT page or temporarily remove the composer while a draft is
+  // still present.
   const observed = await waitForStableSendSurface(adapter, page, {
     brain,
-    timeoutMs: reload ? 15_000 : 4_000
+    timeoutMs: extendedObservation ? 15_000 : 4_000
   });
   const digests = observed.digests || [];
   if (marker && await hasUserTurnMarker(page, marker)) return "CONFIRMED";
@@ -1102,9 +1178,9 @@ async function inspectKnownTargetSendOutcome({
     return "UNCERTAIN";
   }
 
-  // Legacy v34/v35 latches may lack a baseline. Once the exact conversation
-  // has been hard-reloaded and reaches a stable assistant-complete surface,
-  // absence of the exact digest proves the attempted send was not persisted.
+  // Legacy latches may lack a baseline. Once the exact conversation reaches
+  // a stable assistant-complete surface without navigation, absence of the
+  // exact digest proves the attempted send was not persisted.
   return "NOT_CONFIRMED";
 }
 
@@ -1222,34 +1298,29 @@ async function reconcileBrainRequest({
   }
 
   if (latch.reconcile_blocked) return "BLOCKED";
-  const reload = !latch.reconcile_reloaded;
-  if (reload) {
-    latch.reconcile_reloaded = true;
+  const extendedObservation = !latch.reconcile_observed;
+  if (extendedObservation) {
+    latch.reconcile_observed = true;
     latch.reconcile_started_at = new Date().toISOString();
+    delete latch.reconcile_reloaded;
     await atomicJsonWrite(registryPath, registry);
     await safeLog(logPath, {
-      type: "LANE_BRAIN_SEND_RECONCILE_RELOAD",
+      type: "LANE_BRAIN_SEND_RECONCILE_OBSERVE",
       laneId: lane.lane_id,
-      digest: latch.digest
+      digest: latch.digest,
+      reason: "passive_observation_no_reload"
     });
   }
 
-  const inspect = () => inspectKnownTargetSendOutcome({
+  const outcome = await inspectKnownTargetSendOutcome({
     adapter,
     page,
     digest: latch.digest,
     preUserCount: latch.pre_user_count,
     preMaxTurnOrdinal: latch.pre_max_turn_ordinal,
     brain: true,
-    reload
+    extendedObservation
   });
-  const outcome = reload
-    ? await runBrowserMutation(
-        scheduler,
-        { laneId: lane.lane_id, role: "BRAIN", page, reason: "BRAIN_RECONCILE_RELOAD" },
-        inspect
-      )
-    : await inspect();
 
   if (outcome === "PENDING") return "PENDING";
 
@@ -1261,12 +1332,37 @@ async function reconcileBrainRequest({
   }
 
   if (outcome === "NOT_CONFIRMED") {
+    const staleDraft = await discardKnownStaleDraft({
+      page,
+      digest: latch.draft_digest || latch.digest,
+      logPath,
+      type: "LANE_BRAIN_STALE_DRAFT_DISCARDED",
+      laneId: lane.lane_id
+    });
+
+    if (
+      !staleDraft.discarded &&
+      staleDraft.reason &&
+      !/already empty/i.test(staleDraft.reason)
+    ) {
+      latch.reconcile_blocked = true;
+      await atomicJsonWrite(registryPath, registry);
+      await safeLog(logPath, {
+        type: "LANE_BRAIN_SEND_RECONCILE_BLOCKED",
+        laneId: lane.lane_id,
+        digest: latch.digest,
+        reason: `stale draft guard: ${staleDraft.reason}`
+      });
+      return "BLOCKED";
+    }
+
     registryLane.brain_request_inflight = null;
     await atomicJsonWrite(registryPath, registry);
     await safeLog(logPath, {
       type: "LANE_BRAIN_SEND_NOT_CONFIRMED_RETRY",
       laneId: lane.lane_id,
-      digest: latch.digest
+      digest: latch.digest,
+      reason: "passive_observation_no_reload"
     });
     return "NOT_CONFIRMED";
   }
@@ -1536,6 +1632,7 @@ async function ensureBrainRequest({
   const baseline = await captureSendBaseline(adapter, page);
   registryLane.brain_request_inflight = {
     digest,
+    draft_digest: normalizedComposerDigest(request),
     marker,
     ...baseline
   };
@@ -1796,20 +1893,22 @@ async function reconcileDispatchInflight({
   }
 
   if (latch.reconcile_blocked) return "BLOCKED";
-  const reload = !latch.reconcile_reloaded;
-  if (reload) {
-    latch.reconcile_reloaded = true;
+  const extendedObservation = !latch.reconcile_observed;
+  if (extendedObservation) {
+    latch.reconcile_observed = true;
     latch.reconcile_started_at = new Date().toISOString();
+    delete latch.reconcile_reloaded;
     await atomicJsonWrite(registryPath, registry);
     await safeLog(logPath, {
-      type: "LANE_WORK_SEND_RECONCILE_RELOAD",
+      type: "LANE_WORK_SEND_RECONCILE_OBSERVE",
       laneId: lane.lane_id,
       taskId: latch.task_id,
-      digest: latch.instruction_digest
+      digest: latch.instruction_digest,
+      reason: "passive_observation_no_reload"
     });
   }
 
-  const inspect = () => inspectKnownTargetSendOutcome({
+  const outcome = await inspectKnownTargetSendOutcome({
     adapter,
     page,
     digest: latch.instruction_digest,
@@ -1817,15 +1916,8 @@ async function reconcileDispatchInflight({
     preUserCount: latch.pre_user_count,
     preMaxTurnOrdinal: latch.pre_max_turn_ordinal,
     brain: false,
-    reload
+    extendedObservation
   });
-  const outcome = reload
-    ? await runBrowserMutation(
-        scheduler,
-        { laneId: lane.lane_id, role: "WORK", page, reason: "WORK_RECONCILE_RELOAD" },
-        inspect
-      )
-    : await inspect();
 
   if (outcome === "PENDING") {
     await safeLog(logPath, {
@@ -1849,10 +1941,37 @@ async function reconcileDispatchInflight({
   }
 
   if (outcome === "NOT_CONFIRMED") {
+    const staleDraft = await discardKnownStaleDraft({
+      page,
+      digest: latch.draft_digest || latch.instruction_digest,
+      logPath,
+      type: "LANE_WORK_STALE_DRAFT_DISCARDED",
+      laneId: lane.lane_id,
+      taskId: latch.task_id
+    });
+
+    if (
+      !staleDraft.discarded &&
+      staleDraft.reason &&
+      !/already empty/i.test(staleDraft.reason)
+    ) {
+      latch.reconcile_blocked = true;
+      await atomicJsonWrite(registryPath, registry);
+      await safeLog(logPath, {
+        type: "LANE_WORK_SEND_RECONCILE_BLOCKED",
+        laneId: lane.lane_id,
+        taskId: latch.task_id,
+        digest: latch.instruction_digest,
+        reason: `stale draft guard: ${staleDraft.reason}`
+      });
+      return "BLOCKED";
+    }
+
     if (latch.rollover_generation) {
       latch.send_attempted_at = null;
       latch.send_state = "NOT_CONFIRMED";
-      latch.reconcile_reloaded = false;
+      latch.reconcile_observed = false;
+      delete latch.reconcile_reloaded;
       delete latch.reconcile_started_at;
       await atomicJsonWrite(registryPath, registry);
       await safeLog(logPath, {
@@ -1868,7 +1987,8 @@ async function reconcileDispatchInflight({
     if (!latch.planning_contract_version) {
       latch.send_attempted_at = null;
       latch.send_state = "NOT_CONFIRMED";
-      latch.reconcile_reloaded = false;
+      latch.reconcile_observed = false;
+      delete latch.reconcile_reloaded;
       delete latch.reconcile_started_at;
       await atomicJsonWrite(registryPath, registry);
       await safeLog(logPath, {
@@ -2391,6 +2511,7 @@ async function dispatchWork({
       task_id: directive.task_id,
       dispatch_id: dispatchId,
       instruction_digest: instructionDigest,
+      draft_digest: normalizedComposerDigest(outgoingInstruction),
       directive_instruction_digest: directive.instruction_digest,
       directive_digest: directive.digest,
       dispatch_identity_digest: dispatchIdentityDigest,
@@ -3183,12 +3304,11 @@ async function resyncBrainAfterOwnerResume({
         if (typeof brainPage.bringToFront === "function") {
           await brainPage.bringToFront().catch(() => {});
         }
-        await brainPage.reload({
-          waitUntil: "domcontentloaded",
-          timeout: 30_000
-        });
+        // Owner resume is a soft resync only. A hard reload can replace or
+        // close the exact ChatGPT page and lose the composer state needed for
+        // safe reconciliation.
         if (typeof brainPage.waitForTimeout === "function") {
-          await brainPage.waitForTimeout(500);
+          await brainPage.waitForTimeout(700);
         }
       }
     );

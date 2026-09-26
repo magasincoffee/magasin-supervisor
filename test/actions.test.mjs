@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { ACTIONS } from "../src/decision.mjs";
-import { executeDecision, sendComposerInstruction } from "../src/ui/actions.mjs";
+import {
+  discardComposerDraftIfDigest,
+  executeDecision,
+  sendComposerInstruction
+} from "../src/ui/actions.mjs";
 
 process.env.MAGASIN_SUBMIT_DEBUG = "off";
 
@@ -575,6 +579,41 @@ test("composer clear alone is not accepted without a matching new user turn", as
   assert.equal(result.rejection_class, "SEND_NOT_ACTUATED");
   assert.equal(result.submit_evidence, "composer-changed");
   assert.equal(result.user_turn_evidence, "matching-user-turn-not-observed");
+});
+
+test("guarded stale draft discard clears only an exact digest match", async () => {
+  let composerText = "stale brain request";
+  const crypto = await import("node:crypto");
+  const digest = crypto.createHash("sha256")
+    .update(composerText, "utf8")
+    .digest("hex");
+
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async inputValue() { return composerText; },
+    async fill(value) { composerText = value; },
+    async click() {},
+    async press(key) {
+      if (key === "Backspace") composerText = "";
+    }
+  };
+  const page = {
+    locator() { return composer; },
+    async waitForTimeout() {}
+  };
+
+  const cleared = await discardComposerDraftIfDigest(page, digest);
+  assert.equal(cleared.discarded, true);
+  assert.equal(composerText, "");
+
+  composerText = "owner draft";
+  const preserved = await discardComposerDraftIfDigest(page, digest);
+  assert.equal(preserved.discarded, false);
+  assert.match(preserved.reason, /digest mismatch/);
+  assert.equal(composerText, "owner draft");
 });
 
 test("RBT-010 UI action layer contains no attachment upload path", async () => {

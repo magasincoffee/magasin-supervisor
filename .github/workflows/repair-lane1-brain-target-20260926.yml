@@ -1,0 +1,98 @@
+name: One-time Lane 1 Brain Target Repair 20260926
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/repair-lane1-brain-target-20260926.yml
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        slot: [1, 2]
+    runs-on: self-hosted
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Repair only the known wrong lane-1 Brain target
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "REPAIR_SLOT=${{ matrix.slot }}"
+          Write-Host "REPAIR_MACHINE=$env:COMPUTERNAME"
+
+          if ($env:COMPUTERNAME -ne 'DESKTOP-4K7IM13') {
+            Write-Host 'TARGET_MATCH=False'
+            Write-Host 'TARGET_SKIP_SAFE=True'
+            exit 0
+          }
+          Write-Host 'TARGET_MATCH=True'
+
+          . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot -Compatibility 'platform-default'
+          if (-not [string]::IsNullOrWhiteSpace([string]$env:SUPERVISOR_STATE_ROOT)) {
+            $root = [System.IO.Path]::GetFullPath([string]$env:SUPERVISOR_STATE_ROOT)
+          }
+          $configPath = Join-Path $root 'lanes.json'
+          if (-not (Test-Path $configPath)) {
+            throw "lanes.json missing at $configPath"
+          }
+
+          $wrong = 'https://chatgpt.com/c/6ab7ea33-19e8-83ec-a0ec-897baa23ea17'
+          $correct = 'https://chatgpt.com/c/6ab7e469-5afc-83ec-9eb4-5ec647f267f4'
+
+          $config = Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          $lane = @($config.lanes | Where-Object { [string]$_.lane_id -eq 'lane-1' }) | Select-Object -First 1
+          if (-not $lane) { throw 'lane-1 missing from lanes.json' }
+
+          $current = [string]$lane.brain_url
+          $revision = [int]$lane.brain_url_revision
+          Write-Host "CURRENT_BRAIN_URL=$current"
+          Write-Host "CURRENT_BRAIN_REVISION=$revision"
+
+          if ($current -eq $correct) {
+            Write-Host 'BRAIN_TARGET_ALREADY_CORRECT=True'
+            exit 0
+          }
+          if ($current -ne $wrong) {
+            Write-Host 'BRAIN_TARGET_REPAIR_SKIPPED_UNEXPECTED_CURRENT=True'
+            Write-Host 'PROJECT_STATE_PRESERVED=True'
+            exit 0
+          }
+
+          $lane.brain_url = $correct
+          $lane.brain_url_revision = $revision + 1
+
+          $temp = "$configPath.tmp"
+          $json = $config | ConvertTo-Json -Depth 30
+          [System.IO.File]::WriteAllText(
+            $temp,
+            $json + [Environment]::NewLine,
+            (New-Object System.Text.UTF8Encoding($false))
+          )
+          Move-Item -Path $temp -Destination $configPath -Force
+
+          $verify = Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          $verifyLane = @($verify.lanes | Where-Object { [string]$_.lane_id -eq 'lane-1' }) | Select-Object -First 1
+          if ([string]$verifyLane.brain_url -ne $correct) {
+            throw 'lane-1 Brain URL verification failed'
+          }
+          if ([int]$verifyLane.brain_url_revision -ne ($revision + 1)) {
+            throw 'lane-1 Brain revision verification failed'
+          }
+
+          Write-Host "NEW_BRAIN_URL=$([string]$verifyLane.brain_url)"
+          Write-Host "NEW_BRAIN_REVISION=$([int]$verifyLane.brain_url_revision)"
+          Write-Host 'BRAIN_TARGET_REPAIR_APPLIED=True'
+          Write-Host 'OTHER_LANE_TARGETS_UNCHANGED_BY_SCRIPT=True'
