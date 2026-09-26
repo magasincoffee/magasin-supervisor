@@ -1,0 +1,36 @@
+name: Live Brain Submit Diagnostic 20260926
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/live-brain-submit-diagnostic-20260926.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        slot: [1, 2]
+    runs-on: self-hosted
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Inspect live submit state on target machine
+        shell: cmd
+        run: |
+          @echo off
+          echo DIAG_SLOT=${{ matrix.slot }}
+          echo DIAG_MACHINE=%COMPUTERNAME%
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\live-submit-diagnostic-20260926.ps1" -TargetComputer "DESKTOP-4K7IM13"
+          exit /b %ERRORLEVEL%
