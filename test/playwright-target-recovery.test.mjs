@@ -82,3 +82,36 @@ test("CDP adapter contains bounded reconnect logic for a replaced browser contex
   assert.match(source, /await this\.reconnectOverCdp\(\)/);
   assert.match(source, /page = await this\.context\.newPage\(\)/);
 });
+
+test("target recovery reuses an open Project route for the same direct conversation id", async () => {
+  const adapter = new ChatGptUiAdapter({ chromeExecutable: "fake-chrome" });
+  const uuid = "6ab6b646-4804-43ec-99dd-415b1f123456";
+  const existing = fakePage(
+    `https://chatgpt.com/g/g-p-6ab5e241a9108191b8c17331941aecf5-magasin-webapp/c/${uuid}`
+  );
+  adapter.context = { pages: () => [existing] };
+
+  let creates = 0;
+  adapter.newChatPage = async () => {
+    creates += 1;
+    return fakePage("https://chatgpt.com/");
+  };
+
+  const page = await adapter.reopenTargetPage(`https://chatgpt.com/c/${uuid}`);
+  assert.equal(page, existing);
+  assert.equal(creates, 0);
+});
+
+test("findPageForTarget treats direct and Project routes as the same exact conversation", () => {
+  const adapter = new ChatGptUiAdapter({ chromeExecutable: "fake-chrome" });
+  const uuid = "6ab6b646-4804-43ec-99dd-415b1f123456";
+  const existing = fakePage(`https://chatgpt.com/c/${uuid}`);
+  adapter.context = { pages: () => [existing] };
+
+  const target = {
+    origin: "https://chatgpt.com",
+    pathname: `/g/g-p-project/c/${uuid}`
+  };
+  assert.equal(adapter.findPageForTarget(target), existing);
+});
+
