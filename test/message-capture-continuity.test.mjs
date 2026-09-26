@@ -11,7 +11,10 @@ import {
 test("assistant continuity capture returns only deterministic digests to the runtime", async () => {
   const page = {
     async evaluate() {
-      return ["older Brain response", "latest Brain response"];
+      return [
+        { role: "assistant", text: "older Brain response", turn: 1, chars: 20 },
+        { role: "assistant", text: "latest Brain response", turn: 2, chars: 21 }
+      ];
     }
   };
 
@@ -28,7 +31,10 @@ test("assistant continuity capture returns only deterministic digests to the run
 test("Worker instruction continuity capture returns only deterministic user-turn digests", async () => {
   const page = {
     async evaluate() {
-      return ["TASK-049/D instruction", "TASK-049/E instruction"];
+      return [
+        { role: "user", text: "TASK-049/D instruction", turn: 1, chars: 22 },
+        { role: "user", text: "TASK-049/E instruction", turn: 2, chars: 22 }
+      ];
     }
   };
 
@@ -57,3 +63,17 @@ test("recent conversation capture preserves role order and hashes bodies", async
   assert.equal(turns[0].digest, digestCapturedResponse("Owner asks"));
   assert.equal(turns[2].digest, digestCapturedResponse("final directive"));
 });
+
+test("capture layer includes the live ChatGPT modern DOM selectors", async () => {
+  const source = await import("node:fs/promises").then((fs) =>
+    fs.readFile(new URL("../src/ui/message-capture.mjs", import.meta.url), "utf8")
+  );
+
+  assert.match(source, /text-size-chat\.whitespace-pre-wrap/);
+  assert.match(source, /MarkdownRoot-/);
+  assert.match(source, /data-message-author-role/);
+  assert.match(source, /compareDocumentPosition/);
+  assert.match(source, /modern-user/);
+  assert.match(source, /modern-assistant/);
+});
+
