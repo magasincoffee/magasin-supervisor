@@ -1298,34 +1298,29 @@ async function reconcileBrainRequest({
   }
 
   if (latch.reconcile_blocked) return "BLOCKED";
-  const reload = !latch.reconcile_reloaded;
-  if (reload) {
-    latch.reconcile_reloaded = true;
+  const extendedObservation = !latch.reconcile_observed;
+  if (extendedObservation) {
+    latch.reconcile_observed = true;
     latch.reconcile_started_at = new Date().toISOString();
+    delete latch.reconcile_reloaded;
     await atomicJsonWrite(registryPath, registry);
     await safeLog(logPath, {
-      type: "LANE_BRAIN_SEND_RECONCILE_RELOAD",
+      type: "LANE_BRAIN_SEND_RECONCILE_OBSERVE",
       laneId: lane.lane_id,
-      digest: latch.digest
+      digest: latch.digest,
+      reason: "passive_observation_no_reload"
     });
   }
 
-  const inspect = () => inspectKnownTargetSendOutcome({
+  const outcome = await inspectKnownTargetSendOutcome({
     adapter,
     page,
     digest: latch.digest,
     preUserCount: latch.pre_user_count,
     preMaxTurnOrdinal: latch.pre_max_turn_ordinal,
     brain: true,
-    reload
+    extendedObservation
   });
-  const outcome = reload
-    ? await runBrowserMutation(
-        scheduler,
-        { laneId: lane.lane_id, role: "BRAIN", page, reason: "BRAIN_RECONCILE_RELOAD" },
-        inspect
-      )
-    : await inspect();
 
   if (outcome === "PENDING") return "PENDING";
 
@@ -1337,12 +1332,37 @@ async function reconcileBrainRequest({
   }
 
   if (outcome === "NOT_CONFIRMED") {
+    const staleDraft = await discardKnownStaleDraft({
+      page,
+      digest: latch.draft_digest || latch.digest,
+      logPath,
+      type: "LANE_BRAIN_STALE_DRAFT_DISCARDED",
+      laneId: lane.lane_id
+    });
+
+    if (
+      !staleDraft.discarded &&
+      staleDraft.reason &&
+      !/already empty/i.test(staleDraft.reason)
+    ) {
+      latch.reconcile_blocked = true;
+      await atomicJsonWrite(registryPath, registry);
+      await safeLog(logPath, {
+        type: "LANE_BRAIN_SEND_RECONCILE_BLOCKED",
+        laneId: lane.lane_id,
+        digest: latch.digest,
+        reason: `stale draft guard: ${staleDraft.reason}`
+      });
+      return "BLOCKED";
+    }
+
     registryLane.brain_request_inflight = null;
     await atomicJsonWrite(registryPath, registry);
     await safeLog(logPath, {
       type: "LANE_BRAIN_SEND_NOT_CONFIRMED_RETRY",
       laneId: lane.lane_id,
-      digest: latch.digest
+      digest: latch.digest,
+      reason: "passive_observation_no_reload"
     });
     return "NOT_CONFIRMED";
   }
@@ -1612,6 +1632,7 @@ async function ensureBrainRequest({
   const baseline = await captureSendBaseline(adapter, page);
   registryLane.brain_request_inflight = {
     digest,
+    draft_digest: normalizedComposerDigest(request),
     marker,
     ...baseline
   };
