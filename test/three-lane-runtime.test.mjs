@@ -176,7 +176,12 @@ test("lane STOP then START reloads Brain once and adopts an already-visible unco
   assert.match(source, /OWNER_LANE_RESUME_BRAIN_RESYNC/);
   assert.match(source, /brainPage\.reload/);
   assert.match(source, /registryLane\.applied_resume_revision = revision/);
+  assert.match(source, /registryLane\.brain_resume_recovery_version = 1/);
+  assert.match(source, /needsMigrationRecovery/);
+  assert.match(source, /allowResumeRecovery/);
+  assert.match(source, /LANE_BRAIN_DIRECTIVE_RESUME_RECOVERY/);
   assert.match(source, /const resumedDirective = await adoptExistingBrainDirective/);
+  assert.match(source, /allowResumeRecovery: Boolean\(resumeResync\.recoveryAuthority\)/);
   assert.match(source, /directive: resumedDirective/);
   assert.match(source, /Đã đồng bộ lại lệnh Brain/);
   assert.doesNotMatch(
