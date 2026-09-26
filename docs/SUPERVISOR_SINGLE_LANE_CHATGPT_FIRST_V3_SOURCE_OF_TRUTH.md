@@ -73,6 +73,40 @@ This lock is derived from the released Three-Lane baseline at `1b5779fb1652e691f
 7. Historical Three-Lane/RBT evidence remains audit/rollback provenance only. It does not become V3 planning authority and cannot be used to skip SL3 qualification or Owner cutover.
 8. No A2 change mutates production runtime, Chrome/profile, local lane/task state, targets, latches, or historical evidence.
 
+### 3.3 Legacy Three-Lane rollback freeze — SL3-P0-A4
+
+SL3-P0-A4 freezes the released Three-Lane implementation as **LEGACY / ROLLBACK-ONLY** until both conditions are satisfied: (1) the Single-Lane V3 candidate completes its required qualification sequence and (2) the Owner explicitly authorizes production cutover. This is an authority and rollback-semantics lock only; it does **not** implement Single-Lane runtime behavior.
+
+- Accepted A3 parent: `067e22af981c5042f17d06adaf6ae5e7ba42ec5c`.
+- Released Three-Lane production baseline: `1b5779fb1652e691f25cc5f0f5b586a74b1fc012`.
+- Immutable rollback source authority: `magasincoffee/magasin-supervisor@1b5779fb1652e691f25cc5f0f5b586a74b1fc012`.
+- Production runtime before cutover: **THREE_LANE_V1**.
+- Forward architecture: **SINGLE_LANE_CHATGPT_FIRST_V3**.
+- Automatic V3 activation: **false**.
+- V3 qualification required: **true**.
+- Owner-explicit cutover required: **true**.
+- Legacy forward feature development: **false**.
+- Runtime behavior changed by A4: **false**.
+
+Legacy rollback entry-point provenance remains explicit and must not be deleted or renamed by A4:
+
+- `windows/run-supervisor.ps1`
+- `src/runtime/three-lane-cli.mjs`
+- `src/runtime/three-lane.mjs`
+
+Rollback source is **snapshot-atomic**: if rollback source must be materialized, use the exact immutable released snapshot `magasincoffee/magasin-supervisor@1b5779fb1652e691f25cc5f0f5b586a74b1fc012` or a separately qualified replacement. It is forbidden to compose an old legacy entry point with newer shared/runtime files from V3 into an unqualified mixed tree.
+
+Rollback must preserve durable authority and state. It must not clear or bypass `STOP` or `AUTOSTART_DISABLED`; reset the active task, `dispatch_inflight` or `relay_inflight`; replace Brain or Work targets; reset target revisions; delete/reset the dedicated browser profile; destroy the canonical state root; replay an unresolved browser effect before durable-intent/latch reconciliation; or restore Three-Lane/RBT documentation as forward Source of Truth. Durable state remains authoritative before replay-sensitive effects.
+
+Forward-development boundary after A4:
+
+- Three-Lane remains the production baseline until cutover and exists only as rollback provenance/runtime.
+- Three-Lane receives no new V3 feature development.
+- Single-Lane ChatGPT-First V3 remains the only forward architecture.
+- New implementation work follows the SL3-P1+ roadmap.
+- V3 must not be implemented by incrementally turning the legacy Three-Lane runtime into Single-Lane via a few flags/conditionals.
+- SL3-P1-A1 is the next dependency-correct task, but remains **NOT STARTED** until Brain VERIFY/ACCEPT of A4.
+
 ## 4. Removed from the target architecture
 
 - three simultaneously active lanes.
@@ -280,8 +314,8 @@ Every implementation task follows **PLAN → DISPATCH → VERIFY → ACCEPT/REJE
 
 ## 12. Current task boundary
 
-**SL3-P0-A1 is Brain-accepted at `c801604ab0de442215f1bccf32210aae0cb6279a`.** The only active task represented by this change is **SL3-P0-A2 — Lock preserved invariants and rollback boundary from released runtime**.
+SL3-P0-A1/A2/A3 are accepted predecessors. The exact accepted A3 parent for this change is `067e22af981c5042f17d06adaf6ae5e7ba42ec5c`.
 
-A2 changes documentation/repository authority only. It does not change runtime behavior, restart Chrome, mutate production/local lane or task state, alter Brain/Work targets/latches/profile, merge/deploy/hotpatch V3, or begin SL3-P0-A3.
+The only active task represented by this change is **SL3-P0-A4 — Freeze Three-Lane as rollback-only legacy runtime until V3 cutover**. A4 is documentation/authority/test-guard work only: it does not change runtime behavior, implement Single-Lane runtime, restart Chrome, mutate production/local Supervisor state, alter Brain/Work targets/latches/profile, merge/deploy/hotpatch, or change Robot durable project progress.
 
-**SL3-P0-A2 stop state: READY_FOR_VERIFY.** SL3-P0-A3 remains NOT STARTED until Brain VERIFY/ACCEPT.
+**SL3-P0-A4 stop state: READY_FOR_VERIFY.** The next dependency-correct task is **SL3-P1-A1 — Define single-lane config and durable registry schema**, but SL3-P1-A1 remains **NOT STARTED** until Brain VERIFY/ACCEPT of A4.
