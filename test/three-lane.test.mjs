@@ -394,3 +394,14 @@ test("lane registry persists bounded Brain IDLE recheck retries", () => {
   assert.equal(normalized.lanes["lane-2"].brain_idle_recheck_retries, 0);
 });
 
+test("Brain start request scans the whole incomplete plan before accepting IDLE", () => {
+  const text = buildBrainStartRequest({
+    laneId: "lane-1",
+    projectName: "Supervisor"
+  });
+
+  assert.match(text, /không còn bất kỳ phần việc an toàn\/dependency-ready nào trong toàn bộ project_plan/);
+  assert.match(text, /rà soát TOÀN BỘ task chưa hoàn thành/);
+  assert.match(text, /chọn một task khác nếu có bất kỳ task nào dependency-ready\/an toàn/);
+});
+
