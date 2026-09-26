@@ -380,9 +380,10 @@ test("fill success without persisted text falls back to a real keyboard insertio
   assert.equal(events.at(-1), "send");
 });
 
-test("composer send fails closed when click leaves the exact instruction in place", async () => {
+test("composer send recovers an inert Send click with one bounded Enter", async () => {
   let composerText = "";
   let clicks = 0;
+  let enters = 0;
 
   const composer = {
     first() { return this; },
@@ -408,7 +409,68 @@ test("composer send fails closed when click leaves the exact instruction in plac
     async evaluate() { return []; },
     async waitForTimeout() {},
     async bringToFront() {},
-    keyboard: { async press() {}, async insertText() {} },
+    keyboard: {
+      async press(key) {
+        if (key === "Enter") {
+          enters += 1;
+          composerText = "";
+        }
+      },
+      async insertText() {}
+    },
+    getByRole() { return inertSend; }
+  };
+
+  const result = await sendComposerInstruction(
+    page,
+    "recover after inert click",
+    { dryRun: false }
+  );
+
+  assert.equal(clicks, 1);
+  assert.equal(enters, 1);
+  assert.equal(result.executed, true);
+  assert.equal(result.primary_submit_evidence, "instruction-still-present");
+  assert.equal(result.submit_evidence, "composer-changed");
+  assert.match(result.send_method, /enter-recovery/);
+  assert.equal(composerText, "");
+});
+
+test("composer send fails closed when click and Enter are both inert", async () => {
+  let composerText = "";
+  let clicks = 0;
+  let enters = 0;
+
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async fill(value) { composerText = value; },
+    async inputValue() { return composerText; },
+    async click() {},
+    async press() {}
+  };
+  const inertSend = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() { clicks += 1; }
+  };
+  const page = {
+    locator(selector) {
+      if (selector.includes("send-button")) return inertSend;
+      return composer;
+    },
+    async evaluate() { return []; },
+    async waitForTimeout() {},
+    async bringToFront() {},
+    keyboard: {
+      async press(key) {
+        if (key === "Enter") enters += 1;
+      },
+      async insertText() {}
+    },
     getByRole() { return inertSend; }
   };
 
@@ -419,8 +481,10 @@ test("composer send fails closed when click leaves the exact instruction in plac
   );
 
   assert.equal(clicks, 1);
+  assert.equal(enters, 1);
   assert.equal(result.executed, false);
   assert.equal(result.rejection_class, "SEND_NOT_ACTUATED");
+  assert.equal(result.primary_submit_evidence, "instruction-still-present");
   assert.equal(result.submit_evidence, "instruction-still-present");
   assert.equal(composerText, "must not be reported as sent");
 });
@@ -444,10 +508,14 @@ test("composer send prefers an exact visible send-button selector before bounded
   assert.match(source, /DIRECT_SEND_SELECTORS/);
   assert.match(source, /data-testid="send-button"/);
   assert.match(source, /composer-submit-button/);
+  assert.match(source, /button\[type="submit"\]/);
+  assert.match(source, /FORM_SEND_SELECTORS/);
   assert.match(source, /data-testid\*="send"/);
   assert.match(source, /clickReadyDirectSendControl/);
   assert.match(source, /ancestor::form\[1\]/);
   assert.match(source, /waitForComposerSubmission/);
+  assert.match(source, /pressComposerEnter/);
+  assert.match(source, /enter-recovery/);
   assert.match(source, /force: true/);
 });
 
