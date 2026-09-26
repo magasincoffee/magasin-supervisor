@@ -271,3 +271,15 @@ test("Control Panel shows durable project task progress and percent per lane", a
   assert.match(source, /\+ '%'/);
 });
 
+test("manual Robot Chrome launch uses the same anti-throttling flags", async () => {
+  const launcher = await fs.readFile(
+    new URL("../windows/open-supervisor-chat.ps1", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(launcher, /--disable-background-timer-throttling/);
+  assert.match(launcher, /--disable-backgrounding-occluded-windows/);
+  assert.match(launcher, /--disable-renderer-backgrounding/);
+  assert.match(launcher, /--disable-features=CalculateNativeWinOcclusion/);
+});
+
