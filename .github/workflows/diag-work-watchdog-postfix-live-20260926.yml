@@ -1,0 +1,72 @@
+name: Post-fix Work Watchdog Live Diagnostic
+
+on:
+  push:
+    branches:
+      - diag/work-watchdog-postfix-live-20260926
+    paths:
+      - .github/workflows/diag-work-watchdog-postfix-live-20260926.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - name: Checkout diagnostic branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Read live watchdog state on DESKTOP-4K7IM13
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Write-Host "DIAG_MACHINE=$env:COMPUTERNAME"
+          if($env:COMPUTERNAME -ne 'DESKTOP-4K7IM13'){
+            Write-Host 'TARGET_MATCH=False'
+            Write-Host 'TARGET_SKIP_SAFE=True'
+            exit 0
+          }
+          Write-Host 'TARGET_MATCH=True'
+          . ".\windows\state-root.ps1"
+          . ".\windows\lifecycle-truth.ps1"
+          $root=Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
+          $root=Set-SupervisorStateRootBinding -Root $root
+          Write-Host "CANONICAL_ROOT=$root"
+
+          $truth=Get-LifecycleProcessTruth -Root $root
+          Write-Host "WRAPPER_ALIVE=$([bool]$truth.wrapper_alive)"
+          Write-Host "THREE_LANE_ALIVE=$([bool]$truth.three_lane_alive)"
+          Write-Host "CDP_HEALTHY=$([bool]$truth.cdp_healthy)"
+          Write-Host "RUNTIME_HEALTHY=$([bool]$truth.healthy)"
+
+          $runtimeCli=Join-Path $root 'runtime\src\runtime\three-lane-cli.mjs'
+          $runtimeWatchdog=Join-Path $root 'runtime\src\runtime\work-watchdog.mjs'
+          $runtimeEvents=Join-Path $root 'runtime\src\runtime\lane-events.mjs'
+          foreach($p in @($runtimeCli,$runtimeWatchdog,$runtimeEvents)){
+            if(-not (Test-Path $p)){throw "Missing installed runtime file: $p"}
+          }
+          $cliText=Get-Content $runtimeCli -Raw -Encoding UTF8
+          $watchdogText=Get-Content $runtimeWatchdog -Raw -Encoding UTF8
+          $eventsText=Get-Content $runtimeEvents -Raw -Encoding UTF8
+          Write-Host "FIX_PROGRESS_CHANGED=$($cliText -match [regex]::Escape('activityChanged: activity.progress_changed'))"
+          Write-Host "FIX_ACTION_NOT_READY=$($cliText -match [regex]::Escape('ACTION_NOT_READY'))"
+          Write-Host "FIX_STALE_RUNNING_GUARD=$($watchdogText -match [regex]::Escape('responseRunningFresh'))"
+          Write-Host "FIX_MONOTONIC_OBSERVATION=$($eventsText -match [regex]::Escape('Math.max(') -and $eventsText -match [regex]::Escape('progress_changed'))"
+
+          $registryPath=Join-Path $root 'lane-registry.json'
+          $statusPath=Join-Path $root 'lane-status.json'
+          if(-not (Test-Path $registryPath)){throw 'lane-registry.json missing'}
+          $reg=Get-Content $registryPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          foreach($laneId in @('lane-1','lane-2','lane-3')){
+            $lane=$reg.lanes.$laneId
+            if(-not $lane){continue}
+            Write-Host "LANE=$laneId|TASK=$([string]$lane.task_id)|AWAITING=$([bool]$lane.awaiting_work)|PHASE=$([string]$lane.work_watchdog.phase)|LAST_ACTIVITY=$([string]$lane.task_timing.last_activity_at)|RELOADS=$([string]$lane.work_watchdog.reload_count)|CONTINUES=$([string]$lane.work_watchdog.continue_count)|DISPATCH=$([string]$lane.last_dispatch_id)"
+          }
+          if(Test-Path $statusPath){
+            $status=Get-Content $statusPath -Raw -Encoding UTF8
+            Write-Host "LANE_STATUS_RAW=$status"
+          }
+          Write-Host 'POSTFIX_WATCHDOG_DIAG=PASS'
