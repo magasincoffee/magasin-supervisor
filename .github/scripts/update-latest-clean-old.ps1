@@ -35,12 +35,13 @@ $desktop=[Environment]::GetFolderPath('Desktop')
 $shortcutDisplayName='MAGASIN SUPERVISOR '+[char]0x2014+' CONTROL CENTER.lnk'
 $shortcutPath=Join-Path $desktop $shortcutDisplayName
 $installScript=Join-Path $env:GITHUB_WORKSPACE 'windows\install-supervisor.ps1'
+$lifecycleScript=Join-Path $env:GITHUB_WORKSPACE 'windows\lifecycle-truth.ps1'
 
 Write-Host "EXPECTED_MAIN_SHA=$ExpectedMainSha"
 Write-Host "CANONICAL_ROOT=$canonical"
 Write-Host "LEGACY_ROOT=$legacy"
 
-foreach($p in @($configFile,$registryFile,$installScript)){
+foreach($p in @($configFile,$registryFile,$installScript,$lifecycleScript)){
   if(-not (Test-Path $p)){throw "Missing required path: $p"}
 }
 
@@ -58,13 +59,102 @@ function Get-TargetFingerprint([string]$Path){
 $cfgBefore=Get-Content $configFile -Raw -Encoding UTF8|ConvertFrom-Json
 $enabledBefore=@($cfgBefore.lanes|Where-Object{[bool]$_.enabled}).Count
 Write-Host "ENABLED_LANES_BEFORE=$enabledBefore"
-if($enabledBefore -ne 0){
-  Write-Host 'UPDATE_RESULT=DEFERRED_ENABLED_LANES'
-  exit 0
-}
-
 $fingerprintBefore=Get-TargetFingerprint $configFile
 $regBefore=Get-Content $registryFile -Raw -Encoding UTF8|ConvertFrom-Json
+
+if($enabledBefore -ne 0){
+  . $lifecycleScript
+  $ownerStop=Get-LifecycleOwnerStopState -Root $canonical
+  if($ownerStop.blocked){
+    Write-Host 'UPDATE_RESULT=DEFERRED_OWNER_STOP'
+    exit 0
+  }
+
+  $sourceSrc=Join-Path $env:GITHUB_WORKSPACE 'src'
+  $targetSrc=Join-Path $runtime 'src'
+  $sourcePackage=Join-Path $env:GITHUB_WORKSPACE 'package.json'
+  $targetPackage=Join-Path $runtime 'package.json'
+  foreach($p in @($sourceSrc,$targetSrc,$sourcePackage,$targetPackage)){
+    if(-not (Test-Path $p)){throw "Active-lane hotpatch missing required path: $p"}
+  }
+
+  $sourcePackageHash=(Get-FileHash $sourcePackage -Algorithm SHA256).Hash
+  $targetPackageHash=(Get-FileHash $targetPackage -Algorithm SHA256).Hash
+  if($sourcePackageHash -ne $targetPackageHash){
+    Write-Host 'UPDATE_RESULT=DEFERRED_PACKAGE_CHANGE'
+    exit 0
+  }
+
+  Write-Host 'ACTIVE_LANE_HOTPATCH_BEGIN=True'
+  Copy-Item (Join-Path $sourceSrc '*') $targetSrc -Recurse -Force
+
+  $sourceActions=Join-Path $sourceSrc 'ui\actions.mjs'
+  $targetActions=Join-Path $targetSrc 'ui\actions.mjs'
+  if(-not (Test-Path $targetActions)){throw 'Hotpatch target actions.mjs missing after overlay.'}
+  $sourceActionsHash=(Get-FileHash $sourceActions -Algorithm SHA256).Hash
+  $targetActionsHash=(Get-FileHash $targetActions -Algorithm SHA256).Hash
+  if($sourceActionsHash -ne $targetActionsHash){throw 'Hotpatch actions.mjs hash mismatch.'}
+  Write-Host "HOTPATCH_ACTIONS_SHA256=$targetActionsHash"
+
+  $wrapper=Get-LifecycleSupervisorWrapper -Root $canonical
+  if($wrapper){
+    $wrapperPid=[int]$wrapper.ProcessId
+    $child=Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+      Where-Object {
+        [int]$_.ParentProcessId -eq $wrapperPid -and
+        $_.CommandLine -and $_.CommandLine -like '*three-lane-cli.mjs*'
+      } |
+      Select-Object -First 1
+    if($child){
+      Stop-Process -Id ([int]$child.ProcessId) -Force -ErrorAction Stop
+      Write-Host "HOTPATCH_OLD_THREE_LANE_STOPPED=$($child.ProcessId)"
+    }else{
+      Write-Host 'HOTPATCH_CHILD_ALREADY_ABSENT=True'
+    }
+  }else{
+    $startScript=Join-Path $runtime 'windows\start-supervisor.ps1'
+    if(-not (Test-Path $startScript)){throw 'Hotpatch recovery start script missing.'}
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $startScript -Hidden -Recovery
+    if($LASTEXITCODE -ne 0){throw 'Hotpatch recovery start failed.'}
+    Write-Host 'HOTPATCH_RECOVERY_START_REQUESTED=True'
+  }
+
+  $healthy=$false
+  for($i=0;$i -lt 60;$i++){
+    Start-Sleep -Milliseconds 500
+    $truth=Get-LifecycleProcessTruth -Root $canonical
+    if($truth.healthy){
+      $healthy=$true
+      Write-Host "HOTPATCH_WRAPPER_ALIVE=$([bool]$truth.wrapper_alive)"
+      Write-Host "HOTPATCH_THREE_LANE_ALIVE=$([bool]$truth.three_lane_alive)"
+      Write-Host "HOTPATCH_CDP_HEALTHY=$([bool]$truth.cdp_healthy)"
+      break
+    }
+  }
+  if(-not $healthy){throw 'Hotpatch runtime did not become healthy within bounded wait.'}
+
+  $fingerprintAfter=Get-TargetFingerprint $configFile
+  if($fingerprintBefore -ne $fingerprintAfter){throw 'Project target fingerprint changed during active-lane hotpatch.'}
+
+  $cfgAfter=Get-Content $configFile -Raw -Encoding UTF8|ConvertFrom-Json
+  $enabledAfter=@($cfgAfter.lanes|Where-Object{[bool]$_.enabled}).Count
+  if($enabledAfter -ne $enabledBefore){throw 'Lane enabled state changed during active-lane hotpatch.'}
+
+  $regAfter=Get-Content $registryFile -Raw -Encoding UTF8|ConvertFrom-Json
+  foreach($laneName in @('lane-1','lane-2','lane-3')){
+    $before=$regBefore.lanes.$laneName
+    $after=$regAfter.lanes.$laneName
+    if($before -and $after){
+      if([string]$before.task_id -ne [string]$after.task_id){throw "Task changed for $laneName during hotpatch."}
+      if([bool]$before.awaiting_work -ne [bool]$after.awaiting_work){throw "Awaiting state changed for $laneName during hotpatch."}
+    }
+  }
+
+  Write-Host 'TARGET_FINGERPRINT_UNCHANGED=True'
+  Write-Host 'PROJECT_STATE_PRESERVED=True'
+  Write-Host 'UPDATE_RESULT=HOTPATCH_ENABLED_LANES'
+  exit 0
+}
 
 $sourcePanel=Get-Content (Join-Path $env:GITHUB_WORKSPACE 'windows\control-panel.ps1') -Raw -Encoding UTF8
 foreach($marker in @('CONTROL PANEL V2','heroPanel','overviewPanel','$resetAllButton = New-Object Windows.Forms.Button','Request-RunnerRecovery','Request-LifecycleRecovery','for ($eventIndex = $events.Count - 1; $eventIndex -ge 0; $eventIndex--)')){
