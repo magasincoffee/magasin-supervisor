@@ -667,6 +667,31 @@ async function assertBrainConversationRole(page) {
   return evidence;
 }
 
+async function discardKnownStaleDraft({
+  page,
+  digest,
+  logPath,
+  type,
+  laneId,
+  taskId = null
+}) {
+  const result = await discardComposerDraftIfDigest(page, digest)
+    .catch((error) => ({
+      discarded: false,
+      reason: String(error?.message || error).slice(0, 180)
+    }));
+  await safeLog(logPath, {
+    type: result.discarded ? type : `${type}_SKIPPED`,
+    laneId,
+    taskId: taskId || undefined,
+    digest,
+    reason: result.discarded
+      ? (result.evidence || result.method || "exact-digest-draft-cleared")
+      : (result.reason || "draft_not_discarded")
+  });
+  return result;
+}
+
 async function assertConversationSafe(adapter, page, {
   brain = false,
   allowFull = false
