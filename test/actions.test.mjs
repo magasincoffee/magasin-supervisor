@@ -9,6 +9,7 @@ function fakeLocator({
   onClick = () => {},
   onFill = () => {},
   onPress = () => {},
+  inputValue = null,
   fillError = null,
   enabled = true,
   editable = true,
@@ -25,7 +26,11 @@ function fakeLocator({
       if (fillError) throw fillError;
       onFill(value);
     },
-    async press(key) { onPress(key); }
+    async press(key) { onPress(key); },
+    async inputValue() {
+      if (typeof inputValue === "function") return inputValue();
+      throw new Error("inputValue unavailable");
+    }
   };
 }
 
@@ -38,31 +43,61 @@ function fakePage({
   onInsertText = () => {},
   fillError = null
 } = {}) {
+  let composerText = "";
+
+  const composer = () => fakeLocator({
+    visible: composerVisible,
+    enabled: true,
+    fillError,
+    inputValue: () => composerText,
+    onFill: (value) => {
+      composerText = value;
+      onFill(value);
+    },
+    onPress: (key) => {
+      if (key === "Backspace" || key === "Enter") composerText = "";
+      onPress(key);
+    }
+  });
+
+  const sendControl = () => fakeLocator({
+    visible: true,
+    enabled: true,
+    onClick: () => {
+      composerText = "";
+      onClick();
+    }
+  });
+
   return {
     async evaluate() { return controls; },
     locator(selector) {
-      if (selector.includes("prompt-textarea") || selector.includes("contenteditable")) {
-        return fakeLocator({
-          visible: composerVisible,
-          enabled: true,
-          onFill,
-          onPress,
-          fillError
-        });
+      if (
+        selector.includes("prompt-textarea") ||
+        selector.includes("contenteditable") ||
+        selector.includes("textarea")
+      ) {
+        return composer();
       }
       if (selector.includes("data-testid")) {
-        return fakeLocator({ visible: true, enabled: true, onClick });
+        return sendControl();
       }
       return fakeLocator({ visible: false, enabled: false, count: 0 });
     },
     async waitForTimeout() {},
     async bringToFront() {},
     keyboard: {
-      async insertText(value) { onInsertText(value); },
-      async press(key) { onPress(key); }
+      async insertText(value) {
+        composerText = value;
+        onInsertText(value);
+      },
+      async press(key) {
+        if (key === "Enter") composerText = "";
+        onPress(key);
+      }
     },
     getByRole() {
-      return fakeLocator({ visible: true, onClick });
+      return sendControl();
     }
   };
 }
@@ -230,6 +265,7 @@ test("long conversations bypass the 200-control snapshot and click the exact sen
 test("plaintext-only ChatGPT composer is accepted as an editable surface", async () => {
   let filled = null;
   let clicks = 0;
+  let composerText = "";
 
   const composer = {
     first() { return this; },
@@ -241,7 +277,11 @@ test("plaintext-only ChatGPT composer is accepted as an editable surface", async
       if (name === "role") return "textbox";
       return null;
     },
-    async fill(value) { filled = value; },
+    async fill(value) {
+      filled = value;
+      composerText = value;
+    },
+    async inputValue() { return composerText; },
     async click() {},
     async press() {}
   };
@@ -249,7 +289,10 @@ test("plaintext-only ChatGPT composer is accepted as an editable surface", async
     first() { return this; },
     async isVisible() { return true; },
     async isEnabled() { return true; },
-    async click() { clicks += 1; }
+    async click() {
+      clicks += 1;
+      composerText = "";
+    }
   };
   const page = {
     locator(selector) {
@@ -299,7 +342,10 @@ test("fill success without persisted text falls back to a real keyboard insertio
     first() { return this; },
     async isVisible() { return true; },
     async isEnabled() { return true; },
-    async click() { events.push("send"); }
+    async click() {
+      composerText = "";
+      events.push("send");
+    }
   };
   const page = {
     locator(selector) {
@@ -333,6 +379,51 @@ test("fill success without persisted text falls back to a real keyboard insertio
   assert.equal(events.at(-1), "send");
 });
 
+test("composer send fails closed when click leaves the exact instruction in place", async () => {
+  let composerText = "";
+  let clicks = 0;
+
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async fill(value) { composerText = value; },
+    async inputValue() { return composerText; },
+    async click() {},
+    async press() {}
+  };
+  const inertSend = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() { clicks += 1; }
+  };
+  const page = {
+    locator(selector) {
+      if (selector.includes("send-button")) return inertSend;
+      return composer;
+    },
+    async evaluate() { return []; },
+    async waitForTimeout() {},
+    async bringToFront() {},
+    keyboard: { async press() {}, async insertText() {} },
+    getByRole() { return inertSend; }
+  };
+
+  const result = await sendComposerInstruction(
+    page,
+    "must not be reported as sent",
+    { dryRun: false }
+  );
+
+  assert.equal(clicks, 1);
+  assert.equal(result.executed, false);
+  assert.equal(result.rejection_class, "SEND_NOT_ACTUATED");
+  assert.equal(result.submit_evidence, "instruction-still-present");
+  assert.equal(composerText, "must not be reported as sent");
+});
+
 test("RBT-010 UI action layer contains no attachment upload path", async () => {
   const source = await import("node:fs/promises").then((fs) =>
     fs.readFile(new URL("../src/ui/actions.mjs", import.meta.url), "utf8")
@@ -354,6 +445,8 @@ test("composer send prefers an exact visible send-button selector before bounded
   assert.match(source, /composer-submit-button/);
   assert.match(source, /data-testid\*="send"/);
   assert.match(source, /clickReadyDirectSendControl/);
+  assert.match(source, /ancestor::form\[1\]/);
+  assert.match(source, /waitForComposerSubmission/);
   assert.match(source, /force: true/);
 });
 
