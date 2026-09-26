@@ -21,16 +21,17 @@ test("TASK-RBT-005 watchdog remains canonical after v60 Brain planning contract 
   assert.equal((runtime.match(/evaluateWorkWatchdog\(/g) || []).length, 1);
 });
 
-test("dispatch confirmation reload budget stays separate from execution watchdog reload budget", async () => {
+test("dispatch confirmation is passive while execution watchdog retains its independent bounded reload budget", async () => {
   const runtime = await read("../src/runtime/three-lane-cli.mjs");
   const watchdog = await read("../src/runtime/work-watchdog.mjs");
 
-  assert.match(runtime, /reconcile_reloaded/);
-  assert.match(runtime, /reason: "WORK_RECONCILE_RELOAD"/);
+  assert.match(runtime, /reconcile_observed/);
+  assert.match(runtime, /LANE_WORK_SEND_RECONCILE_OBSERVE/);
+  assert.doesNotMatch(runtime, /reason: "WORK_RECONCILE_RELOAD"/);
   assert.match(runtime, /reason: "WATCHDOG_RECOVERY_RELOAD"/);
   assert.match(watchdog, /reload_count/);
   assert.match(watchdog, /recovery_epoch/);
-  assert.doesNotMatch(watchdog, /reconcile_reloaded/);
+  assert.doesNotMatch(watchdog, /reconcile_observed/);
   assert.doesNotMatch(watchdog, /dispatch_inflight\s*=/);
 });
 
