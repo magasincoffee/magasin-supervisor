@@ -14,7 +14,9 @@ Write-Host "CDP_HEALTHY=$([bool]$truth.cdp_healthy)"
 Write-Host "RUNTIME_HEALTHY=$([bool]$truth.healthy)"
 $ownerStop=Get-LifecycleOwnerStopState -Root $root
 Write-Host "OWNER_STOP_BLOCKED=$([bool]$ownerStop.blocked)"
-Write-Host "OWNER_STOP_REASON=$([string]$ownerStop.reason)"
+$ownerStopReason=''
+if($ownerStop.PSObject.Properties['reason']){$ownerStopReason=[string]$ownerStop.reason}
+Write-Host "OWNER_STOP_REASON=$ownerStopReason"
 
 $configPath=Join-Path $root 'lanes.json'
 if(Test-Path $configPath){
