@@ -160,24 +160,24 @@ if (Test-Path $diagScript -PathType Leaf) {
 }
 
 
-$eventPath = Join-Path $root 'lane-events.ndjson'
+$eventPath = Join-Path $root 'supervisor.log'
 if (Test-Path $eventPath -PathType Leaf) {
   $safeEvents = @()
   foreach ($line in @(Get-Content $eventPath -Tail 120 -Encoding UTF8 -ErrorAction SilentlyContinue)) {
     try {
       $evt = $line | ConvertFrom-Json
-      if ([string]$evt.laneId -eq 'lane-1') { $safeEvents += $evt }
+      if ([string]$evt.lane_id -eq 'lane-1') { $safeEvents += $evt }
     } catch {}
   }
   $start = [Math]::Max(0, $safeEvents.Count - 35)
   for ($i = $start; $i -lt $safeEvents.Count; $i++) {
     $evt = $safeEvents[$i]
-    $ts = if ($evt.PSObject.Properties['ts']) { [string]$evt.ts } elseif ($evt.PSObject.Properties['at']) { [string]$evt.at } else { '' }
+    $ts = if ($evt.PSObject.Properties['timestamp']) { [string]$evt.timestamp } else { '' }
     $type = if ($evt.PSObject.Properties['type']) { [string]$evt.type } else { '' }
     $reason = if ($evt.PSObject.Properties['reason']) { [string]$evt.reason } else { '' }
     $sendReason = if ($evt.PSObject.Properties['sendReason']) { [string]$evt.sendReason } else { '' }
     $sendMethod = if ($evt.PSObject.Properties['sendMethod']) { [string]$evt.sendMethod } else { '' }
-    $taskId = if ($evt.PSObject.Properties['taskId']) { [string]$evt.taskId } else { '' }
+    $taskId = if ($evt.PSObject.Properties['task_id']) { [string]$evt.task_id } else { '' }
     Write-Host "LANE1_EVENT[$i]=TS=$ts|TYPE=$type|TASK=$taskId|REASON=$reason|SEND_REASON=$sendReason|SEND_METHOD=$sendMethod"
   }
 }
