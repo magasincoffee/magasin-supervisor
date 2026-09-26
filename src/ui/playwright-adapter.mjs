@@ -70,6 +70,7 @@ export class ChatGptUiAdapter {
     url = "https://chatgpt.com/",
     headless = false,
     timeoutMs = 60_000,
+    actionTimeoutMs = 10_000,
     settleMs = 2_500,
     cdpUrl = null
   } = {}) {
@@ -78,6 +79,7 @@ export class ChatGptUiAdapter {
     this.url = url;
     this.headless = headless;
     this.timeoutMs = timeoutMs;
+    this.actionTimeoutMs = actionTimeoutMs;
     this.settleMs = settleMs;
     this.cdpUrl = cdpUrl;
     this.browser = null;
@@ -98,7 +100,8 @@ export class ChatGptUiAdapter {
     if (!this.context) {
       throw new Error("real Chrome CDP connection has no browser context");
     }
-    this.context.setDefaultTimeout(this.timeoutMs);
+    this.context.setDefaultTimeout(this.actionTimeoutMs);
+    this.context.setDefaultNavigationTimeout(this.timeoutMs);
     this.page = this.getActivePage();
     if (!this.page) {
       throw new Error("real Chrome CDP connection has no open page");
@@ -129,7 +132,8 @@ export class ChatGptUiAdapter {
       viewport: { width: 1440, height: 1000 }
     });
 
-    this.context.setDefaultTimeout(this.timeoutMs);
+    this.context.setDefaultTimeout(this.actionTimeoutMs);
+    this.context.setDefaultNavigationTimeout(this.timeoutMs);
     this.page = this.context.pages()[0] || await this.context.newPage();
     await this.page.goto(this.url, {
       waitUntil: "domcontentloaded",
