@@ -91,7 +91,53 @@ async function captureConversationTurns(page, { limit = 80 } = {}) {
   });
 
   if (!Array.isArray(turns)) return [];
-  return turns.map((item) => ({
+
+  // ChatGPT can render one logical conversation turn as multiple Markdown
+  // roots. Treat fragments that resolve to the same concrete conversation
+  // turn as one message before the runtime parses directives/results.
+  // Without this, a long Brain directive can be split into START / JSON / END
+  // fragments and captureCompletedAssistantTurn() sees only the final fragment.
+  const coalesced = [];
+  for (const rawItem of turns) {
+    const item = {
+      ...rawItem,
+      role: String(rawItem?.role || ""),
+      text: String(rawItem?.text || "").trim(),
+      turn: Number(rawItem?.turn || 0)
+    };
+    if (!item.text) continue;
+    item.chars = item.text.length;
+
+    const previous = coalesced.at(-1) || null;
+    const sameConcreteTurn = Boolean(
+      previous &&
+      previous.role === item.role &&
+      item.turn > 0 &&
+      previous.turn === item.turn
+    );
+
+    if (!sameConcreteTurn) {
+      coalesced.push(item);
+      continue;
+    }
+
+    // Avoid duplicate text when selectors overlap. If one fragment already
+    // contains the other, keep the wider representation; otherwise join the
+    // sibling fragments in DOM order.
+    if (previous.text === item.text || previous.text.includes(item.text)) {
+      continue;
+    }
+    if (item.text.includes(previous.text)) {
+      previous.text = item.text;
+      previous.chars = item.text.length;
+      continue;
+    }
+
+    previous.text = `${previous.text}\n${item.text}`.trim();
+    previous.chars = previous.text.length;
+  }
+
+  return coalesced.map((item) => ({
     ...item,
     digest: digestCapturedResponse(item.text)
   }));
