@@ -1,7 +1,7 @@
 {
   "schema_version": "supervisor-single-lane-chatgpt-first-v3.sot.v1",
-  "status": "OWNER_APPROVED_ARCHITECTURE_PIVOT__SL3_P0_A2_READY_FOR_VERIFY",
-  "task_id": "SL3-P0-A2",
+  "status": "OWNER_APPROVED_ARCHITECTURE_PIVOT__SL3_P0_A4_READY_FOR_VERIFY",
+  "task_id": "SL3-P0-A4",
   "repository": "magasincoffee/magasin-supervisor",
   "baseline_main_sha": "1b5779fb1652e691f25cc5f0f5b586a74b1fc012",
   "plan_branch": "sl3/sl3-p0-a1-source-of-truth-pivot-20260926",
@@ -1531,6 +1531,82 @@
     },
     "stop_boundary": "READY_FOR_VERIFY",
     "next_task": "SL3-P0-A3",
+    "next_task_started": false
+  },
+  "state": "READY_FOR_VERIFY",
+  "legacy_runtime_freeze": {
+    "schema_version": "sl3-p0-a4-legacy-runtime-freeze.v1",
+    "task_id": "SL3-P0-A4",
+    "state": "READY_FOR_VERIFY",
+    "accepted_a3_head": "067e22af981c5042f17d06adaf6ae5e7ba42ec5c",
+    "released_three_lane_baseline": "1b5779fb1652e691f25cc5f0f5b586a74b1fc012",
+    "rollback_source_authority": "magasincoffee/magasin-supervisor@1b5779fb1652e691f25cc5f0f5b586a74b1fc012",
+    "legacy_role": "ROLLBACK_ONLY_UNTIL_V3_OWNER_CUTOVER",
+    "production_runtime_before_cutover": "THREE_LANE_V1",
+    "forward_architecture": "SINGLE_LANE_CHATGPT_FIRST_V3",
+    "automatic_v3_activation": false,
+    "v3_qualification_required": true,
+    "owner_explicit_cutover_required": true,
+    "legacy_forward_feature_development": false,
+    "runtime_behavior_changed": false,
+    "rollback_entry_points": [
+      "windows/run-supervisor.ps1",
+      "src/runtime/three-lane-cli.mjs",
+      "src/runtime/three-lane.mjs"
+    ],
+    "rollback_source_rule": {
+      "immutable_released_snapshot_required": true,
+      "exact_snapshot": "magasincoffee/magasin-supervisor@1b5779fb1652e691f25cc5f0f5b586a74b1fc012",
+      "separately_qualified_replacement_allowed": true,
+      "mixed_tree_rollback_allowed": false,
+      "rule": "Rollback must materialize the exact immutable released snapshot or a separately qualified replacement; an old legacy entrypoint must never be combined with newer V3/shared runtime files into an unqualified mixed tree."
+    },
+    "rollback_preservation": {
+      "must_preserve": [
+        "Owner STOP latch",
+        "AUTOSTART_DISABLED latch",
+        "active task",
+        "dispatch_inflight",
+        "relay_inflight",
+        "Brain exact target",
+        "Work exact target",
+        "target revisions",
+        "dedicated browser profile",
+        "canonical state root",
+        "durable exact-once identities and unresolved effect intent"
+      ],
+      "must_not": [
+        "clear or bypass STOP",
+        "clear or bypass AUTOSTART_DISABLED",
+        "reset active task",
+        "reset dispatch_inflight",
+        "reset relay_inflight",
+        "replace Brain target",
+        "replace Work target",
+        "reset target revisions",
+        "delete or reset dedicated browser profile",
+        "destroy canonical state root",
+        "replay unresolved browser effect before durable-intent/latch reconciliation",
+        "restore Three-Lane/RBT documentation as forward Source of Truth"
+      ],
+      "durable_state_before_effect": true,
+      "unresolved_effect_reconciliation_required": true
+    },
+    "forward_development_boundary": {
+      "three_lane_production_baseline_until_cutover": true,
+      "three_lane_role": "ROLLBACK_ONLY",
+      "three_lane_v3_feature_development_allowed": false,
+      "single_lane_v3_is_only_forward_architecture": true,
+      "new_implementation_roadmap": "SL3-P1+",
+      "convert_legacy_three_lane_to_single_lane_by_flags_allowed": false
+    },
+    "semantic_sync": {
+      "markdown_section": "3.3 Legacy Three-Lane rollback freeze — SL3-P0-A4",
+      "json_field": "legacy_runtime_freeze",
+      "required_equivalence": true
+    },
+    "stop_boundary": "READY_FOR_VERIFY",
+    "next_task": "SL3-P1-A1",
     "next_task_started": false
   }
 }

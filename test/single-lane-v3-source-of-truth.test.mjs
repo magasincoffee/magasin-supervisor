@@ -246,11 +246,104 @@ async function auditRepository(root) {
   addError(errors, Boolean(a4), "E SL3-P0-A4 missing");
   if (a4) {
     addError(errors, JSON.stringify(a4.depends_on || []) === JSON.stringify(["SL3-P0-A3"]), "E SL3-P0-A4 dependency drift");
-    const state = String(a4.state || a4.status || "").toUpperCase();
-    addError(errors, !["ACTIVE","STARTED","DONE","COMPLETE","COMPLETED"].includes(state), "E SL3-P0-A4 must remain NOT STARTED");
-    addError(errors, a4.started !== true && a4.completed !== true, "E SL3-P0-A4 must not be marked started/completed");
   }
-  addError(errors, sot.task_id !== "SL3-P0-A4", "E canonical current task must not advance to SL3-P0-A4");
+  const p1a1 = tasks.find((item) => item?.task_id === "SL3-P1-A1");
+  addError(errors, Boolean(p1a1), "E SL3-P1-A1 missing");
+  if (p1a1) {
+    addError(errors, JSON.stringify(p1a1.depends_on || []) === JSON.stringify(["SL3-P0-A4"]), "E SL3-P1-A1 dependency drift");
+    const p1State = String(p1a1.state || p1a1.status || "").toUpperCase();
+    addError(errors, !["ACTIVE","STARTED","DONE","COMPLETE","COMPLETED"].includes(p1State), "E SL3-P1-A1 must remain NOT STARTED");
+    addError(errors, p1a1.started !== true && p1a1.completed !== true, "E SL3-P1-A1 must not be marked started/completed");
+  }
+  addError(errors, sot.task_id === "SL3-P0-A4", "E canonical current task must be SL3-P0-A4");
+  addError(errors, sot.state === "READY_FOR_VERIFY", "E canonical state must be READY_FOR_VERIFY");
+
+  const freeze = sot.legacy_runtime_freeze;
+  addError(errors, Boolean(freeze), "I legacy_runtime_freeze missing");
+  if (freeze) {
+    const freezeChecks = [
+      ["schema_version", freeze.schema_version, "sl3-p0-a4-legacy-runtime-freeze.v1"],
+      ["task_id", freeze.task_id, "SL3-P0-A4"],
+      ["state", freeze.state, "READY_FOR_VERIFY"],
+      ["accepted_a3_head", freeze.accepted_a3_head, "067e22af981c5042f17d06adaf6ae5e7ba42ec5c"],
+      ["released_three_lane_baseline", freeze.released_three_lane_baseline, "1b5779fb1652e691f25cc5f0f5b586a74b1fc012"],
+      ["legacy_role", freeze.legacy_role, "ROLLBACK_ONLY_UNTIL_V3_OWNER_CUTOVER"],
+      ["production_runtime_before_cutover", freeze.production_runtime_before_cutover, "THREE_LANE_V1"],
+      ["forward_architecture", freeze.forward_architecture, "SINGLE_LANE_CHATGPT_FIRST_V3"],
+      ["automatic_v3_activation", freeze.automatic_v3_activation, false],
+      ["v3_qualification_required", freeze.v3_qualification_required, true],
+      ["owner_explicit_cutover_required", freeze.owner_explicit_cutover_required, true],
+      ["legacy_forward_feature_development", freeze.legacy_forward_feature_development, false],
+      ["runtime_behavior_changed", freeze.runtime_behavior_changed, false]
+    ];
+    for (const [name, actual, expected] of freezeChecks) {
+      addError(errors, actual === expected, `I legacy freeze drift: ${name}`);
+    }
+
+    addError(
+      errors,
+      freeze.rollback_source_authority === "magasincoffee/magasin-supervisor@1b5779fb1652e691f25cc5f0f5b586a74b1fc012",
+      "I immutable rollback source authority drift"
+    );
+    addError(
+      errors,
+      sameMembers(freeze.rollback_entry_points || [], EXPECTED_ROLLBACK_ENTRY_POINTS),
+      "I legacy rollback entry points drift"
+    );
+    for (const entry of EXPECTED_ROLLBACK_ENTRY_POINTS) {
+      addError(errors, await exists(root, entry), `I legacy rollback entry point missing: ${entry}`);
+    }
+
+    const sourceRule = freeze.rollback_source_rule || {};
+    addError(errors, sourceRule.immutable_released_snapshot_required === true, "I rollback source must require immutable released snapshot");
+    addError(
+      errors,
+      sourceRule.exact_snapshot === "magasincoffee/magasin-supervisor@1b5779fb1652e691f25cc5f0f5b586a74b1fc012",
+      "I rollback exact snapshot drift"
+    );
+    addError(errors, sourceRule.mixed_tree_rollback_allowed === false, "I mixed-tree rollback must remain forbidden");
+    addError(errors, /mixed tree/i.test(String(sourceRule.rule || "")), "I mixed-tree prohibition rule missing");
+
+    const preservation = freeze.rollback_preservation || {};
+    const preserveText = [
+      ...(preservation.must_preserve || []),
+      ...(preservation.must_not || [])
+    ].join("\n");
+    for (const [token, regex] of [
+      ["STOP", /\bSTOP\b/i],
+      ["AUTOSTART_DISABLED", /AUTOSTART_DISABLED/i],
+      ["active task", /active task/i],
+      ["dispatch_inflight", /dispatch_inflight/i],
+      ["relay_inflight", /relay_inflight/i],
+      ["Brain target", /Brain.*target/i],
+      ["Work target", /Work.*target/i],
+      ["target revisions", /target revisions/i],
+      ["browser profile", /browser profile/i],
+      ["canonical state root", /canonical state root/i],
+      ["reconciliation", /reconcil/i]
+    ]) {
+      addError(errors, regex.test(preserveText), `I rollback preservation missing ${token}`);
+    }
+    addError(errors, preservation.durable_state_before_effect === true, "I durable-state-before-effect rollback lock drift");
+    addError(errors, preservation.unresolved_effect_reconciliation_required === true, "I unresolved-effect reconciliation lock drift");
+
+    const boundary = freeze.forward_development_boundary || {};
+    addError(errors, boundary.three_lane_production_baseline_until_cutover === true, "I Three-Lane production-baseline boundary drift");
+    addError(errors, boundary.three_lane_role === "ROLLBACK_ONLY", "I Three-Lane forward role drift");
+    addError(errors, boundary.three_lane_v3_feature_development_allowed === false, "I legacy forward feature boundary drift");
+    addError(errors, boundary.single_lane_v3_is_only_forward_architecture === true, "I V3 forward architecture boundary drift");
+    addError(errors, boundary.new_implementation_roadmap === "SL3-P1+", "I V3 implementation roadmap boundary drift");
+    addError(errors, boundary.convert_legacy_three_lane_to_single_lane_by_flags_allowed === false, "I flag-conversion boundary drift");
+    addError(errors, freeze.next_task === "SL3-P1-A1", "I next task must be SL3-P1-A1");
+    addError(errors, freeze.next_task_started === false, "I SL3-P1-A1 must remain NOT STARTED");
+  }
+
+  addError(errors, md.includes("### 3.3 Legacy Three-Lane rollback freeze — SL3-P0-A4"), "I Markdown legacy freeze section missing");
+  addError(errors, md.includes("magasincoffee/magasin-supervisor@1b5779fb1652e691f25cc5f0f5b586a74b1fc012"), "I Markdown immutable rollback source missing");
+  addError(errors, md.includes("067e22af981c5042f17d06adaf6ae5e7ba42ec5c"), "I Markdown accepted A3 head missing");
+  addError(errors, /LEGACY \/ ROLLBACK-ONLY/i.test(md), "I Markdown rollback-only role missing");
+  addError(errors, /mixed tree/i.test(md), "I Markdown mixed-tree prohibition missing");
+  addError(errors, /SL3-P1-A1[^\n]*NOT STARTED/i.test(md), "I Markdown must keep SL3-P1-A1 NOT STARTED");
 
   for (const file of REMOVED_SOURCES) {
     addError(errors, !(await exists(root, file)), `F removed source reintroduced: ${file}`);
@@ -303,7 +396,8 @@ async function makeFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "sl3-a3-sot-"));
   const seed = new Set([
     ...CANONICAL_FILES,
-    ...SUPPORTING_ACTIVE_SURFACES
+    ...SUPPORTING_ACTIVE_SURFACES,
+    ...EXPECTED_ROLLBACK_ENTRY_POINTS
   ]);
   for (const file of seed) {
     await fs.mkdir(path.dirname(rel(root, file)), { recursive: true });
@@ -374,15 +468,15 @@ test("D rollback boundary drift fails closed", async () => {
   assert.ok(errors.some((error) => /rollback-only entry points drift/i.test(error)));
 });
 
-test("E roadmap task/dependency drift and A4 promotion fail closed", async () => {
+test("E roadmap dependency drift and P1-A1 premature start fail closed", async () => {
   const root = await makeFixture();
   await mutateJson(root, (data) => {
     data.tasks[3].depends_on = ["SL3-P1-A1"];
-    data.tasks[3].state = "ACTIVE";
+    data.tasks[4].state = "ACTIVE";
   });
   const errors = await auditRepository(root);
   assert.ok(errors.some((error) => /dependency SL3-P1-A1.*must point to an earlier task/i.test(error)));
-  assert.ok(errors.some((error) => /SL3-P0-A4 must remain NOT STARTED/i.test(error)));
+  assert.ok(errors.some((error) => /SL3-P1-A1 must remain NOT STARTED/i.test(error)));
 });
 
 test("F stale-source reintroduction or active README reference fails closed", async (t) => {
@@ -434,4 +528,109 @@ test("G tombstone promotion back to active authority fails closed", async () => 
 test("H README authority remains V3-only", async () => {
   const errors = await auditRepository(REPO_ROOT);
   assert.equal(errors.filter((error) => error.startsWith("H ")).length, 0);
+});
+
+
+test("I legacy Three-Lane freeze authority passes exact accepted locks", async () => {
+  const errors = await auditRepository(REPO_ROOT);
+  assert.equal(errors.filter((error) => error.startsWith("I ")).length, 0);
+});
+
+test("I legacy freeze drift fixtures fail closed", async (t) => {
+  await t.test("baseline SHA drift", async () => {
+    const root = await makeFixture();
+    await mutateJson(root, (data) => {
+      data.legacy_runtime_freeze.released_three_lane_baseline = "0".repeat(40);
+    });
+    const errors = await auditRepository(root);
+    assert.ok(errors.some((error) => /released_three_lane_baseline/i.test(error)));
+  });
+
+  await t.test("legacy role promoted to forward", async () => {
+    const root = await makeFixture();
+    await mutateJson(root, (data) => {
+      data.legacy_runtime_freeze.legacy_role = "ACTIVE_FORWARD";
+    });
+    const errors = await auditRepository(root);
+    assert.ok(errors.some((error) => /legacy_role/i.test(error)));
+  });
+
+  await t.test("automatic V3 activation enabled", async () => {
+    const root = await makeFixture();
+    await mutateJson(root, (data) => {
+      data.legacy_runtime_freeze.automatic_v3_activation = true;
+    });
+    const errors = await auditRepository(root);
+    assert.ok(errors.some((error) => /automatic_v3_activation/i.test(error)));
+  });
+
+  await t.test("qualification requirement removed", async () => {
+    const root = await makeFixture();
+    await mutateJson(root, (data) => {
+      data.legacy_runtime_freeze.v3_qualification_required = false;
+    });
+    const errors = await auditRepository(root);
+    assert.ok(errors.some((error) => /v3_qualification_required/i.test(error)));
+  });
+
+  await t.test("Owner cutover requirement removed", async () => {
+    const root = await makeFixture();
+    await mutateJson(root, (data) => {
+      data.legacy_runtime_freeze.owner_explicit_cutover_required = false;
+    });
+    const errors = await auditRepository(root);
+    assert.ok(errors.some((error) => /owner_explicit_cutover_required/i.test(error)));
+  });
+
+  await t.test("legacy forward feature development enabled", async () => {
+    const root = await makeFixture();
+    await mutateJson(root, (data) => {
+      data.legacy_runtime_freeze.legacy_forward_feature_development = true;
+    });
+    const errors = await auditRepository(root);
+    assert.ok(errors.some((error) => /legacy_forward_feature_development/i.test(error)));
+  });
+
+  await t.test("rollback entry point removed", async () => {
+    const root = await makeFixture();
+    await fs.unlink(rel(root, EXPECTED_ROLLBACK_ENTRY_POINTS[1]));
+    const errors = await auditRepository(root);
+    assert.ok(errors.some((error) => /legacy rollback entry point missing/i.test(error)));
+  });
+
+  await t.test("STOP and AUTOSTART_DISABLED preservation removed", async () => {
+    const root = await makeFixture();
+    await mutateJson(root, (data) => {
+      data.legacy_runtime_freeze.rollback_preservation.must_preserve =
+        data.legacy_runtime_freeze.rollback_preservation.must_preserve
+          .filter((value) => !/STOP|AUTOSTART_DISABLED/i.test(value));
+      data.legacy_runtime_freeze.rollback_preservation.must_not =
+        data.legacy_runtime_freeze.rollback_preservation.must_not
+          .filter((value) => !/STOP|AUTOSTART_DISABLED/i.test(value));
+    });
+    const errors = await auditRepository(root);
+    assert.ok(errors.some((error) => /rollback preservation missing STOP/i.test(error)));
+    assert.ok(errors.some((error) => /rollback preservation missing AUTOSTART_DISABLED/i.test(error)));
+  });
+
+  await t.test("mixed-tree rollback allowed", async () => {
+    const root = await makeFixture();
+    await mutateJson(root, (data) => {
+      data.legacy_runtime_freeze.rollback_source_rule.mixed_tree_rollback_allowed = true;
+    });
+    const errors = await auditRepository(root);
+    assert.ok(errors.some((error) => /mixed-tree rollback must remain forbidden/i.test(error)));
+  });
+
+  await t.test("canonical current task jumps to SL3-P1-A1", async () => {
+    const root = await makeFixture();
+    await mutateJson(root, (data) => {
+      data.task_id = "SL3-P1-A1";
+      data.state = "READY_FOR_VERIFY";
+      data.legacy_runtime_freeze.next_task_started = true;
+    });
+    const errors = await auditRepository(root);
+    assert.ok(errors.some((error) => /canonical current task must be SL3-P0-A4/i.test(error)));
+    assert.ok(errors.some((error) => /SL3-P1-A1 must remain NOT STARTED/i.test(error)));
+  });
 });
