@@ -540,3 +540,95 @@ if(Test-Path $supervisorLog){
 Write-Host "STALE_LANE_LOOP_DIAG=PASS"
 
 # POST_BOUNDED_RESUME_LIVE_ACCEPTANCE_V1
+
+Write-Host "=== BRAIN PLAN LIVE STATE V2 ==="
+$registryPath=Join-Path $root 'lane-registry.json'
+$statusPath=Join-Path $root 'lane-status.json'
+$supervisorLog=Join-Path $root 'supervisor.log'
+
+if(Test-Path $registryPath){
+  try{
+    $registryJson=Get-Content $registryPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $lane=$registryJson.lanes.'lane-1'
+    if($lane){
+      $planKnown=$false
+      $planTotal=0
+      $planDone=0
+      $planUpdated=''
+      if($lane.project_progress){
+        $planKnown=[bool]$lane.project_progress.plan_known
+        $tasks=@($lane.project_progress.tasks)
+        $planTotal=$tasks.Count
+        $planDone=@($tasks | Where-Object { [string]$_.state -eq 'DONE' }).Count
+        $planUpdated=[string]$lane.project_progress.updated_at
+      }
+      Write-Host "BRAIN_PLAN_TASK_ID=$([string]$lane.task_id)"
+      Write-Host "BRAIN_PLAN_AWAITING_WORK=$([bool]$lane.awaiting_work)"
+      Write-Host "BRAIN_PLAN_REQUEST_SENT=$([bool]$lane.brain_request_sent)"
+      Write-Host "BRAIN_PLAN_LAST_DIRECTIVE_DIGEST=$([string]$lane.last_brain_directive_digest)"
+      Write-Host "BRAIN_PLAN_BOOTSTRAP_RETRIES=$([string]$lane.project_plan_bootstrap_retries)"
+      Write-Host "BRAIN_PLAN_KNOWN=$planKnown"
+      Write-Host "BRAIN_PLAN_TOTAL=$planTotal"
+      Write-Host "BRAIN_PLAN_DONE=$planDone"
+      Write-Host "BRAIN_PLAN_UPDATED_AT=$planUpdated"
+      if($lane.brain_request_inflight){
+        $b=$lane.brain_request_inflight
+        Write-Host "BRAIN_PLAN_INFLIGHT=True"
+        Write-Host "BRAIN_PLAN_INFLIGHT_DIGEST=$([string]$b.digest)"
+        Write-Host "BRAIN_PLAN_INFLIGHT_MARKER=$([string]$b.marker)"
+        Write-Host "BRAIN_PLAN_INFLIGHT_RELOADED=$([bool]$b.reconcile_reloaded)"
+        Write-Host "BRAIN_PLAN_INFLIGHT_BLOCKED=$([bool]$b.reconcile_blocked)"
+        Write-Host "BRAIN_PLAN_INFLIGHT_PRE_USER_COUNT=$([string]$b.pre_user_count)"
+        Write-Host "BRAIN_PLAN_INFLIGHT_PRE_MAX_TURN=$([string]$b.pre_max_turn_ordinal)"
+      }else{
+        Write-Host "BRAIN_PLAN_INFLIGHT=False"
+      }
+    }
+  }catch{
+    Write-Host "BRAIN_PLAN_REGISTRY_READ_ERROR=$($_.Exception.Message)"
+  }
+}
+
+if(Test-Path $statusPath){
+  try{
+    $statusJson=Get-Content $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $laneStatus=@($statusJson.lanes | Where-Object { [string]$_.lane_id -eq 'lane-1' } | Select-Object -First 1)[0]
+    if($laneStatus){
+      Write-Host "BRAIN_PLAN_STATUS=$([string]$laneStatus.status)"
+      Write-Host "BRAIN_PLAN_STATUS_MESSAGE=$([string]$laneStatus.message)"
+      Write-Host "BRAIN_PLAN_STATUS_KNOWN=$([string]$laneStatus.project_progress_known)"
+      Write-Host "BRAIN_PLAN_STATUS_TOTAL=$([string]$laneStatus.project_total_tasks)"
+      Write-Host "BRAIN_PLAN_STATUS_DONE=$([string]$laneStatus.project_completed_tasks)"
+      Write-Host "BRAIN_PLAN_STATUS_PERCENT=$([string]$laneStatus.project_progress_percent)"
+    }
+  }catch{
+    Write-Host "BRAIN_PLAN_STATUS_READ_ERROR=$($_.Exception.Message)"
+  }
+}
+
+if(Test-Path $supervisorLog){
+  try{
+    $tail=Get-Content $supervisorLog -Tail 1000 -Encoding UTF8
+    foreach($line in $tail){
+      try{
+        $obj=$line | ConvertFrom-Json -ErrorAction Stop
+        $type=[string]$obj.type
+        if($type -match 'LANE_(BRAIN|PROJECT_PLAN|OWNER_RESUME)'){
+          $laneId=[string]$obj.laneId
+          if(-not $laneId){$laneId=[string]$obj.lane_id}
+          if(-not $laneId -or $laneId -eq 'lane-1'){
+            $reason=[string]$obj.reason
+            $error=[string]$obj.error
+            if(-not $error){$error=[string]$obj.errorName}
+            $digest=[string]$obj.digest
+            Write-Host "BRAIN_PLAN_LOG=TYPE=$type|DIGEST=$digest|ERROR=$error|REASON=$reason"
+          }
+        }
+      }catch{}
+    }
+  }catch{
+    Write-Host "BRAIN_PLAN_LOG_READ_ERROR=$($_.Exception.Message)"
+  }
+}
+Write-Host "BRAIN_PLAN_LIVE_STATE_V2=PASS"
+
