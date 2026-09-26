@@ -879,6 +879,7 @@ async function rearmMissingProjectPlanAfterIdle({
   }
 
   registryLane.project_plan_bootstrap_retries = retries + 1;
+  clearSoftIdleRecheck(registryLane);
   registryLane.brain_request_sent = false;
   registryLane.brain_request_inflight = null;
   await atomicJsonWrite(registryPath, registry);
@@ -5139,7 +5140,7 @@ async function processLaneTurn({
           registryLane,
           "READY",
           idleCheck.accepted_blocker
-            ? `Brain đang IDLE có lý do hợp lệ: ${resumedDirective.idle_reason}.`
+            ? `Brain vẫn có soft blocker: ${resumedDirective.idle_reason}. Robot sẽ tự kiểm tra lại lúc ${idleCheck.next_recheck_at || "sớm nhất có thể"}.`
             : "Brain hiện chưa có công việc mới."
         );
       }
@@ -5197,6 +5198,14 @@ async function processLaneTurn({
     registry,
     registryPath,
     resumeResync
+  });
+
+  await rearmDueSoftIdle({
+    lane,
+    registryLane,
+    registry,
+    registryPath,
+    logPath
   });
 
   if (!registryLane.brain_request_sent) {
@@ -5327,7 +5336,7 @@ async function processLaneTurn({
           lane,
           registryLane,
           "READY",
-          `Brain đang IDLE có lý do hợp lệ: ${directive.idle_reason}.`
+          `Brain vẫn có soft blocker: ${directive.idle_reason}. Robot sẽ tự kiểm tra lại lúc ${idleCheck.next_recheck_at || "sớm nhất có thể"}.`
         );
       }
     }
@@ -5417,7 +5426,7 @@ async function processLaneTurn({
         lane,
         registryLane,
         "READY",
-        `Brain đang IDLE có lý do hợp lệ: ${directive.idle_reason}.`
+        `Brain vẫn có soft blocker: ${directive.idle_reason}. Robot sẽ tự kiểm tra lại lúc ${idleCheck.next_recheck_at || "sớm nhất có thể"}.`
       );
     }
 
