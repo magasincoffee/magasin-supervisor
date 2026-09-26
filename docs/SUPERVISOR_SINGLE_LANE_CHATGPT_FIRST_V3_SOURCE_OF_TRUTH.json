@@ -1,0 +1,1290 @@
+{
+  "schema_version": "supervisor-single-lane-chatgpt-first-v3.sot.v1",
+  "status": "OWNER_APPROVED_ARCHITECTURE_PIVOT__READY_FOR_IMPLEMENTATION_AFTER_SOT_VERIFY",
+  "task_id": "SL3-P0-A1",
+  "repository": "magasincoffee/magasin-supervisor",
+  "baseline_main_sha": "1b5779fb1652e691f25cc5f0f5b586a74b1fc012",
+  "plan_branch": "sl3/sl3-p0-a1-source-of-truth-pivot-20260926",
+  "canonical_files": [
+    "docs/SUPERVISOR_SINGLE_LANE_CHATGPT_FIRST_V3_SOURCE_OF_TRUTH.md",
+    "docs/SUPERVISOR_SINGLE_LANE_CHATGPT_FIRST_V3_SOURCE_OF_TRUTH.json"
+  ],
+  "architecture": {
+    "product_center": "CHATGPT_PLUS",
+    "api_cost_policy": "NO_PAID_OPENAI_API_IN_PRODUCTION_PATH",
+    "lane_count": 1,
+    "active_project_count": 1,
+    "active_task_count": 1,
+    "browser": "DEDICATED_GOOGLE_CHROME_STABLE_OR_COMPATIBLE_CHROMIUM",
+    "chatgpt_tabs": {
+      "brain": 1,
+      "work": 1,
+      "persistent_warm": true
+    },
+    "normal_path": "EVENT_DRIVEN",
+    "normal_path_polling": false,
+    "browser_bridge": "CHROME_EXTENSION_OR_CONTENT_SCRIPT_EVENT_BRIDGE_WITH_LOCALHOST_TRANSPORT",
+    "playwright_cdp_role": "NAVIGATION_RECOVERY_RECONNECT_AND_FALLBACK_NOT_PRIMARY_OBSERVATION",
+    "future_mcp": "TRANSPORT_NEUTRAL_INTERFACE_ONLY__NOT_REQUIRED__NO_EXTRA_API_COST"
+  },
+  "preserved_invariants": [
+    "Owner STOP/AUTOSTART_DISABLED always wins",
+    "one bounded task at a time",
+    "PLAN → DISPATCH → VERIFY → ACCEPT/REJECT → NEXT PLAN",
+    "deterministic exact-once dispatch_id and relay_id authority",
+    "text-only result relay",
+    "durable state before effect where required",
+    "exact target identity and bounded recovery",
+    "no credential/MFA/CAPTCHA/security bypass",
+    "private chat bodies, tokens, cookies and full private URLs never enter Git",
+    "production merge/deploy requires explicit Owner instruction"
+  ],
+  "removed_from_target_architecture": [
+    "three simultaneously active lanes",
+    "round-robin cross-lane scheduler",
+    "multi-lane fairness logic",
+    "multi-lane page-budget/LRU eviction as a normal-path requirement",
+    "cross-lane mutation arbitration",
+    "polling as the primary ChatGPT completion detector"
+  ],
+  "source_cleanup": {
+    "delete_now": [
+      "docs/THREE_LANE_V1_ARCHITECTURE.md",
+      "docs/ROBOT_BROWSER_SCHEDULER_OBSERVABILITY_ARCHITECTURE.md",
+      "docs/ROBOT_LIFECYCLE_TRUTH_ARCHITECTURE.md",
+      "docs/RBT_010_TEXT_ONLY_RELAY_PLAN.md",
+      "docs/RBT_010_TEXT_ONLY_RELAY_AUTHORITY.json",
+      "docs/MIG_007_FINAL_CLEANUP_PLAN.md"
+    ],
+    "retain_historical_evidence": [
+      "docs/THREE_LANE_V1_RELEASE_EVIDENCE.md",
+      "docs/MIG_002_EXTRACTION_EVIDENCE.md",
+      "docs/MIG_002_PARITY_PROVENANCE.json",
+      "docs/MIG_003_COUPLING_CLOSURE.json",
+      "docs/MIG_003_DECOUPLING_EVIDENCE.md",
+      "docs/MIG_004_CI_LIFECYCLE_PARITY_EVIDENCE.md",
+      "docs/MIG_004_GATE_PARITY.json",
+      "docs/MIG_005_CUTOVER_MANIFEST.json",
+      "docs/MIG_005_SINGLE_AUTHORITY_CUTOVER_EVIDENCE.md",
+      "docs/MIG_006_RBT009_CANONICAL_CLOSURE.json",
+      "docs/MIG_006_RBT009_EVIDENCE.md",
+      "docs/MIG_006_RBT009_MANIFEST.json",
+      "docs/MIG_006_RELEASE_REQUEST.json",
+      "docs/MIG_007_AUTHORITY_EVIDENCE.md",
+      "docs/MIG_007_AUTHORITY_MANIFEST.json",
+      "docs/MIG_007_FINAL_CLEANUP_CLOSURE.json",
+      "docs/MIG_007_FINAL_CLEANUP_EVIDENCE.md"
+    ],
+    "retain_supporting_contracts": [
+      "docs/MAGASIN_LANE_DIRECTIVE_V1_PROTOCOL.md",
+      "docs/PROJECT_ADAPTER_V1.md",
+      "docs/STATE_ROOT_V1.md"
+    ],
+    "runtime_code_policy": "DO_NOT_DELETE_LEGACY_THREE_LANE_RUNTIME_CODE_BEFORE_V3_QUALIFICATION_AND_OWNER_CUTOVER; KEEP AS ROLLBACK_ONLY"
+  },
+  "recovery_contract": {
+    "transient_load_failure": [
+      "detect retry control/load-failure",
+      "click Retry at most once per recovery epoch",
+      "if still failed, reload exact page at most once",
+      "re-probe exact target",
+      "WAIT_OWNER after bounded budget"
+    ],
+    "deterministic_missing": "quarantine exact target; do not retry/reload storm",
+    "auth_security": "fail closed",
+    "reconnect": "bounded CDP/Chrome reconnect preserving task/latches"
+  },
+  "latency_targets": {
+    "scope": "ROBOT_OVERHEAD_EXCLUDING_MODEL_GENERATION_TIME",
+    "brain_complete_to_detected_ms": {
+      "target_p50": 250,
+      "target_p95": 1000
+    },
+    "detected_to_work_send_confirmed_ms": {
+      "target_p50": 750,
+      "target_p95": 2000
+    },
+    "work_complete_to_detected_ms": {
+      "target_p50": 250,
+      "target_p95": 1000
+    },
+    "detected_to_brain_relay_confirmed_ms": {
+      "target_p50": 900,
+      "target_p95": 2500
+    },
+    "brain_verdict_to_next_dispatch_ms": {
+      "target_p50": 1000,
+      "target_p95": 3000
+    },
+    "note": "targets are acceptance budgets, not permission to weaken exact-once/safety"
+  },
+  "qualification": {
+    "smoke_minutes": 20,
+    "continuous_soak_hours": 1,
+    "fault_injection_soak_hours": 4,
+    "overnight_soak_hours": 8,
+    "required": [
+      "0 duplicate dispatch",
+      "0 duplicate relay",
+      "0 lost completed result",
+      "0 unintended Brain replacement",
+      "0 unintended Work replacement outside verified rollover",
+      "0 reload storm",
+      "0 durable-state corruption",
+      "0 Owner intervention during final unattended soak",
+      "all latency stages emitted and privacy-safe"
+    ]
+  },
+  "time_estimate": {
+    "task_count": 57,
+    "nominal_task_active_hours": 61,
+    "realistic_active_engineering_hours": [
+      48,
+      72
+    ],
+    "mandatory_soak_wall_clock_hours": 13.33,
+    "ci_debug_review_buffer_hours": [
+      6,
+      12
+    ],
+    "realistic_continuous_elapsed_hours": [
+      64,
+      96
+    ],
+    "realistic_calendar_days": [
+      4,
+      7
+    ],
+    "assumptions": [
+      "single execution stream; no three-lane parallel implementation",
+      "ChatGPT DOM may require compatibility fixes during bridge work",
+      "soak stages are sequential qualification gates",
+      "production deployment time is excluded until explicit Owner authorization"
+    ]
+  },
+  "deployment_authority": "OWNER_EXPLICIT_ONLY",
+  "execution_policy": {
+    "brain_is_center": true,
+    "robot_may_modify_on_isolated_branch": true,
+    "robot_may_run_ci": true,
+    "robot_may_open_prs": true,
+    "robot_may_merge_or_deploy": false,
+    "protect_current_production_until_cutover": true,
+    "verify_before_next": true,
+    "exact_once_required": true
+  },
+  "phases": [
+    {
+      "id": "SL3-P0",
+      "title": "Architecture Pivot & Source Authority",
+      "goal": "Establish one canonical V3 source, preserve safety invariants, and freeze legacy Three-Lane as rollback-only.",
+      "active_hours": [
+        3,
+        5
+      ]
+    },
+    {
+      "id": "SL3-P1",
+      "title": "Single-Lane Deterministic Core",
+      "goal": "Extract a one-project/one-task durable runtime while preserving exact-once and Brain planning semantics.",
+      "active_hours": [
+        9,
+        13
+      ]
+    },
+    {
+      "id": "SL3-P2",
+      "title": "ChatGPT Browser Event Bridge",
+      "goal": "Make ChatGPT the center with two warm tabs and event-driven detection/action instead of polling as the normal path.",
+      "active_hours": [
+        11,
+        16
+      ]
+    },
+    {
+      "id": "SL3-P3",
+      "title": "Recovery & Resilience",
+      "goal": "Recover transient ChatGPT/browser failures with bounded retry/reload/reconnect while preserving exact-once state.",
+      "active_hours": [
+        7,
+        11
+      ]
+    },
+    {
+      "id": "SL3-P4",
+      "title": "Latency & Observability",
+      "goal": "Measure and reduce Robot overhead while keeping correctness and privacy-safe diagnostics.",
+      "active_hours": [
+        5,
+        7
+      ]
+    },
+    {
+      "id": "SL3-P5",
+      "title": "Plus-Only AI Integration Boundary",
+      "goal": "Keep OpenAI API cost at zero while exposing a transport-neutral local interface that can support future MCP without dependency.",
+      "active_hours": [
+        3,
+        5
+      ]
+    },
+    {
+      "id": "SL3-P6",
+      "title": "Legacy Cleanup & Migration",
+      "goal": "Remove multi-lane machinery from the V3 path, migrate state safely, and retain an isolated rollback entry point until cutover.",
+      "active_hours": [
+        6,
+        9
+      ]
+    },
+    {
+      "id": "SL3-P7",
+      "title": "Qualification & Owner Cutover",
+      "goal": "Qualify the locked candidate through smoke, continuous, fault-injection and overnight soak before Owner-authorized deployment.",
+      "active_hours": [
+        4,
+        6
+      ],
+      "mandatory_soak_hours": 13.333
+    }
+  ],
+  "tasks": [
+    {
+      "order": 1,
+      "task_id": "SL3-P0-A1",
+      "title": "Establish Single-Lane V3 canonical Source of Truth and retire superseded planning sources",
+      "phase": "SL3-P0",
+      "priority": "P0",
+      "estimate_minutes": 60,
+      "depends_on": [],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 2,
+      "task_id": "SL3-P0-A2",
+      "title": "Lock preserved invariants and rollback boundary from released runtime",
+      "phase": "SL3-P0",
+      "priority": "P0",
+      "estimate_minutes": 45,
+      "depends_on": [
+        "SL3-P0-A1"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 3,
+      "task_id": "SL3-P0-A3",
+      "title": "Add canonical-source guard tests and stale-reference audit",
+      "phase": "SL3-P0",
+      "priority": "P0",
+      "estimate_minutes": 45,
+      "depends_on": [
+        "SL3-P0-A2"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 4,
+      "task_id": "SL3-P0-A4",
+      "title": "Freeze Three-Lane as rollback-only legacy runtime until V3 cutover",
+      "phase": "SL3-P0",
+      "priority": "P0",
+      "estimate_minutes": 45,
+      "depends_on": [
+        "SL3-P0-A3"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 5,
+      "task_id": "SL3-P1-A1",
+      "title": "Define single-lane config and durable registry schema",
+      "phase": "SL3-P1",
+      "priority": "P0",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P0-A4"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 6,
+      "task_id": "SL3-P1-A2",
+      "title": "Implement legacy three-lane state reader and safe single-lane migration adapter",
+      "phase": "SL3-P1",
+      "priority": "P0",
+      "estimate_minutes": 75,
+      "depends_on": [
+        "SL3-P1-A1"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 7,
+      "task_id": "SL3-P1-A3",
+      "title": "Extract single-lane deterministic state machine core",
+      "phase": "SL3-P1",
+      "priority": "P0",
+      "estimate_minutes": 75,
+      "depends_on": [
+        "SL3-P1-A1"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 8,
+      "task_id": "SL3-P1-A4",
+      "title": "Implement single active-task ownership and safe-boundary transitions",
+      "phase": "SL3-P1",
+      "priority": "P0",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P1-A3"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 9,
+      "task_id": "SL3-P1-A5",
+      "title": "Port exact-once Brain-to-Work dispatch semantics",
+      "phase": "SL3-P1",
+      "priority": "P0",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P1-A4"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 10,
+      "task_id": "SL3-P1-A6",
+      "title": "Port text-only exact-once Work-to-Brain relay semantics",
+      "phase": "SL3-P1",
+      "priority": "P0",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P1-A5"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 11,
+      "task_id": "SL3-P1-A7",
+      "title": "Port Brain PLAN→VERIFY→ACCEPT/REJECT→NEXT contract",
+      "phase": "SL3-P1",
+      "priority": "P0",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P1-A6"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 12,
+      "task_id": "SL3-P1-A8",
+      "title": "Port Work target revision and rollover semantics for one lane",
+      "phase": "SL3-P1",
+      "priority": "P0",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P1-A6"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 13,
+      "task_id": "SL3-P1-A9",
+      "title": "Remove cross-lane state coupling from new runtime path",
+      "phase": "SL3-P1",
+      "priority": "P0",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P1-A7",
+        "SL3-P1-A8"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 14,
+      "task_id": "SL3-P1-A10",
+      "title": "Pass single-lane core regression gate",
+      "phase": "SL3-P1",
+      "priority": "P0",
+      "estimate_minutes": 90,
+      "depends_on": [
+        "SL3-P1-A2",
+        "SL3-P1-A9"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 15,
+      "task_id": "SL3-P2-A1",
+      "title": "Define ChatGPT browser event protocol and event identities",
+      "phase": "SL3-P2",
+      "priority": "P0",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P1-A10"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 16,
+      "task_id": "SL3-P2-A2",
+      "title": "Scaffold dedicated Chrome extension/content-script observer",
+      "phase": "SL3-P2",
+      "priority": "P0",
+      "estimate_minutes": 75,
+      "depends_on": [
+        "SL3-P2-A1"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 17,
+      "task_id": "SL3-P2-A3",
+      "title": "Implement assistant-started and assistant-running observation",
+      "phase": "SL3-P2",
+      "priority": "P0",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P2-A2"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 18,
+      "task_id": "SL3-P2-A4",
+      "title": "Implement assistant-completed detection with stable-turn identity",
+      "phase": "SL3-P2",
+      "priority": "P0",
+      "estimate_minutes": 75,
+      "depends_on": [
+        "SL3-P2-A3"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 19,
+      "task_id": "SL3-P2-A5",
+      "title": "Implement composer-ready and send-confirmation observation",
+      "phase": "SL3-P2",
+      "priority": "P0",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P2-A2"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 20,
+      "task_id": "SL3-P2-A6",
+      "title": "Implement load-failure, retry-control, auth and security observations",
+      "phase": "SL3-P2",
+      "priority": "P0",
+      "estimate_minutes": 75,
+      "depends_on": [
+        "SL3-P2-A2"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 21,
+      "task_id": "SL3-P2-A7",
+      "title": "Implement localhost event transport with bounded reconnect",
+      "phase": "SL3-P2",
+      "priority": "P0",
+      "estimate_minutes": 90,
+      "depends_on": [
+        "SL3-P2-A1",
+        "SL3-P2-A2"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 22,
+      "task_id": "SL3-P2-A8",
+      "title": "Implement direct DOM action executor for send/retry/continue",
+      "phase": "SL3-P2",
+      "priority": "P0",
+      "estimate_minutes": 75,
+      "depends_on": [
+        "SL3-P2-A5",
+        "SL3-P2-A6"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 23,
+      "task_id": "SL3-P2-A9",
+      "title": "Keep Brain and Work as persistent warm exact-target tabs",
+      "phase": "SL3-P2",
+      "priority": "P0",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P2-A7",
+        "SL3-P2-A8"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 24,
+      "task_id": "SL3-P2-A10",
+      "title": "Implement event-driven Brain→Work fast dispatch path",
+      "phase": "SL3-P2",
+      "priority": "P0",
+      "estimate_minutes": 75,
+      "depends_on": [
+        "SL3-P2-A4",
+        "SL3-P2-A9"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 25,
+      "task_id": "SL3-P2-A11",
+      "title": "Implement event-driven Work→Brain fast relay path",
+      "phase": "SL3-P2",
+      "priority": "P0",
+      "estimate_minutes": 75,
+      "depends_on": [
+        "SL3-P2-A10"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 26,
+      "task_id": "SL3-P2-A12",
+      "title": "Pass browser-event bridge compatibility regression gate",
+      "phase": "SL3-P2",
+      "priority": "P0",
+      "estimate_minutes": 90,
+      "depends_on": [
+        "SL3-P2-A11"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 27,
+      "task_id": "SL3-P3-A1",
+      "title": "Separate transient ChatGPT load failure from deterministic conversation missing",
+      "phase": "SL3-P3",
+      "priority": "P0",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P2-A12"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 28,
+      "task_id": "SL3-P3-A2",
+      "title": "Implement bounded Retry-control recovery",
+      "phase": "SL3-P3",
+      "priority": "P0",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P3-A1"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 29,
+      "task_id": "SL3-P3-A3",
+      "title": "Implement one-reload recovery after Retry failure",
+      "phase": "SL3-P3",
+      "priority": "P0",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P3-A2"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 30,
+      "task_id": "SL3-P3-A4",
+      "title": "Implement bounded CDP/browser reconnect without task loss",
+      "phase": "SL3-P3",
+      "priority": "P0",
+      "estimate_minutes": 75,
+      "depends_on": [
+        "SL3-P3-A3"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 31,
+      "task_id": "SL3-P3-A5",
+      "title": "Preserve quarantine for deterministic missing/access-denied/stable redirect",
+      "phase": "SL3-P3",
+      "priority": "P0",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P3-A1"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 32,
+      "task_id": "SL3-P3-A6",
+      "title": "Preserve exact-once latches across page reload/reconnect",
+      "phase": "SL3-P3",
+      "priority": "P0",
+      "estimate_minutes": 75,
+      "depends_on": [
+        "SL3-P3-A3",
+        "SL3-P3-A4"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 33,
+      "task_id": "SL3-P3-A7",
+      "title": "Add event-bridge watchdog fallback without normal-path polling",
+      "phase": "SL3-P3",
+      "priority": "P0",
+      "estimate_minutes": 75,
+      "depends_on": [
+        "SL3-P3-A6"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 34,
+      "task_id": "SL3-P3-A8",
+      "title": "Pass fault-injection and no-reload-storm regression gate",
+      "phase": "SL3-P3",
+      "priority": "P0",
+      "estimate_minutes": 90,
+      "depends_on": [
+        "SL3-P3-A5",
+        "SL3-P3-A7"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 35,
+      "task_id": "SL3-P4-A1",
+      "title": "Define canonical latency timestamps for ChatGPT-first fast path",
+      "phase": "SL3-P4",
+      "priority": "P1",
+      "estimate_minutes": 45,
+      "depends_on": [
+        "SL3-P3-A8"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 36,
+      "task_id": "SL3-P4-A2",
+      "title": "Measure Brain complete→detected→Work send-confirmed latency",
+      "phase": "SL3-P4",
+      "priority": "P1",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P4-A1"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 37,
+      "task_id": "SL3-P4-A3",
+      "title": "Measure Work complete→detected→Brain relay-confirmed latency",
+      "phase": "SL3-P4",
+      "priority": "P1",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P4-A1"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 38,
+      "task_id": "SL3-P4-A4",
+      "title": "Measure Brain verdict→next dispatch latency",
+      "phase": "SL3-P4",
+      "priority": "P1",
+      "estimate_minutes": 45,
+      "depends_on": [
+        "SL3-P4-A1"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 39,
+      "task_id": "SL3-P4-A5",
+      "title": "Expose safe latency and recovery telemetry in Control Center",
+      "phase": "SL3-P4",
+      "priority": "P1",
+      "estimate_minutes": 75,
+      "depends_on": [
+        "SL3-P4-A2",
+        "SL3-P4-A3",
+        "SL3-P4-A4"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 40,
+      "task_id": "SL3-P4-A6",
+      "title": "Enforce latency regression budgets without weakening correctness",
+      "phase": "SL3-P4",
+      "priority": "P1",
+      "estimate_minutes": 75,
+      "depends_on": [
+        "SL3-P4-A5"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 41,
+      "task_id": "SL3-P5-A1",
+      "title": "Define transport-neutral local Supervisor tool interface",
+      "phase": "SL3-P5",
+      "priority": "P1",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P4-A6"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 42,
+      "task_id": "SL3-P5-A2",
+      "title": "Enforce Plus-only/no-paid-OpenAI-API production gate",
+      "phase": "SL3-P5",
+      "priority": "P1",
+      "estimate_minutes": 45,
+      "depends_on": [
+        "SL3-P5-A1"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 43,
+      "task_id": "SL3-P5-A3",
+      "title": "Define future MCP adapter contract without making MCP a dependency",
+      "phase": "SL3-P5",
+      "priority": "P1",
+      "estimate_minutes": 45,
+      "depends_on": [
+        "SL3-P5-A1"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 44,
+      "task_id": "SL3-P5-A4",
+      "title": "Ensure local interface exposes no private chat body/token/URL by default",
+      "phase": "SL3-P5",
+      "priority": "P1",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P5-A1"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 45,
+      "task_id": "SL3-P5-A5",
+      "title": "Pass AI-ready interface regression gate",
+      "phase": "SL3-P5",
+      "priority": "P1",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P5-A2",
+        "SL3-P5-A3",
+        "SL3-P5-A4"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 46,
+      "task_id": "SL3-P6-A1",
+      "title": "Remove lane-2/lane-3 config and Control Center surfaces from V3 path",
+      "phase": "SL3-P6",
+      "priority": "P1",
+      "estimate_minutes": 75,
+      "depends_on": [
+        "SL3-P5-A5"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 47,
+      "task_id": "SL3-P6-A2",
+      "title": "Remove round-robin scheduler and multi-lane page-budget logic from V3 path",
+      "phase": "SL3-P6",
+      "priority": "P1",
+      "estimate_minutes": 75,
+      "depends_on": [
+        "SL3-P6-A1"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 48,
+      "task_id": "SL3-P6-A3",
+      "title": "Remove cross-lane mutation arbitration from V3 path",
+      "phase": "SL3-P6",
+      "priority": "P1",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P6-A2"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 49,
+      "task_id": "SL3-P6-A4",
+      "title": "Retain isolated legacy Three-Lane rollback entry point until cutover",
+      "phase": "SL3-P6",
+      "priority": "P1",
+      "estimate_minutes": 45,
+      "depends_on": [
+        "SL3-P6-A3"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 50,
+      "task_id": "SL3-P6-A5",
+      "title": "Migrate persisted state safely to single-lane schema",
+      "phase": "SL3-P6",
+      "priority": "P1",
+      "estimate_minutes": 75,
+      "depends_on": [
+        "SL3-P1-A2",
+        "SL3-P6-A4"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 51,
+      "task_id": "SL3-P6-A6",
+      "title": "Run full static/unit/integration/lifecycle regression suite",
+      "phase": "SL3-P6",
+      "priority": "P1",
+      "estimate_minutes": 120,
+      "depends_on": [
+        "SL3-P6-A5"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 52,
+      "task_id": "SL3-P7-A1",
+      "title": "Run 20-minute smoke qualification on locked V3 candidate",
+      "phase": "SL3-P7",
+      "priority": "P1",
+      "estimate_minutes": 30,
+      "depends_on": [
+        "SL3-P6-A6"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 53,
+      "task_id": "SL3-P7-A2",
+      "title": "Run 1-hour continuous single-lane soak",
+      "phase": "SL3-P7",
+      "priority": "P1",
+      "estimate_minutes": 30,
+      "depends_on": [
+        "SL3-P7-A1"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 54,
+      "task_id": "SL3-P7-A3",
+      "title": "Run 4-hour fault-injection soak with transient load/reconnect scenarios",
+      "phase": "SL3-P7",
+      "priority": "P1",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P7-A2"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 55,
+      "task_id": "SL3-P7-A4",
+      "title": "Run 8-hour unattended overnight soak",
+      "phase": "SL3-P7",
+      "priority": "P1",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P7-A3"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 56,
+      "task_id": "SL3-P7-A5",
+      "title": "Verify zero duplicate/lost-result/reload-storm/manual-recovery acceptance",
+      "phase": "SL3-P7",
+      "priority": "P1",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P7-A4"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    },
+    {
+      "order": 57,
+      "task_id": "SL3-P7-A6",
+      "title": "Prepare Owner-authorized production cutover and rollback manifest",
+      "phase": "SL3-P7",
+      "priority": "P1",
+      "estimate_minutes": 60,
+      "depends_on": [
+        "SL3-P7-A5"
+      ],
+      "production_impact_during_development": "NONE",
+      "stop_boundary": "READY_FOR_VERIFY",
+      "dod": [
+        "bounded scope completed without starting the next roadmap task",
+        "required regression/evidence for the task is recorded",
+        "no merge/deploy/hotpatch unless separately Owner-authorized"
+      ]
+    }
+  ]
+}
