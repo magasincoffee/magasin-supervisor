@@ -433,6 +433,7 @@ if(Test-Path $registryPath){
       Write-Host "RESUME_INSTRUCTION_DIGEST=$([string]$lane.instruction_digest)"
       Write-Host "RESUME_APPLIED_BRAIN_REV=$([string]$lane.applied_brain_url_revision)"
       Write-Host "RESUME_APPLIED_RESUME_REV=$([string]$lane.applied_resume_revision)"
+      Write-Host "RESUME_RECOVERY_VERSION=$([string]$lane.brain_resume_recovery_version)"
       Write-Host "RESUME_DISPATCH_INFLIGHT=$([bool]($null -ne $lane.dispatch_inflight))"
       Write-Host "RESUME_RELAY_INFLIGHT=$([bool]($null -ne $lane.relay_inflight))"
     }
