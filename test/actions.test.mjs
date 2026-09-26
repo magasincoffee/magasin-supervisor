@@ -227,6 +227,112 @@ test("long conversations bypass the 200-control snapshot and click the exact sen
 });
 
 
+test("plaintext-only ChatGPT composer is accepted as an editable surface", async () => {
+  let filled = null;
+  let clicks = 0;
+
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return false; },
+    async getAttribute(name) {
+      if (name === "contenteditable") return "plaintext-only";
+      if (name === "role") return "textbox";
+      return null;
+    },
+    async fill(value) { filled = value; },
+    async click() {},
+    async press() {}
+  };
+  const send = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() { clicks += 1; }
+  };
+  const page = {
+    locator(selector) {
+      if (selector.includes("send-button")) return send;
+      return composer;
+    },
+    async evaluate() { return []; },
+    async waitForTimeout() {},
+    async bringToFront() {},
+    keyboard: { async press() {}, async insertText() {} },
+    getByRole() { return send; }
+  };
+
+  const result = await sendComposerInstruction(
+    page,
+    "plaintext-only composer dispatch",
+    { dryRun: false }
+  );
+
+  assert.equal(result.executed, true);
+  assert.equal(filled, "plaintext-only composer dispatch");
+  assert.equal(clicks, 1);
+  assert.equal(result.send_method, "direct-control");
+});
+
+test("fill success without persisted text falls back to a real keyboard insertion", async () => {
+  const events = [];
+  let composerText = "";
+
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async fill() {
+      events.push("fill");
+      // Simulate the live React editor dropping the programmatic fill.
+    },
+    async inputValue() { return composerText; },
+    async click() { events.push("composer-click"); },
+    async press(key) {
+      events.push(`press:${key}`);
+      if (key === "Backspace") composerText = "";
+    }
+  };
+  const send = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() { events.push("send"); }
+  };
+  const page = {
+    locator(selector) {
+      if (selector.includes("send-button")) return send;
+      return composer;
+    },
+    async evaluate() { return []; },
+    async waitForTimeout() {},
+    async bringToFront() {},
+    keyboard: {
+      async insertText(value) {
+        composerText = value;
+        events.push(`insert:${value}`);
+      },
+      async press(key) { events.push(`keyboard:${key}`); }
+    },
+    getByRole() { return send; }
+  };
+
+  const result = await sendComposerInstruction(
+    page,
+    "must persist before send",
+    { dryRun: false }
+  );
+
+  assert.equal(result.executed, true);
+  assert.equal(result.input_method, "keyboard");
+  assert.equal(composerText, "must persist before send");
+  assert.ok(events.includes("fill"));
+  assert.ok(events.includes("insert:must persist before send"));
+  assert.equal(events.at(-1), "send");
+});
+
 test("RBT-010 UI action layer contains no attachment upload path", async () => {
   const source = await import("node:fs/promises").then((fs) =>
     fs.readFile(new URL("../src/ui/actions.mjs", import.meta.url), "utf8")
@@ -245,6 +351,8 @@ test("composer send prefers an exact visible send-button selector before bounded
 
   assert.match(source, /DIRECT_SEND_SELECTORS/);
   assert.match(source, /data-testid="send-button"/);
+  assert.match(source, /composer-submit-button/);
+  assert.match(source, /data-testid\*="send"/);
   assert.match(source, /clickReadyDirectSendControl/);
   assert.match(source, /force: true/);
 });
@@ -260,6 +368,8 @@ test("live composer send uses bounded editable readiness instead of a 60s implic
   assert.match(source, /async function setComposerText/);
   assert.match(source, /composer\.fill\(instruction, \{ timeout: 2_500 \}\)/);
   assert.match(source, /page\.keyboard\.insertText\(instruction\)/);
+  assert.match(source, /contenteditable="plaintext-only"/);
+  assert.match(source, /composerContainsExactInstruction/);
   assert.match(source, /did not become editable before bounded timeout/);
 });
 
