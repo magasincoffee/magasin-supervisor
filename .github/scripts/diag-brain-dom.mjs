@@ -123,20 +123,82 @@ const expression = `(() => {
         lineage
       };
     });
-  const composer = document.querySelector("#prompt-textarea,[contenteditable='true'][role='textbox'],textarea");
+  const composer = document.querySelector("#prompt-textarea,[contenteditable][role='textbox'],textarea,[contenteditable]");
+  const visible = (el) => {
+    if (!el) return false;
+    const style = getComputedStyle(el);
+    const box = el.getBoundingClientRect();
+    return style.display !== "none" &&
+      style.visibility !== "hidden" &&
+      box.width > 0 &&
+      box.height > 0;
+  };
+  const describe = (el) => {
+    if (!el) return null;
+    const box = el.getBoundingClientRect();
+    return {
+      tag: String(el.tagName || ""),
+      id: String(el.id || ""),
+      role: String(el.getAttribute?.("role") || ""),
+      type: String(el.getAttribute?.("type") || ""),
+      testid: String(el.getAttribute?.("data-testid") || ""),
+      aria: String(el.getAttribute?.("aria-label") || ""),
+      title: String(el.getAttribute?.("title") || ""),
+      contenteditable: String(el.getAttribute?.("contenteditable") || ""),
+      disabled: Boolean(el.disabled) || el.getAttribute?.("aria-disabled") === "true",
+      visible: visible(el),
+      cls: String(el.className || "").replace(/[\r\n|]+/g, " ").slice(0, 220),
+      text: String(el.innerText || el.textContent || "").trim().slice(0, 120),
+      x: Math.round(box.x),
+      y: Math.round(box.y),
+      w: Math.round(box.width),
+      h: Math.round(box.height)
+    };
+  };
+  const composerForm = composer?.closest("form") || null;
+  const controls = Array.from((composerForm || document).querySelectorAll("button,[role='button']"))
+    .filter(visible)
+    .slice(-30)
+    .map(describe);
+  const composerText = composer
+    ? String(
+        composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement
+          ? composer.value
+          : composer.innerText || composer.textContent || ""
+      ).trim()
+    : "";
   return {
     url: location.href,
     visibility: document.visibilityState,
     roleNodes,
     turnNodes,
     markerNodes,
-    composerPresent: Boolean(composer)
+    composerPresent: Boolean(composer),
+    composer: describe(composer),
+    composerTextLength: composerText.length,
+    composerForm: describe(composerForm),
+    controls
   };
 })()`;
 
 const dom = await cdpEvaluate(target.webSocketDebuggerUrl, expression);
 console.log(`BRAIN_DOM_VISIBILITY=${String(dom?.visibility || "")}`);
 console.log(`BRAIN_DOM_COMPOSER_PRESENT=${Boolean(dom?.composerPresent)}`);
+console.log(`BRAIN_DOM_COMPOSER_TEXT_LENGTH=${Number(dom?.composerTextLength || 0)}`);
+if (dom?.composer) {
+  const x = dom.composer;
+  console.log(`BRAIN_DOM_COMPOSER=TAG=${x.tag}|ID=${x.id}|ROLE=${x.role}|TESTID=${x.testid}|CONTENTEDITABLE=${x.contenteditable}|DISABLED=${x.disabled}|VISIBLE=${x.visible}|RECT=${x.x},${x.y},${x.w},${x.h}|CLASS=${x.cls}`);
+}
+if (dom?.composerForm) {
+  const x = dom.composerForm;
+  console.log(`BRAIN_DOM_FORM=TAG=${x.tag}|ID=${x.id}|ROLE=${x.role}|TESTID=${x.testid}|CLASS=${x.cls}`);
+}
+const controls = Array.isArray(dom?.controls) ? dom.controls : [];
+console.log(`BRAIN_DOM_CONTROL_COUNT=${controls.length}`);
+for (let i = 0; i < controls.length; i += 1) {
+  const x = controls[i] || {};
+  console.log(`BRAIN_DOM_CONTROL[${i}]=TAG=${x.tag}|TYPE=${x.type}|TESTID=${x.testid}|ARIA=${String(x.aria || "").replace(/[\r\n|]+/g," ").slice(0,120)}|TITLE=${String(x.title || "").replace(/[\r\n|]+/g," ").slice(0,120)}|DISABLED=${x.disabled}|VISIBLE=${x.visible}|RECT=${x.x},${x.y},${x.w},${x.h}|TEXT=${String(x.text || "").replace(/[\r\n|]+/g," ").slice(0,80)}|CLASS=${String(x.cls || "").replace(/[\r\n|]+/g," ").slice(0,180)}`);
+}
 console.log(`BRAIN_DOM_ROLE_NODE_COUNT=${Array.isArray(dom?.roleNodes) ? dom.roleNodes.length : 0}`);
 console.log(`BRAIN_DOM_TURN_NODE_COUNT=${Array.isArray(dom?.turnNodes) ? dom.turnNodes.length : 0}`);
 
