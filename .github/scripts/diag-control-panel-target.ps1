@@ -414,3 +414,61 @@ if($proc.HasExited){
   Write-Host "CONTROL_PANEL_LAUNCH_SMOKE=PASS"
 }
 }
+
+
+Write-Host "=== LIVE RESUME BRAIN STATE ==="
+$registryPath=Join-Path $root 'lane-registry.json'
+$statusPath=Join-Path $root 'lane-status.json'
+if(Test-Path $registryPath){
+  try{
+    $registryJson=Get-Content $registryPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $lane=$registryJson.lanes.'lane-1'
+    if($lane){
+      Write-Host "RESUME_BRAIN_URL_PRESENT=$(-not [string]::IsNullOrWhiteSpace([string]$lane.brain_url))"
+      Write-Host "RESUME_WORK_URL_PRESENT=$(-not [string]::IsNullOrWhiteSpace([string]$lane.work_url))"
+      Write-Host "RESUME_TASK_ID=$([string]$lane.task_id)"
+      Write-Host "RESUME_AWAITING_WORK=$([bool]$lane.awaiting_work)"
+      Write-Host "RESUME_BRAIN_REQUEST_SENT=$([bool]$lane.brain_request_sent)"
+      Write-Host "RESUME_LAST_BRAIN_DIGEST=$([string]$lane.last_brain_directive_digest)"
+      Write-Host "RESUME_INSTRUCTION_DIGEST=$([string]$lane.instruction_digest)"
+      Write-Host "RESUME_APPLIED_BRAIN_REV=$([string]$lane.applied_brain_url_revision)"
+      Write-Host "RESUME_APPLIED_RESUME_REV=$([string]$lane.applied_resume_revision)"
+      Write-Host "RESUME_DISPATCH_INFLIGHT=$([bool]($null -ne $lane.dispatch_inflight))"
+      Write-Host "RESUME_RELAY_INFLIGHT=$([bool]($null -ne $lane.relay_inflight))"
+    }
+  }catch{
+    Write-Host "RESUME_REGISTRY_READ_ERROR=$($_.Exception.Message)"
+  }
+}
+if(Test-Path $statusPath){
+  try{
+    $rawStatus=Get-Content $statusPath -Raw -Encoding UTF8
+    Write-Host "RESUME_STATUS_RAW=$rawStatus"
+  }catch{
+    Write-Host "RESUME_STATUS_READ_ERROR=$($_.Exception.Message)"
+  }
+}
+$supervisorLog=Join-Path $root 'supervisor.log'
+if(Test-Path $supervisorLog){
+  $tail=Get-Content $supervisorLog -Tail 500 -Encoding UTF8
+  foreach($line in $tail){
+    try{
+      $obj=$line | ConvertFrom-Json -ErrorAction Stop
+      $type=[string]$obj.type
+      if($type -match 'LANE_OWNER_RESUME_BRAIN_RESYNC|LANE_BRAIN_DIRECTIVE|LANE_BRAIN_STALE_DIRECTIVE|LANE_BRAIN_SEND|LANE_WORK_DISPATCH|LANE_WORK_SEND'){
+        $laneId=[string]$obj.lane_id
+        if(-not $laneId){$laneId=[string]$obj.laneId}
+        if(-not $laneId -or $laneId -eq 'lane-1'){
+          $task=[string]$obj.task_id
+          if(-not $task){$task=[string]$obj.taskId}
+          $digest=[string]$obj.digest
+          $reason=[string]$obj.reason
+          $errorName=[string]$obj.error_name
+          if(-not $errorName){$errorName=[string]$obj.errorName}
+          Write-Host "RESUME_LOG=TYPE=$type|TASK=$task|DIGEST=$digest|ERROR=$errorName|REASON=$reason"
+        }
+      }
+    }catch{}
+  }
+}
+Write-Host "LIVE_RESUME_BRAIN_STATE=PASS"
