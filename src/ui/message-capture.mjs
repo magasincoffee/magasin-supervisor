@@ -109,6 +109,38 @@ export async function captureCompletedAssistantTurn(page) {
   };
 }
 
+
+export async function captureAssistantTurnAfterUserMarker(page, marker) {
+  const expected = String(marker || "").trim();
+  if (!expected) return null;
+
+  const turns = await captureConversationTurns(page, { limit: 120 });
+  let markerIndex = -1;
+  for (let index = 0; index < turns.length; index += 1) {
+    const turn = turns[index];
+    if (turn.role === "user" && String(turn.text || "").includes(expected)) {
+      markerIndex = index;
+    }
+  }
+  if (markerIndex < 0) return null;
+
+  for (let index = markerIndex + 1; index < turns.length; index += 1) {
+    const turn = turns[index];
+    // Any newer user turn breaks correlation with this dispatch. Never jump
+    // across it and accidentally capture an unrelated historical/new result.
+    if (turn.role === "user") return null;
+    if (turn.role === "assistant" && turn.text) {
+      return {
+        text: turn.text,
+        turn: Number(turn.turn || 0),
+        chars: Number(turn.chars || turn.text.length),
+        digest: turn.digest
+      };
+    }
+  }
+  return null;
+}
+
 export async function captureAssistantTurnDigests(page) {
   const turns = await captureConversationTurns(page, { limit: 120 });
   return turns

@@ -768,3 +768,22 @@ test("Brain recheck request uses durable pending-task Source of Truth context", 
   assert.match(adoptionPath, /sha256\(buildCurrentBrainRequest\(\{ lane, registryLane \}\)\)/);
 });
 
+test("current Work result must be correlated to the active dispatch marker", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  const start = source.indexOf("const currentDispatchMarker = registryLane.last_dispatch_id");
+  const end = source.indexOf("const completedAt = new Date().toISOString()", start);
+  const segment = source.slice(start, end);
+
+  assert.match(segment, /workDispatchMarker\(registryLane\.last_dispatch_id\)/);
+  assert.match(segment, /captureAssistantTurnAfterUserMarker/);
+  assert.match(segment, /bỏ qua kết quả cũ trong lịch sử chat/);
+  assert.doesNotMatch(
+    segment,
+    /const captured = await captureCompletedAssistantTurn\(workPage\)/
+  );
+});
+
