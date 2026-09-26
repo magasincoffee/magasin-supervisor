@@ -332,6 +332,10 @@ Task metrics:
 
 The Control Panel reads only a bounded recent tail (20–50 events), not the whole history each refresh.
 
+## Autonomous soft-blocker recovery
+
+For an incomplete project, `DEPENDENCY_BLOCKED` and `NO_SAFE_WORK` do not permanently park the lane. Brain first receives up to three fast whole-plan rechecks so it can choose another dependency-ready task. If the blocker remains, Supervisor persists a soft-blocker schedule and automatically rechecks the exact Brain conversation at 1, 2, 4, 8, then at most 10 minute intervals. A WORK directive clears this schedule immediately. `OWNER_REQUIRED` remains the only intentional human-wait state.
+
 ## Project Source of Truth and progress
 
 Each lane keeps one durable `project_progress` record inside `lane-registry.json`. The first/resume Brain handshake supplies the full `project_plan` task list and any historical `completed_task_ids`. Browser tabs and GitHub pages are not the progress authority.
