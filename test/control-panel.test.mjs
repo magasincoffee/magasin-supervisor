@@ -201,6 +201,17 @@ test("Control Panel V2 keeps reset-all in the always-visible hero zone under DPI
   assert.match(source, /LÀM SẠCH TẤT CẢ DỰ ÁN/);
 });
 
+test("Control Panel launch restores and foregrounds an existing V2 instance", async () => {
+  const source = await fs.readFile(
+    new URL("../windows/control-panel.ps1", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /MagasinControlPanelWindow/);
+  assert.match(source, /ShowWindow\(\$existingPanel\.MainWindowHandle, 9\)/);
+  assert.match(source, /SetForegroundWindow\(\$existingPanel\.MainWindowHandle\)/);
+  assert.match(source, /MAGASIN SUPERVISOR\.\*CONTROL CENTER/);
+});
+
 test("RBT-010 Control Panel V2 contains no screenshot relay UI", async () => {
   const source = await fs.readFile(
     new URL("../windows/control-panel.ps1", import.meta.url),
