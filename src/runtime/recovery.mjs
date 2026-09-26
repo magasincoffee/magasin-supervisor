@@ -35,7 +35,7 @@ export function isPersistableConversationUrl(value) {
   try {
     const url = value instanceof URL ? value : new URL(value);
     targetFromUrl(url);
-    return !/^\/c\/WEB:/i.test(url.pathname);
+    return !/\/c\/WEB:/i.test(url.pathname);
   } catch {
     return false;
   }
