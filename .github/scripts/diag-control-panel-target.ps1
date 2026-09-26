@@ -567,6 +567,7 @@ if(Test-Path $registryPath){
       Write-Host "BRAIN_PLAN_REQUEST_SENT=$([bool]$lane.brain_request_sent)"
       Write-Host "BRAIN_PLAN_LAST_DIRECTIVE_DIGEST=$([string]$lane.last_brain_directive_digest)"
       Write-Host "BRAIN_PLAN_BOOTSTRAP_RETRIES=$([string]$lane.project_plan_bootstrap_retries)"
+      Write-Host "BRAIN_PLAN_IDLE_RECHECK_RETRIES=$([string]$lane.brain_idle_recheck_retries)"
       Write-Host "BRAIN_PLAN_KNOWN=$planKnown"
       Write-Host "BRAIN_PLAN_TOTAL=$planTotal"
       Write-Host "BRAIN_PLAN_DONE=$planDone"
@@ -576,8 +577,12 @@ if(Test-Path $registryPath){
         Write-Host "BRAIN_PLAN_INFLIGHT=True"
         Write-Host "BRAIN_PLAN_INFLIGHT_DIGEST=$([string]$b.digest)"
         Write-Host "BRAIN_PLAN_INFLIGHT_MARKER=$([string]$b.marker)"
-        Write-Host "BRAIN_PLAN_INFLIGHT_RELOADED=$([bool]$b.reconcile_reloaded)"
-        Write-Host "BRAIN_PLAN_INFLIGHT_BLOCKED=$([bool]$b.reconcile_blocked)"
+        $reloaded=$false
+        $blocked=$false
+        if($b.PSObject.Properties['reconcile_reloaded']){$reloaded=[bool]$b.reconcile_reloaded}
+        if($b.PSObject.Properties['reconcile_blocked']){$blocked=[bool]$b.reconcile_blocked}
+        Write-Host "BRAIN_PLAN_INFLIGHT_RELOADED=$reloaded"
+        Write-Host "BRAIN_PLAN_INFLIGHT_BLOCKED=$blocked"
         Write-Host "BRAIN_PLAN_INFLIGHT_PRE_USER_COUNT=$([string]$b.pre_user_count)"
         Write-Host "BRAIN_PLAN_INFLIGHT_PRE_MAX_TURN=$([string]$b.pre_max_turn_ordinal)"
       }else{
@@ -613,7 +618,7 @@ if(Test-Path $supervisorLog){
       try{
         $obj=$line | ConvertFrom-Json -ErrorAction Stop
         $type=[string]$obj.type
-        if($type -match 'LANE_(BRAIN|PROJECT_PLAN|OWNER_RESUME)'){
+        if($type -match 'LANE_(BRAIN|PROJECT_PLAN|OWNER_RESUME|WORK_SEND|WORK_DISPATCH|RESULT_RELAY)'){
           $laneId=[string]$obj.laneId
           if(-not $laneId){$laneId=[string]$obj.lane_id}
           if(-not $laneId -or $laneId -eq 'lane-1'){
@@ -648,3 +653,4 @@ try{
 }
 Write-Host "BRAIN_DOM_CDP_DIAG=PASS"
 # BRAIN_DOM_STRUCTURE_V2
+# POST_MODERN_DOM_LIVE_V1
