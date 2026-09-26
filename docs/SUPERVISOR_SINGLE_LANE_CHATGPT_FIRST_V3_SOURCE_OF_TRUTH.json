@@ -51,7 +51,6 @@
     "delete_now": [
       "docs/THREE_LANE_V1_ARCHITECTURE.md",
       "docs/ROBOT_BROWSER_SCHEDULER_OBSERVABILITY_ARCHITECTURE.md",
-      "docs/ROBOT_LIFECYCLE_TRUTH_ARCHITECTURE.md",
       "docs/RBT_010_TEXT_ONLY_RELAY_PLAN.md",
       "docs/RBT_010_TEXT_ONLY_RELAY_AUTHORITY.json",
       "docs/MIG_007_FINAL_CLEANUP_PLAN.md"
@@ -80,7 +79,11 @@
       "docs/PROJECT_ADAPTER_V1.md",
       "docs/STATE_ROOT_V1.md"
     ],
-    "runtime_code_policy": "DO_NOT_DELETE_LEGACY_THREE_LANE_RUNTIME_CODE_BEFORE_V3_QUALIFICATION_AND_OWNER_CUTOVER; KEEP AS ROLLBACK_ONLY"
+    "runtime_code_policy": "DO_NOT_DELETE_LEGACY_THREE_LANE_RUNTIME_CODE_BEFORE_V3_QUALIFICATION_AND_OWNER_CUTOVER; KEEP AS ROLLBACK_ONLY",
+    "replace_with_compatibility_tombstone": [
+      "docs/ROBOT_LIFECYCLE_TRUTH_ARCHITECTURE.md"
+    ],
+    "compatibility_tombstone_reason": "Current MIG-004 integrity guard requires the path to exist; old architecture content/authority is removed and the tombstone points only to V3 canonical Source of Truth."
   },
   "recovery_contract": {
     "transient_load_failure": [
