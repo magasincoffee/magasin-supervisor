@@ -658,3 +658,59 @@ test("receiving a project_plan clears bootstrap retry debt", async () => {
   assert.match(segment, /registryLane\.project_plan_bootstrap_retries = 0/);
 });
 
+test("incomplete project IDLE without a blocker is rechecked instead of freezing READY", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /MAX_BRAIN_IDLE_RECHECK_RETRIES = 3/);
+  assert.match(source, /async function rearmIncompleteProjectIdle/);
+  assert.match(source, /LANE_BRAIN_IDLE_CONTRACT_REARMED/);
+  assert.match(source, /idle_without_blocking_reason/);
+  assert.match(source, /project_complete_with_pending_tasks/);
+  assert.match(source, /LANE_BRAIN_IDLE_CONTRACT_EXHAUSTED/);
+  assert.match(source, /Project còn task chưa hoàn thành; Robot đang yêu cầu Brain giao WORK hoặc nêu blocker hợp lệ/);
+  assert.match(source, /Brain liên tục trả IDLE không hợp lệ trong khi dự án còn task/);
+});
+
+test("explicit dependency or Owner blockers stop re-prompting cleanly", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const start = source.indexOf("async function rearmIncompleteProjectIdle");
+  const end = source.indexOf("async function hasRelayMarker", start);
+  const segment = source.slice(start, end);
+
+  assert.match(segment, /reason === "OWNER_REQUIRED"/);
+  assert.match(segment, /reason === "DEPENDENCY_BLOCKED" \|\| reason === "NO_SAFE_WORK"/);
+  assert.match(segment, /accepted_blocker: true/);
+  assert.match(segment, /owner_required: true/);
+});
+
+test("Brain directive parse errors are observable instead of silently swallowed", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /LANE_BRAIN_DIRECTIVE_PARSE_ERROR/);
+  assert.match(source, /captured\.digest/);
+  assert.match(source, /captured\.chars/);
+});
+
+test("migration recovery IDLE uses the same project-plan and pending-task guards", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const resumed = source.indexOf('if (resumedDirective.action === "IDLE")');
+  const end = source.indexOf("const resumeHandshakeSafelyIdle", resumed);
+  const segment = source.slice(resumed, end);
+
+  assert.match(segment, /rearmMissingProjectPlanAfterIdle/);
+  assert.match(segment, /rearmIncompleteProjectIdle/);
+  assert.match(segment, /Recovered IDLE chưa đủ điều kiện dừng/);
+  assert.match(segment, /Brain IDLE không đáp ứng contract/);
+});
+

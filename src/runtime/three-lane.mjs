@@ -55,6 +55,12 @@ const PREVIOUS_RESULT_REASON_CODES = new Set([
   "REJECT_CORRECTION_REQUIRED",
   "OWNER_INTERVENTION_REQUIRED"
 ]);
+const IDLE_REASON_CODES = new Set([
+  "PROJECT_COMPLETE",
+  "NO_SAFE_WORK",
+  "DEPENDENCY_BLOCKED",
+  "OWNER_REQUIRED"
+]);
 
 function assertNarrowObject(value, allowed, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -94,6 +100,15 @@ function parsePreviousResult(value) {
   };
 }
 
+function parseIdleReason(value) {
+  if (value === undefined || value === null) return null;
+  const reason = String(value || "").trim().toUpperCase();
+  if (!IDLE_REASON_CODES.has(reason)) {
+    throw new Error("idle_reason is not allowlisted");
+  }
+  return reason;
+}
+
 function parseCorrectionOf(value) {
   if (value === undefined) return null;
   assertNarrowObject(value, new Set(["task_id", "relay_id"]), "correction_of");
@@ -119,11 +134,12 @@ export function parseLaneDirective(text) {
   if (action === "IDLE") {
     assertNarrowObject(
       payload,
-      new Set(["action", "previous_result", "project_plan"]),
+      new Set(["action", "previous_result", "project_plan", "idle_reason"]),
       "directive"
     );
     const previousResult = parsePreviousResult(payload.previous_result);
     const projectPlan = parseProjectPlan(payload.project_plan);
+    const idleReason = parseIdleReason(payload.idle_reason);
     const result = {
       schema_version: "lane-directive.v1",
       action: "IDLE",
@@ -131,6 +147,7 @@ export function parseLaneDirective(text) {
     };
     if (previousResult) result.previous_result = previousResult;
     if (projectPlan) result.project_plan = projectPlan;
+    if (idleReason) result.idle_reason = idleReason;
     return result;
   }
   if (action !== "WORK") throw new Error("unsupported lane directive action");
@@ -275,6 +292,7 @@ export function defaultLaneRegistry() {
       brain_request_inflight: null,
       brain_request_sent: false,
       project_plan_bootstrap_retries: 0,
+      brain_idle_recheck_retries: 0,
       awaiting_work: false,
       task_timing: defaultTaskTiming(),
       project_progress: defaultProjectProgress(),
@@ -336,6 +354,10 @@ export function normalizeLaneRegistry(value = {}) {
       project_plan_bootstrap_retries: Math.max(
         0,
         Number(lane.project_plan_bootstrap_retries || 0)
+      ),
+      brain_idle_recheck_retries: Math.max(
+        0,
+        Number(lane.brain_idle_recheck_retries || 0)
       ),
       awaiting_work: Boolean(lane.awaiting_work),
       task_timing: normalizeTaskTiming(lane.task_timing),
@@ -407,9 +429,10 @@ export function buildBrainStartRequest({ laneId, projectName }) {
     LANE_DIRECTIVE_END,
     "Sau khi Robot relay result, Brain nên VERIFY rồi thêm optional previous_result tương quan task_id + relay_id với verdict ACCEPT hoặc REJECT. REJECT chỉ được dispatch correction cùng task hoặc WORK có correction_of trỏ đúng previous result; nếu cần Owner thì dùng IDLE.",
     "Chỉ trả IDLE khi thực sự chưa có việc an toàn/dependency-ready hoặc bắt buộc cần Owner; không trả IDLE chỉ vì Robot vừa được bật lại.",
+    "Nếu project_plan vẫn còn task chưa hoàn thành mà trả IDLE, bắt buộc có idle_reason: DEPENDENCY_BLOCKED, NO_SAFE_WORK hoặc OWNER_REQUIRED. PROJECT_COMPLETE chỉ dùng khi mọi task trong plan đã hoàn thành.",
     "Nếu chưa có việc an toàn để làm, trả IDLE nhưng handshake đầu/resume vẫn phải kèm project_plan đầy đủ:",
     LANE_DIRECTIVE_START,
-    '{"action":"IDLE","project_plan":{"tasks":[{"task_id":"TASK-ID","title":"Tên task"}],"completed_task_ids":[]}}',
+    '{"action":"IDLE","idle_reason":"DEPENDENCY_BLOCKED","project_plan":{"tasks":[{"task_id":"TASK-ID","title":"Tên task"}],"completed_task_ids":[]}}',
     LANE_DIRECTIVE_END,
     "Không yêu cầu Robot tự tìm Brain khác. Không yêu cầu Robot tự tạo Brain mới."
   ].join("\n");

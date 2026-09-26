@@ -115,3 +115,14 @@ test("findPageForTarget treats direct and Project routes as the same exact conve
   assert.equal(adapter.findPageForTarget(target), existing);
 });
 
+test("CDP adapter keeps navigation generous but UI actions fail fast", async () => {
+  const source = await import("node:fs/promises").then((fs) =>
+    fs.readFile(new URL("../src/ui/playwright-adapter.mjs", import.meta.url), "utf8")
+  );
+
+  assert.match(source, /timeoutMs = 60_000/);
+  assert.match(source, /actionTimeoutMs = 10_000/);
+  assert.match(source, /setDefaultTimeout\(this\.actionTimeoutMs\)/);
+  assert.match(source, /setDefaultNavigationTimeout\(this\.timeoutMs\)/);
+});
+

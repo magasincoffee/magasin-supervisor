@@ -29,3 +29,16 @@ test("does not confuse normal conversation text with access denied", () => {
     false
   );
 });
+
+test("safe snapshot recognizes modern ChatGPT user and assistant message DOM", async () => {
+  const source = await import("node:fs/promises").then((fs) =>
+    fs.readFile(new URL("../src/ui/snapshot.mjs", import.meta.url), "utf8")
+  );
+
+  assert.match(source, /text-size-chat\.whitespace-pre-wrap/);
+  assert.match(source, /MarkdownRoot-/);
+  assert.match(source, /messageRecords/);
+  assert.match(source, /lastMessageRole = lastMessage\?\.role/);
+  assert.match(source, /conversationMessages\.length/);
+});
+
