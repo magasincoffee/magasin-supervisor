@@ -1,0 +1,169 @@
+{
+  "schema_version": "supervisor-runtime-v2-self-upgrade.v1",
+  "status": "PLANNED",
+  "deployment_authority": "OWNER_EXPLICIT_ONLY",
+  "execution_policy": {
+    "robot_may_self_modify": true,
+    "robot_may_run_ci": true,
+    "robot_may_open_prs": true,
+    "robot_may_merge_or_deploy": false,
+    "stop_at": "READY_FOR_OWNER_DEPLOY",
+    "protect_active_lanes": true,
+    "owner_stop_precedence": true,
+    "exact_once_required": true
+  },
+  "downtime_targets_seconds": {
+    "src_hotpatch_or_three_lane_child": {
+      "target_min": 5,
+      "target_max": 15
+    },
+    "wrapper_restart": {
+      "target_min": 15,
+      "target_max": 30
+    },
+    "dedicated_chrome_restart": {
+      "target_max": 60
+    }
+  },
+  "tasks": [
+    {
+      "id": "SV2-P0-A",
+      "title": "Runtime V2 state-machine extraction",
+      "priority": "P0",
+      "estimate_hours": [
+        6,
+        9
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "id": "SV2-P0-B",
+      "title": "End-to-end causality and trace correlation",
+      "priority": "P0",
+      "estimate_hours": [
+        3,
+        4
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "id": "SV2-P0-C",
+      "title": "Dispatch self-heal and bounded repair escalation",
+      "priority": "P0",
+      "estimate_hours": [
+        4,
+        6
+      ],
+      "canonical_issue": 68,
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "id": "SV2-P0-D",
+      "title": "ChatGPT DOM compatibility layer",
+      "priority": "P0",
+      "estimate_hours": [
+        3,
+        4
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "id": "SV2-P0-E",
+      "title": "Repository Source-of-Truth cleanup",
+      "priority": "P0",
+      "estimate_hours": [
+        1,
+        2
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "id": "SV2-P1-A",
+      "title": "Pipeline latency telemetry",
+      "priority": "P1",
+      "estimate_hours": [
+        3,
+        5
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "id": "SV2-P1-B",
+      "title": "Priority and event-assisted scheduler",
+      "priority": "P1",
+      "estimate_hours": [
+        4,
+        6
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "id": "SV2-P1-C",
+      "title": "Transaction revision and recovery journal",
+      "priority": "P1",
+      "estimate_hours": [
+        3,
+        5
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "id": "SV2-P1-D",
+      "title": "Control Center WHY NOT MOVING view",
+      "priority": "P1",
+      "estimate_hours": [
+        3,
+        5
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "id": "SV2-P1-E",
+      "title": "Event and log lifecycle hardening",
+      "priority": "P1",
+      "estimate_hours": [
+        2,
+        3
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "id": "SV2-P1-F",
+      "title": "Runtime identity and canonical state-root cleanup",
+      "priority": "P1",
+      "estimate_hours": [
+        2,
+        3
+      ],
+      "production_impact_during_development": "NONE"
+    },
+    {
+      "id": "SV2-P2",
+      "title": "Optional fast browser executor benchmark",
+      "priority": "P2",
+      "estimate_hours": [
+        6,
+        10
+      ],
+      "production_impact_during_development": "NONE"
+    }
+  ],
+  "brain_contract": {
+    "one_bounded_task_at_a_time": true,
+    "verify_before_next": true,
+    "target_active_implementation_minutes": [
+      10,
+      20
+    ],
+    "deployment_instruction_required": true,
+    "disruptive_steps_marker": "DEFER_UNTIL_OWNER_DEPLOY"
+  },
+  "total_core_active_hours": [
+    27,
+    41
+  ],
+  "expected_wall_clock_days": [
+    2,
+    3
+  ]
+}
