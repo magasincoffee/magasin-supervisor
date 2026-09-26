@@ -204,6 +204,7 @@ test("RBT-004 page budget remains globally bounded at four and recovery uses exi
 });
 
 test("safe activity extends retry/continue metadata without storing message body", async () => {
+  const runtime = await read("../src/runtime/three-lane-cli.mjs");
   const events = await read("../src/runtime/lane-events.mjs");
   assert.match(events, /continue_control/);
   assert.match(events, /retry_control/);
