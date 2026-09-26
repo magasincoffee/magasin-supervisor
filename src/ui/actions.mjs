@@ -192,7 +192,9 @@ async function setComposerText(
   let fillError = null;
   try {
     await composer.fill(instruction, { timeout: 2_500 });
-    await page.waitForTimeout(120);
+    if (typeof page.waitForTimeout === "function") {
+      await page.waitForTimeout(120);
+    }
     const persisted = await composerContainsExactInstruction(
       composer,
       instruction
@@ -215,7 +217,9 @@ async function setComposerText(
     throw fillError;
   }
   await page.keyboard.insertText(instruction);
-  await page.waitForTimeout(180);
+  if (typeof page.waitForTimeout === "function") {
+    await page.waitForTimeout(180);
+  }
 
   const afterInsert = await waitForReadyComposer(page, { timeoutMs: 1_500 });
   if (!afterInsert) {
