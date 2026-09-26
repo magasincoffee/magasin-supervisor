@@ -131,7 +131,7 @@ import {
   markProjectTaskActive
 } from "./project-progress.mjs";
 
-const SUPERVISOR_RUNTIME_VERSION = "2026-09-20.61";
+const SUPERVISOR_RUNTIME_VERSION = "2026-09-20.60";
 const WATCHDOG_CONTINUE_INSTRUCTION = "Tiếp tục thực hiện.";
 const BRAIN_RESUME_OBSERVATION_TIMEOUT_MS = 15_000;
 const MAX_ACTIVE_ROUND_POLL_MS = 2_000;
