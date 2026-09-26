@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$ViewportProbe,
     [switch]$ObservabilityProbe,
     [int]$ProbeWidth = 0,
