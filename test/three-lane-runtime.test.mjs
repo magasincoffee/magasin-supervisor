@@ -190,7 +190,7 @@ test("Brain resume recovery is bounded and not durably consumed before the recov
   assert.ok(resumedScan >= 0 && finalizeAfterScan > resumedScan);
 });
 
-test("lane STOP then START reloads Brain once and adopts an already-visible unconsumed directive", async () => {
+test("lane STOP then START soft-resyncs Brain without reload and adopts an already-visible unconsumed directive", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
     "utf8"
@@ -199,7 +199,14 @@ test("lane STOP then START reloads Brain once and adopts an already-visible unco
   assert.match(source, /async function resyncBrainAfterOwnerResume/);
   assert.match(source, /LANE_OWNER_RESUME_BRAIN_RESYNC_INTENT/);
   assert.match(source, /OWNER_LANE_RESUME_BRAIN_RESYNC/);
-  assert.match(source, /brainPage\.reload/);
+  assert.doesNotMatch(
+    source.slice(
+      source.indexOf("async function resyncBrainAfterOwnerResume"),
+      source.indexOf("async function finalizeBrainResumeRecovery")
+    ),
+    /brainPage\.reload/
+  );
+  assert.match(source, /Owner resume is a soft resync only/);
   assert.match(source, /async function finalizeBrainResumeRecovery/);
   assert.match(source, /registryLane\.applied_resume_revision = Number/);
   assert.match(source, /resumeResync\.revision \|\| 0/);
@@ -323,19 +330,20 @@ test("inaccessible Brain or Work conversations surface plain-language Owner guid
 });
 
 
-test("v36 reloads each unconfirmed Work send at most once and then only observes", async () => {
+test("unconfirmed Work and Brain sends reconcile by passive observation without hard reload", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
     "utf8"
   );
 
-  assert.match(source, /reconcile_reloaded/);
-  assert.match(source, /const reload = !latch\.reconcile_reloaded/);
-  assert.match(source, /LANE_WORK_SEND_RECONCILE_RELOAD/);
-  assert.match(source, /LANE_WORK_SEND_RECONCILE_PENDING/);
+  assert.match(source, /reconcile_observed/);
+  assert.match(source, /LANE_WORK_SEND_RECONCILE_OBSERVE/);
+  assert.match(source, /LANE_BRAIN_SEND_RECONCILE_OBSERVE/);
+  assert.match(source, /passive_observation_no_reload/);
   assert.match(source, /LANE_WORK_SEND_RECONCILE_PENDING/);
   assert.match(source, /return "PENDING"/);
-  assert.match(source, /chỉ quan sát, không tải lại trang lặp lại/);
+  assert.doesNotMatch(source, /LANE_WORK_SEND_RECONCILE_RELOAD/);
+  assert.doesNotMatch(source, /LANE_BRAIN_SEND_RECONCILE_RELOAD/);
 });
 
 test("v36 waits for a stable ChatGPT surface before deciding send outcome", async () => {
@@ -352,14 +360,14 @@ test("v36 waits for a stable ChatGPT surface before deciding send outcome", asyn
   assert.match(source, /if \(!observed\.stable \|\| !observed\.probe\) return "PENDING"/);
 });
 
-test("v44 keeps bounded exact-once semantics across Brain, Work and result relay", async () => {
+test("bounded exact-once semantics preserve passive Brain/Work reconciliation and relay confirmation", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
     "utf8"
   );
 
-  assert.match(source, /LANE_BRAIN_SEND_RECONCILE_RELOAD/);
-  assert.match(source, /LANE_WORK_SEND_RECONCILE_RELOAD/);
+  assert.match(source, /LANE_BRAIN_SEND_RECONCILE_OBSERVE/);
+  assert.match(source, /LANE_WORK_SEND_RECONCILE_OBSERVE/);
   assert.match(source, /LANE_BRAIN_SEND_NOT_CONFIRMED_RETRY/);
   assert.match(source, /LANE_WORK_SEND_NOT_CONFIRMED_RETRY/);
   assert.match(source, /LANE_RESULT_RELAY_NOT_CONFIRMED_RETRY/);
@@ -370,17 +378,44 @@ test("v44 keeps bounded exact-once semantics across Brain, Work and result relay
   assert.doesNotMatch(source, /LANE_RESULT_RELAY_RECONCILE_BLOCKED/);
 });
 
-test("legacy v34-v35 latch can self-heal after one hard reload", async () => {
+test("legacy latch can self-heal after stable passive observation", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
     "utf8"
   );
 
-  assert.match(source, /Legacy v34\/v35 latches may lack a baseline/);
+  assert.match(source, /Legacy latches may lack a baseline/);
+  assert.match(source, /without navigation/);
   assert.match(source, /return "NOT_CONFIRMED"/);
   assert.doesNotMatch(source, /Work chat đã thay đổi trong lúc xác minh lần gửi/);
 });
 
+
+test("Brain target guard rejects a conversation whose latest role evidence is Work", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /function classifyConversationRoleEvidence/);
+  assert.match(source, /MAGASIN_WORK_DISPATCH_V1/);
+  assert.match(source, /WORK_EXECUTION_CONTRACT_V1/);
+  assert.match(source, /BRAIN_ROLE_MISMATCH/);
+  assert.match(source, /if \(brain\) await assertBrainConversationRole\(page\)/);
+});
+
+test("failed Brain and Work sends guard-clear only the exact stale composer draft", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /draft_digest: normalizedComposerDigest\(request\)/);
+  assert.match(source, /draft_digest: normalizedComposerDigest\(outgoingInstruction\)/);
+  assert.match(source, /LANE_BRAIN_STALE_DRAFT_DISCARDED/);
+  assert.match(source, /LANE_WORK_STALE_DRAFT_DISCARDED/);
+  assert.match(source, /stale draft guard/);
+});
 
 test("v37 strips a UTF-8 BOM before parsing local JSON state", async () => {
   const source = await fs.readFile(
