@@ -69,7 +69,7 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Silen
   ForEach-Object {
     try{
       $gp=Get-Process -Id ([int]$_.ProcessId) -ErrorAction Stop
-      if($gp.MainWindowHandle -ne 0 -and $gp.MainWindowTitle -like '*MAGASIN BUSINESS OS*'){
+      if($gp.MainWindowHandle -ne 0 -and $gp.MainWindowTitle -match 'MAGASIN SUPERVISOR.*CONTROL CENTER'){
         $candidates += $gp
       }
     }catch{}
@@ -359,11 +359,17 @@ $stdoutPath=Join-Path $env:TEMP 'magasin-control-panel-smoke.stdout.txt'
 Remove-Item $stderrPath,$stdoutPath -Force -ErrorAction SilentlyContinue
 
 $existing=@(
-  Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -and $_.CommandLine -like '*control-panel.ps1*' -and $_.CommandLine -notlike '*diag-control-panel-target.ps1*' }
+  Get-Process -Name powershell -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.MainWindowHandle -ne 0 -and
+      $_.MainWindowTitle -match 'MAGASIN SUPERVISOR.*CONTROL CENTER'
+    }
 )
 Write-Host "CONTROL_PANEL_EXISTING_COUNT=$($existing.Count)"
-
+if($existing.Count -gt 0){
+  Write-Host "CONTROL_PANEL_EXISTING_TITLE=$($existing[0].MainWindowTitle)"
+  Write-Host "CONTROL_PANEL_LAUNCH_SMOKE=PASS"
+}else{
 $proc=Start-Process powershell.exe -PassThru -WindowStyle Hidden -ArgumentList @(
   '-NoLogo','-NoProfile','-ExecutionPolicy','Bypass',
   '-File',('"' + $panelScript + '"')
@@ -395,4 +401,5 @@ if($proc.HasExited){
   }
   Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
   Write-Host "CONTROL_PANEL_LAUNCH_SMOKE=PASS"
+}
 }
