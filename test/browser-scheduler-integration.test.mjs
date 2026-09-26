@@ -35,15 +35,24 @@ test("main loop schedules one enabled lane turn at a time instead of processing 
   assert.match(loop, /if \(turn\.round_complete\) \{[\s\S]*?await delay\(args\.pollMs\)/);
 });
 
-test("bounded lane turn separates completed-result capture from relay mutation", async () => {
+test("completed-result state is durable before same-turn exact-once relay mutation", async () => {
   const runtime = await read("../src/runtime/three-lane-cli.mjs");
   const turn = functionSlice(runtime, "async function processLaneTurn", "async function processLane(args)");
   const completed = turn.indexOf("markTaskCompleted");
-  const boundedReturn = turn.indexOf("relay văn bản được tách sang bounded turn kế tiếp", completed);
-  const relay = turn.indexOf("relayWorkResult", boundedReturn);
+  const persisted = turn.indexOf("await atomicJsonWrite(registryPath, registry)", completed);
+  const fastRelay = turn.indexOf("LANE_WORK_COMPLETED_FAST_RELAY", persisted);
+  const brain = turn.indexOf("await ensureBrainPage()", fastRelay);
+  const relay = turn.indexOf("relayWorkResult", brain);
+
   assert.ok(completed >= 0);
-  assert.ok(boundedReturn > completed);
-  assert.ok(relay > boundedReturn);
+  assert.ok(persisted > completed);
+  assert.ok(fastRelay > persisted);
+  assert.ok(brain > fastRelay);
+  assert.ok(relay > brain);
+  assert.doesNotMatch(
+    turn.slice(completed, relay),
+    /return laneStatus\([\s\S]*?relay văn bản được tách sang bounded turn kế tiếp/
+  );
 });
 
 test("lane page observations are released after every turn", async () => {
