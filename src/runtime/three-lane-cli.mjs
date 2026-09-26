@@ -2816,6 +2816,79 @@ async function applyOwnerBrainTarget({
   return changed;
 }
 
+async function resyncBrainAfterOwnerResume({
+  adapter,
+  lane,
+  brainPage,
+  registryLane,
+  registry,
+  registryPath,
+  logPath,
+  scheduler
+}) {
+  const revision = Number(lane.resume_revision || 0);
+  const applied = Number(
+    registryLane.applied_resume_revision === undefined
+      ? -1
+      : registryLane.applied_resume_revision
+  );
+  if (revision <= applied) {
+    return { status: "NONE", probe: null };
+  }
+
+  await safeLog(logPath, {
+    type: "LANE_OWNER_RESUME_BRAIN_RESYNC_INTENT",
+    laneId: lane.lane_id,
+    taskId: registryLane.task_id || undefined,
+    reason: `resume_revision=${revision};applied=${applied}`
+  });
+
+  try {
+    await runBrowserMutation(
+      scheduler,
+      {
+        laneId: lane.lane_id,
+        role: "BRAIN",
+        page: brainPage,
+        reason: "OWNER_LANE_RESUME_BRAIN_RESYNC"
+      },
+      async () => {
+        if (typeof brainPage.bringToFront === "function") {
+          await brainPage.bringToFront().catch(() => {});
+        }
+        await brainPage.reload({
+          waitUntil: "domcontentloaded",
+          timeout: 30_000
+        });
+        if (typeof brainPage.waitForTimeout === "function") {
+          await brainPage.waitForTimeout(500);
+        }
+      }
+    );
+  } catch (error) {
+    await safeLog(logPath, {
+      type: "LANE_OWNER_RESUME_BRAIN_RESYNC_ERROR",
+      laneId: lane.lane_id,
+      errorName: error?.name || "Error",
+      reason: String(error?.message || error).slice(0, 180)
+    });
+    return { status: "RETRY", probe: null };
+  }
+
+  registryLane.applied_resume_revision = revision;
+  await atomicJsonWrite(registryPath, registry);
+
+  const probe = await assertConversationSafe(adapter, brainPage, { brain: true })
+    .catch(() => null);
+  await safeLog(logPath, {
+    type: "LANE_OWNER_RESUME_BRAIN_RESYNC_APPLIED",
+    laneId: lane.lane_id,
+    taskId: registryLane.task_id || undefined,
+    reason: `resume_revision=${revision}`
+  });
+  return { status: "APPLIED", probe };
+}
+
 async function emitWorkTargetTransition({
   lane,
   registryLane,
@@ -4515,6 +4588,87 @@ async function processLaneTurn({
   }
 
   await ensureBrainPage();
+
+  const resumeResync = await resyncBrainAfterOwnerResume({
+    adapter,
+    lane,
+    brainPage,
+    registryLane,
+    registry,
+    registryPath,
+    logPath,
+    scheduler
+  });
+  if (resumeResync.status === "RETRY") {
+    return laneStatus(
+      lane,
+      registryLane,
+      "RECOVERING",
+      "Đang đồng bộ lại Bộ não sau khi bạn bật lại luồng; sẽ tự thử lại ở turn kế tiếp."
+    );
+  }
+  if (resumeResync.probe) {
+    brainProbe = resumeResync.probe;
+  }
+
+  // After STOP -> START, or after a recovered/stale browser tab, scan the
+  // recent Brain conversation for the newest unconsumed machine directive.
+  // This is observation-only and remains exact-once because consumed digests
+  // are rejected by adoptExistingBrainDirective.
+  const resumedDirective = await adoptExistingBrainDirective({
+    adapter,
+    page: brainPage,
+    lane,
+    registryLane,
+    registry,
+    registryPath,
+    logPath
+  });
+  if (resumedDirective) {
+    await applyBrainVerdictDirective({
+      lane,
+      registryLane,
+      directive: resumedDirective,
+      registry,
+      registryPath
+    });
+
+    if (resumedDirective.action === "IDLE") {
+      registryLane.last_brain_directive_digest = resumedDirective.digest;
+      registryLane.task_id = null;
+      registryLane.instruction_digest = null;
+      await atomicJsonWrite(registryPath, registry);
+      return laneStatus(
+        lane,
+        registryLane,
+        "READY",
+        "Đã đồng bộ lại Brain sau khi bật luồng; hiện chưa có công việc mới."
+      );
+    }
+
+    await dispatchWork({
+      adapter,
+      lane,
+      registryLane,
+      directive: resumedDirective,
+      execute,
+      registry,
+      registryPath,
+      logPath,
+      scheduler,
+      stopPath,
+      configPath
+    });
+
+    return laneStatus(
+      lane,
+      registryLane,
+      registryLane.awaiting_work ? "WORKING" : "STARTING",
+      registryLane.awaiting_work
+        ? `Đã đồng bộ lại lệnh Brain và đang thực hiện ${registryLane.task_id}.`
+        : "Đã đồng bộ lại lệnh Brain và thực hiện một dispatch attempt; lane yield scheduler."
+    );
+  }
 
   if (!registryLane.brain_request_sent) {
     const directive = await ensureBrainRequest({
