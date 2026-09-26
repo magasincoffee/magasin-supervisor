@@ -473,3 +473,38 @@ if(Test-Path $supervisorLog){
   }
 }
 Write-Host "LIVE_RESUME_BRAIN_STATE=PASS"
+
+
+Write-Host "=== STALE LANE LOOP DIAG ==="
+$statusPath=Join-Path $root 'lane-status.json'
+if(Test-Path $statusPath){
+  $statusItem=Get-Item $statusPath
+  Write-Host "STALE_STATUS_UTC=$($statusItem.LastWriteTimeUtc.ToString('o'))"
+  Write-Host "STALE_STATUS_AGE_SECONDS=$([math]::Round(((Get-Date).ToUniversalTime()-$statusItem.LastWriteTimeUtc).TotalSeconds,1))"
+}
+Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+  Where-Object {
+    $_.CommandLine -and (
+      $_.CommandLine -like '*run-supervisor.ps1*' -or
+      $_.CommandLine -like '*three-lane-cli.mjs*'
+    )
+  } |
+  Sort-Object ProcessId |
+  ForEach-Object {
+    $gp=Get-Process -Id ([int]$_.ProcessId) -ErrorAction SilentlyContinue
+    $start=''
+    $cpu=''
+    if($gp){
+      try{$start=$gp.StartTime.ToUniversalTime().ToString('o')}catch{}
+      try{$cpu=[math]::Round([double]$gp.CPU,2)}catch{}
+    }
+    Write-Host "STALE_PROCESS=$($_.ProcessId)|PPID=$($_.ParentProcessId)|NAME=$($_.Name)|START=$start|CPU=$cpu|CMD=$($_.CommandLine)"
+  }
+
+$supervisorLog=Join-Path $root 'supervisor.log'
+if(Test-Path $supervisorLog){
+  Write-Host "STALE_SUPERVISOR_LOG_TAIL_BEGIN"
+  Get-Content $supervisorLog -Tail 120 -Encoding UTF8 | ForEach-Object { Write-Host "STALE_LOG=$_" }
+  Write-Host "STALE_SUPERVISOR_LOG_TAIL_END"
+}
+Write-Host "STALE_LANE_LOOP_DIAG=PASS"
