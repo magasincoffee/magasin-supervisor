@@ -532,3 +532,41 @@ test("v48 relay exhaustion is a stable Owner stop rather than an infinite retry 
   assert.match(source, /relayRetryState/);
   assert.match(source, /retry_not_before/);
 });
+
+
+test("Owner resume consumes historical IDLE then requests a fresh project review", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  const resumedScan = source.indexOf("const resumedDirective = await adoptExistingBrainDirective");
+  const requestGate = source.indexOf("if (!registryLane.brain_request_sent)", resumedScan);
+  const resumePath = source.slice(resumedScan, requestGate);
+
+  assert.match(resumePath, /resumedDirective\.action === "IDLE"/);
+  assert.match(resumePath, /if \(resumeResync\.ownerResume\)/);
+  assert.match(resumePath, /registryLane\.last_brain_directive_digest = resumedDirective\.digest/);
+  assert.match(resumePath, /registryLane\.brain_request_sent = false/);
+  assert.match(resumePath, /registryLane\.brain_request_inflight = null/);
+  assert.match(resumePath, /LANE_OWNER_RESUME_BRAIN_FRESH_PROJECT_REVIEW/);
+  assert.doesNotMatch(
+    resumePath,
+    /Đã đồng bộ lại Brain sau khi bật luồng; hiện chưa có công việc mới/
+  );
+});
+
+test("Brain start request explicitly requires project reread and immediate Work assignment", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane.mjs", import.meta.url),
+    "utf8"
+  );
+  const start = source.indexOf("export function buildBrainStartRequest");
+  const end = source.indexOf("export function buildWorkRolloverInstruction", start);
+  const prompt = source.slice(start, end);
+
+  assert.match(prompt, /Bạn hãy đọc lại dự án đang thực hiện và giao phần việc tiếp theo cho Work\./);
+  assert.match(prompt, /phải giao ngay đúng một việc cho Work/);
+  assert.match(prompt, /không chỉ tóm tắt, lập kế hoạch bằng prose hoặc chờ Owner nhắc lại/);
+  assert.match(prompt, /Chỉ trả IDLE khi thực sự chưa có việc an toàn\/dependency-ready hoặc bắt buộc cần Owner/);
+});
