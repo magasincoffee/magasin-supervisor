@@ -12,6 +12,7 @@ import {
 import {
   SEND_REJECTION_CLASSES,
   classifyComposerSendRejection,
+  discardComposerDraftIfDigest,
   executeDecision,
   inspectActionSurface,
   sendComposerInstruction
@@ -130,7 +131,7 @@ import {
   markProjectTaskActive
 } from "./project-progress.mjs";
 
-const SUPERVISOR_RUNTIME_VERSION = "2026-09-20.60";
+const SUPERVISOR_RUNTIME_VERSION = "2026-09-20.61";
 const WATCHDOG_CONTINUE_INSTRUCTION = "Tiếp tục thực hiện.";
 const BRAIN_RESUME_OBSERVATION_TIMEOUT_MS = 15_000;
 const MAX_ACTIVE_ROUND_POLL_MS = 2_000;
@@ -613,6 +614,59 @@ async function writeLaneStatus(statusPath, statuses, scheduler = null) {
   });
 }
 
+function normalizedComposerDigest(value) {
+  return sha256(
+    String(value || "")
+      .replace(/\u200B/g, "")
+      .replace(/\r\n/g, "\n")
+      .trim()
+  );
+}
+
+function classifyConversationRoleEvidence(turns = []) {
+  let latest = null;
+  const brainPatterns = [
+    /<<<MAGASIN_LANE_DIRECTIVE_V1>>>/i,
+    /\bbrain_request_id=[0-9a-f]+\b/i,
+    /Bạn là BỘ NÃO của lane-/i,
+    /(?:vai trò|role)\s*(?:là|:)?\s*(?:BRAIN|BỘ NÃO)\b/i
+  ];
+  const workPatterns = [
+    /\bMAGASIN_WORK_DISPATCH_V1\b/i,
+    /\bWORK_EXECUTION_CONTRACT_V1\b/i,
+    /Bạn là WORK\b/i,
+    /(?:vai trò|role)\s*(?:là|:)?\s*WORK\b/i
+  ];
+  for (let index = 0; index < turns.length; index += 1) {
+    const turn = turns[index] || {};
+    const text = String(turn.text || "");
+    const brain = brainPatterns.some((pattern) => pattern.test(text));
+    const work = workPatterns.some((pattern) => pattern.test(text));
+    if (brain === work) continue;
+    latest = {
+      role: brain ? "BRAIN" : "WORK",
+      turn: Number(turn.turn || index + 1),
+      message_role: String(turn.role || ""),
+      digest: turn.digest || sha256(text)
+    };
+  }
+  return latest;
+}
+
+async function assertBrainConversationRole(page) {
+  const turns = await captureRecentConversationTurns(page, { limit: 40 })
+    .catch(() => []);
+  const evidence = classifyConversationRoleEvidence(turns);
+  if (evidence?.role === "WORK") {
+    const error = new Error(
+      "BRAIN_ROLE_MISMATCH: selected Brain URL contains newer Work-role evidence; choose the Brain conversation before Robot sends."
+    );
+    error.code = "BRAIN_ROLE_MISMATCH";
+    throw error;
+  }
+  return evidence;
+}
+
 async function assertConversationSafe(adapter, page, {
   brain = false,
   allowFull = false
@@ -634,6 +688,7 @@ async function assertConversationSafe(adapter, page, {
       ? "Brain conversation is full; Owner must provide a replacement Brain URL"
       : "Work conversation is full");
   }
+  if (brain) await assertBrainConversationRole(page);
   return probe;
 }
 
