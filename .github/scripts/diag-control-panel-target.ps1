@@ -209,3 +209,61 @@ if(Test-Path $supervisorLog){
   Write-Host "LIVE_SUPERVISOR_LOG_MISSING=True"
 }
 Write-Host "LIVE_LANE_ERROR_DIAG=PASS"
+
+
+Write-Host "=== LIVE DISPATCH STALL DETAIL ==="
+$registryPath=Join-Path $root 'lane-registry.json'
+if(Test-Path $registryPath){
+  try{
+    $registryJson=Get-Content $registryPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $lane=$registryJson.lanes.'lane-1'
+    if($lane){
+      Write-Host "DISPATCH_TASK_ID=$([string]$lane.task_id)"
+      Write-Host "DISPATCH_AWAITING_WORK=$([bool]$lane.awaiting_work)"
+      Write-Host "DISPATCH_LAST_BRAIN_DIGEST=$([string]$lane.last_brain_directive_digest)"
+      Write-Host "DISPATCH_LAST_ID=$([string]$lane.last_dispatch_id)"
+      Write-Host "DISPATCH_WORK_URL_PRESENT=$(-not [string]::IsNullOrWhiteSpace([string]$lane.work_url))"
+      if($lane.dispatch_inflight){
+        $d=$lane.dispatch_inflight
+        Write-Host "DISPATCH_INFLIGHT=True"
+        Write-Host "DISPATCH_INFLIGHT_TASK=$([string]$d.task_id)"
+        Write-Host "DISPATCH_INFLIGHT_ID=$([string]$d.dispatch_id)"
+        Write-Host "DISPATCH_SEND_STATE=$([string]$d.send_state)"
+        Write-Host "DISPATCH_SEND_ATTEMPTED_AT=$([string]$d.send_attempted_at)"
+        Write-Host "DISPATCH_LAST_REJECTION=$([string]$d.last_send_rejection)"
+        Write-Host "DISPATCH_RECONCILE_RELOADED=$([bool]$d.reconcile_reloaded)"
+        Write-Host "DISPATCH_RECONCILE_BLOCKED=$([bool]$d.reconcile_blocked)"
+        Write-Host "DISPATCH_PRE_USER_COUNT=$([string]$d.pre_user_count)"
+        Write-Host "DISPATCH_PRE_MAX_TURN=$([string]$d.pre_max_turn_ordinal)"
+      }else{
+        Write-Host "DISPATCH_INFLIGHT=False"
+      }
+    }
+  }catch{
+    Write-Host "DISPATCH_REGISTRY_READ_ERROR=$($_.Exception.Message)"
+  }
+}else{
+  Write-Host "DISPATCH_REGISTRY_MISSING=True"
+}
+
+$supervisorLog=Join-Path $root 'supervisor.log'
+if(Test-Path $supervisorLog){
+  $tail=Get-Content $supervisorLog -Tail 400 -Encoding UTF8
+  foreach($line in $tail){
+    try{
+      $obj=$line | ConvertFrom-Json -ErrorAction Stop
+      $type=[string]$obj.type
+      if($type -match 'LANE_WORK_(SEND|DISPATCH)|LANE_ERROR|BROWSER|MUTATION'){
+        $laneId=[string]$obj.laneId
+        if(-not $laneId -or $laneId -eq 'lane-1'){
+          $reason=[string]$obj.reason
+          $errorName=[string]$obj.errorName
+          $taskId=[string]$obj.taskId
+          $digest=[string]$obj.digest
+          Write-Host "DISPATCH_LOG=TYPE=$type|TASK=$taskId|ERROR=$errorName|REASON=$reason|DIGEST=$digest"
+        }
+      }
+    }catch{}
+  }
+}
+Write-Host "LIVE_DISPATCH_STALL_DIAG=PASS"
