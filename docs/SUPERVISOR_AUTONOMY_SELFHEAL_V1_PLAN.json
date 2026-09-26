@@ -67,37 +67,50 @@
         "duplicate_brain_handshake_count": 0,
         "stale_handshake_retry_count": 0,
         "brain_to_work_acceptance": "PASS"
-      }
+      },
+      "github_issue": 16
     },
     {
       "id": "P2",
       "name": "Owner/AUTO Work target policy",
-      "state": "READY"
+      "state": "READY",
+      "github_issue": 62
     },
     {
       "id": "P3",
       "name": "Automatic Work replacement",
-      "state": "BLOCKED_BY_P2"
+      "state": "BLOCKED_BY_P2",
+      "github_issue": 63
     },
     {
       "id": "P4",
       "name": "Runtime/status self-heal",
-      "state": "BLOCKED_BY_P1"
+      "state": "BLOCKED_BY_P1",
+      "github_issue": 64
     },
     {
       "id": "P5",
       "name": "Control Panel observability",
-      "state": "BLOCKED_BY_P4"
+      "state": "BLOCKED_BY_P4",
+      "github_issue": 65
     },
     {
       "id": "P6",
       "name": "RESET WORK STATE UI completion",
-      "state": "BLOCKED_BY_P5"
+      "state": "BLOCKED_BY_P5",
+      "github_issue": 66
     },
     {
       "id": "P7",
       "name": "Persistent sanitized diagnostics",
-      "state": "IN_PROGRESS"
+      "state": "IN_PROGRESS",
+      "github_issue": 67
+    },
+    {
+      "id": "P8",
+      "name": "Dispatch watchdog, heartbeat, bounded recovery, and repair escalation",
+      "state": "BLOCKED_BY_P2_P3_P4_P7",
+      "github_issue": 68
     }
   ],
   "final_acceptance": [
@@ -119,5 +132,27 @@
     "NO_SECRET_OR_CHAT_BODY_LOGGING",
     "FAIL_CLOSED_ON_IDENTITY_CONFLICT"
   ],
-  "next_task": "P2"
+  "next_task": "P2",
+  "operational_thresholds": {
+    "heartbeat_interval_seconds": 30,
+    "no_progress_warning_seconds": 180,
+    "stalled_threshold_seconds": 300,
+    "recovery_attempt_limit": 3,
+    "github_reconcile_before_every_retry": true,
+    "maintenance_lock_during_supervisor_repair": true
+  },
+  "tracking": {
+    "parent_pr": 15,
+    "issues": {
+      "P1": 16,
+      "P2": 62,
+      "P3": 63,
+      "P4": 64,
+      "P5": 65,
+      "P6": 66,
+      "P7": 67,
+      "P8": 68
+    },
+    "execution_contract": "ONE_BOUNDED_TASK_THEN_STOP_FOR_BRAIN_VERIFY"
+  }
 }
