@@ -568,7 +568,8 @@ test("Brain start request explicitly requires project reread and immediate Work 
   assert.match(prompt, /Bạn hãy đọc lại dự án đang thực hiện và giao phần việc tiếp theo cho Work\./);
   assert.match(prompt, /phải giao ngay đúng một việc cho Work/);
   assert.match(prompt, /không chỉ tóm tắt, lập kế hoạch bằng prose hoặc chờ Owner nhắc lại/);
-  assert.match(prompt, /Chỉ trả IDLE khi thực sự chưa có việc an toàn\/dependency-ready hoặc bắt buộc cần Owner/);
+  assert.match(prompt, /Chỉ trả IDLE khi thực sự không còn bất kỳ phần việc an toàn\/dependency-ready nào trong toàn bộ project_plan hoặc bắt buộc cần Owner/);
+  assert.match(prompt, /rà soát TOÀN BỘ task chưa hoàn thành/);
 });
 
 test("project source-of-truth updates from Brain plan, dispatch and ACCEPT lifecycle", async () => {
@@ -674,7 +675,7 @@ test("incomplete project IDLE without a blocker is rechecked instead of freezing
   assert.match(source, /Brain liên tục trả IDLE không hợp lệ trong khi dự án còn task/);
 });
 
-test("explicit dependency or Owner blockers stop re-prompting cleanly", async () => {
+test("Owner-required stops immediately while dependency blockers are rechecked", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
     "utf8"
@@ -684,9 +685,13 @@ test("explicit dependency or Owner blockers stop re-prompting cleanly", async ()
   const segment = source.slice(start, end);
 
   assert.match(segment, /reason === "OWNER_REQUIRED"/);
-  assert.match(segment, /reason === "DEPENDENCY_BLOCKED" \|\| reason === "NO_SAFE_WORK"/);
-  assert.match(segment, /accepted_blocker: true/);
   assert.match(segment, /owner_required: true/);
+  assert.match(segment, /DEPENDENCY_BLOCKED and NO_SAFE_WORK are not permanent authorities/);
+  assert.match(segment, /incomplete_project_blocker_requires_whole_plan_rescan/);
+  assert.doesNotMatch(
+    segment,
+    /if \(reason === "DEPENDENCY_BLOCKED" \|\| reason === "NO_SAFE_WORK"\) \{[\s\S]*?accepted_blocker: true/
+  );
 });
 
 test("Brain directive parse errors are observable instead of silently swallowed", async () => {
