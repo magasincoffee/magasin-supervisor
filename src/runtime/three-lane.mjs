@@ -274,6 +274,7 @@ export function defaultLaneRegistry() {
       brain_resume_recovery_version: 1,
       brain_request_inflight: null,
       brain_request_sent: false,
+      project_plan_bootstrap_retries: 0,
       awaiting_work: false,
       task_timing: defaultTaskTiming(),
       project_progress: defaultProjectProgress(),
@@ -332,6 +333,10 @@ export function normalizeLaneRegistry(value = {}) {
           : Number(lane.brain_resume_recovery_version || 0),
       brain_request_inflight: lane.brain_request_inflight || null,
       brain_request_sent: Boolean(lane.brain_request_sent),
+      project_plan_bootstrap_retries: Math.max(
+        0,
+        Number(lane.project_plan_bootstrap_retries || 0)
+      ),
       awaiting_work: Boolean(lane.awaiting_work),
       task_timing: normalizeTaskTiming(lane.task_timing),
       project_progress: normalizeProjectProgress(lane.project_progress),

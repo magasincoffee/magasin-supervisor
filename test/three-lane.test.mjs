@@ -333,3 +333,17 @@ test("Brain start request requires project source-of-truth on initial and resume
   assert.match(text, /"project_plan":\{"tasks":/);
 });
 
+test("lane registry persists bounded project-plan bootstrap retry state", () => {
+  const defaults = defaultLaneRegistry();
+  assert.equal(defaults.lanes["lane-1"].project_plan_bootstrap_retries, 0);
+
+  const normalized = normalizeLaneRegistry({
+    lanes: {
+      "lane-1": { project_plan_bootstrap_retries: 2 },
+      "lane-2": { project_plan_bootstrap_retries: -9 }
+    }
+  });
+  assert.equal(normalized.lanes["lane-1"].project_plan_bootstrap_retries, 2);
+  assert.equal(normalized.lanes["lane-2"].project_plan_bootstrap_retries, 0);
+});
+
