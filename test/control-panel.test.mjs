@@ -61,6 +61,23 @@ test("each lane has independent start and stop controls", async () => {
   assert.match(source, /\$ui\.SaveBrain\.Enabled = \$true/);
 });
 
+test("lane restart increments a durable resume revision without clearing task state", async () => {
+  const source = await fs.readFile(
+    new URL("../windows/control-panel.ps1", import.meta.url),
+    "utf8"
+  );
+  const start = source.indexOf("function Save-Lane");
+  const end = source.indexOf("function Save-WorkTarget", start);
+  const saveLane = source.slice(start, end);
+
+  assert.match(saveLane, /resume_revision/);
+  assert.match(saveLane, /resume_requested_at/);
+  assert.match(saveLane, /\$wasEnabled = \[bool\]\$lane\.enabled/);
+  assert.match(saveLane, /if \(\$Enabled -and -not \$wasEnabled\)/);
+  assert.match(saveLane, /\$lane\.resume_revision = \[int\]\$lane\.resume_revision \+ 1/);
+  assert.doesNotMatch(saveLane, /task_id\s*=|dispatch_inflight\s*=|last_brain_directive_digest\s*=/);
+});
+
 test("Owner opens explicit Brain or Work URLs in the dedicated Robot Chrome profile", async () => {
   const panel = await fs.readFile(
     new URL("../windows/control-panel.ps1", import.meta.url),
