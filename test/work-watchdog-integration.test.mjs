@@ -187,10 +187,10 @@ test("RBT-003 pending Work remains independent of watchdog state", async () => {
   assert.doesNotMatch(watchdog, /work_url\s*:/);
 });
 
-test("RBT-004 page budget remains global three and recovery uses existing scheduler page", async () => {
+test("RBT-004 page budget remains globally bounded at four and recovery uses existing scheduler page", async () => {
   const scheduler = await read("../src/runtime/browser-scheduler.mjs");
   const runtime = await read("../src/runtime/three-lane-cli.mjs");
-  assert.match(scheduler, /DEFAULT_CHATGPT_PAGE_BUDGET = 3/);
+  assert.match(scheduler, /DEFAULT_CHATGPT_PAGE_BUDGET = 4/);
   assert.match(runtime, /openExactConversation\(adapter, registryLane\.work_url/);
   assert.match(runtime, /scheduler,/);
   assert.match(runtime, /WATCHDOG_RECOVERY_RELOAD/);
