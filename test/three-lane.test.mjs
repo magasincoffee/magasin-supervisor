@@ -347,3 +347,50 @@ test("lane registry persists bounded project-plan bootstrap retry state", () => 
   assert.equal(normalized.lanes["lane-2"].project_plan_bootstrap_retries, 0);
 });
 
+test("IDLE directive accepts explicit blocker reasons and rejects unknown reasons", () => {
+  const idle = parseLaneDirective(
+    '<<<MAGASIN_LANE_DIRECTIVE_V1>>>\n' +
+    '{"action":"IDLE","idle_reason":"DEPENDENCY_BLOCKED",' +
+    '"project_plan":{"tasks":[{"task_id":"TASK-1","title":"One"}],"completed_task_ids":[]}}' +
+    '\n<<<END_MAGASIN_LANE_DIRECTIVE_V1>>>'
+  );
+  assert.equal(idle.action, "IDLE");
+  assert.equal(idle.idle_reason, "DEPENDENCY_BLOCKED");
+  assert.equal(idle.project_plan.tasks.length, 1);
+
+  assert.throws(
+    () => parseLaneDirective(
+      '<<<MAGASIN_LANE_DIRECTIVE_V1>>>\n' +
+      '{"action":"IDLE","idle_reason":"WAIT_A_BIT"}' +
+      '\n<<<END_MAGASIN_LANE_DIRECTIVE_V1>>>'
+    ),
+    /idle_reason is not allowlisted/
+  );
+});
+
+test("Brain start request requires an explicit IDLE reason while tasks remain", () => {
+  const text = buildBrainStartRequest({
+    laneId: "lane-1",
+    projectName: "Supervisor"
+  });
+  assert.match(text, /idle_reason/);
+  assert.match(text, /DEPENDENCY_BLOCKED/);
+  assert.match(text, /NO_SAFE_WORK/);
+  assert.match(text, /OWNER_REQUIRED/);
+  assert.match(text, /PROJECT_COMPLETE/);
+});
+
+test("lane registry persists bounded Brain IDLE recheck retries", () => {
+  const defaults = defaultLaneRegistry();
+  assert.equal(defaults.lanes["lane-1"].brain_idle_recheck_retries, 0);
+
+  const normalized = normalizeLaneRegistry({
+    lanes: {
+      "lane-1": { brain_idle_recheck_retries: 2 },
+      "lane-2": { brain_idle_recheck_retries: -4 }
+    }
+  });
+  assert.equal(normalized.lanes["lane-1"].brain_idle_recheck_retries, 2);
+  assert.equal(normalized.lanes["lane-2"].brain_idle_recheck_retries, 0);
+});
+
