@@ -43,3 +43,18 @@ test("power-loss recovery keeps the dedicated browser boundary", async () => {
   assert.match(source, /--remote-debugging-address=127\.0\.0\.1/);
   assert.match(source, /Supervisor requested dedicated Chrome restart/);
 });
+
+test("Robot Chrome disables background throttling and Three-Lane uses low-latency defaults", async () => {
+  const source = await read("run-supervisor.ps1");
+
+  assert.match(source, /--disable-background-timer-throttling/);
+  assert.match(source, /--disable-backgrounding-occluded-windows/);
+  assert.match(source, /--disable-renderer-backgrounding/);
+  assert.match(source, /--disable-features=CalculateNativeWinOcclusion/);
+  assert.match(source, /SUPERVISOR_THREE_LANE_POLL_MS/);
+  assert.match(source, /else \{\s*'2000'\s*\}/);
+  assert.match(source, /SUPERVISOR_CHATGPT_PAGE_BUDGET/);
+  assert.match(source, /else \{\s*'4'\s*\}/);
+  assert.match(source, /'--page-budget', \$pageBudget/);
+});
+

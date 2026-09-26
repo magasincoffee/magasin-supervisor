@@ -593,3 +593,19 @@ test("project source-of-truth updates from Brain plan, dispatch and ACCEPT lifec
   assert.match(dispatchPath, /latch\.task_id/);
 });
 
+test("completed Work relays to Brain in the same scheduler turn", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  const completedStart = source.indexOf("if (completed.changed)");
+  const relayStart = source.indexOf("await ensureBrainPage();", completedStart);
+  const segment = source.slice(completedStart, relayStart + "await ensureBrainPage();".length);
+
+  assert.match(segment, /LANE_WORK_COMPLETED_FAST_RELAY/);
+  assert.match(segment, /continue_same_turn_to_brain_relay/);
+  assert.doesNotMatch(segment, /return laneStatus/);
+  assert.match(segment, /await ensureBrainPage\(\)/);
+});
+

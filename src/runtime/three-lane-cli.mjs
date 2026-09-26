@@ -4658,14 +4658,17 @@ async function processLaneTurn({
         work_generation: Number(registryLane.work_generation || 0),
         ...timingEventFields(completionTiming, completedAt)
       });
-      return laneStatus(
-        lane,
-        registryLane,
-        "RELAYING_RESULT",
-        "Đã nhận completed result; relay văn bản được tách sang bounded turn kế tiếp."
-      );
+      await safeLog(logPath, {
+        type: "LANE_WORK_COMPLETED_FAST_RELAY",
+        laneId: lane.lane_id,
+        taskId: registryLane.task_id,
+        reason: "continue_same_turn_to_brain_relay"
+      });
     }
 
+    // Completion detection is observation-only. Once durable completion is
+    // persisted, the exact-once relay latch protects the Brain mutation, so
+    // there is no need to burn a whole scheduler round before starting relay.
     await ensureBrainPage();
     const relayOutcome = await relayWorkResult({
       adapter,
