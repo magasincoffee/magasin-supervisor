@@ -1893,20 +1893,22 @@ async function reconcileDispatchInflight({
   }
 
   if (latch.reconcile_blocked) return "BLOCKED";
-  const reload = !latch.reconcile_reloaded;
-  if (reload) {
-    latch.reconcile_reloaded = true;
+  const extendedObservation = !latch.reconcile_observed;
+  if (extendedObservation) {
+    latch.reconcile_observed = true;
     latch.reconcile_started_at = new Date().toISOString();
+    delete latch.reconcile_reloaded;
     await atomicJsonWrite(registryPath, registry);
     await safeLog(logPath, {
-      type: "LANE_WORK_SEND_RECONCILE_RELOAD",
+      type: "LANE_WORK_SEND_RECONCILE_OBSERVE",
       laneId: lane.lane_id,
       taskId: latch.task_id,
-      digest: latch.instruction_digest
+      digest: latch.instruction_digest,
+      reason: "passive_observation_no_reload"
     });
   }
 
-  const inspect = () => inspectKnownTargetSendOutcome({
+  const outcome = await inspectKnownTargetSendOutcome({
     adapter,
     page,
     digest: latch.instruction_digest,
@@ -1914,15 +1916,8 @@ async function reconcileDispatchInflight({
     preUserCount: latch.pre_user_count,
     preMaxTurnOrdinal: latch.pre_max_turn_ordinal,
     brain: false,
-    reload
+    extendedObservation
   });
-  const outcome = reload
-    ? await runBrowserMutation(
-        scheduler,
-        { laneId: lane.lane_id, role: "WORK", page, reason: "WORK_RECONCILE_RELOAD" },
-        inspect
-      )
-    : await inspect();
 
   if (outcome === "PENDING") {
     await safeLog(logPath, {
@@ -1946,10 +1941,37 @@ async function reconcileDispatchInflight({
   }
 
   if (outcome === "NOT_CONFIRMED") {
+    const staleDraft = await discardKnownStaleDraft({
+      page,
+      digest: latch.draft_digest || latch.instruction_digest,
+      logPath,
+      type: "LANE_WORK_STALE_DRAFT_DISCARDED",
+      laneId: lane.lane_id,
+      taskId: latch.task_id
+    });
+
+    if (
+      !staleDraft.discarded &&
+      staleDraft.reason &&
+      !/already empty/i.test(staleDraft.reason)
+    ) {
+      latch.reconcile_blocked = true;
+      await atomicJsonWrite(registryPath, registry);
+      await safeLog(logPath, {
+        type: "LANE_WORK_SEND_RECONCILE_BLOCKED",
+        laneId: lane.lane_id,
+        taskId: latch.task_id,
+        digest: latch.instruction_digest,
+        reason: `stale draft guard: ${staleDraft.reason}`
+      });
+      return "BLOCKED";
+    }
+
     if (latch.rollover_generation) {
       latch.send_attempted_at = null;
       latch.send_state = "NOT_CONFIRMED";
-      latch.reconcile_reloaded = false;
+      latch.reconcile_observed = false;
+      delete latch.reconcile_reloaded;
       delete latch.reconcile_started_at;
       await atomicJsonWrite(registryPath, registry);
       await safeLog(logPath, {
@@ -1965,7 +1987,8 @@ async function reconcileDispatchInflight({
     if (!latch.planning_contract_version) {
       latch.send_attempted_at = null;
       latch.send_state = "NOT_CONFIRMED";
-      latch.reconcile_reloaded = false;
+      latch.reconcile_observed = false;
+      delete latch.reconcile_reloaded;
       delete latch.reconcile_started_at;
       await atomicJsonWrite(registryPath, registry);
       await safeLog(logPath, {
@@ -2488,6 +2511,7 @@ async function dispatchWork({
       task_id: directive.task_id,
       dispatch_id: dispatchId,
       instruction_digest: instructionDigest,
+      draft_digest: normalizedComposerDigest(outgoingInstruction),
       directive_instruction_digest: directive.instruction_digest,
       directive_digest: directive.digest,
       dispatch_identity_digest: dispatchIdentityDigest,
