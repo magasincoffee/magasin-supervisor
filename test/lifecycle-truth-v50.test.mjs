@@ -188,3 +188,16 @@ test("explicit Owner START maintenance is manual-only and preserves targets", as
   assert.match(workflow, /-File \$startScript -Hidden/);
   assert.doesNotMatch(workflow, /-File \$startScript -Hidden -Recovery/);
 });
+
+test("M active-lane hotpatch refreshes Chrome launcher scripts for the next safe restart", async () => {
+  const update = await read("../.github/scripts/update-latest-clean-old.ps1");
+
+  assert.match(update, /sourceWrapper=.*run-supervisor\.ps1/);
+  assert.match(update, /targetWrapper=.*run-supervisor\.ps1/);
+  assert.match(update, /sourceOpenChat=.*open-supervisor-chat\.ps1/);
+  assert.match(update, /targetOpenChat=.*open-supervisor-chat\.ps1/);
+  assert.match(update, /Copy-Item \$sourceWrapper \$targetWrapper -Force/);
+  assert.match(update, /Copy-Item \$sourceOpenChat \$targetOpenChat -Force/);
+  assert.match(update, /HOTPATCH_WINDOWS_LAUNCHERS_REFRESHED=True/);
+});
+

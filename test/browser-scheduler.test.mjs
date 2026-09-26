@@ -76,8 +76,8 @@ async function acquire(scheduler, laneId, role, n) {
   });
 }
 
-test("default page budget is exactly three global pages", () => {
-  assert.equal(DEFAULT_CHATGPT_PAGE_BUDGET, 3);
+test("default page budget keeps three Work pages plus one relay page", () => {
+  assert.equal(DEFAULT_CHATGPT_PAGE_BUDGET, 4);
 });
 
 test("one enabled lane runs independently and completes each round", () => {
@@ -128,7 +128,7 @@ test("global mutation lease is singleton across lanes", () => {
   assert.equal(scheduler.snapshot().mutation_lease_active, false);
 });
 
-test("six logical targets never require more than three resident pages", async () => {
+test("six logical targets never require more than four resident pages", async () => {
   const adapter = new FakeAdapter();
   const scheduler = new BrowserScheduler({ adapter });
   for (let i = 0; i < 6; i += 1) {
@@ -139,14 +139,14 @@ test("six logical targets never require more than three resident pages", async (
       i + 1
     );
     scheduler.releaseObservation(page);
-    assert.ok(adapter.getChatGptPages().length <= 3);
+    assert.ok(adapter.getChatGptPages().length <= 4);
   }
-  assert.equal(scheduler.snapshot().page_budget, 3);
+  assert.equal(scheduler.snapshot().page_budget, 4);
 });
 
 test("LRU evicts oldest EVICTABLE before PARKED", async () => {
   const adapter = new FakeAdapter();
-  const scheduler = new BrowserScheduler({ adapter });
+  const scheduler = new BrowserScheduler({ adapter, pageBudget: 3 });
   const p1 = await acquire(scheduler,"lane-1","BRAIN",1);
   scheduler.releaseObservation(p1);
   const p2 = await acquire(scheduler,"lane-2","BRAIN",2);

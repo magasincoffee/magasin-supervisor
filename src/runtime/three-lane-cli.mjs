@@ -129,6 +129,11 @@ import {
 const SUPERVISOR_RUNTIME_VERSION = "2026-09-20.60";
 const WATCHDOG_CONTINUE_INSTRUCTION = "Tiếp tục thực hiện.";
 const BRAIN_RESUME_OBSERVATION_TIMEOUT_MS = 15_000;
+const MAX_ACTIVE_ROUND_POLL_MS = 2_000;
+
+function activeRoundPollMs(configuredPollMs) {
+  return Math.min(Number(configuredPollMs), MAX_ACTIVE_ROUND_POLL_MS);
+}
 
 async function withBoundedObservation(factory, {
   timeoutMs = BRAIN_RESUME_OBSERVATION_TIMEOUT_MS,
@@ -5216,7 +5221,7 @@ try {
     }
 
     if (turn.round_complete) {
-      await delay(args.pollMs);
+      await delay(activeRoundPollMs(args.pollMs));
     }
   }
 } finally {

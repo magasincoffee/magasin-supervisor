@@ -1,4 +1,4 @@
-export const DEFAULT_CHATGPT_PAGE_BUDGET = 3;
+export const DEFAULT_CHATGPT_PAGE_BUDGET = 4;
 
 export const PAGE_LEASE_STATES = Object.freeze({
   ACTIVE_MUTATION: "ACTIVE_MUTATION",

@@ -32,7 +32,7 @@ test("main loop schedules one enabled lane turn at a time instead of processing 
   const selectedLane = loop.indexOf("const lane = config.lanes.find((item) => item.lane_id === turn.lane_id)");
   const selectedProcess = loop.indexOf("statuses[lane.lane_id] = await processLane(", selectedLane);
   assert.ok(selectedLane >= 0 && selectedProcess > selectedLane);
-  assert.match(loop, /if \(turn\.round_complete\) \{[\s\S]*?await delay\(args\.pollMs\)/);
+  assert.match(loop, /if \(turn\.round_complete\) \{[\s\S]*?await delay\(activeRoundPollMs\(args\.pollMs\)\)/);
 });
 
 test("completed-result state is durable before same-turn exact-once relay mutation", async () => {
@@ -141,3 +141,12 @@ test("retry and long-running observation paths return before another lane unit c
   assert.match(turn.slice(dispatchPending, workIncomplete), /return laneStatus/);
   assert.match(turn.slice(workIncomplete, turn.indexOf("const captured", workIncomplete)), /return laneStatus/);
 });
+
+test("active lane rounds poll at no more than two seconds even under legacy wrapper cadence", async () => {
+  const runtime = await read("../src/runtime/three-lane-cli.mjs");
+  assert.match(runtime, /MAX_ACTIVE_ROUND_POLL_MS = 2_000/);
+  assert.match(runtime, /function activeRoundPollMs/);
+  assert.match(runtime, /Math\.min\(Number\(configuredPollMs\), MAX_ACTIVE_ROUND_POLL_MS\)/);
+  assert.match(runtime, /if \(turn\.round_complete\) \{[\s\S]*?delay\(activeRoundPollMs\(args\.pollMs\)\)/);
+});
+

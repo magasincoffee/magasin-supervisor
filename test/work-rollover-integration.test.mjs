@@ -180,9 +180,9 @@ test("RBT-006 runtime never creates or discovers a Brain target", async () => {
   assert.doesNotMatch(dispatch, /brain_url\s*=/);
 });
 
-test("scheduler page budget and mutation singleton remain unchanged", async () => {
+test("scheduler page budget stays globally bounded and mutation singleton remains unchanged", async () => {
   const scheduler = await read("../src/runtime/browser-scheduler.mjs");
-  assert.match(scheduler, /DEFAULT_CHATGPT_PAGE_BUDGET = 3/);
+  assert.match(scheduler, /DEFAULT_CHATGPT_PAGE_BUDGET = 4/);
   assert.match(scheduler, /global browser mutation lease is already held/);
   assert.match(scheduler, /createPageUnderMutation/);
 });
