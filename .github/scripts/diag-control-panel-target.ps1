@@ -647,4 +647,4 @@ try{
   Write-Host "BRAIN_DOM_ERROR=$($_.Exception.Message)"
 }
 Write-Host "BRAIN_DOM_CDP_DIAG=PASS"
-
+# BRAIN_DOM_STRUCTURE_V2
