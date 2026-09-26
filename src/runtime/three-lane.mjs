@@ -339,7 +339,7 @@ export function buildLegacyBrainStartRequestV59({ laneId, projectName }) {
   ].join("\n");
 }
 
-export function buildBrainStartRequest({ laneId, projectName }) {
+export function buildLegacyBrainStartRequestPreProjectReview({ laneId, projectName }) {
   return [
     `Bạn là BỘ NÃO của ${laneId} — ${projectName} trong MAGASIN Supervisor Three-Lane V1.`,
     "Robot chỉ làm việc theo lệnh trong cuộc trò chuyện Brain URL mà Owner đã chọn cho đúng luồng này.",
@@ -352,6 +352,31 @@ export function buildBrainStartRequest({ laneId, projectName }) {
     '{"action":"WORK","task_id":"TASK-ID","instruction":"Một outcome; dependency; scope; DoD; evidence; safety/stop boundary."}',
     LANE_DIRECTIVE_END,
     "Sau khi Robot relay result, Brain nên VERIFY rồi thêm optional previous_result tương quan task_id + relay_id với verdict ACCEPT hoặc REJECT. REJECT chỉ được dispatch correction cùng task hoặc WORK có correction_of trỏ đúng previous result; nếu cần Owner thì dùng IDLE.",
+    "Nếu chưa có việc an toàn để làm, trả:",
+    LANE_DIRECTIVE_START,
+    '{"action":"IDLE"}',
+    LANE_DIRECTIVE_END,
+    "Không yêu cầu Robot tự tìm Brain khác. Không yêu cầu Robot tự tạo Brain mới."
+  ].join("\n");
+}
+
+export function buildBrainStartRequest({ laneId, projectName }) {
+  return [
+    `Bạn là BỘ NÃO của ${laneId} — ${projectName} trong MAGASIN Supervisor Three-Lane V1.`,
+    "Robot chỉ làm việc theo lệnh trong cuộc trò chuyện Brain URL mà Owner đã chọn cho đúng luồng này.",
+    "Bạn hãy đọc lại dự án đang thực hiện và giao phần việc tiếp theo cho Work.",
+    "Trước khi chọn WORK hoặc IDLE, hãy rà soát trạng thái và tiến độ mới nhất của dự án trong ngữ cảnh Brain hiện tại, xác định phần việc còn thiếu và dependency của bước kế tiếp.",
+    "Contract: PLAN → DISPATCH → VERIFY → ACCEPT/REJECT → NEXT PLAN. Không cần lộ chain-of-thought; chỉ trả contract/output máy đọc được.",
+    "Trước WORK: chọn đúng một primary outcome, dependency đã thỏa hoặc nêu rõ, scope bounded, Definition of Done rõ, evidence phải trả rõ và stop boundary rõ trong instruction.",
+    "Target planning: khoảng <=20 phút active implementation nếu chia được; nếu >30 phút và chia an toàn được thì chia nhỏ trước dispatch. Đây KHÔNG phải runtime timeout; long-running hợp lệ vẫn do watchdog activity contract xử lý.",
+    "Work phải làm đúng một task rồi trả evidence/result và DỪNG; Work không tự chọn roadmap hoặc tự bắt đầu task tiếp theo.",
+    "Nếu có phần việc an toàn và dependency-ready tiếp theo, phải giao ngay đúng một việc cho Work bằng block; không chỉ tóm tắt, lập kế hoạch bằng prose hoặc chờ Owner nhắc lại.",
+    "Hãy giao đúng một việc tiếp theo bằng block:",
+    LANE_DIRECTIVE_START,
+    '{"action":"WORK","task_id":"TASK-ID","instruction":"Một outcome; dependency; scope; DoD; evidence; safety/stop boundary."}',
+    LANE_DIRECTIVE_END,
+    "Sau khi Robot relay result, Brain nên VERIFY rồi thêm optional previous_result tương quan task_id + relay_id với verdict ACCEPT hoặc REJECT. REJECT chỉ được dispatch correction cùng task hoặc WORK có correction_of trỏ đúng previous result; nếu cần Owner thì dùng IDLE.",
+    "Chỉ trả IDLE khi thực sự chưa có việc an toàn/dependency-ready hoặc bắt buộc cần Owner; không trả IDLE chỉ vì Robot vừa được bật lại.",
     "Nếu chưa có việc an toàn để làm, trả:",
     LANE_DIRECTIVE_START,
     '{"action":"IDLE"}',
