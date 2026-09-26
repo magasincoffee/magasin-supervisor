@@ -20,31 +20,50 @@ function state(overrides = {}) {
 function page() {
   let fills = 0;
   let clicks = 0;
+  let composerText = "";
+
+  const composer = () => ({
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async fill(value) {
+      fills += 1;
+      composerText = value;
+    },
+    async inputValue() { return composerText; },
+    async click() {},
+    async press(key) {
+      if (key === "Backspace" || key === "Enter") composerText = "";
+    }
+  });
+
+  const sendControl = () => ({
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() {
+      clicks += 1;
+      composerText = "";
+    }
+  });
+
   const p = {
     get fills() { return fills; },
     get clicks() { return clicks; },
     async evaluate() { return [{ text: "", ariaLabel: "Send prompt", testId: "send-button" }]; },
     locator(selector) {
-      if (selector.includes("prompt-textarea") || selector.includes("contenteditable")) {
-        return {
-          first() { return this; },
-          async isVisible() { return true; },
-          async fill() { fills += 1; },
-          async press() {}
-        };
+      if (
+        selector.includes("prompt-textarea") ||
+        selector.includes("contenteditable") ||
+        selector.includes("textarea")
+      ) {
+        return composer();
       }
-      return {
-        first() { return this; },
-        async isVisible() { return true; },
-        async click() { clicks += 1; }
-      };
+      return sendControl();
     },
     getByRole() {
-      return {
-        first() { return this; },
-        async isVisible() { return true; },
-        async click() { clicks += 1; }
-      };
+      return sendControl();
     }
   };
   return p;
