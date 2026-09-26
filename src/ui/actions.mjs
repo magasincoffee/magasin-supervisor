@@ -45,9 +45,10 @@ export function classifyComposerSendRejection(snapshot = {}) {
 
 const COMPOSER_SELECTORS = Object.freeze([
   "#prompt-textarea:visible",
-  "[contenteditable='true'][role='textbox']:visible",
+  "[data-testid='composer-text-input']:visible",
+  "[contenteditable][role='textbox']:visible",
   "textarea:visible",
-  "[contenteditable='true']:visible"
+  "[contenteditable]:visible"
 ]);
 
 function composerLocator(page, selector = COMPOSER_SELECTORS[0]) {
@@ -61,9 +62,24 @@ async function composerReadyState(composer) {
   const enabled = typeof composer?.isEnabled === "function"
     ? await composer.isEnabled().catch(() => false)
     : visible;
-  const editable = typeof composer?.isEditable === "function"
+  let editable = typeof composer?.isEditable === "function"
     ? await composer.isEditable().catch(() => false)
     : enabled;
+
+  // ChatGPT occasionally exposes the ProseMirror editor as
+  // contenteditable="plaintext-only". Playwright versions differ on whether
+  // isEditable() reports that value as editable, so use the DOM attribute as
+  // a bounded compatibility hint instead of rejecting a real composer.
+  if (!editable && visible && enabled && typeof composer?.getAttribute === "function") {
+    const contentEditable = await composer.getAttribute("contenteditable")
+      .catch(() => null);
+    const role = await composer.getAttribute("role").catch(() => null);
+    editable = Boolean(
+      contentEditable !== null &&
+      String(contentEditable).toLowerCase() !== "false"
+    ) || String(role || "").toLowerCase() === "textbox";
+  }
+
   return { visible, enabled, editable, ready: visible && enabled && editable };
 }
 
@@ -122,6 +138,45 @@ async function clearComposerText(
   }
 }
 
+function normalizeComposerText(value) {
+  return String(value || "")
+    .replace(/\u200B/g, "")
+    .replace(/\r\n/g, "\n")
+    .trim();
+}
+
+async function readComposerText(composer) {
+  if (!composer) return null;
+
+  if (typeof composer.inputValue === "function") {
+    try {
+      return await composer.inputValue({ timeout: 800 });
+    } catch {}
+  }
+
+  if (typeof composer.evaluate === "function") {
+    try {
+      return await composer.evaluate((el) => {
+        if (
+          el instanceof HTMLInputElement ||
+          el instanceof HTMLTextAreaElement
+        ) {
+          return el.value;
+        }
+        return el.innerText || el.textContent || "";
+      });
+    } catch {}
+  }
+
+  return null;
+}
+
+async function composerContainsExactInstruction(composer, instruction) {
+  const text = await readComposerText(composer);
+  if (text === null) return null;
+  return normalizeComposerText(text) === normalizeComposerText(instruction);
+}
+
 async function setComposerText(
   page,
   instruction,
@@ -135,28 +190,51 @@ async function setComposerText(
     };
   }
 
+  let fillError = null;
   try {
     await composer.fill(instruction, { timeout: 2_500 });
-    return { ready: true, method: "fill", composer };
-  } catch (fillError) {
-    // ChatGPT can replace the ProseMirror composer between readiness probing
-    // and locator.fill(). Reacquire the live editor and use one keyboard
-    // transaction so a detached locator cannot turn into a retry loop.
-    const fresh = await waitForReadyComposer(page, { timeoutMs: 3_000 });
-    if (!fresh) throw fillError;
-    await keyboardClearComposer(page, fresh);
-    if (!page.keyboard || typeof page.keyboard.insertText !== "function") {
-      throw fillError;
-    }
-    await page.keyboard.insertText(instruction);
     await page.waitForTimeout(120);
-
-    const afterInsert = await waitForReadyComposer(page, { timeoutMs: 1_500 });
-    if (!afterInsert) {
-      throw new Error("composer disappeared after keyboard text insertion");
+    const persisted = await composerContainsExactInstruction(
+      composer,
+      instruction
+    );
+    if (persisted !== false) {
+      return { ready: true, method: "fill", composer };
     }
-    return { ready: true, method: "keyboard", composer: afterInsert };
+    fillError = new Error("composer fill did not persist exact instruction text");
+  } catch (error) {
+    fillError = error;
   }
+
+  // ChatGPT can replace the ProseMirror composer between readiness probing
+  // and locator.fill(), or accept fill() without updating the live React
+  // editor state. Reacquire the editor and perform a real keyboard insertion.
+  const fresh = await waitForReadyComposer(page, { timeoutMs: 3_000 });
+  if (!fresh) throw fillError;
+  await keyboardClearComposer(page, fresh);
+  if (!page.keyboard || typeof page.keyboard.insertText !== "function") {
+    throw fillError;
+  }
+  await page.keyboard.insertText(instruction);
+  await page.waitForTimeout(180);
+
+  const afterInsert = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+  if (!afterInsert) {
+    throw new Error("composer disappeared after keyboard text insertion");
+  }
+
+  const persisted = await composerContainsExactInstruction(
+    afterInsert,
+    instruction
+  );
+  if (persisted === false) {
+    return {
+      ready: false,
+      reason: "composer text did not persist after bounded keyboard insertion"
+    };
+  }
+
+  return { ready: true, method: "keyboard", composer: afterInsert };
 }
 
 function visibleControlSnapshot(page) {
@@ -194,8 +272,13 @@ function findSafeControl(controls, pattern, allowedTestIds = []) {
 
 const DIRECT_SEND_SELECTORS = Object.freeze([
   'button[data-testid="send-button"]:visible',
+  'button[data-testid="composer-submit-button"]:visible',
+  'button[data-testid="composer-send-button"]:visible',
+  'button[data-testid*="send" i]:visible',
   'button[aria-label*="Send" i]:visible',
-  'button[aria-label*="Gửi" i]:visible'
+  'button[aria-label*="Gửi" i]:visible',
+  'button[title*="Send" i]:visible',
+  'button[title*="Gửi" i]:visible'
 ]);
 
 async function findReadyDirectSendControl(page) {
@@ -226,16 +309,16 @@ async function waitForReadyDirectSendControl(
 
 async function clickReadyDirectSendControl(
   page,
-  { timeoutMs = 3_000 } = {}
+  { timeoutMs = 5_000 } = {}
 ) {
   const control = await waitForReadyDirectSendControl(page, { timeoutMs });
-  if (!control) return false;
+  if (!control) return null;
 
   // The selector is already constrained to the visible, enabled composer send
   // control. Force-click avoids long actionability waits caused by transient
   // ChatGPT animations/overlays while preserving the exact semantic target.
   await control.button.click({ timeout: 2_000, force: true });
-  return true;
+  return control.selector;
 }
 
 export async function inspectActionSurface(page) {
@@ -249,7 +332,11 @@ export async function inspectActionSurface(page) {
     composerReady,
     retryControl: findSafeControl(controls, SAFE_RETRY_RE),
     continueControl: findSafeControl(controls, SAFE_CONTINUE_RE),
-    sendControl: findSafeControl(controls, SAFE_SEND_RE, ["send-button"])
+    sendControl: findSafeControl(
+      controls,
+      SAFE_SEND_RE,
+      ["send-button", "composer-submit-button", "composer-send-button"]
+    )
   };
 }
 
@@ -321,15 +408,31 @@ export async function sendComposerInstruction(
   // Prefer the exact composer send control directly. Long ChatGPT
   // conversations can contain more than 200 visible buttons, so the bounded
   // semantic snapshot may omit the blue send control beside the composer.
-  const directSendClicked = await clickReadyDirectSendControl(page);
-  if (!directSendClicked) {
+  const directSendSelector = await clickReadyDirectSendControl(page);
+  let sendMethod = directSendSelector ? "direct-control" : null;
+
+  if (!directSendSelector) {
     const afterFill = await inspectActionSurface(page);
     if (afterFill.sendControl) {
       await clickControlBySemantic(page, afterFill.sendControl);
+      sendMethod = "semantic-control";
     } else {
       const composer = await waitForReadyComposer(page, { timeoutMs: 2_000 });
       if (!composer) {
         throw new Error("composer disappeared before send");
+      }
+      const persisted = await composerContainsExactInstruction(
+        composer,
+        instruction
+      );
+      if (persisted === false) {
+        return {
+          executed: false,
+          dryRun: false,
+          action: ACTIONS.CONTINUE,
+          reason: "composer lost instruction before send",
+          rejection_class: SEND_REJECTION_CLASSES.COMPOSER_NOT_READY
+        };
       }
       await composer.click({ timeout: 1_500 });
       if (page.keyboard && typeof page.keyboard.press === "function") {
@@ -337,6 +440,7 @@ export async function sendComposerInstruction(
       } else {
         await composer.press("Enter", { timeout: 2_000 });
       }
+      sendMethod = "enter-fallback";
     }
   }
 
@@ -344,7 +448,10 @@ export async function sendComposerInstruction(
     executed: true,
     dryRun: false,
     action: ACTIONS.CONTINUE,
-    target: "COMPOSER_SEND"
+    target: "COMPOSER_SEND",
+    input_method: textSet.method,
+    send_method: sendMethod,
+    send_selector: directSendSelector || null
   };
 }
 
