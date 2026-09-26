@@ -39,6 +39,7 @@ import {
   normalizeLaneRegistry,
   buildBrainStartRequest,
   buildLegacyBrainStartRequestV59,
+  buildLegacyBrainStartRequestPreProjectReview,
   buildWorkRolloverInstruction,
   buildWorkDispatchInstruction,
   workDispatchMarker,
@@ -1165,6 +1166,10 @@ async function adoptExistingBrainDirective({
   // stale and must not be adopted.
   const expectedStartDigests = new Set([
     sha256(buildBrainStartRequest({
+      laneId: lane.lane_id,
+      projectName: lane.project_name
+    })),
+    sha256(buildLegacyBrainStartRequestPreProjectReview({
       laneId: lane.lane_id,
       projectName: lane.project_name
     })),
@@ -2887,8 +2892,9 @@ async function resyncBrainAfterOwnerResume({
   const recoveryVersion = Number(
     registryLane.brain_resume_recovery_version || 0
   );
+  const ownerResume = revision > applied;
   const needsMigrationRecovery = recoveryVersion < 1;
-  if (revision <= applied && !needsMigrationRecovery) {
+  if (!ownerResume && !needsMigrationRecovery) {
     return { status: "NONE", probe: null, recoveryAuthority: false };
   }
 
@@ -2948,6 +2954,7 @@ async function resyncBrainAfterOwnerResume({
     status: "APPLIED",
     probe,
     recoveryAuthority: true,
+    ownerResume,
     migrationRecovery: needsMigrationRecovery,
     revision
   };
@@ -4761,6 +4768,23 @@ async function processLaneTurn({
         ? `Đã đồng bộ lại lệnh Brain và đang thực hiện ${registryLane.task_id}.`
         : "Đã đồng bộ lại lệnh Brain và thực hiện một dispatch attempt; lane yield scheduler."
     );
+  }
+
+  const resumeHandshakeSafelyIdle =
+    Boolean(resumeResync.ownerResume) &&
+    !registryLane.task_id &&
+    !registryLane.awaiting_work &&
+    !registryLane.dispatch_inflight &&
+    !registryLane.relay_inflight;
+
+  if (resumeHandshakeSafelyIdle && registryLane.brain_request_sent) {
+    registryLane.brain_request_sent = false;
+    await atomicJsonWrite(registryPath, registry);
+    await safeLog(logPath, {
+      type: "LANE_OWNER_RESUME_BRAIN_HANDSHAKE_REARMED",
+      laneId: lane.lane_id,
+      reason: `resume_revision=${Number(resumeResync.revision || 0)};idle_no_directive=1`
+    });
   }
 
   await finalizeBrainResumeRecovery({
