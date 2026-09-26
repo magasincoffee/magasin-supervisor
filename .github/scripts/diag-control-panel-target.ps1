@@ -348,3 +348,51 @@ Write-Host "RBT010_CONTROL_PANEL_SCREENSHOT_UI_REMOVED=True"
 Write-Host "RBT010_LEGACY_EVIDENCE_CLEAN=True"
 Write-Host "RBT010_PROCESS_HEALTHY=$([bool]$truth.healthy)"
 Write-Host "RBT010_LIVE_ACCEPTANCE=PASS"
+
+
+Write-Host "=== CONTROL PANEL LAUNCH SMOKE ==="
+$panelScript=Join-Path $root 'runtime\windows\control-panel.ps1'
+if(-not (Test-Path $panelScript)){throw "Control Panel script missing: $panelScript"}
+
+$stderrPath=Join-Path $env:TEMP 'magasin-control-panel-smoke.stderr.txt'
+$stdoutPath=Join-Path $env:TEMP 'magasin-control-panel-smoke.stdout.txt'
+Remove-Item $stderrPath,$stdoutPath -Force -ErrorAction SilentlyContinue
+
+$existing=@(
+  Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine -like '*control-panel.ps1*' -and $_.CommandLine -notlike '*diag-control-panel-target.ps1*' }
+)
+Write-Host "CONTROL_PANEL_EXISTING_COUNT=$($existing.Count)"
+
+$proc=Start-Process powershell.exe -PassThru -WindowStyle Hidden -ArgumentList @(
+  '-NoLogo','-NoProfile','-ExecutionPolicy','Bypass',
+  '-File',('"' + $panelScript + '"')
+) -RedirectStandardError $stderrPath -RedirectStandardOutput $stdoutPath
+
+Write-Host "CONTROL_PANEL_SMOKE_PID=$($proc.Id)"
+Start-Sleep -Seconds 4
+$proc.Refresh()
+if($proc.HasExited){
+  Write-Host "CONTROL_PANEL_SMOKE_EXITED=True"
+  Write-Host "CONTROL_PANEL_SMOKE_EXIT_CODE=$($proc.ExitCode)"
+  if(Test-Path $stderrPath){
+    $err=(Get-Content $stderrPath -Raw -ErrorAction SilentlyContinue)
+    if($err){Write-Host "CONTROL_PANEL_SMOKE_STDERR=$err"}
+  }
+  if(Test-Path $stdoutPath){
+    $out=(Get-Content $stdoutPath -Raw -ErrorAction SilentlyContinue)
+    if($out){Write-Host "CONTROL_PANEL_SMOKE_STDOUT=$out"}
+  }
+  throw 'Control Panel exited during smoke launch'
+}else{
+  $gp=Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
+  $title=if($gp){[string]$gp.MainWindowTitle}else{''}
+  Write-Host "CONTROL_PANEL_SMOKE_EXITED=False"
+  Write-Host "CONTROL_PANEL_SMOKE_TITLE=$title"
+  if($title -notmatch 'MAGASIN SUPERVISOR.*CONTROL CENTER'){
+    Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+    throw "Control Panel process stayed alive but V2 window title was not visible: $title"
+  }
+  Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+  Write-Host "CONTROL_PANEL_LAUNCH_SMOKE=PASS"
+}
