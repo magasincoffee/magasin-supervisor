@@ -2135,6 +2135,14 @@ async function createBlankWorkTarget({
     return { page, url, generation: expectedGeneration };
   }
 
+  // Creating a replacement Work page can happen while this lane's Brain page
+  // is still leased for observation in the same turn. At a full global page
+  // budget that creates a self-deadlock: the page is safe to reopen later but
+  // is not yet an eviction candidate. Release this lane's observation leases
+  // before capacity enforcement; BrowserScheduler re-checks composer artifacts
+  // immediately before any eviction, so unsaved drafts remain protected.
+  scheduler.releaseLaneObservations(lane.lane_id);
+
   const created = await scheduler.createPageUnderMutation({
     laneId: lane.lane_id,
     role: "WORK",
