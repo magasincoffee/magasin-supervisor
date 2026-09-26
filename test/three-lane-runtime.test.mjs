@@ -714,3 +714,64 @@ test("migration recovery IDLE uses the same project-plan and pending-task guards
   assert.match(segment, /Brain IDLE không đáp ứng contract/);
 });
 
+test("soft Brain blockers are automatically rechecked with bounded exponential backoff", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /SOFT_IDLE_RECHECK_BASE_MS = 60_000/);
+  assert.match(source, /SOFT_IDLE_RECHECK_MAX_MS = 10 \* 60_000/);
+  assert.match(source, /function scheduleSoftIdleRecheck/);
+  assert.match(source, /function softIdleRecheckDelayMs/);
+  assert.match(source, /2 \*\* exponent/);
+  assert.match(source, /async function rearmDueSoftIdle/);
+  assert.match(source, /LANE_BRAIN_SOFT_IDLE_RECHECK_SCHEDULED/);
+  assert.match(source, /LANE_BRAIN_SOFT_IDLE_RECHECK_DUE/);
+  assert.match(source, /registryLane\.brain_request_sent = false/);
+  assert.match(source, /registryLane\.brain_soft_idle_recheck_not_before = null/);
+});
+
+test("soft blocker scheduling is idempotent between due times", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const start = source.indexOf('if (reason === "DEPENDENCY_BLOCKED" || reason === "NO_SAFE_WORK")');
+  const end = source.indexOf("const retries =", start);
+  const segment = source.slice(start, end);
+
+  assert.match(segment, /if \(scheduled\.changed\)/);
+  assert.match(segment, /LANE_BRAIN_SOFT_IDLE_RECHECK_SCHEDULED/);
+});
+
+test("WORK and genuine Owner-required states clear soft blocker recheck debt", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /function clearSoftIdleRecheck/);
+
+  const verdictStart = source.indexOf("async function applyBrainVerdictDirective");
+  const verdictEnd = source.indexOf("async function rearmMissingProjectPlanAfterIdle", verdictStart);
+  assert.match(source.slice(verdictStart, verdictEnd), /directive\?\.action === "WORK"/);
+  assert.match(source.slice(verdictStart, verdictEnd), /clearSoftIdleRecheck/);
+
+  const idleStart = source.indexOf("async function rearmIncompleteProjectIdle");
+  const idleEnd = source.indexOf("async function hasRelayMarker", idleStart);
+  const idleSegment = source.slice(idleStart, idleEnd);
+  assert.match(idleSegment, /reason === "OWNER_REQUIRED"/);
+  assert.match(idleSegment, /clearSoftIdleRecheck/);
+});
+
+test("normal Brain request gate first rearms any due soft blocker", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/three-lane-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const finalize = source.indexOf("await finalizeBrainResumeRecovery");
+  const due = source.indexOf("await rearmDueSoftIdle", finalize);
+  const request = source.indexOf("if (!registryLane.brain_request_sent)", due);
+  assert.ok(finalize >= 0 && due > finalize && request > due);
+});
+
