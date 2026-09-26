@@ -39,6 +39,8 @@ test("new Work creation bootstraps only channel identity before target persisten
   assert.match(blank, /MAGASIN_WORK_TARGET_BOOTSTRAP_V1/);
   assert.match(blank, /sendComposerInstruction/);
   assert.match(blank, /waitForConversationUrl/);
+  assert.match(blank, /isPersistableConversationUrl\(currentUrl\)/);
+  assert.match(blank, /targetFromUrl\(currentUrl\)/);
   assert.doesNotMatch(blank, /buildWorkDispatchInstruction/);
   assert.match(blank, /Chưa có task để thực hiện/);
 
