@@ -551,6 +551,7 @@ export function observeWorkActivity(
     timing.last_observation = next;
     return {
       changed: false,
+      progress_changed: false,
       baseline_initialized: true,
       event_due: false,
       reason_code: null,
@@ -558,11 +559,37 @@ export function observeWorkActivity(
     };
   }
 
-  const signals = activitySignals(timing.last_observation, next);
-  timing.last_observation = next;
+  const previous = timing.last_observation;
+  const signals = activitySignals(previous, next);
+
+  // DOM snapshots can temporarily regress while ChatGPT re-renders a long
+  // conversation. Keep count/char observations monotonic so a shrink/rebound
+  // cycle cannot masquerade as fresh Work progress and indefinitely refresh
+  // the execution watchdog.
+  timing.last_observation = {
+    ...next,
+    user_message_count: Math.max(
+      previous.user_message_count,
+      next.user_message_count
+    ),
+    assistant_message_count: Math.max(
+      previous.assistant_message_count,
+      next.assistant_message_count
+    ),
+    max_turn_ordinal: Math.max(
+      previous.max_turn_ordinal,
+      next.max_turn_ordinal
+    ),
+    last_assistant_char_count: Math.max(
+      previous.last_assistant_char_count,
+      next.last_assistant_char_count
+    )
+  };
+
   if (!signals.length) {
     return {
       changed: false,
+      progress_changed: false,
       baseline_initialized: false,
       event_due: false,
       reason_code: null,
@@ -570,8 +597,19 @@ export function observeWorkActivity(
     };
   }
 
-  const timestamp = isoRequired(at, "last_activity_at");
-  timing.last_activity_at = timestamp;
+  const progressSignals = signals.filter((signal) =>
+    signal === "TURN_COUNT_CHANGED" ||
+    signal === "TURN_ORDINAL_CHANGED" ||
+    signal === "ASSISTANT_PROGRESS_CHANGED" ||
+    signal === "COMPLETION_STATE_CHANGED"
+  );
+  const progressChanged = progressSignals.length > 0;
+  const timestamp = isoRequired(at, "activity_at");
+
+  // responseRunning/Continue/Retry controls are useful telemetry, but they are
+  // not proof that Work advanced. Only meaningful monotonic output/turn
+  // progress refreshes last_activity_at.
+  if (progressChanged) timing.last_activity_at = timestamp;
 
   const structural = signals.some((signal) =>
     signal !== "ASSISTANT_PROGRESS_CHANGED"
@@ -589,6 +627,7 @@ export function observeWorkActivity(
 
   return {
     changed: true,
+    progress_changed: progressChanged,
     baseline_initialized: false,
     event_due: eventDue,
     reason_code:

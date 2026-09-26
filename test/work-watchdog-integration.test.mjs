@@ -110,6 +110,7 @@ test("post-reload continue persists exact-once intent before one safe UI mutatio
 
   const acquire = executor.indexOf("scheduler.acquireMutationLease");
   const marker = executor.indexOf("workDispatchMarker(registryLane.last_dispatch_id)");
+  const preflight = executor.indexOf("inspectActionSurface(workPage)");
   const intent = executor.indexOf("beginWatchdogContinueIntent");
   const persist = executor.indexOf(
     "await atomicJsonWrite(registryPath, registry)",
@@ -121,12 +122,14 @@ test("post-reload continue persists exact-once intent before one safe UI mutatio
 
   assert.ok(acquire >= 0);
   assert.ok(marker > acquire);
-  assert.ok(intent > marker);
+  assert.ok(preflight > marker);
+  assert.ok(intent > preflight);
   assert.ok(persist > intent);
   assert.ok(mutate > persist);
   assert.ok(mark > mutate);
   assert.ok(release > mark);
   assert.match(executor, /WATCHDOG_CONTINUE_INSTRUCTION/);
+  assert.match(executor, /ACTION_NOT_READY/);
   assert.match(executor, /action: ACTIONS\.CONTINUE/);
   assert.match(executor, /SAFE_CONTINUE_CONTROL/);
   assert.match(runtime, /WATCHDOG_CONTINUE_INSTRUCTION = "Tiếp tục thực hiện\."/);
@@ -201,11 +204,13 @@ test("RBT-004 page budget remains globally bounded at four and recovery uses exi
 });
 
 test("safe activity extends retry/continue metadata without storing message body", async () => {
+  const runtime = await read("../src/runtime/three-lane-cli.mjs");
   const events = await read("../src/runtime/lane-events.mjs");
   assert.match(events, /continue_control/);
   assert.match(events, /retry_control/);
   assert.match(events, /CONTINUE_CONTROL_CHANGED/);
   assert.match(events, /RETRY_CONTROL_CHANGED/);
+  assert.match(runtime, /activityChanged: activity\.progress_changed/);
   const observation = slice(events, "export function buildSafeWorkObservation", "function activitySignals");
   assert.doesNotMatch(observation, /message_body|message_text|text_digest/);
 });

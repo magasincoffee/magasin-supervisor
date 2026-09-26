@@ -13,6 +13,7 @@ import {
   SEND_REJECTION_CLASSES,
   classifyComposerSendRejection,
   executeDecision,
+  inspectActionSurface,
   sendComposerInstruction
 } from "../ui/actions.mjs";
 import {
@@ -82,6 +83,7 @@ import {
 } from "./browser-scheduler.mjs";
 import {
   WORK_WATCHDOG_DECISIONS,
+  WORK_WATCHDOG_DEFAULTS,
   beginWatchdogContinueIntent,
   beginWatchdogReloadIntent,
   evaluateWorkWatchdog,
@@ -3980,7 +3982,14 @@ async function executeWatchdogContinue({
     if (hardStopObservation(preProbe.classification.observation)) {
       return { status: "SECURITY_BLOCKED", probe: preProbe };
     }
-    if (preProbe.snapshot.responseRunning) {
+    const lastProgressAt = Date.parse(
+      String(registryLane.task_timing?.last_activity_at || "")
+    );
+    const responseRunningFresh =
+      preProbe.snapshot.responseRunning &&
+      Number.isFinite(lastProgressAt) &&
+      Date.now() - lastProgressAt < WORK_WATCHDOG_DEFAULTS.inactivityMs;
+    if (responseRunningFresh) {
       return { status: "PROGRESS_RESUMED", probe: preProbe };
     }
 
@@ -3993,6 +4002,11 @@ async function executeWatchdogContinue({
       if (!markerPresent) {
         return { status: "MARKER_MISSING", probe: preProbe };
       }
+    }
+
+    const actionSurface = await inspectActionSurface(workPage);
+    if (!actionSurface.continueControl && !actionSurface.composerReady) {
+      return { status: "ACTION_NOT_READY", probe: preProbe };
     }
 
     const intentAt = new Date().toISOString();
@@ -4449,7 +4463,7 @@ async function processLaneTurn({
       registryPath,
       timing,
       observation: safeObservation,
-      activityChanged: activity.changed,
+      activityChanged: activity.progress_changed,
       ownerStopped: !recoveryAllowed,
       securityBlocked: false,
       at: activityAt
@@ -4602,6 +4616,18 @@ async function processLaneTurn({
           registryLane,
           "WORKING_LONG",
           "Work đã tự chạy lại trước continue mutation; watchdog không gửi thêm tin nhắn."
+        );
+      }
+      if (continuation.status === "ACTION_NOT_READY") {
+        return laneStatus(
+          lane,
+          registryLane,
+          "WORKING_LONG",
+          "Watchdog giữ CONTINUE_READY vì Continue/composer chưa sẵn sàng; sẽ tự thử lại ở turn sau.",
+          {
+            watchdog_phase: registryLane.work_watchdog.phase,
+            task_elapsed_ms: watchdogDecision.elapsed_ms
+          }
         );
       }
       if (continuation.status === "ACTION_UNCERTAIN") {

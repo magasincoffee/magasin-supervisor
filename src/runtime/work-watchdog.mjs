@@ -292,7 +292,7 @@ export function evaluateWorkWatchdog({
 
   if (
     recoveryUsed &&
-    (activityChanged || responseRunning) &&
+    activityChanged &&
     !state.fresh_progress_at
   ) {
     state.fresh_progress_at = currentAt;
@@ -341,9 +341,14 @@ export function evaluateWorkWatchdog({
     });
   }
 
+  const responseRunningFresh =
+    responseRunning &&
+    inactivity !== null &&
+    inactivity < config.inactivityMs;
+
   if (
     elapsed < config.stallThresholdMs ||
-    responseRunning ||
+    responseRunningFresh ||
     activityChanged ||
     (inactivity !== null && inactivity < config.inactivityMs)
   ) {
@@ -352,7 +357,7 @@ export function evaluateWorkWatchdog({
       elapsed_ms: elapsed,
       inactivity_ms: inactivity,
       emit_long_running: emitLong,
-      reason_code: responseRunning
+      reason_code: responseRunningFresh
         ? "WATCHDOG_RESPONSE_RUNNING"
         : activityChanged
           ? "WATCHDOG_SAFE_PROGRESS"
