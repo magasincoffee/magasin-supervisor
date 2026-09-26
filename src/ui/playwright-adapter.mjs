@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { classifyUiSnapshot } from "./classifier.mjs";
 import { collectSafeUiSnapshot } from "./snapshot.mjs";
+import { pageMatchesTarget, targetFromUrl } from "../runtime/recovery.mjs";
 
 export function defaultSupervisorProfileDir(env = process.env) {
   const base = env.LOCALAPPDATA || env.HOME || process.cwd();
@@ -284,14 +285,9 @@ export class ChatGptUiAdapter {
 
   findPageForTarget(target) {
     if (!target?.origin || !target?.pathname) return null;
-    return this.getChatGptPages().find((page) => {
-      try {
-        const url = new URL(page.url());
-        return url.origin === target.origin && url.pathname === target.pathname;
-      } catch {
-        return false;
-      }
-    }) || null;
+    return this.getChatGptPages().find((page) =>
+      pageMatchesTarget(page.url(), target)
+    ) || null;
   }
 
   async reopenTargetPage(url) {
@@ -301,16 +297,10 @@ export class ChatGptUiAdapter {
     if (!isChatGptUrl(parsed.toString())) {
       throw new Error("target recovery requires a ChatGPT URL");
     }
-    const key = `${parsed.origin}${parsed.pathname}`;
+    const target = targetFromUrl(parsed);
+    const key = `${target.origin}${target.pathname}`;
 
-    const existing = this.getChatGptPages().find((page) => {
-      try {
-        const current = new URL(page.url());
-        return current.origin === parsed.origin && current.pathname === parsed.pathname;
-      } catch {
-        return false;
-      }
-    });
+    const existing = this.findPageForTarget(target);
     if (existing) return existing;
 
     const cached = this.targetRecoveryPages.get(key);
