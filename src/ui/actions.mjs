@@ -5,7 +5,8 @@ import { beginSubmitFlightRecording } from "./submit-flight-recorder.mjs";
 
 const SAFE_RETRY_RE = /^(try again|retry|thử lại)$/i;
 const SAFE_CONTINUE_RE = /^(continue generating|continue response|tiếp tục tạo|tiếp tục)$/i;
-const SAFE_SEND_RE = /^(send|send prompt|gửi|gửi tin nhắn)$/i;
+const SAFE_SEND_RE = /^(send|send prompt|send message|submit|submit prompt|gửi|gửi tin nhắn|gửi lời nhắc)$/i;
+const MACHINE_FRAME_MENTION_RE = /(^|\n)\s*@M\s/u;
 export const SEND_REJECTION_CLASSES = Object.freeze({
   NONE: "NONE",
   CAPACITY_REJECTED: "CAPACITY_REJECTED",
@@ -412,6 +413,51 @@ async function waitForMatchingUserTurn(
   };
 }
 
+async function dismissMachineFrameMentionPopover(page, composer, instruction) {
+  // ChatGPT treats "@..." as a file/mention trigger. Supervisor protocol
+  // deliberately uses "@M {...}", so typing a machine frame can open the
+  // Files/Tệp mention popover above the composer. If it remains open, Enter
+  // is consumed by the mention UI instead of submitting the prompt.
+  if (!MACHINE_FRAME_MENTION_RE.test(String(instruction || ""))) {
+    return { attempted: false, preserved: true };
+  }
+
+  const exactBefore = await composerContainsExactInstruction(
+    composer,
+    instruction
+  );
+  if (exactBefore === false) {
+    return { attempted: false, preserved: false };
+  }
+
+  try {
+    if (page.keyboard && typeof page.keyboard.press === "function") {
+      await page.keyboard.press("Escape");
+    } else if (composer && typeof composer.press === "function") {
+      await composer.press("Escape", { timeout: 1_500 });
+    }
+  } catch {
+    return { attempted: true, preserved: exactBefore !== false };
+  }
+
+  if (typeof page.waitForTimeout === "function") {
+    await page.waitForTimeout(100);
+  }
+  const fresh = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+  if (!fresh) {
+    return { attempted: true, preserved: false };
+  }
+  const exactAfter = await composerContainsExactInstruction(
+    fresh,
+    instruction
+  );
+  return {
+    attempted: true,
+    preserved: exactAfter !== false,
+    composer: fresh
+  };
+}
+
 async function setComposerText(
   page,
   instruction,
@@ -515,9 +561,14 @@ const DIRECT_SEND_SELECTORS = Object.freeze([
   'button[data-testid="composer-submit-button"]:visible',
   'button[data-testid="composer-send-button"]:visible',
   'button[data-testid*="send" i]:visible',
+  'button[data-testid*="submit" i]:visible',
+  'button[id*="send" i]:visible',
+  'button[id*="submit" i]:visible',
   'button[aria-label*="Send" i]:visible',
+  'button[aria-label*="Submit" i]:visible',
   'button[aria-label*="Gửi" i]:visible',
   'button[title*="Send" i]:visible',
+  'button[title*="Submit" i]:visible',
   'button[title*="Gửi" i]:visible'
 ]);
 
@@ -815,6 +866,32 @@ export async function sendComposerInstruction(
     }
     await recorder.capture("after-type").catch(() => {});
 
+    // "@M" is our protocol marker but also ChatGPT's mention/file trigger.
+    // Dismiss that transient popover before looking for the submit control so
+    // it cannot capture Enter or interfere with the send click.
+    const mentionDismiss = await dismissMachineFrameMentionPopover(
+      page,
+      textSet.composer,
+      instruction
+    );
+    if (mentionDismiss.attempted) {
+      await recorder.capture("after-mention-dismiss", {
+        preserved: mentionDismiss.preserved
+      }).catch(() => {});
+      if (!mentionDismiss.preserved) {
+        return await finish({
+          executed: false,
+          dryRun: false,
+          action: ACTIONS.CONTINUE,
+          reason: "machine-frame mention dismissal changed composer text",
+          rejection_class: SEND_REJECTION_CLASSES.COMPOSER_NOT_READY
+        });
+      }
+      if (mentionDismiss.composer) {
+        textSet.composer = mentionDismiss.composer;
+      }
+    }
+
     // Prefer a Send control from the same composer form before falling back to
     // page-wide semantics. This prevents unrelated visible controls elsewhere in
     // a long ChatGPT conversation from being treated as the active submit button.
@@ -896,8 +973,43 @@ export async function sendComposerInstruction(
     const primarySubmitEvidence = submission.evidence;
 
     // If the explicit Send click was inert and the exact instruction remains,
-    // one bounded Enter recovery is safe because local evidence still proves
-    // that no submission transition occurred.
+    // "@M" mention UI may have reopened. Dismiss it once more and retry a
+    // direct Send control before falling back to Enter.
+    if (
+      !submission.confirmed &&
+      submission.evidence === "instruction-still-present" &&
+      MACHINE_FRAME_MENTION_RE.test(instruction)
+    ) {
+      const retryComposer = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+      if (retryComposer) {
+        const dismissed = await dismissMachineFrameMentionPopover(
+          page,
+          retryComposer,
+          instruction
+        );
+        if (dismissed.preserved) {
+          const retrySend = await clickReadyDirectSendControl(page, {
+            timeoutMs: 2_500,
+            composer: dismissed.composer || retryComposer,
+            recorder
+          });
+          if (retrySend) {
+            sendMethod = sendMethod
+              ? `${sendMethod}+${retrySend.method}-post-dismiss`
+              : `${retrySend.method}-post-dismiss`;
+            sendSelector = retrySend.selector || sendSelector;
+            sendScope = retrySend.scope || sendScope;
+            submission = await waitForComposerSubmission(page, instruction, {
+              timeoutMs: 2_500
+            });
+          }
+        }
+      }
+    }
+
+    // If the explicit Send click is still inert and the exact instruction
+    // remains, one bounded Enter recovery is safe because local evidence still
+    // proves that no submission transition occurred and mention UI was closed.
     if (
       !submission.confirmed &&
       submission.evidence === "instruction-still-present" &&

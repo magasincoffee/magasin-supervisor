@@ -708,6 +708,35 @@ test("RBT-010 UI action layer contains no attachment upload path", async () => {
   assert.match(source, /page\.bringToFront/);
 });
 
+test("Supervisor @M protocol dismisses ChatGPT mention popup before clicking Send", async () => {
+  const events = [];
+  const controls = [{
+    text: "",
+    ariaLabel: "Send message",
+    testId: "send-button",
+    disabled: false
+  }];
+  const instruction = [
+    "Đọc Source of Truth rồi giao task.",
+    '@M {"v":1,"a":"assign","t":"T1","i":"A1"}'
+  ].join("\n");
+
+  const result = await sendComposerInstruction(
+    fakePage({
+      controls,
+      onPress: (key) => { events.push(key); },
+      onClick: () => { events.push("send-click"); }
+    }),
+    instruction,
+    { dryRun: false }
+  );
+
+  assert.equal(result.executed, true);
+  assert.ok(events.includes("Escape"));
+  assert.ok(events.includes("send-click"));
+  assert.ok(events.indexOf("Escape") < events.indexOf("send-click"));
+});
+
 test("composer send prefers an exact visible send-button selector before bounded snapshot fallback", async () => {
   const source = await import("node:fs/promises").then((fs) =>
     fs.readFile(new URL("../src/ui/actions.mjs", import.meta.url), "utf8")
@@ -719,6 +748,10 @@ test("composer send prefers an exact visible send-button selector before bounded
   assert.match(source, /button\[type="submit"\]/);
   assert.match(source, /FORM_SEND_SELECTORS/);
   assert.match(source, /data-testid\*="send"/);
+  assert.match(source, /data-testid\*="submit"/);
+  assert.match(source, /aria-label\*="Submit"/);
+  assert.match(source, /dismissMachineFrameMentionPopover/);
+  assert.match(source, /after-mention-dismiss/);
   assert.match(source, /clickReadyDirectSendControl/);
   assert.match(source, /ancestor::form\[1\]/);
   assert.match(source, /waitForComposerSubmission/);
