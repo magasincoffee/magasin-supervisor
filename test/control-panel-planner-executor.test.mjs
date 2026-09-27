@@ -27,6 +27,21 @@ test("production Control Panel exposes Source of Truth, profiles, progress, Plan
   assert.match(panel, /ChatGPT Work mode: 0/);
 });
 
+test("Planner Executor Control Center uses a scrollable viewport so lower controls remain reachable", async () => {
+  const panel = await read("../windows/control-panel.ps1");
+  const start = panel.indexOf("function Show-PlannerExecutorControlPanel");
+  const end = panel.indexOf("function Set-ProjectProfileEditor", start);
+  const ui = panel.slice(start, end);
+
+  assert.match(ui, /\$scrollHost\.Dock = \[Windows\.Forms\.DockStyle\]::Fill/);
+  assert.match(ui, /\$scrollHost\.AutoScroll = \$true/);
+  assert.match(ui, /\$scrollHost\.AutoScrollMinSize = New-Object Drawing\.Size\(1020, 866\)/);
+  assert.match(ui, /\$content\.Controls\.Add\(\$hero\)/);
+  assert.match(ui, /\$content\.Controls\.Add\(\$overview\)/);
+  assert.match(ui, /\$content\.Controls\.Add\(\$projectPanel\)/);
+  assert.match(ui, /\$content\.Controls\.Add\(\$footer\)/);
+});
+
 test("project profiles keep one active project while preserving per-project state snapshots", async () => {
   const panel = await read("../windows/control-panel.ps1");
 

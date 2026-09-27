@@ -62,7 +62,8 @@
     "robot_authored_prompts_must_not_contain_literal_machine_frame_prefix": true,
     "inbound_machine_frame_prefix_remains_at_m": true,
     "planner_executor_active_independent_of_legacy_lane_count": true,
-    "active_planner_executor_hotpatch_must_preserve_dedicated_chrome": true
+    "active_planner_executor_hotpatch_must_preserve_dedicated_chrome": true,
+    "planner_executor_control_center_scrollable_viewport": true
   },
   "protocol": {
     "marker": "@M ",
@@ -568,5 +569,15 @@
     "active_runtime_detection": "lifecycle.runtime_mode == PLANNER_EXECUTOR_V1",
     "hotpatch_behavior": "RESTART_CHILD_NODE_PRESERVE_DEDICATED_CHROME",
     "suppress_crash_restore_bubble": true
+  },
+  "ui": {
+    "planner_executor_viewport": {
+      "logical_canvas_px": {
+        "width": 1020,
+        "height": 866
+      },
+      "autoscroll": true,
+      "lower_controls_must_remain_reachable": true
+    }
   }
 }

@@ -1109,11 +1109,28 @@ function Show-PlannerExecutorControlPanel {
     $form.BackColor = [Drawing.Color]::FromArgb(241,245,249)
     $form.Font = New-Object Drawing.Font('Segoe UI', 9)
 
+    # Planner/Executor uses a fixed logical canvas, but the Owner may run the
+    # Control Center on a shorter display or at higher Windows DPI scaling.
+    # Keep the canvas intact and make the viewport scroll instead of clipping
+    # the footer / lower project controls below the visible screen.
+    $scrollHost = New-Object Windows.Forms.Panel
+    $scrollHost.Dock = [Windows.Forms.DockStyle]::Fill
+    $scrollHost.AutoScroll = $true
+    $scrollHost.BackColor = $form.BackColor
+    $form.Controls.Add($scrollHost)
+
+    $content = New-Object Windows.Forms.Panel
+    $content.Location = New-Object Drawing.Point(0, 0)
+    $content.Size = New-Object Drawing.Size(1020, 866)
+    $content.BackColor = $form.BackColor
+    $scrollHost.Controls.Add($content)
+    $scrollHost.AutoScrollMinSize = New-Object Drawing.Size(1020, 866)
+
     $hero = New-Object Windows.Forms.Panel
     $hero.Location = New-Object Drawing.Point(20, 18)
     $hero.Size = New-Object Drawing.Size(980, 104)
     $hero.BackColor = [Drawing.Color]::FromArgb(15,23,42)
-    $form.Controls.Add($hero)
+    $content.Controls.Add($hero)
 
     $title = New-Object Windows.Forms.Label
     $title.Text = 'MAGASIN SUPERVISOR'
@@ -1153,7 +1170,7 @@ function Show-PlannerExecutorControlPanel {
     $overview.Size = New-Object Drawing.Size(980, 112)
     $overview.BackColor = [Drawing.Color]::White
     $overview.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
-    $form.Controls.Add($overview)
+    $content.Controls.Add($overview)
 
     $runtimeLabel = New-Object Windows.Forms.Label
     $runtimeLabel.Location = New-Object Drawing.Point(18, 12)
@@ -1206,7 +1223,7 @@ function Show-PlannerExecutorControlPanel {
     $projectPanel.Size = New-Object Drawing.Size(980, 470)
     $projectPanel.BackColor = [Drawing.Color]::White
     $projectPanel.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
-    $form.Controls.Add($projectPanel)
+    $content.Controls.Add($projectPanel)
 
     $projectTitle = New-Object Windows.Forms.Label
     $projectTitle.Text = 'PROJECT PROFILE / SOURCE OF TRUTH'
@@ -1385,7 +1402,7 @@ function Show-PlannerExecutorControlPanel {
     $footer.Size = New-Object Drawing.Size(980, 94)
     $footer.BackColor = [Drawing.Color]::FromArgb(248,250,252)
     $footer.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
-    $form.Controls.Add($footer)
+    $content.Controls.Add($footer)
 
     $diagnosticLabel = New-Object Windows.Forms.Label
     $diagnosticLabel.Location = New-Object Drawing.Point(18, 12)
