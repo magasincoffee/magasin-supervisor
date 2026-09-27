@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "probe": "node src/ui/probe-cli.mjs"
+    "probe": "node src/ui/probe-cli.mjs",
+    "qualify:pe001": "node src/runtime/planner-executor-qualification-cli.mjs"
   },
   "engines": {
     "node": ">=20"
