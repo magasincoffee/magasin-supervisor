@@ -19,10 +19,12 @@ function applyPinnedCompatibilityOverlay(source) {
   }
   let patched = source.replace(needle, replacement);
 
-  const inputNeedle = "      editor.innerHTML = '';\n      document.execCommand('insertText', false, text);";
-  const inputReplacement = [
-    "      editor.innerHTML = '';",
-    "      document.execCommand('insertText', false, text);",
+  const inputPattern = /([ \\t]*editor\\.innerHTML = '';\\r?\\n[ \\t]*document\\.execCommand\\('insertText', false, text\\);)/;
+  if (!inputPattern.test(patched)) {
+    throw new Error("pinned upstream ChatGPT contenteditable input block no longer matches expected commit");
+  }
+  patched = patched.replace(inputPattern, (match) => [
+    match,
     "      if (!(editor.innerText || editor.textContent || '').trim()) {",
     "        editor.textContent = text;",
     "      }",
@@ -35,11 +37,7 @@ function applyPinnedCompatibilityOverlay(source) {
     "      } catch {",
     "        editor.dispatchEvent(new Event('input', { bubbles: true }));",
     "      }"
-  ].join("\n");
-  if (!patched.includes(inputNeedle)) {
-    throw new Error("pinned upstream ChatGPT contenteditable input block no longer matches expected commit");
-  }
-  patched = patched.replace(inputNeedle, inputReplacement);
+  ].join("\n"));
   return patched;
 }
 
