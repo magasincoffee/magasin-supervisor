@@ -515,11 +515,11 @@ Current production is Planner/Executor V1. PE-007 production cutover completed s
 
 ## 15. MAGASIN BRIDGE V1 — canonical next-phase transport plan
 
-Status: **CANONICAL PLAN / READY TO EXECUTE / NOT YET CUT OVER**
+Status: **CANONICAL PLAN / IN PROGRESS / NOT YET CUT OVER**
 
 Owner decision date: **2026-09-27**
 
-Current task: **MBV1-001 — Local Bridge Baseline**. Progress: pc=0 / pt=8.
+Current task: **MBV1-002 — Bridge Adapter**. Progress: pc=1 / pt=8.
 
 This program replaces only the Planner/Executor transport layer. It preserves the existing Source-of-Truth authority, Planner/Executor roles, @M v1 protocol, task/assignment/result correlation, pc/pt semantics, STOP/RESET behavior, exact-once principles and Control UI concept.
 
@@ -575,18 +575,61 @@ Until MBV1-008 PASS and explicit cutover: bridge_cutover=false and production co
 
 ### 15.8 Next-task authority
 
-program=MAGASIN_BRIDGE_V1; current_task=MBV1-001; pc=0; pt=8; status=IN_PROGRESS. Planner MUST select MBV1-001 next and MUST NOT skip to integration, reliability hardening or production cutover before the local two-tab Bridge baseline is proven.
+program=MAGASIN_BRIDGE_V1; current_task=MBV1-002; pc=1; pt=8; status=READY_TO_EXECUTE. Planner MUST select MBV1-002 next. MBV1-003 and later tasks remain blocked by dependency order.
 
 
 ### 15.9 MBV1-001 implementation evidence
 
-Status: **IN_PROGRESS** (not yet PASS; pc remains 0 / pt 8).
+Status: **COMPLETE / LIVE QUALIFIED**
 
-- implementation branch: `mbv1-001-live-bridge-baseline`;
-- draft PR: #173;
-- candidate head: `a3174b5bb62dabe953d7ab4bf7c1d711bd710c6b`;
+Authoritative evidence:
+
+- merged PR: #173;
+- merge commit: `8146ca53e99cba08292eac80be4ad6403a875fa4`;
+- qualified candidate head: `dc02330b788409ca9b3799b15f54c703e921cb93`;
 - pinned upstream: `OLmatter/chatgpt-bridge@848efb9e85f52f251c82ab099747833c0693c072`;
-- live qualification workflow run: `36329984215`;
-- current workflow state at Source-of-Truth update: `queued`;
-- production transport/state/targets remain unchanged;
-- MBV1-002 remains blocked until a target-machine PASS satisfies all MBV1-001 DoD items.
+- authoritative live workflow run: `36330634492`;
+- target job: `108651748072` on `DESKTOP-4K7IM13`;
+- authority job: `108652177893`: **PASS**;
+- static audit: **PASS**;
+- unit tests: **PASS**;
+- production state mutated: **false**;
+- production targets mutated: **false**;
+- Bridge process and qualification-owned Chrome cleaned up after PASS.
+
+Verified MBV1-001 DoD:
+
+```text
+Bridge service online        = PASS
+Planner connected            = PASS
+Executor connected           = PASS
+Planner page_id != Executor  = PASS
+Planner send/read            = PASS
+Executor send/read           = PASS
+Role isolation               = PASS
+Upstream commit pin recorded = PASS
+```
+
+The target-machine run also proved that the Bridge transport path requires no OpenAI API and invoked ChatGPT Work mode zero times.
+
+Qualification transport finding:
+
+- the pinned upstream blocking `/send` path did not satisfy the live qualification reliably under the current ChatGPT completion timing;
+- the canonical MAGASIN path for MBV1-002 forward is therefore **`/send_async` for command enqueue plus `/snapshot?page_id=...` for correlated read/observation**;
+- this does not modify upstream in MBV1-001; it constrains the adapter design in MBV1-002;
+- blocking `/send` is not authoritative submission/completion evidence for MAGASIN.
+
+### 15.10 MBV1-002 next-task authority
+
+MBV1-001 is complete. Progress is now:
+
+```text
+program = MAGASIN_BRIDGE_V1
+current_task = MBV1-002
+pc = 1
+pt = 8
+status = READY_TO_EXECUTE
+bridge_cutover = false
+```
+
+MBV1-002 must implement one bounded Bridge adapter around the pinned baseline and MUST prefer asynchronous enqueue + snapshot observation. It must not move workflow/state authority into the Bridge and must not cut production over.
