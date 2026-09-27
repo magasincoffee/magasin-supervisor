@@ -62,7 +62,7 @@ test("profile editor can create and inspect inactive projects without being clob
   assert.match(panel, /function Begin-NewProjectProfileDraft/);
   assert.match(panel, /SelectionChangeCommitted/);
   assert.match(panel, /TẠO PROFILE MỚI/);
-  assert.match(panel, /if \(\$editingActiveProfile\) \{/);
+  assert.match(panel, /if \(\$editingActiveProfile -and -not \$profileEditor\.Dirty\) \{/);
   assert.match(panel, /\$editorPlannerReady=Test-ChatConversationUrl \(\$plannerBox\.Text\.Trim\(\)\)/);
   assert.match(panel, /Chat Planner\/Executor là link phiên làm việc, không phải project ID/);
 });
