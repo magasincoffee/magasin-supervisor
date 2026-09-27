@@ -153,13 +153,18 @@
     {
       "id": "PE-006",
       "priority": "P2",
-      "state": "READY_TO_EXECUTE",
-      "name": "Automated continuation"
+      "state": "IMPLEMENTED_COMPLETE",
+      "name": "Automated continuation",
+      "pr": 137,
+      "merge_sha": "41baa45fc3e06a691021ca6abfcd63ae351f0b9b",
+      "acceptance_status": "REGRESSION_GREEN",
+      "supervisor_tests_run": 36294115756,
+      "supervisor_integrity_run": 36294115776
     },
     {
       "id": "PE-007",
       "priority": "P3",
-      "state": "PLANNED",
+      "state": "READY_TO_EXECUTE",
       "name": "Qualification and Owner-authorized cutover"
     }
   ],
@@ -287,6 +292,24 @@
     "preserves_active_task": true,
     "preserves_exact_once_identities": true,
     "unresolved_legacy_authority_blocks_cutover": true,
+    "production_cutover": false
+  },
+  "pe006_evidence": {
+    "pr": 137,
+    "merge_sha": "41baa45fc3e06a691021ca6abfcd63ae351f0b9b",
+    "supervisor_tests_run": 36294115756,
+    "supervisor_tests": "PASS",
+    "supervisor_integrity_run": 36294115776,
+    "supervisor_integrity": "PASS",
+    "supervisor_lifecycle_run": 36294115768,
+    "supervisor_lifecycle": "PASS",
+    "supervisor_autostart_run": 36294115779,
+    "supervisor_autostart_isolated": "PASS",
+    "combined_reject_correction": true,
+    "reject_without_bounded_correction": "FAIL_CLOSED_BLOCKED",
+    "persistent_blocked_resume_stop_done": true,
+    "bounded_warm_tab_health_recovery": true,
+    "failure_only_privacy_safe_incidents": true,
     "production_cutover": false
   }
 }
