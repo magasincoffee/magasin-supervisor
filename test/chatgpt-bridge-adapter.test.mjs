@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   CHATGPT_BRIDGE_DEFAULT_BASE_URL,
+  CHATGPT_BRIDGE_PINNED_UPSTREAM_COMMIT,
+  CHATGPT_BRIDGE_UPSTREAM_REPOSITORY,
   ChatGptBridgeAdapter,
   ChatGptBridgeError,
   bridgeResponseBaseline,
@@ -46,6 +48,11 @@ test("Bridge adapter defaults to the local pinned-baseline endpoint", () => {
     fetchImpl: async () => jsonResponse({})
   });
   assert.equal(adapter.baseUrl, CHATGPT_BRIDGE_DEFAULT_BASE_URL);
+  assert.equal(CHATGPT_BRIDGE_UPSTREAM_REPOSITORY, "https://github.com/OLmatter/chatgpt-bridge");
+  assert.equal(
+    CHATGPT_BRIDGE_PINNED_UPSTREAM_COMMIT,
+    "848efb9e85f52f251c82ab099747833c0693c072"
+  );
 });
 
 test("Bridge base URL fails closed for non-local or path-prefixed endpoints", () => {
@@ -205,7 +212,9 @@ test("waitResponse can use digest change when upstream count remains stable", as
   ];
   let index = 0;
 
-  const baseline = bridgeResponseBaseline({
+  const baseline = {
+    page_id: "planner_1234",
+    ...bridgeResponseBaseline({
     site: "chatgpt",
     url: "https://chatgpt.com/c/test",
     title: "Test",
@@ -215,7 +224,8 @@ test("waitResponse can use digest change when upstream count remains stable", as
     is_generating: false,
     recent_turns: [{ role: "assistant", text: "old" }],
     last_assistant: "old"
-  });
+    })
+  };
 
   const adapter = new ChatGptBridgeAdapter({
     nowImpl: () => now,
@@ -243,11 +253,29 @@ test("waitResponse rejects an already-generating baseline as ambiguous", async (
 
   await assert.rejects(
     () => adapter.waitResponse("planner_1234", {
+      page_id: "planner_1234",
       assistant_count: 1,
       assistant_digest: "a".repeat(64),
       is_generating: true
     }),
     (error) => error instanceof ChatGptBridgeError && error.code === "AMBIGUOUS_BASELINE"
+  );
+});
+
+
+test("waitResponse rejects a baseline captured from a different page_id", async () => {
+  const adapter = new ChatGptBridgeAdapter({
+    fetchImpl: async () => jsonResponse(snapshot())
+  });
+
+  await assert.rejects(
+    () => adapter.waitResponse("planner_1234", {
+      page_id: "executor_5678",
+      assistant_count: 1,
+      assistant_digest: "a".repeat(64),
+      is_generating: false
+    }),
+    (error) => error instanceof ChatGptBridgeError && error.code === "BASELINE_PAGE_MISMATCH"
   );
 });
 
@@ -282,7 +310,9 @@ test("waitResponse times out rather than accepting an unchanged stale snapshot",
     fetchImpl: async () => jsonResponse(stale)
   });
 
-  const baseline = bridgeResponseBaseline({
+  const baseline = {
+    page_id: "planner_1234",
+    ...bridgeResponseBaseline({
     site: "chatgpt",
     url: "https://chatgpt.com/c/test",
     title: "Test",
@@ -292,7 +322,8 @@ test("waitResponse times out rather than accepting an unchanged stale snapshot",
     is_generating: false,
     recent_turns: [{ role: "assistant", text: "same" }],
     last_assistant: "same"
-  });
+    })
+  };
 
   await assert.rejects(
     () => adapter.waitResponse("planner_1234", baseline, {
