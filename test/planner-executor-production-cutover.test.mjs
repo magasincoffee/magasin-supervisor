@@ -206,6 +206,18 @@ test("production bootstrap is compact, role-specific, and never invokes Work mod
   assert.doesNotMatch(message, /MAGASIN_WORK_DISPATCH_V1/);
 });
 
+test("Planner bootstrap runs only after execute-mode dry-run exit", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/planner-executor-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const dryRunIndex = source.indexOf("if (!args.execute)");
+  const bootstrapIndex = source.indexOf("await ensureProductionPlannerBootstrap({");
+  assert.ok(dryRunIndex >= 0);
+  assert.ok(bootstrapIndex > dryRunIndex);
+  assert.match(source.slice(dryRunIndex, bootstrapIndex), /process\.exit\(0\)/);
+});
+
 test("production wrapper routes explicit Planner/Executor state before legacy project-adapter mode", async () => {
   const source = await fs.readFile(
     new URL("../windows/run-supervisor.ps1", import.meta.url),
