@@ -25,7 +25,12 @@
     "normal_resident_chatgpt_tabs": 2,
     "one_active_task": true,
     "normal_full_history_scan": false,
-    "send_success_requires_matching_user_turn": true
+    "send_success_requires_matching_user_turn": true,
+    "one_active_project": true,
+    "multiple_project_profiles_allowed": true,
+    "project_context_source": "OWNER_CONFIGURED_SOURCE_OF_TRUTH_URL",
+    "project_switch_requires_robot_stopped": true,
+    "project_switch_requires_no_inflight_assignment_or_result": true
   },
   "protocol": {
     "marker": "@M ",
@@ -48,7 +53,11 @@
       "i": "assignment_id",
       "r": "result_id",
       "n": "next_task_id",
-      "s": "report_status"
+      "s": "report_status",
+      "p": "project_id",
+      "g": "project_generation",
+      "pc": "project_completed_tasks",
+      "pt": "project_total_tasks"
     },
     "latest_turn_only_normal_path": true,
     "unknown_additive_fields": "IGNORE",
@@ -401,5 +410,31 @@
     "chatgpt_work_mode_invocations": 0,
     "rollback_ready": true,
     "completed_at_utc": "2026-09-27T06:19:03.8473241Z"
+  },
+  "project_profiles": {
+    "schema": "planner-executor-projects.v1",
+    "active_project_limit": 1,
+    "normal_chatgpt_tabs": 2,
+    "profile_fields": [
+      "project_id",
+      "project_name",
+      "source_of_truth_url",
+      "planner_url",
+      "executor_url",
+      "project_generation",
+      "state_file"
+    ],
+    "per_project_state_snapshot": true,
+    "source_change_rearms_planner_bootstrap": true,
+    "project_switch_rearms_planner_bootstrap": true,
+    "planner_bootstrap_marker": "MAGASIN_PROJECT_BOOTSTRAP_V1",
+    "strict_project_generation_correlation_after_bootstrap": true,
+    "progress_authority": "PLANNER_REPORTED_FROM_SOURCE_OF_TRUTH",
+    "progress_fields": [
+      "pc",
+      "pt"
+    ],
+    "implementation_pr": 153,
+    "implementation_merge_sha": "e928bc03980f564c007a97b197f1b8af7c727fde"
   }
 }
