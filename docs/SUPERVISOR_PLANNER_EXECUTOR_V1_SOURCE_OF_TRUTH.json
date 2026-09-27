@@ -164,8 +164,12 @@
     {
       "id": "PE-007",
       "priority": "P3",
-      "state": "READY_TO_EXECUTE",
-      "name": "Qualification and Owner-authorized cutover"
+      "state": "QUALIFIED_AWAITING_OWNER_CUTOVER",
+      "name": "Qualification and Owner-authorized cutover",
+      "acceptance_status": "LIVE_QUALIFIED",
+      "qualification_workflow_run": 36295980129,
+      "qualification_candidate_sha": "561a64bf2cd62503b78219b53fb5e71413dc2056",
+      "qualification_evidence_commit": "1300948"
     }
   ],
   "pe001_acceptance": [
@@ -311,5 +315,38 @@
     "bounded_warm_tab_health_recovery": true,
     "failure_only_privacy_safe_incidents": true,
     "production_cutover": false
+  },
+  "pe007_evidence": {
+    "qualification_status": "PASS",
+    "workflow_run_id": 36295980129,
+    "workflow_run_number": 5,
+    "candidate_sha": "561a64bf2cd62503b78219b53fb5e71413dc2056",
+    "authoritative_evidence_path": ".github/qualification/pe007-latest.json",
+    "authoritative_evidence_commit": "1300948",
+    "target_computer": "DESKTOP-4K7IM13",
+    "attempt_1": {
+      "target_match": false,
+      "qualified": false
+    },
+    "attempt_2": {
+      "target_match": true,
+      "qualified": true
+    },
+    "normal_chat_count": 2,
+    "chatgpt_work_mode_invocations": 0,
+    "intentional_fail_then_bounded_correction_pass": true,
+    "exact_correlations": [
+      "A001/R001",
+      "A002/R002"
+    ],
+    "matching_user_turn_evidence_each_send": true,
+    "cycle_send_count": 4,
+    "terminal_done_persisted": true,
+    "production_state_mutated": false,
+    "production_targets_mutated": false,
+    "state_root_binding_mutated": false,
+    "isolated_chrome_cleanup": true,
+    "production_cutover": false,
+    "next_gate": "EXPLICIT_OWNER_CUTOVER_AUTHORIZATION"
   }
 }
