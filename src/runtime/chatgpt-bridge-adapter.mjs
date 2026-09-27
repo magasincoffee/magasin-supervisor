@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 
+export const CHATGPT_BRIDGE_UPSTREAM_REPOSITORY = "https://github.com/OLmatter/chatgpt-bridge";
+export const CHATGPT_BRIDGE_PINNED_UPSTREAM_COMMIT = "848efb9e85f52f251c82ab099747833c0693c072";
 export const CHATGPT_BRIDGE_DEFAULT_BASE_URL = "http://127.0.0.1:5000";
 export const CHATGPT_BRIDGE_DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 export const CHATGPT_BRIDGE_DEFAULT_RESPONSE_TIMEOUT_MS = 180_000;
@@ -238,6 +240,7 @@ export class ChatGptBridgeAdapter {
     const timer = setTimeout(() => controller.abort(), Math.max(1, Number(timeoutMs) || this.requestTimeoutMs));
 
     let response;
+    let text;
     try {
       response = await this.fetchImpl(url.toString(), {
         method,
@@ -245,7 +248,15 @@ export class ChatGptBridgeAdapter {
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: controller.signal
       });
+
+      if (!response || typeof response.text !== "function") {
+        throw new ChatGptBridgeError("Bridge fetch returned an invalid response object", {
+          code: "MALFORMED_BRIDGE_RESPONSE"
+        });
+      }
+      text = await response.text();
     } catch (error) {
+      if (error instanceof ChatGptBridgeError) throw error;
       throw new ChatGptBridgeError("Bridge request failed", {
         code: error?.name === "AbortError" ? "BRIDGE_TIMEOUT" : "BRIDGE_UNREACHABLE",
         cause: error,
@@ -255,13 +266,6 @@ export class ChatGptBridgeAdapter {
       clearTimeout(timer);
     }
 
-    if (!response || typeof response.text !== "function") {
-      throw new ChatGptBridgeError("Bridge fetch returned an invalid response object", {
-        code: "MALFORMED_BRIDGE_RESPONSE"
-      });
-    }
-
-    const text = await response.text();
     let payload;
     try {
       payload = text ? JSON.parse(text) : {};
@@ -376,13 +380,31 @@ export class ChatGptBridgeAdapter {
       });
     }
 
+    const baselinePageId = pageId(baselineValue.page_id);
+    if (baselinePageId !== target) {
+      throw new ChatGptBridgeError("Response baseline belongs to a different Bridge page", {
+        code: "BASELINE_PAGE_MISMATCH",
+        details: {
+          page_id: target,
+          baseline_page_id: baselinePageId
+        }
+      });
+    }
+
+    const assistantDigest = requireString(
+      baselineValue.assistant_digest,
+      "baseline assistant_digest",
+      { maxLength: 128 }
+    ).trim();
+    if (!/^[a-f0-9]{64}$/i.test(assistantDigest)) {
+      throw new ChatGptBridgeError("baseline assistant_digest must be a SHA-256 digest", {
+        code: "INVALID_BASELINE"
+      });
+    }
+
     const baseline = {
       assistant_count: finiteNonNegative(baselineValue.assistant_count),
-      assistant_digest: requireString(
-        baselineValue.assistant_digest,
-        "baseline assistant_digest",
-        { maxLength: 128 }
-      ),
+      assistant_digest: assistantDigest.toLowerCase(),
       is_generating: Boolean(baselineValue.is_generating)
     };
 
