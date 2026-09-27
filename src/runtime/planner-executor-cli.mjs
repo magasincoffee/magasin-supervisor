@@ -232,11 +232,6 @@ try {
     plannerUrl,
     executorUrl
   });
-  await ensureProductionPlannerBootstrap({
-    statePath,
-    state: existing,
-    plannerPage: warm.plannerPage
-  });
   safeLog("PLANNER_EXECUTOR_MODE", "PLANNER_EXECUTOR_V1");
   safeLog("PLANNER_EXECUTOR_CHATGPT_TABS", warm.pageCount);
   safeLog("PLANNER_EXECUTOR_CHATGPT_WORK_MODE_INVOCATIONS", 0);
@@ -255,6 +250,12 @@ try {
     safeLog("PLANNER_EXECUTOR_DRY_RUN_READY", true);
     process.exit(0);
   }
+
+  await ensureProductionPlannerBootstrap({
+    statePath,
+    state: existing,
+    plannerPage: warm.plannerPage
+  });
 
   const captureTurn = createIdleAwareTurnCapture(
     adapter,
