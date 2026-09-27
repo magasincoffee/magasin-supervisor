@@ -7,81 +7,22 @@ import {
   sendComposerInstruction
 } from "../ui/actions.mjs";
 import { captureLatestRoleTurn } from "../ui/latest-turn.mjs";
+import {
+  assertMachineFrameAction,
+  assertMachineFrameCorrelation,
+  parseMachineFrame
+} from "./machine-frame.mjs";
+
+export { parseMachineFrame } from "./machine-frame.mjs";
 
 export const PLANNER_EXECUTOR_MODE = "PLANNER_EXECUTOR_V1";
-export const MACHINE_FRAME_PREFIX = "@M ";
 
-const ACTIONS = new Set([
-  "assign",
-  "report",
-  "accept_assign",
-  "reject",
-  "blocked",
-  "resume",
-  "stop",
-  "done"
-]);
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/;
 
 function requireId(value, label) {
   const id = String(value || "").trim();
   if (!ID_RE.test(id)) throw new Error(`invalid ${label}`);
   return id;
-}
-
-function normalizeReportStatus(value) {
-  const status = String(value || "").trim().toLowerCase();
-  if (!["pass", "fail", "blocked"].includes(status)) {
-    throw new Error("invalid report status");
-  }
-  return status;
-}
-
-export function parseMachineFrame(text) {
-  const raw = String(text || "").replace(/\r\n/g, "\n").trimEnd();
-  if (!raw) throw new Error("assistant turn is empty");
-
-  const lines = raw.split("\n");
-  let index = lines.length - 1;
-  while (index >= 0 && !lines[index].trim()) index -= 1;
-  if (index < 0 || !lines[index].trim().startsWith(MACHINE_FRAME_PREFIX)) {
-    throw new Error("assistant turn missing final @M frame");
-  }
-
-  const jsonText = lines[index].trim().slice(MACHINE_FRAME_PREFIX.length);
-  const payload = JSON.parse(jsonText);
-  if (Number(payload?.v) !== 1) throw new Error("unsupported @M protocol version");
-
-  const action = String(payload?.a || "").trim().toLowerCase();
-  if (!ACTIONS.has(action)) throw new Error("unsupported @M action");
-
-  const frame = { v: 1, a: action };
-  if (payload.t !== undefined) frame.t = requireId(payload.t, "task_id");
-  if (payload.i !== undefined) frame.i = requireId(payload.i, "assignment_id");
-  if (payload.r !== undefined) frame.r = requireId(payload.r, "result_id");
-  if (payload.n !== undefined) frame.n = requireId(payload.n, "next_task_id");
-  if (payload.s !== undefined) frame.s = normalizeReportStatus(payload.s);
-
-  if (action === "assign" && (!frame.t || !frame.i)) {
-    throw new Error("assign requires task_id and assignment_id");
-  }
-  if (action === "report" && (!frame.t || !frame.i || !frame.r || !frame.s)) {
-    throw new Error("report requires task_id, assignment_id, result_id and status");
-  }
-  if (action === "accept_assign" && (!frame.t || !frame.r || !frame.n || !frame.i)) {
-    throw new Error(
-      "accept_assign requires reviewed task_id, result_id, next_task_id and new assignment_id"
-    );
-  }
-  if (action === "reject" && (!frame.t || !frame.r)) {
-    throw new Error("reject requires task_id and result_id");
-  }
-
-  return {
-    frame,
-    body: lines.slice(0, index).join("\n").trim(),
-    raw
-  };
 }
 
 export function defaultPlannerExecutorState({
@@ -299,7 +240,9 @@ export async function runPlannerExecutorStep({
     }
 
     const parsed = parseMachineFrame(turn.text);
-    if (parsed.frame.a !== "assign") {
+    try {
+      assertMachineFrameAction(parsed.frame, ["assign"]);
+    } catch {
       return { phase: "WAIT_PLANNER_ASSIGN", ignored_action: parsed.frame.a, state };
     }
 
@@ -349,15 +292,15 @@ export async function runPlannerExecutorStep({
     }
 
     const parsed = parseMachineFrame(turn.text);
-    if (parsed.frame.a !== "report") {
+    try {
+      assertMachineFrameAction(parsed.frame, ["report"]);
+    } catch {
       return { phase: "WAIT_EXECUTOR_REPORT", ignored_action: parsed.frame.a, state };
     }
-    if (
-      parsed.frame.t !== state.assignment.task_id ||
-      parsed.frame.i !== state.assignment.assignment_id
-    ) {
-      throw new Error("Executor report correlation mismatch");
-    }
+    assertMachineFrameCorrelation(parsed.frame, {
+      taskId: state.assignment.task_id,
+      assignmentId: state.assignment.assignment_id
+    });
 
     const relayMessage = buildPlannerReviewMessage({
       taskId: parsed.frame.t,
@@ -413,12 +356,10 @@ export async function runPlannerExecutorStep({
 
   const parsed = parseMachineFrame(plannerTurn.text);
   if (parsed.frame.a === "reject") {
-    if (
-      parsed.frame.t !== state.result.task_id ||
-      parsed.frame.r !== state.result.result_id
-    ) {
-      throw new Error("Planner reject correlation mismatch");
-    }
+    assertMachineFrameCorrelation(parsed.frame, {
+      taskId: state.result.task_id,
+      resultId: state.result.result_id
+    });
     state.planner.last_seen_assistant_turn_id = plannerTurn.turn_id;
     state.decision = {
       action: "reject",
@@ -430,19 +371,19 @@ export async function runPlannerExecutorStep({
     return { phase: "PLANNER_REJECT", state };
   }
 
-  if (parsed.frame.a !== "accept_assign") {
+  try {
+    assertMachineFrameAction(parsed.frame, ["accept_assign"]);
+  } catch {
     return {
       phase: "WAIT_PLANNER_DECISION",
       ignored_action: parsed.frame.a,
       state
     };
   }
-  if (
-    parsed.frame.t !== state.result.task_id ||
-    parsed.frame.r !== state.result.result_id
-  ) {
-    throw new Error("Planner accept_assign correlation mismatch");
-  }
+  assertMachineFrameCorrelation(parsed.frame, {
+    taskId: state.result.task_id,
+    resultId: state.result.result_id
+  });
 
   const nextMessage = buildExecutorAssignmentMessage({
     taskId: parsed.frame.n,
