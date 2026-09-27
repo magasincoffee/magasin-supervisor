@@ -23,6 +23,7 @@ test("production Control Panel exposes Source of Truth, profiles, progress, Plan
   assert.match(panel, /MỞ EXECUTOR/);
   assert.match(panel, /START ROBOT/);
   assert.match(panel, /STOP ROBOT/);
+  assert.match(panel, /RESET ROBOT/);
   assert.match(panel, /ChatGPT Work mode: 0/);
 });
 
@@ -88,6 +89,36 @@ test("Source of Truth change re-arms bootstrap while project switch preserves ge
   assert.doesNotMatch(switchBody, /project_generation = \[int\]\$state\.project_generation \+ 1/);
   assert.doesNotMatch(switchBody, /last_seen_assistant_turn_id = \$null/);
   assert.match(switchBody, /Save-ActiveProjectSnapshot/);
+});
+
+test("Owner RESET ROBOT clears only active runtime state and fences stale output with a new generation", async () => {
+  const panel = await read("../windows/control-panel.ps1");
+
+  const resetStart = panel.indexOf("function Reset-PlannerExecutorActiveProject");
+  const resetEnd = panel.indexOf("function Switch-PlannerExecutorProject", resetStart);
+  const reset = panel.slice(resetStart, resetEnd);
+
+  assert.ok(resetStart >= 0);
+  assert.ok(resetEnd > resetStart);
+  assert.match(reset, /-File \$stopScript/);
+  assert.match(reset, /project_generation' 1\) \+ 1/);
+  assert.match(reset, /source_of_truth_url.*profile/);
+  assert.match(reset, /planner_url/);
+  assert.match(reset, /executor_url/);
+  assert.match(reset, /\$state\.active_task_id = \$null/);
+  assert.match(reset, /\$state\.assignment = \$null/);
+  assert.match(reset, /\$state\.result = \$null/);
+  assert.match(reset, /\$state\.decision = \$null/);
+  assert.match(reset, /\$state\.last_completed = \$null/);
+  assert.match(reset, /assignment_ids=@\(\)/);
+  assert.match(reset, /result_ids=@\(\)/);
+  assert.match(reset, /New-ProjectContextBootstrap \$nextGeneration/);
+  assert.match(reset, /planner-executor-startup-failure\.json/);
+
+  assert.match(panel, /\$resetRobotButton\.Text = 'RESET ROBOT'/);
+  assert.match(panel, /RESET ROBOT — XÁC NHẬN/);
+  assert.match(panel, /RESET ROBOT — XÁC NHẬN LẦN CUỐI/);
+  assert.match(panel, /Bây giờ hãy chọn profile muốn chạy và bấm START/);
 });
 
 test("project progress is rendered from durable Planner/Executor project_progress", async () => {
