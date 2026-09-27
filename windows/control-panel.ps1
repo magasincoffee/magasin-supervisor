@@ -805,13 +805,13 @@ function Show-PlannerExecutorControlPanel {
 
     $plannerBox = New-Object Windows.Forms.TextBox
     $plannerBox.Location = New-Object Drawing.Point(620, 72)
-    $plannerBox.Size = New-Object Drawing.Size(242, 27)
+    $plannerBox.Size = New-Object Drawing.Size(190, 27)
     $projectPanel.Controls.Add($plannerBox)
 
     $plannerButton = New-Object Windows.Forms.Button
-    $plannerButton.Location = New-Object Drawing.Point(872, 69)
-    $plannerButton.Size = New-Object Drawing.Size(78, 33)
-    $plannerButton.Text = 'MỞ'
+    $plannerButton.Location = New-Object Drawing.Point(820, 69)
+    $plannerButton.Size = New-Object Drawing.Size(130, 33)
+    $plannerButton.Text = 'MỞ PLANNER'
     $plannerButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
     $projectPanel.Controls.Add($plannerButton)
 
@@ -824,13 +824,13 @@ function Show-PlannerExecutorControlPanel {
 
     $executorBox = New-Object Windows.Forms.TextBox
     $executorBox.Location = New-Object Drawing.Point(620, 140)
-    $executorBox.Size = New-Object Drawing.Size(242, 27)
+    $executorBox.Size = New-Object Drawing.Size(190, 27)
     $projectPanel.Controls.Add($executorBox)
 
     $executorButton = New-Object Windows.Forms.Button
-    $executorButton.Location = New-Object Drawing.Point(872, 137)
-    $executorButton.Size = New-Object Drawing.Size(78, 33)
-    $executorButton.Text = 'MỞ'
+    $executorButton.Location = New-Object Drawing.Point(820, 137)
+    $executorButton.Size = New-Object Drawing.Size(130, 33)
+    $executorButton.Text = 'MỞ EXECUTOR'
     $executorButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
     $projectPanel.Controls.Add($executorButton)
 
