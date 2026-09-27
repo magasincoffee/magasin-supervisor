@@ -17,7 +17,30 @@ function applyPinnedCompatibilityOverlay(source) {
   if (!source.includes(needle)) {
     throw new Error("pinned upstream ChatGPT send-selector block no longer matches expected commit");
   }
-  return source.replace(needle, replacement);
+  let patched = source.replace(needle, replacement);
+
+  const inputNeedle = "      editor.innerHTML = '';\n      document.execCommand('insertText', false, text);";
+  const inputReplacement = [
+    "      editor.innerHTML = '';",
+    "      document.execCommand('insertText', false, text);",
+    "      if (!(editor.innerText || editor.textContent || '').trim()) {",
+    "        editor.textContent = text;",
+    "      }",
+    "      try {",
+    "        editor.dispatchEvent(new InputEvent('input', {",
+    "          bubbles: true,",
+    "          inputType: 'insertText',",
+    "          data: text",
+    "        }));",
+    "      } catch {",
+    "        editor.dispatchEvent(new Event('input', { bubbles: true }));",
+    "      }"
+  ].join("\n");
+  if (!patched.includes(inputNeedle)) {
+    throw new Error("pinned upstream ChatGPT contenteditable input block no longer matches expected commit");
+  }
+  patched = patched.replace(inputNeedle, inputReplacement);
+  return patched;
 }
 
 const userscriptText = applyPinnedCompatibilityOverlay(upstreamUserscriptText);
