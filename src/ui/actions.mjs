@@ -343,7 +343,7 @@ async function captureUserTurnState(page, instruction) {
       // fall back to that selector rather than reporting a false send failure
       // after the composer has already transitioned.
       const legacyTurns = Array.from(
-        document.querySelectorAll(selectors.legacy)
+        document.querySelectorAll('[data-message-author-role="user"]')
       );
       const turns = legacyTurns.length
         ? legacyTurns
