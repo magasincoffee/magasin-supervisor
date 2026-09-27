@@ -411,3 +411,31 @@ test("production cutover script has rollback, double preflight, and explicit tar
   assert.match(source, /planner-executor-status\.json/);
   assert.match(source, /chatgpt_work_mode_invocations/);
 });
+
+
+test("production CLI persists cutover-ready status immediately after bootstrap confirmation", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/planner-executor-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  const bootstrapIndex = source.indexOf("await ensureProductionPlannerBootstrap({");
+  const readyIndex = source.indexOf('phase: "BOOTSTRAP_CONFIRMED"');
+  const runLoopIndex = source.indexOf('startupStage = "RUN_LOOP"');
+
+  assert.ok(bootstrapIndex >= 0);
+  assert.ok(readyIndex > bootstrapIndex);
+  assert.ok(runLoopIndex > readyIndex);
+  assert.match(
+    source.slice(readyIndex, runLoopIndex),
+    /production_cutover:\s*true/
+  );
+  assert.match(
+    source.slice(readyIndex, runLoopIndex),
+    /chatgpt_tabs:\s*adapter\.getChatGptPageCount\(\)/
+  );
+  assert.match(
+    source.slice(readyIndex, runLoopIndex),
+    /chatgpt_work_mode_invocations:\s*0/
+  );
+});
