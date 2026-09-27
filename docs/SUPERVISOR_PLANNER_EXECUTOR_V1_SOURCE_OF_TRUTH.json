@@ -63,7 +63,8 @@
     "inbound_machine_frame_prefix_remains_at_m": true,
     "planner_executor_active_independent_of_legacy_lane_count": true,
     "active_planner_executor_hotpatch_must_preserve_dedicated_chrome": true,
-    "planner_executor_control_center_scrollable_viewport": true
+    "planner_executor_control_center_scrollable_viewport": true,
+    "canonical_historical_bootstrap_draft_auto_recovery": true
   },
   "protocol": {
     "marker": "@M ",
@@ -122,6 +123,20 @@
         "allowed_only_when": "composer_digest_equals_canonical_pre_transport_bootstrap_digest",
         "action": "GUARDED_DISCARD_AND_RESEND_MENTION_SAFE_BOOTSTRAP",
         "foreign_draft": "FAIL_CLOSED_NO_OVERWRITE"
+      },
+      "historical_bootstrap_recovery": {
+        "allowed_only_when": "exact canonical Robot bootstrap template match",
+        "required_identity_match": [
+          "project_id",
+          "source_of_truth_url"
+        ],
+        "allowed_generation_range": "1..current project_generation",
+        "accepted_templates": [
+          "legacy raw @M",
+          "mention-safe <AT>M"
+        ],
+        "action": "DISMISS_TRANSIENT_UI_GUARDED_CLEAR_AND_RECOMPOSE_CURRENT_GENERATION",
+        "foreign_or_modified_draft": "FAIL_CLOSED_NO_OVERWRITE"
       }
     }
   },

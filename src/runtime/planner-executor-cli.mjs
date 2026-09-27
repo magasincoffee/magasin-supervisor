@@ -255,6 +255,62 @@ function buildLegacyProjectContextBootstrapMessage(state) {
   ].join("\n");
 }
 
+function matchCanonicalHistoricalProjectBootstrapDraft(draft, state) {
+  if (draft?.has_text !== true || !draft.normalized_text) return null;
+  const text = String(draft.normalized_text);
+  const lines = text.split("\n");
+  if (lines[0] !== "MAGASIN_PROJECT_BOOTSTRAP_V1") return null;
+
+  const projectLine = lines.find((line) => line.startsWith("project_id="));
+  const generationLine = lines.find((line) =>
+    line.startsWith("project_generation=")
+  );
+  const sourceLine = lines.find((line) => line.startsWith("source_of_truth="));
+  if (!projectLine || !generationLine || !sourceLine) return null;
+
+  const projectId = projectLine.slice("project_id=".length).trim();
+  const generation = Number(
+    generationLine.slice("project_generation=".length).trim()
+  );
+  const sourceUrl = sourceLine.slice("source_of_truth=".length).trim();
+  const currentProjectId = String(state?.project_id || "").trim();
+  const currentGeneration = Number(state?.project_generation || 1);
+  const currentSourceUrl = String(
+    state?.project_context?.source_of_truth_url || ""
+  ).trim();
+
+  if (
+    projectId !== currentProjectId ||
+    sourceUrl !== currentSourceUrl ||
+    !Number.isInteger(generation) ||
+    generation < 1 ||
+    generation > currentGeneration
+  ) {
+    return null;
+  }
+
+  const historicalState = {
+    ...state,
+    project_generation: generation
+  };
+  const candidates = [
+    buildLegacyProjectContextBootstrapMessage(historicalState),
+    buildProjectContextBootstrapMessage(historicalState)
+  ];
+  const observedDigest = composerInstructionDigest(text);
+  for (const candidate of candidates) {
+    const candidateDigest = composerInstructionDigest(candidate);
+    if (candidateDigest === observedDigest) {
+      return {
+        digest: candidateDigest,
+        generation,
+        transport: candidate.includes("<AT>M") ? "mention-safe" : "legacy-raw-at"
+      };
+    }
+  }
+  return null;
+}
+
 function buildProjectContextBootstrapMessage(state) {
   const sourceUrl = String(
     state?.project_context?.source_of_truth_url || ""
@@ -323,17 +379,19 @@ async function ensureProjectContextBootstrap({
       const draft = await inspectComposerDraftDigest(plannerPage)
         .catch(() => null);
       if (draft?.has_text === true && draft.digest !== expectedDigest) {
-        const legacyMessage = buildLegacyProjectContextBootstrapMessage(state);
-        const legacyDigest = composerInstructionDigest(legacyMessage);
-        if (draft.digest === legacyDigest) {
+        const historical = matchCanonicalHistoricalProjectBootstrapDraft(
+          draft,
+          state
+        );
+        if (historical) {
           const discarded = await discardComposerDraftIfDigest(
             plannerPage,
-            legacyDigest,
+            historical.digest,
             { timeoutMs: 3_000 }
           );
           if (!discarded?.discarded) {
             throw new Error(
-              "legacy project bootstrap draft matched but guarded discard failed"
+              "historical project bootstrap draft matched but guarded discard failed"
             );
           }
           bootstrap.send_attempted_at = null;
@@ -341,10 +399,11 @@ async function ensureProjectContextBootstrap({
           bootstrap.send_evidence = null;
           bootstrap.retry_count = Number(bootstrap.retry_count || 0) + 1;
           bootstrap.last_send_error =
-            "migrated-legacy-raw-machine-frame-bootstrap-draft";
+            `migrated-canonical-bootstrap-draft-generation-${historical.generation}-${historical.transport}`;
           await writePlannerExecutorState(statePath, state);
           draft.has_text = false;
           draft.digest = null;
+          draft.normalized_text = null;
         } else {
           throw new Error("project bootstrap blocked by foreign or Owner draft");
         }
