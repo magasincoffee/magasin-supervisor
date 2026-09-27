@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 test("PE-001 live qualification is isolated to normal chats and privacy-safe evidence", async () => {
   const source = await fs.readFile(
@@ -57,4 +59,16 @@ test("PE-001 live workflow dynamically resolves CDP without mutating root bindin
   assert.doesNotMatch(wrapper, /repair-supervisor\.ps1/);
   assert.doesNotMatch(wrapper, /stop-supervisor\.ps1/);
   assert.doesNotMatch(wrapper, /127\.0\.0\.1:9222\/json\/version/);
+});
+
+
+test("PE-001 live qualifier JavaScript passes node syntax check", () => {
+  const scriptPath = fileURLToPath(
+    new URL("../.github/scripts/supervisor-pe001-live-qualification.mjs", import.meta.url)
+  );
+  assert.doesNotThrow(() => {
+    execFileSync(process.execPath, ["--check", scriptPath], {
+      stdio: "pipe"
+    });
+  });
 });
