@@ -2,6 +2,10 @@
 
 Status: **CANONICAL PRODUCTION ARCHITECTURE**
 
+Next implementation program: **MAGASIN BRIDGE V1 — CANONICAL PLAN / NOT YET CUT OVER**
+
+Current next-phase task: **MBV1-001 — Local Bridge Baseline** (pc=0, pt=8).
+
 This document is the forward architecture authority for MAGASIN Supervisor after Owner approval on 2026-09-27.
 
 It supersedes the unmerged Single-Lane V3 planning lineage represented by PRs #102, #103, #104, #105, #106 and #108. Those branches remain available only as implementation/reference material and must not be merged as-is.
@@ -231,7 +235,9 @@ A Planner `accept_assign` closes the reviewed task and opens the next assignment
 
 ## 6. Browser/runtime contract
 
-Normal path:
+**Transport status:** the direct browser/composer actuation contract below documents the currently deployed pre-Bridge transport. MAGASIN BRIDGE V1 in Section 15 is the canonical forward transport migration plan. Direct-DOM transport remains production authority until MBV1-008 qualification and explicit cutover complete.
+
+Normal path for the currently deployed pre-Bridge transport:
 
 1. observe only the newest unseen assistant turn;
 2. parse its final `@M` frame;
@@ -506,3 +512,67 @@ override conflicting forward-planning language in older architecture/planning do
 Historical release evidence remains historical truth for the runtime version it documents.
 
 Current production is Planner/Executor V1. PE-007 production cutover completed successfully under explicit Owner authorization; Three-Lane is rollback/historical only.
+
+## 15. MAGASIN BRIDGE V1 — canonical next-phase transport plan
+
+Status: **CANONICAL PLAN / READY TO EXECUTE / NOT YET CUT OVER**
+
+Owner decision date: **2026-09-27**
+
+Current task: **MBV1-001 — Local Bridge Baseline**. Progress: pc=0 / pt=8.
+
+This program replaces only the Planner/Executor transport layer. It preserves the existing Source-of-Truth authority, Planner/Executor roles, @M v1 protocol, task/assignment/result correlation, pc/pt semantics, STOP/RESET behavior, exact-once principles and Control UI concept.
+
+### 15.1 Target authority model
+
+- GitHub Source of Truth = project truth.
+- MAGASIN Orchestrator = workflow/state-machine authority.
+- @M = machine protocol.
+- chatgpt-bridge = transport only.
+- ChatGPT Planner/Executor = reasoning/execution surfaces.
+- Control UI = Owner inputs, monitoring, START/STOP/RESET and progress projection.
+
+Target topology: Control UI -> MAGASIN Orchestrator -> Bridge Adapter -> local chatgpt-bridge at 127.0.0.1:5000 -> two normal ChatGPT tabs (Planner and Executor).
+
+Canonical upstream candidate: https://github.com/OLmatter/chatgpt-bridge . MBV1-001 MUST record and pin the exact upstream commit before integration; production MUST NOT depend on a floating upstream branch.
+
+### 15.2 Migration rule
+
+This is a staged transport replacement, not a rewrite. Keep Source of Truth URL, Planner Chat URL, Executor Chat URL, @M, pc/pt, exact correlations and current Owner controls. Replace direct composer click/DOM actuation as the primary transport only after qualification. The current production transport does not change merely because this plan exists.
+
+### 15.3 Work breakdown
+
+| ID | Priority | Work | Required outcome | Weight |
+|---|---|---|---|---:|
+| MBV1-001 | P0 | Local Bridge Baseline | Bridge runs locally on Windows; Planner + Executor independently visible/controllable | 10% |
+| MBV1-002 | P0 | Bridge Adapter | One bounded MAGASIN adapter for list/send/snapshot/state | 10% |
+| MBV1-003 | P0 | Planner/Executor Binding | Exact chat URLs bind to distinct page_id values | 10% |
+| MBV1-004 | P0 | Transport State Machine | Planner -> Executor -> Planner autonomous loop through Bridge | 20% |
+| MBV1-005 | P1 | @M Protocol Integration | Existing actions remain deterministic and fail closed | 15% |
+| MBV1-006 | P1 | Project Bootstrap | Source-of-Truth bootstrap drives next task and pc/pt | 10% |
+| MBV1-007 | P2 | Reliability Layer | timeout/retry/dedup/stale/disconnect recovery | 15% |
+| MBV1-008 | P3 | Qualification + Cutover | qualification matrix PASS then explicit production activation | 10% |
+
+Canonical order: MBV1-001 -> 002 -> 003 -> 004 -> 005 -> 006 -> 007 -> 008.
+
+### 15.4 MBV1-001 DoD
+
+MBV1-001 must prove on the target Windows PC: Bridge service online; Planner connected; Executor connected; Planner page_id differs from Executor page_id; harmless Planner send/read PASS; harmless Executor send/read PASS; no cross-role routing; exact upstream commit recorded. If any item fails, MBV1-002 MUST NOT start.
+
+### 15.5 Bridge-backed state machine
+
+Canonical flow remains: IDLE -> BOOTSTRAP_PLANNER -> WAIT_PLANNER -> SEND_EXECUTOR -> WAIT_EXECUTOR -> SEND_PLANNER -> WAIT_PLANNER_DECISION. Planner decisions map to accept_assign -> next Executor assignment, reject -> correction assignment, blocked -> BLOCKED, done -> DONE. MAGASIN validates and executes transitions; the Bridge never decides workflow meaning.
+
+### 15.6 Reliability contract
+
+Every outbound operation is tracked through QUEUED -> SUBMITTING -> SUBMITTED -> GENERATING -> RESPONSE_RECEIVED -> PARSED -> ACKNOWLEDGED. Required protections include no duplicate assignment/result relay, no stale-response acceptance, bounded page reacquisition, bounded retry/backoff, fail-closed ambiguous sends, and Bridge restart without inventing project state.
+
+### 15.7 Qualification and cutover
+
+MBV1-008 must cover at least: happy-path DONE; FAIL -> REJECT -> correction -> PASS; BLOCKED; duplicate @M; stale result_id; wrong assignment_id; Planner reload; Executor reload; Bridge restart; RESET ROBOT; new Source of Truth session; long generation without premature parsing.
+
+Until MBV1-008 PASS and explicit cutover: bridge_cutover=false and production continues on the pre-Bridge direct browser/runtime transport. After explicit cutover: chatgpt-bridge adapter becomes primary transport and direct DOM transport becomes rollback/fallback only.
+
+### 15.8 Next-task authority
+
+program=MAGASIN_BRIDGE_V1; current_task=MBV1-001; pc=0; pt=8; status=READY_TO_EXECUTE. Planner MUST select MBV1-001 next and MUST NOT skip to integration, reliability hardening or production cutover before the local two-tab Bridge baseline is proven.
