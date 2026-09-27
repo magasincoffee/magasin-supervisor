@@ -41,6 +41,8 @@ $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
 $runtime = Join-Path $root 'runtime'
 $statePath = Join-Path $root 'planner-executor-state.json'
 $statusPath = Join-Path $root 'planner-executor-status.json'
+$startupFailurePath = Join-Path $root 'planner-executor-startup-failure.json'
+$incidentPath = Join-Path $root 'planner-executor-incidents.ndjson'
 $cutoverTruthPath = Join-Path $root 'planner-executor-cutover.json'
 $candidatePath = Join-Path $env:RUNNER_TEMP 'pe007-production-cutover-candidate.json'
 $sourceRevision = [string]$env:GITHUB_SHA
@@ -118,6 +120,98 @@ function Start-InstalledRuntimeRecovery {
   if ($LASTEXITCODE -ne 0) {
     throw "Installed runtime recovery start failed with exit code $LASTEXITCODE"
   }
+}
+
+function Write-PrivacySafeCutoverDiagnostics {
+  Write-Host 'PE007_CUTOVER_DIAGNOSTICS_BEGIN=True'
+
+  $installedLifecycle = Join-Path $root 'runtime\windows\lifecycle-truth.ps1'
+  if (Test-Path $installedLifecycle -PathType Leaf) {
+    try {
+      . $installedLifecycle
+      $truth = Get-LifecycleProcessTruth -Root $root
+      Write-Host "PE007_DIAG_RUNTIME_MODE=$([string]$truth.runtime_mode)"
+      Write-Host "PE007_DIAG_WRAPPER_ALIVE=$([bool]$truth.wrapper_alive)"
+      Write-Host "PE007_DIAG_RUNTIME_ALIVE=$([bool]$truth.runtime_alive)"
+      Write-Host "PE007_DIAG_PLANNER_EXECUTOR_ALIVE=$([bool]$truth.planner_executor_alive)"
+      Write-Host "PE007_DIAG_THREE_LANE_ALIVE=$([bool]$truth.three_lane_alive)"
+      Write-Host "PE007_DIAG_CHROME_ALIVE=$([bool]$truth.chrome_alive)"
+      Write-Host "PE007_DIAG_CDP_HEALTHY=$([bool]$truth.cdp_healthy)"
+      Write-Host "PE007_DIAG_HEALTHY=$([bool]$truth.healthy)"
+    } catch {
+      Write-Host 'PE007_DIAG_LIFECYCLE_READ_FAILED=True'
+    }
+  } else {
+    Write-Host 'PE007_DIAG_LIFECYCLE_MISSING=True'
+  }
+
+  Write-Host "PE007_DIAG_STATE_EXISTS=$([bool](Test-Path $statePath -PathType Leaf))"
+  Write-Host "PE007_DIAG_STATUS_EXISTS=$([bool](Test-Path $statusPath -PathType Leaf))"
+  Write-Host "PE007_DIAG_STARTUP_FAILURE_EXISTS=$([bool](Test-Path $startupFailurePath -PathType Leaf))"
+
+  if (Test-Path $statePath -PathType Leaf) {
+    try {
+      $state = Get-Content $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
+      $bootstrap = $state.cutover_bootstrap
+      Write-Host "PE007_DIAG_STATE_MODE=$([string]$state.mode)"
+      Write-Host "PE007_DIAG_ACTIVE_TASK_ID=$([string]$state.active_task_id)"
+      Write-Host "PE007_DIAG_HANDOFF_MODE=$([string]$state.production_cutover.handoff_mode)"
+      Write-Host "PE007_DIAG_BOOTSTRAP_REQUIRED=$([bool]$bootstrap.required)"
+      Write-Host "PE007_DIAG_BOOTSTRAP_BASELINE_CAPTURED=$([bool](-not [string]::IsNullOrWhiteSpace([string]$bootstrap.baseline_captured_at)))"
+      Write-Host "PE007_DIAG_BOOTSTRAP_SEND_ATTEMPTED=$([bool](-not [string]::IsNullOrWhiteSpace([string]$bootstrap.send_attempted_at)))"
+      Write-Host "PE007_DIAG_BOOTSTRAP_SEND_CONFIRMED=$([bool](-not [string]::IsNullOrWhiteSpace([string]$bootstrap.send_confirmed_at)))"
+      Write-Host "PE007_DIAG_BOOTSTRAP_SEND_EVIDENCE=$([string]$bootstrap.send_evidence)"
+    } catch {
+      Write-Host 'PE007_DIAG_STATE_READ_FAILED=True'
+    }
+  }
+
+  if (Test-Path $statusPath -PathType Leaf) {
+    try {
+      $status = Get-Content $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json
+      Write-Host "PE007_DIAG_STATUS_MODE=$([string]$status.mode)"
+      Write-Host "PE007_DIAG_STATUS_PHASE=$([string]$status.phase)"
+      Write-Host "PE007_DIAG_AUTOMATION_STATUS=$([string]$status.automation_status)"
+      Write-Host "PE007_DIAG_CHATGPT_TABS=$([int]$status.chatgpt_tabs)"
+      Write-Host "PE007_DIAG_WORK_MODE_INVOCATIONS=$([int]$status.chatgpt_work_mode_invocations)"
+      Write-Host "PE007_DIAG_STATUS_PRODUCTION_CUTOVER=$([bool]$status.production_cutover)"
+    } catch {
+      Write-Host 'PE007_DIAG_STATUS_READ_FAILED=True'
+    }
+  }
+
+  if (Test-Path $startupFailurePath -PathType Leaf) {
+    try {
+      $failure = Get-Content $startupFailurePath -Raw -Encoding UTF8 | ConvertFrom-Json
+      Write-Host "PE007_DIAG_FAILURE_STAGE=$([string]$failure.stage)"
+      Write-Host "PE007_DIAG_FAILURE_NAME=$([string]$failure.error_name)"
+      Write-Host "PE007_DIAG_FAILURE_DIGEST=$([string]$failure.error_digest)"
+      Write-Host "PE007_DIAG_FAILURE_HANDOFF_MODE=$([string]$failure.handoff_mode)"
+      Write-Host "PE007_DIAG_FAILURE_BOOTSTRAP_BASELINE=$([bool]$failure.bootstrap_baseline_captured)"
+      Write-Host "PE007_DIAG_FAILURE_BOOTSTRAP_ATTEMPTED=$([bool]$failure.bootstrap_send_attempted)"
+      Write-Host "PE007_DIAG_FAILURE_BOOTSTRAP_CONFIRMED=$([bool]$failure.bootstrap_send_confirmed)"
+      Write-Host "PE007_DIAG_FAILURE_CHATGPT_TABS=$([int]$failure.observed_chatgpt_tabs)"
+    } catch {
+      Write-Host 'PE007_DIAG_STARTUP_FAILURE_READ_FAILED=True'
+    }
+  }
+
+  if (Test-Path $incidentPath -PathType Leaf) {
+    try {
+      $lastIncidentLine = Get-Content $incidentPath -Tail 1 -Encoding UTF8
+      if (-not [string]::IsNullOrWhiteSpace([string]$lastIncidentLine)) {
+        $incident = $lastIncidentLine | ConvertFrom-Json
+        Write-Host "PE007_DIAG_INCIDENT_TYPE=$([string]$incident.type)"
+        Write-Host "PE007_DIAG_INCIDENT_PHASE=$([string]$incident.phase)"
+        Write-Host "PE007_DIAG_INCIDENT_REASON=$([string]$incident.reason_code)"
+        Write-Host "PE007_DIAG_INCIDENT_ERROR_NAME=$([string]$incident.error_name)"
+      }
+    } catch {
+      Write-Host 'PE007_DIAG_INCIDENT_READ_FAILED=True'
+    }
+  }
+
+  Write-Host 'PE007_CUTOVER_DIAGNOSTICS_END=True'
 }
 
 function New-RollbackSnapshot {
@@ -309,6 +403,7 @@ try {
     }
   }
   if (-not $healthy) {
+    Write-PrivacySafeCutoverDiagnostics
     throw 'Planner/Executor production runtime did not reach healthy two-chat cutover truth.'
   }
 
@@ -339,6 +434,7 @@ try {
 } catch {
   $errorMessage = [string]$_.Exception.Message
   Write-Host "PE007_CUTOVER_ERROR=$errorMessage"
+  Write-PrivacySafeCutoverDiagnostics
   if ($mutationStarted -and $rollbackDir) {
     try {
       Restore-RollbackSnapshot -Dir $rollbackDir
