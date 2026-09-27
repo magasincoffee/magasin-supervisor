@@ -179,6 +179,12 @@ try {
     throw new Error(`qualification Chrome expected one context, found ${contexts.length}`);
   }
   const context = contexts[0];
+  const preexistingPages = context.pages().slice();
+  log("MBV1_001_PREEXISTING_PAGES", preexistingPages.length);
+
+  if (preexistingPages.length > 3) {
+    throw new Error(`qualification refuses to add temporary tabs when dedicated Chrome already has ${preexistingPages.length} pages`);
+  }
 
   plannerPage = await context.newPage();
   executorPage = await context.newPage();
@@ -190,12 +196,6 @@ try {
 
   await installUserscriptTransport(context, plannerPage);
   await installUserscriptTransport(context, executorPage);
-
-  for (const page of context.pages()) {
-    if (page !== plannerPage && page !== executorPage) {
-      await page.close().catch(() => {});
-    }
-  }
 
   await Promise.all([
     plannerPage.waitForFunction(() => String(window.name || "").startsWith("bridge_"), null, { timeout: 30_000 }),
@@ -224,17 +224,24 @@ try {
   log("MBV1_001_DISTINCT_PAGE_ID", "True");
   log("MBV1_001_CONNECTED_TOTAL", connected.listing.total);
 
-  const [plannerSnapshot0, executorSnapshot0] = await Promise.all([
-    bridgeJson("GET", `/snapshot?page_id=${encodeURIComponent(plannerPageId)}`),
-    bridgeJson("GET", `/snapshot?page_id=${encodeURIComponent(executorPageId)}`)
-  ]);
+  const editable = await waitFor(async () => {
+    const [plannerSnapshot, executorSnapshot] = await Promise.all([
+      bridgeJson("GET", `/snapshot?page_id=${encodeURIComponent(plannerPageId)}`),
+      bridgeJson("GET", `/snapshot?page_id=${encodeURIComponent(executorPageId)}`)
+    ]);
+    if (plannerSnapshot?.site !== "chatgpt" || executorSnapshot?.site !== "chatgpt") {
+      return null;
+    }
+    if (plannerSnapshot?.hasEditor === true && executorSnapshot?.hasEditor === true) {
+      return { plannerSnapshot, executorSnapshot };
+    }
+    return null;
+  }, { timeoutMs: 30_000, label: "authenticated editable ChatGPT surfaces" });
 
-  if (plannerSnapshot0?.site !== "chatgpt" || executorSnapshot0?.site !== "chatgpt") {
-    throw new Error("Bridge snapshot did not identify both pages as ChatGPT");
+  if (!editable) {
+    throw new Error("Qualification did not reach authenticated editable ChatGPT surfaces");
   }
-  if (plannerSnapshot0?.hasEditor !== true || executorSnapshot0?.hasEditor !== true) {
-    throw new Error("Qualification profile is not an authenticated editable ChatGPT surface");
-  }
+  log("MBV1_001_AUTHENTICATED_EDITORS", "PASS");
 
   const nonce = crypto.randomBytes(6).toString("hex");
   const plannerToken = `MBV1_PLANNER_PASS_${nonce}`;
@@ -283,7 +290,7 @@ try {
 
   await writeResult({
     status: "PASS",
-    target_surface: "ISOLATED_CLONED_WINDOWS_CHROME_PROFILE",
+    target_surface: "EXISTING_DEDICATED_WINDOWS_CHROME_WITH_EPHEMERAL_QUALIFICATION_TABS",
     userscript_transport: "PINNED_UPSTREAM_USERSCRIPT_WITH_PLAYWRIGHT_EXPOSED_GM_BRIDGE",
     bridge_service_online: true,
     bridge_status: finalStatus,
@@ -300,7 +307,8 @@ try {
     openai_api_required_for_bridge_transport: false,
     production_state_mutated: false,
     production_targets_mutated: false,
-    production_browser_profile_mutated: false
+    preexisting_pages_closed: false,
+    production_browser_process_stopped: false
   });
 
   log("MBV1_001_STATUS", "PASS");
@@ -312,7 +320,8 @@ try {
     error_digest: sha(String(error?.message || error)),
     production_state_mutated: false,
     production_targets_mutated: false,
-    production_browser_profile_mutated: false
+    preexisting_pages_closed: false,
+    production_browser_process_stopped: false
   }).catch(() => {});
   log("MBV1_001_STATUS", "FAIL");
   log("MBV1_001_ERROR_NAME", error?.name || "Error");
@@ -323,5 +332,7 @@ try {
     executorPage && !executorPage.isClosed() ? executorPage.close().catch(() => {}) : null,
     plannerPage && !plannerPage.isClosed() ? plannerPage.close().catch(() => {}) : null
   ]);
-  await browser?.close().catch(() => {});
+  // Intentionally do not call browser.close(): this connection targets the
+  // already-running dedicated production Chrome. Process exit disconnects CDP
+  // without stopping the browser or its pre-existing Planner/Executor pages.
 }
