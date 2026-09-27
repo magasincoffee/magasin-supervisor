@@ -575,7 +575,7 @@ Until MBV1-008 PASS and explicit cutover: bridge_cutover=false and production co
 
 ### 15.8 Next-task authority
 
-program=MAGASIN_BRIDGE_V1; current_task=MBV1-007; pc=6; pt=8; status=IN_PROGRESS. Planner MUST select MBV1-004 next. MBV1-005 and later tasks remain blocked by dependency order.
+program=MAGASIN_BRIDGE_V1; current_task=MBV1-008; pc=7; pt=8; status=IN_PROGRESS. Planner MUST select MBV1-004 next. MBV1-005 and later tasks remain blocked by dependency order.
 
 
 ### 15.9 MBV1-001 implementation evidence
@@ -798,3 +798,21 @@ Status: **COMPLETE**.
 - production cutover remains false.
 
 Current progress: `pc=6 / pt=8` (75%). Next task: **MBV1-007 — Reliability Layer**.
+
+
+### 15.15 MBV1-007 completion evidence
+
+Status: **COMPLETE**.
+
+- PR: #182;
+- final head: `37581ac0b2366a88a649139da5ebbe5a661d9d06`;
+- merge commit: `e1acb877e031a161b495657604420ab003c679f7`;
+- bounded same-canonical-role page reacquisition before send;
+- bounded Bridge restart observation/rebinding with no send during recovery;
+- ambiguous post-enqueue send remains BLOCKED and is never auto-retried;
+- bounded assignment/result/turn identity history can be restored after restart;
+- reacquisition exhaustion fails closed;
+- Supervisor Tests, Integrity, Lifecycle and Autostart gates PASS;
+- production cutover remains false.
+
+Current progress: `pc=7 / pt=8` (87.5%). Next task: **MBV1-008 — Qualification + Cutover**.
