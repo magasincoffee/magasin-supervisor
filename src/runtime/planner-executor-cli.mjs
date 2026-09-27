@@ -335,6 +335,8 @@ if (
 const projectId = existing.project_id;
 const plannerUrl = existing.planner?.target;
 const executorUrl = existing.executor?.target;
+const previousPlannerUrl = existing.planner?.previous_target || "";
+const previousExecutorUrl = existing.executor?.previous_target || "";
 if (!projectId || !plannerUrl || !executorUrl) {
   throw new Error("durable Planner/Executor state is missing required targets");
 }
@@ -357,8 +359,16 @@ await fs.rm(startupFailurePath, { force: true }).catch(() => {});
 try {
   let warm = await acquirePlannerExecutorWarmTabs(adapter, {
     plannerUrl,
-    executorUrl
+    executorUrl,
+    previousPlannerUrl,
+    previousExecutorUrl
   });
+  if (previousPlannerUrl || previousExecutorUrl) {
+    if (existing.planner) existing.planner.previous_target = null;
+    if (existing.executor) existing.executor.previous_target = null;
+    await writePlannerExecutorState(statePath, existing);
+    safeLog("PLANNER_EXECUTOR_CHAT_TARGET_ROLLOVER", "ACQUIRED");
+  }
   safeLog("PLANNER_EXECUTOR_MODE", "PLANNER_EXECUTOR_V1");
   safeLog("PLANNER_EXECUTOR_CHATGPT_TABS", warm.pageCount);
   safeLog("PLANNER_EXECUTOR_CHATGPT_WORK_MODE_INVOCATIONS", 0);
