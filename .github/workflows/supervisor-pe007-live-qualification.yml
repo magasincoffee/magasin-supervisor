@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   attempt-1:
@@ -89,6 +89,12 @@ jobs:
     timeout-minutes: 5
 
     steps:
+      - name: Checkout main for qualification evidence
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
       - name: Require at least one real target qualification PASS
         shell: powershell
         run: |
@@ -108,3 +114,58 @@ jobs:
             throw 'PE-007 has no successful qualification from DESKTOP-4K7IM13.'
           }
           Write-Host 'PE007_AUTHORITY_GATE=PASS'
+
+      - name: Persist authoritative PE-007 qualification result
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $a1Match = '${{ needs.attempt-1.outputs.target_match }}'
+          $a1Pass = '${{ needs.attempt-1.outputs.qualified }}'
+          $a2Match = '${{ needs.attempt-2.outputs.target_match }}'
+          $a2Pass = '${{ needs.attempt-2.outputs.qualified }}'
+          $qualified = (
+            ($a1Match -eq 'true' -and $a1Pass -eq 'true') -or
+            ($a2Match -eq 'true' -and $a2Pass -eq 'true')
+          )
+          if (-not $qualified) {
+            throw 'Refusing to persist PE-007 evidence without target PASS.'
+          }
+
+          $dir = Join-Path $env:GITHUB_WORKSPACE '.github\qualification'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $path = Join-Path $dir 'pe007-latest.json'
+          $payload = [ordered]@{
+            schema = 'pe007-live-qualification-result.v1'
+            status = 'PASS'
+            candidate_sha = '${{ github.sha }}'
+            workflow_run_id = [int64]'${{ github.run_id }}'
+            workflow_run_number = [int]'${{ github.run_number }}'
+            target_computer = 'DESKTOP-4K7IM13'
+            attempt_1 = [ordered]@{
+              target_match = ($a1Match -eq 'true')
+              qualified = ($a1Pass -eq 'true')
+            }
+            attempt_2 = [ordered]@{
+              target_match = ($a2Match -eq 'true')
+              qualified = ($a2Pass -eq 'true')
+            }
+            production_cutover = $false
+            recorded_at_utc = [DateTime]::UtcNow.ToString('o')
+          }
+          [System.IO.File]::WriteAllText(
+            $path,
+            ($payload | ConvertTo-Json -Depth 8) + [Environment]::NewLine,
+            (New-Object System.Text.UTF8Encoding($false))
+          )
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ".github/qualification/pe007-latest.json"
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host 'PE007_QUALIFICATION_EVIDENCE_UNCHANGED=True'
+            exit 0
+          }
+          git commit -m "evidence(pe-007): record authoritative live qualification PASS"
+          git push origin HEAD:main
+          Write-Host 'PE007_QUALIFICATION_EVIDENCE_PERSISTED=True'
