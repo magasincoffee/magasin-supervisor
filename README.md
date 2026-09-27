@@ -1,3 +1,11 @@
+> **Canonical forward architecture:** Planner / Executor V1 is the approved forward Source of Truth. Planner and Executor are two normal ChatGPT conversations; ChatGPT Work mode is not part of the orchestration path. Supervisor local durable state remains authoritative. Implementation starts with **PE-001 — Planner/Executor minimal end-to-end vertical slice**.
+>
+> Canonical authority:
+> - `docs/SUPERVISOR_PLANNER_EXECUTOR_V1_SOURCE_OF_TRUTH.md`
+> - `docs/SUPERVISOR_PLANNER_EXECUTOR_V1_SOURCE_OF_TRUTH.json`
+>
+> The currently released Three-Lane runtime remains the production/rollback baseline until PE-007 qualification and explicit Owner cutover. Unmerged Single-Lane V3 PRs #102, #103, #104, #105, #106 and #108 are superseded and must not be merged as-is.
+
 > **Canonical migration state:** `MAGASIN_SUPERVISOR_INDEPENDENT_REPOSITORY_V1` is **COMPLETE**. MIG-005 production cutover is complete; MIG-006 / TASK-RBT-009 is complete and released; MIG-007 final cleanup removed the authorized legacy Business OS Supervisor surface and closed the active source-code rollback window.
 
 Current machine-readable migration Source of Truth:
