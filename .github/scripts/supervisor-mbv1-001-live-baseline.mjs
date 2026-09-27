@@ -143,19 +143,34 @@ async function sendQualification(pageId, role, token) {
     "Role: " + role + ".",
     "Reply with exactly this token and nothing else: " + token
   ].join(" ");
-  const result = await bridgeJson("/send", {
+
+  const queued = await bridgeJson("/send_async", {
     method: "POST",
     body: { page_id: pageId, text: prompt },
-    timeoutMs: 190000
+    timeoutMs: 10000
   });
-  if (!result || !result.ok) {
-    throw new Error(role + " Bridge /send returned non-pass result");
+  if (!queued || !queued.ok || !queued.cmd_id) {
+    throw new Error(role + " Bridge /send_async did not enqueue command");
   }
-  const reply = String(result.reply || "").trim();
-  if (!reply.includes(token)) {
-    throw new Error(role + " reply did not contain qualification token");
+
+  const snap = await waitFor(async () => {
+    const current = await snapshot(pageId).catch(() => null);
+    if (!current) return false;
+    const text = JSON.stringify(current);
+    return text.includes(token) ? current : false;
+  }, { timeoutMs: 150000, intervalMs: 500, label: role + " Bridge snapshot token" });
+
+  const reply =
+    String(snap.lastAssistant || "").trim() ||
+    (Array.isArray(snap.recentTurns)
+      ? String([...snap.recentTurns].reverse().find(t => t.role === "assistant")?.text || "").trim()
+      : "");
+
+  if (!JSON.stringify(snap).includes(token)) {
+    throw new Error(role + " snapshot did not contain qualification token");
   }
-  return { prompt, reply };
+
+  return { prompt, reply, cmd_id: queued.cmd_id };
 }
 
 async function snapshot(pageId) {
