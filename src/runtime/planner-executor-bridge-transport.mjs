@@ -105,7 +105,9 @@ export class PlannerExecutorBridgeTransportStateMachine {
             from_role: this.last_transport.from_role,
             to_role: this.last_transport.to_role,
             action: this.last_transport.action,
-            cmd_id: this.last_transport.cmd_id || null
+            cmd_id: this.last_transport.cmd_id || null,
+            status: this.last_transport.status || null,
+            error_code: this.last_transport.error_code || null
           }
         : null
     };
