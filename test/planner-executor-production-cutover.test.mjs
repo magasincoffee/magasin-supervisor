@@ -319,6 +319,7 @@ test("project bootstrap safely migrates canonical Robot drafts from current or p
 
   assert.match(source, /discardComposerDraftIfDigest/);
   assert.match(source, /buildLegacyProjectContextBootstrapMessage/);
+  assert.match(source, /buildPreLinkOnlyMentionSafeProjectContextBootstrapMessage/);
   assert.match(source, /matchCanonicalHistoricalProjectBootstrapDraft/);
   assert.doesNotMatch(source, /generation > currentGeneration/);
   assert.match(source, /project_id: projectId/);
