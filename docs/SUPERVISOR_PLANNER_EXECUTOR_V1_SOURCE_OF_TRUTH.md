@@ -170,10 +170,18 @@ Owner emergency reset / clean-state escape hatch:
 
 Composer send safety for the `@M` machine frame:
 
-- ChatGPT may interpret `@M` as an @-mention/file trigger and open a Files/Tệp suggestion popover above the composer;
-- Supervisor MUST dismiss that transient mention popover before actuating Send, verify the exact instruction remains, then prefer the explicit Send control;
-- if the first Send click is inert and the exact instruction is still present, Supervisor may dismiss the mention popover once more and retry the explicit Send control before bounded Enter recovery;
+- ChatGPT may interpret literal `@M` inside a Robot-authored prompt as an @-mention/file trigger and open a Files/Tệp suggestion popover above the composer;
+- **Robot-authored outbound instructions MUST NOT contain literal `@M` examples.** They transport examples as `<AT>M`, explicitly define `<AT>` as U+0040, and instruct Planner/Executor to emit the real U+0040 + `M` prefix in the assistant response;
+- inbound assistant machine frames remain canonical `@M {...}` and are parsed/correlated exactly as before; the transport encoding changes only Robot-to-ChatGPT prompt text, not the protocol;
+- legacy/raw prompts may still be encountered after recovery, so Supervisor keeps the bounded mention-popover dismissal path as defense in depth;
 - an open mention/file popover is never treated as evidence that the prompt was submitted.
+
+Dedicated browser continuity:
+
+- Planner/Executor runtime is considered active independently of legacy `lanes.json` enabled-lane count;
+- production hotpatch/deploy MUST NOT force-kill the dedicated Supervisor Chrome merely because enabled legacy lanes are zero while `PLANNER_EXECUTOR_V1` is running;
+- an active Planner/Executor hotpatch replaces runtime source and restarts only the Supervisor child Node process, preserving the dedicated Chrome/CDP session and project state;
+- dedicated Chrome launches with crash-restore UI suppressed so an earlier abnormal shutdown cannot leave a browser-level “Restore pages?” bubble over the automation surface.
 
 Send-path liveness invariants:
 
