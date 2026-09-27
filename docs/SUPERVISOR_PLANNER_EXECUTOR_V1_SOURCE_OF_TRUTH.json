@@ -322,7 +322,7 @@
     ],
     "historical_evidence_preserved": true,
     "next_phase_authority": "MAGASIN_BRIDGE_V1_SECTION_15_AND_NEXT_IMPLEMENTATION_PROGRAM",
-    "current_next_phase_task": "MBV1-002"
+    "current_next_phase_task": "MBV1-003"
   },
   "pe001_evidence": {
     "pr": 120,
@@ -751,14 +751,30 @@
         "implementation": {
           "branch": "mbv1-002-bridge-adapter",
           "pr": 174,
-          "merged_head": "6cb857656888583af38df9e9b433d577333565e8",
           "merge_commit": "158091cdffa1b08d15ac398e54c18a28b9acee74",
-          "supervisor_tests": "PASS",
-          "supervisor_integrity": "PASS",
-          "supervisor_lifecycle": "PASS",
-          "supervisor_autostart": "PASS",
+          "final_head": "6cb857656888583af38df9e9b433d577333565e8",
+          "adapter_path": "src/runtime/chatgpt-bridge-adapter.mjs",
+          "test_path": "test/chatgpt-bridge-adapter.test.mjs",
+          "full_regression": "806/806 PASS",
+          "additional_contract": "50/50 PASS",
+          "platform_core_regression": "192/192 PASS",
+          "static_audit": "PASS",
+          "lifecycle_isolated": "PASS",
+          "installer_isolated": "PASS",
           "production_mutated": false,
           "bridge_cutover": false
+        },
+        "dod_result": {
+          "bounded_adapter": "PASS",
+          "local_origin_only": "PASS",
+          "exact_page_id": "PASS",
+          "pages_snapshot_state_normalization": "PASS",
+          "async_enqueue": "PASS",
+          "snapshot_response_observation": "PASS",
+          "stale_response_guard": "PASS",
+          "baseline_page_correlation": "PASS",
+          "upstream_blocking_send_used": false,
+          "workflow_semantics_in_adapter": false
         }
       },
       {
@@ -833,6 +849,27 @@
       "canonical_observation": "GET /snapshot?page_id=",
       "blocking_send_authority": false,
       "rationale": "Pinned upstream blocking /send did not satisfy live qualification reliably under current ChatGPT completion timing; async enqueue plus snapshot observation passed on target machine."
+    },
+    "adapter_contract": {
+      "module": "src/runtime/chatgpt-bridge-adapter.mjs",
+      "upstream_repository": "https://github.com/OLmatter/chatgpt-bridge",
+      "upstream_commit": "848efb9e85f52f251c82ab099747833c0693c072",
+      "base_url": "http://127.0.0.1:5000",
+      "local_only": true,
+      "methods": [
+        "status",
+        "listPages",
+        "getState",
+        "getSnapshot",
+        "captureBaseline",
+        "sendAsync",
+        "waitResponse",
+        "send"
+      ],
+      "canonical_enqueue": "POST /send_async",
+      "canonical_observation": "GET /snapshot?page_id=",
+      "blocking_upstream_send_used": false,
+      "workflow_authority": "MAGASIN_ORCHESTRATOR"
     }
   }
 }
