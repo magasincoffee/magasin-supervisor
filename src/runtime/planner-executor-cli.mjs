@@ -1,6 +1,7 @@
 import process from "node:process";
 import path from "node:path";
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 
 import { ChatGptUiAdapter } from "../ui/playwright-adapter.mjs";
 import { captureLatestRoleTurn } from "../ui/latest-turn.mjs";
@@ -169,6 +170,17 @@ const incidentPath = path.join(
   path.dirname(statePath),
   "planner-executor-incidents.ndjson"
 );
+const startupFailurePath = path.join(
+  path.dirname(statePath),
+  "planner-executor-startup-failure.json"
+);
+
+function errorDigest(error) {
+  return crypto
+    .createHash("sha256")
+    .update(String(error?.message || error || ""), "utf8")
+    .digest("hex");
+}
 
 const stateExists = await fs.access(statePath).then(() => true).catch(() => false);
 if (
@@ -227,6 +239,9 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => { stopping = true; });
 }
 
+let startupStage = "ACQUIRE_WARM_TABS";
+await fs.rm(startupFailurePath, { force: true }).catch(() => {});
+
 try {
   let warm = await acquirePlannerExecutorWarmTabs(adapter, {
     plannerUrl,
@@ -235,6 +250,7 @@ try {
   safeLog("PLANNER_EXECUTOR_MODE", "PLANNER_EXECUTOR_V1");
   safeLog("PLANNER_EXECUTOR_CHATGPT_TABS", warm.pageCount);
   safeLog("PLANNER_EXECUTOR_CHATGPT_WORK_MODE_INVOCATIONS", 0);
+  startupStage = "CUTOVER_BOOTSTRAP";
 
   if (!args.execute) {
     await atomicJsonWrite(statusPath, {
@@ -256,6 +272,7 @@ try {
     state: existing,
     plannerPage: warm.plannerPage
   });
+  startupStage = "RUN_LOOP";
 
   const captureTurn = createIdleAwareTurnCapture(
     adapter,
@@ -341,6 +358,43 @@ try {
         : null;
     await (page || warm.plannerPage).waitForTimeout(args.pollMs);
   }
+} catch (error) {
+  const durable = await readPlannerExecutorState(statePath, {
+    projectId,
+    plannerTarget: plannerUrl,
+    executorTarget: executorUrl
+  }).catch(() => existing);
+  const bootstrap = durable?.cutover_bootstrap || {};
+  const safeFailure = {
+    schema_version: "planner-executor-startup-failure.v1",
+    stage: startupStage,
+    error_name: String(error?.name || "Error").slice(0, 120),
+    error_digest: errorDigest(error),
+    project_id: durable?.project_id || projectId || null,
+    active_task_id: durable?.active_task_id || null,
+    handoff_mode: durable?.production_cutover?.handoff_mode || null,
+    automation_status: durable?.automation?.status || null,
+    bootstrap_required: Boolean(bootstrap.required),
+    bootstrap_baseline_captured: Boolean(bootstrap.baseline_captured_at),
+    bootstrap_send_attempted: Boolean(bootstrap.send_attempted_at),
+    bootstrap_send_confirmed: Boolean(bootstrap.send_confirmed_at),
+    bootstrap_send_evidence: bootstrap.send_evidence
+      ? String(bootstrap.send_evidence).slice(0, 120)
+      : null,
+    bootstrap_last_send_error_digest: bootstrap.last_send_error
+      ? crypto.createHash("sha256")
+          .update(String(bootstrap.last_send_error), "utf8")
+          .digest("hex")
+      : null,
+    observed_chatgpt_tabs: adapter.getChatGptPageCount(),
+    chatgpt_work_mode_invocations: 0,
+    recorded_at: new Date().toISOString()
+  };
+  await atomicJsonWrite(startupFailurePath, safeFailure).catch(() => {});
+  safeLog("PLANNER_EXECUTOR_STARTUP_FAILURE_STAGE", startupStage);
+  safeLog("PLANNER_EXECUTOR_STARTUP_FAILURE_NAME", safeFailure.error_name);
+  safeLog("PLANNER_EXECUTOR_STARTUP_FAILURE_DIGEST", safeFailure.error_digest);
+  throw error;
 } finally {
   await adapter.close().catch(() => {});
 }

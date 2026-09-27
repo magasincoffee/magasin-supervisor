@@ -344,6 +344,55 @@ test("cutover candidate CLI stdout is excluded from the PowerShell function retu
   );
 });
 
+test("Planner/Executor startup failures persist privacy-safe stage and digest only", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/planner-executor-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /planner-executor-startup-failure\.json/);
+  assert.match(source, /startupStage = "ACQUIRE_WARM_TABS"/);
+  assert.match(source, /startupStage = "CUTOVER_BOOTSTRAP"/);
+  assert.match(source, /startupStage = "RUN_LOOP"/);
+
+  const start = source.indexOf("const safeFailure = {");
+  const end = source.indexOf("await atomicJsonWrite(startupFailurePath", start);
+  assert.ok(start >= 0 && end > start);
+  const artifactBlock = source.slice(start, end);
+  assert.match(artifactBlock, /error_digest/);
+  assert.match(artifactBlock, /bootstrap_send_confirmed/);
+  assert.match(artifactBlock, /observed_chatgpt_tabs/);
+  assert.doesNotMatch(artifactBlock, /error_message\s*:/);
+  assert.doesNotMatch(artifactBlock, /planner\.target/);
+  assert.doesNotMatch(artifactBlock, /executor\.target/);
+  assert.doesNotMatch(artifactBlock, /bootstrap\.message/);
+});
+
+test("cutover timeout emits privacy-safe runtime/startup diagnostics before rollback", async () => {
+  const source = await fs.readFile(
+    new URL(
+      "../.github/scripts/supervisor-pe007-production-cutover.ps1",
+      import.meta.url
+    ),
+    "utf8"
+  );
+  assert.match(source, /function Write-PrivacySafeCutoverDiagnostics/);
+  assert.match(source, /PE007_DIAG_RUNTIME_MODE/);
+  assert.match(source, /PE007_DIAG_PLANNER_EXECUTOR_ALIVE/);
+  assert.match(source, /PE007_DIAG_FAILURE_STAGE/);
+  assert.match(source, /PE007_DIAG_FAILURE_DIGEST/);
+  assert.match(source, /PE007_DIAG_BOOTSTRAP_SEND_CONFIRMED/);
+  assert.match(
+    source,
+    /if \(-not \$healthy\) \{\s*Write-PrivacySafeCutoverDiagnostics/
+  );
+  const diagStart = source.indexOf("function Write-PrivacySafeCutoverDiagnostics");
+  const diagEnd = source.indexOf("function New-RollbackSnapshot", diagStart);
+  const diagBlock = source.slice(diagStart, diagEnd);
+  assert.doesNotMatch(diagBlock, /\.planner\.target/);
+  assert.doesNotMatch(diagBlock, /\.executor\.target/);
+  assert.doesNotMatch(diagBlock, /cutover_bootstrap\.message/);
+});
+
 test("production cutover script has rollback, double preflight, and explicit target authority", async () => {
   const source = await fs.readFile(
     new URL(
