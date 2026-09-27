@@ -780,9 +780,16 @@
       {
         "id": "MBV1-003",
         "priority": "P0",
-        "state": "READY_TO_EXECUTE",
+        "state": "IN_PROGRESS",
         "name": "Planner/Executor Binding",
-        "weight_percent": 10
+        "weight_percent": 10,
+        "implementation": {
+          "branch": "mbv1-003-role-binding",
+          "draft_pr": 175,
+          "candidate_head": "6918d1b2444f8349467d2df0c17044f5b461e417",
+          "production_mutated": false,
+          "bridge_cutover": false
+        }
       },
       {
         "id": "MBV1-004",
