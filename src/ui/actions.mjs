@@ -199,6 +199,50 @@ function normalizedComposerDigest(value) {
     .digest("hex");
 }
 
+export function composerInstructionDigest(value) {
+  return normalizedComposerDigest(value);
+}
+
+export async function inspectComposerDraftDigest(
+  page,
+  { timeoutMs = 1_500 } = {}
+) {
+  const composer = await waitForReadyComposer(page, { timeoutMs });
+  if (!composer) {
+    return {
+      ready: false,
+      has_text: false,
+      digest: null,
+      reason: "composer not ready"
+    };
+  }
+
+  const current = await readComposerText(composer);
+  if (current === null) {
+    return {
+      ready: true,
+      has_text: null,
+      digest: null,
+      reason: "composer text unreadable"
+    };
+  }
+
+  const normalized = normalizeComposerText(current);
+  if (!normalized) {
+    return {
+      ready: true,
+      has_text: false,
+      digest: null
+    };
+  }
+
+  return {
+    ready: true,
+    has_text: true,
+    digest: normalizedComposerDigest(normalized)
+  };
+}
+
 export async function discardComposerDraftIfDigest(
   page,
   expectedDigest,
