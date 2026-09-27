@@ -41,7 +41,13 @@
     "chat_target_rollover_preserves_project_generation": true,
     "project_switch_preserves_inflight_state": true,
     "project_switch_preserves_project_generation": true,
-    "project_switch_is_project_reset": false
+    "project_switch_is_project_reset": false,
+    "owner_reset_requires_explicit_confirmation": true,
+    "owner_reset_stops_robot_first": true,
+    "owner_reset_preserves_saved_profiles": true,
+    "owner_reset_preserves_source_and_chat_targets": true,
+    "owner_reset_increments_project_generation": true,
+    "owner_reset_clears_active_runtime_state": true
   },
   "protocol": {
     "marker": "@M ",
@@ -437,7 +443,7 @@
     ],
     "per_project_state_snapshot": true,
     "source_change_rearms_planner_bootstrap": true,
-    "project_switch_rearms_planner_bootstrap": true,
+    "project_switch_rearms_planner_bootstrap": false,
     "planner_bootstrap_marker": "MAGASIN_PROJECT_BOOTSTRAP_V1",
     "strict_project_generation_correlation_after_bootstrap": true,
     "progress_authority": "PLANNER_REPORTED_FROM_SOURCE_OF_TRUTH",
@@ -482,6 +488,36 @@
       "send_recovery_metadata"
     ],
     "start_selected_saved_profile": true,
-    "start_blocks_unsaved_draft_or_dirty_editor": true
+    "start_blocks_unsaved_draft_or_dirty_editor": true,
+    "reset_robot": {
+      "scope": "ACTIVE_PROJECT_RUNTIME_STATE_ONLY",
+      "requires": [
+        "OWNER_CONFIRMATION_TWICE",
+        "STOP_ROBOT_FIRST"
+      ],
+      "clears": [
+        "active_task_id",
+        "assignment",
+        "result",
+        "decision",
+        "last_completed",
+        "identity_history",
+        "project_progress_cache",
+        "runtime_status_cache",
+        "startup_failure_cache",
+        "last_seen_assistant_turn_ids"
+      ],
+      "preserves": [
+        "project_profile",
+        "source_of_truth_url",
+        "planner_url",
+        "executor_url",
+        "browser_login_profile",
+        "runtime_install",
+        "github_runner",
+        "other_project_profiles"
+      ],
+      "generation": "INCREMENT_AND_REBOOTSTRAP_SOURCE_OF_TRUTH"
+    }
   }
 }
