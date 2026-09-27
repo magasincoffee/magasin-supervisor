@@ -38,16 +38,19 @@ test("project profiles keep one active project while preserving per-project stat
   assert.match(panel, /1 active project \/ 2 normal ChatGPT tabs/);
 });
 
-test("project switch and active-profile mutation are fail-closed while inactive profile save stays independent", async () => {
+test("project switch/source changes stay fail-closed while active chat targets may rollover with open transfer state", async () => {
   const panel = await read("../windows/control-panel.ps1");
 
   assert.match(panel, /function Assert-SafeProjectMutation/);
   assert.match(panel, /Hãy STOP ROBOT trước khi lưu hoặc chuyển dự án/);
-  assert.match(panel, /assignment\/result đang mở/);
-  assert.match(panel, /\$isActiveProfile = \[bool\]/);
-  assert.match(panel, /if \(\$isActiveProfile\) \{[\s\S]*wrapper_alive[\s\S]*Project đang active còn assignment\/result mở/);
-  assert.match(panel, /Saving a new\/inactive profile is registry-only configuration/);
-  assert.match(panel, /\$profileInputsEditable=\[bool\]\(-not \$editingActiveProfile -or \$activeProfileSafeToEdit\)/);
+  assert.match(panel, /Source of Truth không được đổi khi assignment\/result còn mở/);
+  assert.match(panel, /Link Planner\/Executor vẫn có thể đổi sau khi STOP ROBOT/);
+  assert.match(panel, /\$oldPlannerRevision/);
+  assert.match(panel, /\$oldExecutorRevision/);
+  assert.match(panel, /previous_target/);
+  assert.match(panel, /New-ProjectContextBootstrap \(\[int\]\$state\.project_generation\)/);
+  assert.match(panel, /\$activeChatTargetsEditable=\[bool\]\(\$robotStopped\)/);
+  assert.match(panel, /\$sourceInputEditable=\[bool\]\(-not \$editingActiveProfile -or \$safeToSwitch\)/);
   assert.match(panel, /\$projectSelector\.Enabled=\$true/);
   assert.match(panel, /\$loadProjectButton\.Enabled=\[bool\]\(\$safeToSwitch/);
 });
@@ -61,7 +64,7 @@ test("profile editor can create and inspect inactive projects without being clob
   assert.match(panel, /TẠO PROFILE MỚI/);
   assert.match(panel, /if \(\$editingActiveProfile\) \{/);
   assert.match(panel, /\$editorPlannerReady=Test-ChatConversationUrl \(\$plannerBox\.Text\.Trim\(\)\)/);
-  assert.match(panel, /Chỉ NẠP DỰ ÁN mới đổi project active/);
+  assert.match(panel, /Chat Planner\/Executor là link phiên làm việc, không phải project ID/);
 });
 
 test("Source of Truth change and project switch re-arm Planner bootstrap with generation", async () => {
