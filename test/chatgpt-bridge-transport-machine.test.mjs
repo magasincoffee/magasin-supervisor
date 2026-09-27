@@ -157,6 +157,40 @@ test("transport state stores observation metadata but not message or response bo
   assert.equal(m.snapshot().last_observation.cmd_id,"cmd");
 });
 
+test("safe rebinding may change page_id only for the same canonical role conversations",async()=>{
+  const adapter=scriptedAdapter([observed("planner")]);
+  const m=new ChatGptBridgeTransportMachine({adapter,binding});
+  await m.start("bootstrap");
+
+  const rebound=structuredClone(binding);
+  rebound.planner.page_id="planner_reloaded";
+  rebound.executor.page_id="executor_reloaded";
+  const state=m.replaceBinding(rebound);
+  assert.deepEqual(state.role_page_ids,{
+    planner:"planner_reloaded",
+    executor:"executor_reloaded"
+  });
+
+  const changed=structuredClone(rebound);
+  changed.planner.canonical_target="https://chatgpt.com/c/33333333-3333-4333-8333-333333333333";
+  assert.throws(
+    ()=>m.replaceBinding(changed),
+    e=>e instanceof ChatGptBridgeTransportError && e.code==="ROLE_IDENTITY_CHANGED"
+  );
+});
+
+test("ambiguous in-flight transport blocks binding replacement",async()=>{
+  const adapter=scriptedAdapter([new Error("network")]);
+  const m=new ChatGptBridgeTransportMachine({adapter,binding});
+  await assert.rejects(()=>m.start("bootstrap"),e=>e.code==="AMBIGUOUS_SEND");
+  const rebound=structuredClone(binding);
+  rebound.planner.page_id="planner_reloaded";
+  assert.throws(
+    ()=>m.replaceBinding(rebound),
+    e=>e instanceof ChatGptBridgeTransportError && e.code==="AMBIGUOUS_IN_FLIGHT"
+  );
+});
+
 test("assistant text helper falls back to latest assistant recent turn",()=>{
   assert.equal(
     bridgeTransportAssistantText({
