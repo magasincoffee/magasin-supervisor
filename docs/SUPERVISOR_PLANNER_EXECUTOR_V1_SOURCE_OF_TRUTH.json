@@ -322,7 +322,7 @@
     ],
     "historical_evidence_preserved": true,
     "next_phase_authority": "MAGASIN_BRIDGE_V1_SECTION_15_AND_NEXT_IMPLEMENTATION_PROGRAM",
-    "current_next_phase_task": "MBV1-004"
+    "current_next_phase_task": "MBV1-007"
   },
   "pe001_evidence": {
     "pr": 120,
@@ -643,11 +643,11 @@
     "id": "MAGASIN_BRIDGE_V1",
     "status": "CANONICAL_PLAN_IN_PROGRESS_NOT_CUT_OVER",
     "approved_date": "2026-09-27",
-    "current_task": "MBV1-006",
+    "current_task": "MBV1-007",
     "progress": {
-      "pc": 5,
+      "pc": 6,
       "pt": 8,
-      "percent": 62.5
+      "percent": 75
     },
     "authority_model": {
       "project_truth": "OWNER_CONFIGURED_SOURCE_OF_TRUTH_URL",
@@ -887,20 +887,42 @@
       {
         "id": "MBV1-006",
         "priority": "P1",
-        "state": "IN_PROGRESS",
+        "state": "COMPLETE",
         "name": "Project Bootstrap",
         "weight_percent": 10,
         "implementation": {
+          "branch": "mbv1-006-bridge-project-bootstrap",
+          "pr": 181,
+          "final_head": "30e8f5e1092e352f1b5d9696db5f138a43af3bb5",
+          "merge_commit": "be7bd4a1c218640aac274216efb5e233f4623702",
+          "supervisor_tests": "PASS",
+          "supervisor_integrity": "PASS",
+          "supervisor_lifecycle": "PASS",
+          "supervisor_autostart": "PASS",
           "production_mutated": false,
           "bridge_cutover": false
+        },
+        "dod_result": {
+          "link_only_inputs": "PASS",
+          "exact_bridge_binding": "PASS",
+          "planner_only_bootstrap": "PASS",
+          "mention_safe_bootstrap": "PASS",
+          "strict_project_generation": "PASS",
+          "planner_pc_pt_required": "PASS",
+          "ambiguous_bootstrap_send": "FAIL_CLOSED_NO_AUTO_RESEND",
+          "local_project_snapshot_authority": false
         }
       },
       {
         "id": "MBV1-007",
         "priority": "P2",
-        "state": "BLOCKED_BY_MBV1_006",
+        "state": "IN_PROGRESS",
         "name": "Reliability Layer",
-        "weight_percent": 15
+        "weight_percent": 15,
+        "implementation": {
+          "production_mutated": false,
+          "bridge_cutover": false
+        }
       },
       {
         "id": "MBV1-008",
