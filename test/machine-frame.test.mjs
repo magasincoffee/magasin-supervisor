@@ -171,3 +171,33 @@ test("PE-002 newest-turn parser fails closed on malformed new machine output", a
     /missing final @M frame/
   );
 });
+
+
+test("project-aware @M metadata validates project generation and progress counts", () => {
+  const parsed = parseMachineFrame(
+    '@M {"v":1,"a":"assign","p":"UI2","g":4,"t":"UI2-018","i":"A18","pc":17,"pt":24}'
+  );
+  assert.deepEqual(parsed.frame, {
+    v: 1,
+    a: "assign",
+    t: "UI2-018",
+    i: "A18",
+    p: "UI2",
+    g: 4,
+    pc: 17,
+    pt: 24
+  });
+
+  assert.throws(
+    () => parseMachineFrame('@M {"v":1,"a":"assign","t":"T1","i":"A1","pc":1}'),
+    /both pc and pt/
+  );
+  assert.throws(
+    () => parseMachineFrame('@M {"v":1,"a":"assign","t":"T1","i":"A1","pc":3,"pt":2}'),
+    /cannot exceed/
+  );
+  assert.throws(
+    () => parseMachineFrame('@M {"v":1,"a":"assign","t":"T1","i":"A1","g":0}'),
+    /project_generation/
+  );
+});
