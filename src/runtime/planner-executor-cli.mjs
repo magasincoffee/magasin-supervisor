@@ -61,6 +61,65 @@ function safeLog(key, value) {
   console.log(`${key}=${safe}`);
 }
 
+function bootstrapHasProvableNoNewUserTurn(latestUser, baselineUserTurnId) {
+  const baseline = String(baselineUserTurnId || "").trim();
+  const latest = String(latestUser?.turn_id || "").trim();
+  return Boolean(baseline && latest && baseline === latest);
+}
+
+function isRecoverableBootstrapError(error) {
+  const message = String(error?.message || error || "");
+  if (
+    /foreign or Owner draft|digest mismatch|target is not safely accessible|login|required|captcha|access denied/i.test(message)
+  ) {
+    return false;
+  }
+  return /send was not confirmed|send outcome is ambiguous|composer|navigation|execution context|target page|CDP|network|timeout|fetch failed|websocket/i.test(message);
+}
+
+async function runBootstrapStageWithRecovery({
+  name,
+  statusPhase,
+  run,
+  statePath,
+  statusPath,
+  adapter,
+  projectId,
+  maxDelayMs = 5_000
+}) {
+  let attempts = 0;
+  while (!stopping) {
+    try {
+      return await run();
+    } catch (error) {
+      if (!isRecoverableBootstrapError(error)) throw error;
+      attempts += 1;
+      const delayMs = Math.min(maxDelayMs, 500 * Math.max(1, attempts));
+      const durable = await readPlannerExecutorState(statePath, {
+        projectId
+      }).catch(() => null);
+      await atomicJsonWrite(statusPath, {
+        schema_version: "planner-executor-status.v1",
+        mode: "PLANNER_EXECUTOR_V1",
+        project_id: projectId,
+        phase: statusPhase,
+        active_task_id: durable?.active_task_id || null,
+        automation_status: durable?.automation?.status || "RUNNING",
+        automation_reason: durable?.automation?.reason || null,
+        bootstrap_retry_attempt: attempts,
+        chatgpt_tabs: adapter.getChatGptPageCount(),
+        chatgpt_work_mode_invocations: 0,
+        production_cutover: true,
+        updated_at: new Date().toISOString()
+      }).catch(() => {});
+      safeLog(`PLANNER_EXECUTOR_${name}_RETRY`, attempts);
+      safeLog(`PLANNER_EXECUTOR_${name}_RETRY_REASON`, error?.message || error);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw new Error(`${name} interrupted by stop request`);
+}
+
 async function ensureProductionPlannerBootstrap({
   statePath,
   state,
@@ -124,9 +183,24 @@ async function ensureProductionPlannerBootstrap({
         draft.digest === expectedDigest
       );
       if (bootstrap.send_attempted_at && !exactPendingDraft) {
-        throw new Error(
-          "production cutover bootstrap send outcome is ambiguous; refusing duplicate"
-        );
+        if (
+          bootstrapHasProvableNoNewUserTurn(
+            latestUser,
+            bootstrap.baseline_user_turn_id
+          )
+        ) {
+          bootstrap.send_attempted_at = null;
+          bootstrap.send_confirmed_at = null;
+          bootstrap.send_evidence = null;
+          bootstrap.retry_count = Number(bootstrap.retry_count || 0) + 1;
+          bootstrap.last_send_error =
+            "rearmed-after-page-rerender-with-baseline-user-turn-unchanged";
+          await writePlannerExecutorState(statePath, state);
+        } else {
+          throw new Error(
+            "production cutover bootstrap send outcome is ambiguous; refusing duplicate"
+          );
+        }
       }
 
       bootstrap.send_attempted_at =
@@ -228,9 +302,24 @@ async function ensureProjectContextBootstrap({
         draft?.has_text === true && draft.digest === expectedDigest
       );
       if (bootstrap.send_attempted_at && !exactPendingDraft) {
-        throw new Error(
-          "project bootstrap send outcome is ambiguous; refusing duplicate"
-        );
+        if (
+          bootstrapHasProvableNoNewUserTurn(
+            latestUser,
+            bootstrap.baseline_user_turn_id
+          )
+        ) {
+          bootstrap.send_attempted_at = null;
+          bootstrap.send_confirmed_at = null;
+          bootstrap.send_evidence = null;
+          bootstrap.retry_count = Number(bootstrap.retry_count || 0) + 1;
+          bootstrap.last_send_error =
+            "rearmed-after-page-rerender-with-baseline-user-turn-unchanged";
+          await writePlannerExecutorState(statePath, state);
+        } else {
+          throw new Error(
+            "project bootstrap send outcome is ambiguous; refusing duplicate"
+          );
+        }
       }
 
       bootstrap.send_attempted_at =
@@ -389,16 +478,32 @@ try {
     process.exit(0);
   }
 
-  await ensureProductionPlannerBootstrap({
+  await runBootstrapStageWithRecovery({
+    name: "CUTOVER_BOOTSTRAP",
+    statusPhase: "CUTOVER_BOOTSTRAP_RETRY",
     statePath,
-    state: existing,
-    plannerPage: warm.plannerPage
+    statusPath,
+    adapter,
+    projectId,
+    run: () => ensureProductionPlannerBootstrap({
+      statePath,
+      state: existing,
+      plannerPage: warm.plannerPage
+    })
   });
   startupStage = "PROJECT_CONTEXT_BOOTSTRAP";
-  await ensureProjectContextBootstrap({
+  await runBootstrapStageWithRecovery({
+    name: "PROJECT_CONTEXT_BOOTSTRAP",
+    statusPhase: "PROJECT_CONTEXT_BOOTSTRAP_RETRY",
     statePath,
-    state: existing,
-    plannerPage: warm.plannerPage
+    statusPath,
+    adapter,
+    projectId,
+    run: () => ensureProjectContextBootstrap({
+      statePath,
+      state: existing,
+      plannerPage: warm.plannerPage
+    })
   });
 
   // Cutover readiness must not wait for the first Planner decision plus the

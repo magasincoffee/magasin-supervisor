@@ -50,7 +50,10 @@
     "owner_reset_clears_active_runtime_state": true,
     "machine_frame_mention_popover_must_be_dismissed_before_send": true,
     "machine_frame_send_prefers_explicit_send_control": true,
-    "machine_frame_popover_is_not_submission_evidence": true
+    "machine_frame_popover_is_not_submission_evidence": true,
+    "chatgpt_theme_or_rerender_changes_project_identity": false,
+    "bootstrap_safe_rearm_requires_unchanged_baseline_user_turn": true,
+    "bootstrap_recoverable_failure_keeps_runtime_alive": true
   },
   "protocol": {
     "marker": "@M ",
@@ -87,6 +90,12 @@
       "dismiss_before_send": true,
       "verify_instruction_preserved": true,
       "retry_explicit_send_once_before_enter_recovery": true
+    },
+    "bootstrap_rerender_recovery": {
+      "safe_rearm_condition": "latest_user_turn_id_equals_persisted_baseline_user_turn_id",
+      "ambiguous_or_changed_user_turn": "FAIL_CLOSED_NO_RESEND",
+      "recoverable_phase_suffix": "BOOTSTRAP_RETRY",
+      "backoff": "BOUNDED"
     }
   },
   "happy_path": {

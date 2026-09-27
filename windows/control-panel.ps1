@@ -109,6 +109,7 @@ $statusFile = Join-Path $root 'lane-status.json'
 $eventFile = Join-Path $root 'lane-events.ndjson'
 $plannerExecutorStateFile = Join-Path $root 'planner-executor-state.json'
 $plannerExecutorStatusFile = Join-Path $root 'planner-executor-status.json'
+$plannerExecutorStartupFailureFile = Join-Path $root 'planner-executor-startup-failure.json'
 $plannerExecutorProjectsFile = Join-Path $root 'planner-executor-projects.json'
 $plannerExecutorProjectsDir = Join-Path $root 'planner-executor-projects'
 $startScript = Join-Path $runtime 'windows\start-supervisor.ps1'
@@ -1551,7 +1552,18 @@ function Show-PlannerExecutorControlPanel {
 
         $tabs = Get-OptionalPropertyValue $status 'chatgpt_tabs' $null
         $workInvocations = Get-OptionalPropertyValue $status 'chatgpt_work_mode_invocations' 0
-        $healthLabel.Text = "Chrome: " + $(if ($truth.chrome_alive) {'OK'} else {'OFF'}) + "  •  CDP: " + $(if ($truth.cdp_healthy) {'OK'} else {'OFF'}) + "  •  ChatGPT tabs: " + $(if ($null -eq $tabs) {'—'} else {[string]$tabs}) + [Environment]::NewLine + "ChatGPT Work mode invocations: $workInvocations"
+        $startupFailure = Read-JsonFile $plannerExecutorStartupFailureFile
+        $healthText = "Chrome: " + $(if ($truth.chrome_alive) {'OK'} else {'OFF'}) + "  •  CDP: " + $(if ($truth.cdp_healthy) {'OK'} else {'OFF'}) + "  •  ChatGPT tabs: " + $(if ($null -eq $tabs) {'—'} else {[string]$tabs}) + [Environment]::NewLine + "ChatGPT Work mode invocations: $workInvocations"
+        if ($status -and [string](Get-OptionalPropertyValue $status 'phase' '') -match 'BOOTSTRAP_RETRY') {
+            $retryPhase = [string](Get-OptionalPropertyValue $status 'phase' '')
+            $retryAttempt = [int](Get-OptionalPropertyValue $status 'bootstrap_retry_attempt' 0)
+            $healthText += [Environment]::NewLine + "Bootstrap: $retryPhase • retry $retryAttempt"
+        } elseif ($startupFailure -and $truth.wrapper_alive -and -not $truth.planner_executor_alive) {
+            $failureStage = [string](Get-OptionalPropertyValue $startupFailure 'stage' '')
+            $failureName = [string](Get-OptionalPropertyValue $startupFailure 'error_name' '')
+            $healthText += [Environment]::NewLine + "Startup failure: $failureStage • $failureName"
+        }
+        $healthLabel.Text = $healthText
 
         $progress = Get-OptionalPropertyValue $state 'project_progress' $null
         $known = [bool](Get-OptionalPropertyValue $progress 'known' $false)

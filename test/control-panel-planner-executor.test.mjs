@@ -121,6 +121,16 @@ test("Owner RESET ROBOT clears only active runtime state and fences stale output
   assert.match(panel, /Bây giờ hãy chọn profile muốn chạy và bấm START/);
 });
 
+test("Control Panel surfaces bootstrap retry and startup failure instead of appearing frozen", async () => {
+  const panel = await read("../windows/control-panel.ps1");
+
+  assert.match(panel, /planner-executor-startup-failure\.json/);
+  assert.match(panel, /BOOTSTRAP_RETRY/);
+  assert.match(panel, /bootstrap_retry_attempt/);
+  assert.match(panel, /Startup failure:/);
+  assert.match(panel, /Bootstrap:/);
+});
+
 test("project progress is rendered from durable Planner/Executor project_progress", async () => {
   const panel = await read("../windows/control-panel.ps1");
   const start = panel.indexOf("function Refresh-PlannerExecutorUi");

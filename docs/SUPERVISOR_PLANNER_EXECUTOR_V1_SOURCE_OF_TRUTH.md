@@ -175,6 +175,14 @@ Composer send safety for the `@M` machine frame:
 - if the first Send click is inert and the exact instruction is still present, Supervisor may dismiss the mention popover once more and retry the explicit Send control before bounded Enter recovery;
 - an open mention/file popover is never treated as evidence that the prompt was submitted.
 
+Bootstrap liveness across ChatGPT rerenders/reloads:
+
+- light/dark appearance changes, SPA rerenders, and page reloads are **visual/browser state only** and MUST NOT change project identity, task state, or bootstrap authority;
+- if a bootstrap send was attempted, the composer draft later disappears, and the latest visible user-turn identity is still exactly the persisted pre-send baseline user-turn identity, Supervisor has positive evidence that no new user turn was submitted; it may safely re-arm that same bootstrap send instead of entering a permanent ambiguous-send crash loop;
+- if the latest user-turn identity changed or cannot be correlated, exact-once remains fail-closed and Supervisor MUST NOT manufacture a resend;
+- recoverable bootstrap UI/navigation/send failures keep the Planner/Executor runtime alive in an explicit `*_BOOTSTRAP_RETRY` phase with bounded backoff rather than repeatedly killing/restarting the Node runtime;
+- Control Center must surface the retry/startup-failure phase so Owner can distinguish browser reload from a dead Robot.
+
 Chat target rollover rules:
 
 - changing a Planner/Executor URL increments that role's `target_revision` but does **not** create a new project or increment `project_generation`;
