@@ -33,7 +33,7 @@ if (-not $cdp) {
   throw 'Dedicated Supervisor Chrome CDP endpoint is not healthy.'
 }
 
-$script = Join-Path $env:GITHUB_WORKSPACE '.github\scripts\pe001-live-qualification.mjs'
+$script = Join-Path $env:GITHUB_WORKSPACE '.github\scripts\supervisor-pe001-live-qualification.mjs'
 if (-not (Test-Path $script -PathType Leaf)) {
   throw "Missing qualification script: $script"
 }
