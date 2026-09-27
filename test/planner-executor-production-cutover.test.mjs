@@ -297,10 +297,27 @@ test("Planner bootstrap runs only after execute-mode dry-run exit", async () => 
     "utf8"
   );
   const dryRunIndex = source.indexOf("if (!args.execute)");
-  const bootstrapIndex = source.indexOf("await ensureProductionPlannerBootstrap({");
+  const bootstrapIndex = source.indexOf("run: () => ensureProductionPlannerBootstrap({");
   assert.ok(dryRunIndex >= 0);
   assert.ok(bootstrapIndex > dryRunIndex);
   assert.match(source.slice(dryRunIndex, bootstrapIndex), /process\.exit\(0\)/);
+});
+
+test("bootstrap recovery survives ChatGPT rerender when baseline user turn proves no submission occurred", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/planner-executor-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /bootstrapHasProvableNoNewUserTurn/);
+  assert.match(source, /rearmed-after-page-rerender-with-baseline-user-turn-unchanged/);
+  assert.match(source, /bootstrap\.send_attempted_at = null/);
+  assert.match(source, /bootstrap\.retry_count = Number\(bootstrap\.retry_count \|\| 0\) \+ 1/);
+  assert.match(source, /runBootstrapStageWithRecovery/);
+  assert.match(source, /PROJECT_CONTEXT_BOOTSTRAP_RETRY/);
+  assert.match(source, /CUTOVER_BOOTSTRAP_RETRY/);
+  assert.match(source, /bootstrap_retry_attempt/);
+  assert.match(source, /isRecoverableBootstrapError/);
 });
 
 test("production wrapper routes explicit Planner/Executor state before legacy project-adapter mode", async () => {
@@ -419,7 +436,7 @@ test("production CLI persists cutover-ready status immediately after bootstrap c
     "utf8"
   );
 
-  const bootstrapIndex = source.indexOf("await ensureProductionPlannerBootstrap({");
+  const bootstrapIndex = source.indexOf("run: () => ensureProductionPlannerBootstrap({");
   const readyIndex = source.indexOf('phase: "BOOTSTRAP_CONFIRMED"');
   const runLoopIndex = source.indexOf('startupStage = "RUN_LOOP"');
 
@@ -452,7 +469,7 @@ test("production CLI bootstraps Planner from per-project Source of Truth before 
   assert.match(source, /Đọc lại dự án từ Source of Truth/);
   assert.match(source, /"pc":COMPLETED,"pt":TOTAL/);
   assert.match(source, /ensureProjectContextBootstrap/);
-  const bootstrapCall = source.indexOf("await ensureProjectContextBootstrap({");
+  const bootstrapCall = source.indexOf("run: () => ensureProjectContextBootstrap({");
   const runLoop = source.indexOf('startupStage = "RUN_LOOP"');
   assert.ok(bootstrapCall >= 0);
   assert.ok(runLoop > bootstrapCall);
