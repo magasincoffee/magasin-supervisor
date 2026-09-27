@@ -97,8 +97,11 @@
     {
       "id": "PE-001",
       "priority": "P0",
-      "state": "READY_TO_EXECUTE",
-      "name": "Planner/Executor minimal end-to-end vertical slice"
+      "state": "IMPLEMENTED_CANDIDATE",
+      "name": "Planner/Executor minimal end-to-end vertical slice",
+      "merge_sha": "4ba8d836dc227b312ede15a9f176be6ed4a6de85",
+      "pr": 120,
+      "acceptance_status": "SYNTHETIC_AND_REGRESSION_GREEN__LIVE_QUALIFICATION_PENDING"
     },
     {
       "id": "PE-002",
@@ -167,5 +170,19 @@
       "docs/SUPERVISOR_PLANNER_EXECUTOR_V1_SOURCE_OF_TRUTH.json"
     ],
     "historical_evidence_preserved": true
+  },
+  "pe001_evidence": {
+    "pr": 120,
+    "merge_sha": "4ba8d836dc227b312ede15a9f176be6ed4a6de85",
+    "supervisor_tests_run": 36288896091,
+    "supervisor_tests_full_suite": "711/711 PASS",
+    "supervisor_integrity_run": 36288896111,
+    "supervisor_integrity": "PASS",
+    "supervisor_lifecycle_run": 36288896100,
+    "supervisor_lifecycle": "PASS",
+    "supervisor_autostart_run": 36288896093,
+    "supervisor_autostart_isolated": "PASS",
+    "production_cutover": false,
+    "live_planner_executor_qualification": "PENDING"
   }
 }
