@@ -451,6 +451,8 @@ test("chat rollover re-hands the same confirmed assignment to a replacement Exec
   assert.match(sentMessage, /Role: Executor/);
   assert.match(sentMessage, /assignment A1/);
   assert.match(sentMessage, /không thực hiện lại side effect/);
+  assert.match(sentMessage, /<AT>M/);
+  assert.doesNotMatch(sentMessage, /@M \{"v":1/);
 
   const durable = JSON.parse(await fs.readFile(statePath, "utf8"));
   assert.equal(durable.assignment.assignment_id, "A1");
@@ -517,6 +519,8 @@ test("chat rollover re-relays the same result to a replacement Planner without c
   assert.match(sentMessage, /MAGASIN_CHAT_ROLLOVER_V1/);
   assert.match(sentMessage, /Role: Planner/);
   assert.match(sentMessage, /Review result R1/);
+  assert.match(sentMessage, /<AT>M/);
+  assert.doesNotMatch(sentMessage, /@M \{"v":1/);
 
   const durable = JSON.parse(await fs.readFile(statePath, "utf8"));
   assert.equal(durable.result.result_id, "R1");

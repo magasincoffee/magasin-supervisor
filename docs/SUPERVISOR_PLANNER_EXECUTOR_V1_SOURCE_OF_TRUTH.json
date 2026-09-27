@@ -58,7 +58,11 @@
     "submit_diagnostics_are_bounded": true,
     "geometric_send_fallback_scoped_to_composer_form": true,
     "geometric_send_fallback_is_submission_evidence": false,
-    "bootstrap_status_publishes_chatgpt_tabs_before_send": true
+    "bootstrap_status_publishes_chatgpt_tabs_before_send": true,
+    "robot_authored_prompts_must_not_contain_literal_machine_frame_prefix": true,
+    "inbound_machine_frame_prefix_remains_at_m": true,
+    "planner_executor_active_independent_of_legacy_lane_count": true,
+    "active_planner_executor_hotpatch_must_preserve_dedicated_chrome": true
   },
   "protocol": {
     "marker": "@M ",
@@ -107,6 +111,12 @@
       "diagnostic_timeout_bounded": true,
       "geometric_fallback": "LOWER_RIGHT_COMPOSER_FORM_EXCLUDING_NON_SEND_CONTROLS",
       "confirmation": "MATCHING_NEW_USER_TURN_REQUIRED"
+    },
+    "machine_frame_transport": {
+      "outbound_prompt_example_prefix": "<AT>M",
+      "token_definition": "<AT>=U+0040",
+      "inbound_assistant_prefix": "@M",
+      "parser_behavior": "UNCHANGED"
     }
   },
   "happy_path": {
@@ -548,5 +558,10 @@
       ],
       "generation": "INCREMENT_AND_REBOOTSTRAP_SOURCE_OF_TRUTH"
     }
+  },
+  "browser_continuity": {
+    "active_runtime_detection": "lifecycle.runtime_mode == PLANNER_EXECUTOR_V1",
+    "hotpatch_behavior": "RESTART_CHILD_NODE_PRESERVE_DEDICATED_CHROME",
+    "suppress_crash_restore_bubble": true
   }
 }

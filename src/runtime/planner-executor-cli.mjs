@@ -247,10 +247,11 @@ function buildProjectContextBootstrapMessage(state) {
     "Đọc lại dự án từ Source of Truth ở link trên trước khi lập kế hoạch.",
     "Không sử dụng task/state của dự án khác. Source of Truth là authority cho scope, trạng thái task và dependency.",
     "Xác định tổng số task và số task đã hoàn tất từ Source of Truth.",
+    "QUY ƯỚC TRANSPORT: token <AT> bên dưới đại diện cho ký tự U+0040 (commercial at). Khi TRẢ LỜI, không được xuất chuỗi <AT>; hãy thay nó bằng đúng ký tự U+0040 ngay trước chữ M ở machine frame cuối cùng.",
     "Nếu còn việc: giao đúng một task cho Executor và kết thúc bằng machine frame có p/g/pc/pt:",
-    `@M {"v":1,"a":"assign","p":"${projectId}","g":${generation},"t":"TASK-ID","i":"NEW-ASSIGNMENT-ID","pc":COMPLETED,"pt":TOTAL}`,
+    `<AT>M {"v":1,"a":"assign","p":"${projectId}","g":${generation},"t":"TASK-ID","i":"NEW-ASSIGNMENT-ID","pc":COMPLETED,"pt":TOTAL}`,
     "Nếu dự án đã hoàn tất và không có task đang chạy: kết thúc bằng:",
-    `@M {"v":1,"a":"done","p":"${projectId}","g":${generation},"pc":TOTAL,"pt":TOTAL}`
+    `<AT>M {"v":1,"a":"done","p":"${projectId}","g":${generation},"pc":TOTAL,"pt":TOTAL}`
   ].join("\n");
 }
 
