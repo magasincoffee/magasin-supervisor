@@ -924,6 +924,114 @@ function Save-PlannerExecutorProjectProfile(
     }
 }
 
+function Reset-PlannerExecutorActiveProject {
+    # Explicit Owner escape hatch for a stuck Planner/Executor runtime.
+    # Destructive scope: ACTIVE project runtime state only. Saved profiles,
+    # Source/Chat targets, browser login, runtime install and Runner survive.
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $stopScript
+    if ($LASTEXITCODE -ne 0) {
+        throw 'STOP ROBOT thất bại; không reset state.'
+    }
+
+    $registry = Ensure-PlannerExecutorProjectProfiles
+    $activeId = [string](Get-OptionalPropertyValue $registry 'active_project_id' '')
+    if (-not $activeId) {
+        throw 'Không có active project để reset.'
+    }
+    $profile = Get-PlannerExecutorProjectProfile $registry $activeId
+    if (-not $profile) {
+        throw "Không tìm thấy profile của active project: $activeId"
+    }
+
+    $stateFile = [string](Get-OptionalPropertyValue $profile 'state_file' '')
+    if (-not $stateFile) {
+        $stateFile = Get-ProjectProfileStatePath $activeId
+        $profile.state_file = $stateFile
+    }
+
+    $state = Read-JsonFile $plannerExecutorStateFile
+    if (-not $state) { $state = Read-JsonFile $stateFile }
+    if (-not $state) {
+        $state = New-PlannerExecutorProjectState $activeId ([string](Get-OptionalPropertyValue $profile 'project_name' $activeId)) ([string](Get-OptionalPropertyValue $profile 'source_of_truth_url' '')) ([string](Get-OptionalPropertyValue $profile 'planner_url' '')) ([string](Get-OptionalPropertyValue $profile 'executor_url' ''))
+    }
+
+    $nextGeneration = [int](Get-OptionalPropertyValue $state 'project_generation' 1) + 1
+    $state.project_id = $activeId
+    $state.project_generation = $nextGeneration
+    $state.project_name = [string](Get-OptionalPropertyValue $profile 'project_name' $activeId)
+
+    if (-not $state.PSObject.Properties['project_context']) {
+        $state | Add-Member -NotePropertyName 'project_context' -NotePropertyValue ([pscustomobject]@{})
+    }
+    $state.project_context.source_of_truth_url = [string](Get-OptionalPropertyValue $profile 'source_of_truth_url' '')
+    $state.project_context.strict_correlation = $false
+    $state.project_context_bootstrap = New-ProjectContextBootstrap $nextGeneration
+    $state.project_progress = [pscustomobject]@{
+        known=$false
+        completed_tasks=0
+        total_tasks=0
+        percent=$null
+        updated_at=$null
+        source=$null
+    }
+
+    foreach ($roleName in @('planner','executor')) {
+        $role = Get-OptionalPropertyValue $state $roleName $null
+        if (-not $role) {
+            $target = if ($roleName -eq 'planner') {
+                [string](Get-OptionalPropertyValue $profile 'planner_url' '')
+            } else {
+                [string](Get-OptionalPropertyValue $profile 'executor_url' '')
+            }
+            $state | Add-Member -NotePropertyName $roleName -NotePropertyValue ([pscustomobject]@{
+                target=$target
+                target_revision=1
+                last_seen_assistant_turn_id=$null
+            })
+            $role = Get-OptionalPropertyValue $state $roleName $null
+        }
+        $role.target = if ($roleName -eq 'planner') {
+            [string](Get-OptionalPropertyValue $profile 'planner_url' '')
+        } else {
+            [string](Get-OptionalPropertyValue $profile 'executor_url' '')
+        }
+        if (-not $role.PSObject.Properties['target_revision']) {
+            $role | Add-Member -NotePropertyName 'target_revision' -NotePropertyValue 1
+        }
+        $role.last_seen_assistant_turn_id = $null
+        if ($role.PSObject.Properties['previous_target']) {
+            $role.previous_target = $null
+        }
+    }
+
+    $state.active_task_id = $null
+    $state.assignment = $null
+    $state.result = $null
+    $state.decision = $null
+    $state.last_completed = $null
+    $state.identity_history = [pscustomobject]@{
+        assignment_ids=@()
+        result_ids=@()
+    }
+    $state.automation = [pscustomobject]@{
+        status='RUNNING'
+        reason=$null
+        updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+    }
+
+    $profile.project_generation = $nextGeneration
+    Write-JsonAtomic $stateFile $state
+    Write-JsonAtomic $plannerExecutorStateFile $state
+    Write-JsonAtomic $plannerExecutorProjectsFile $registry
+    Remove-Item $plannerExecutorStatusFile -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $root 'planner-executor-startup-failure.json') -Force -ErrorAction SilentlyContinue
+
+    return [pscustomobject]@{
+        ProjectId=$activeId
+        ProjectGeneration=$nextGeneration
+    }
+}
+
 function Switch-PlannerExecutorProject([string]$ProjectId) {
     Assert-SafeProjectMutation
     $id = Assert-ProjectId $ProjectId
@@ -1113,6 +1221,16 @@ function Show-PlannerExecutorControlPanel {
     $newProjectButton.Text = 'TẠO PROFILE MỚI'
     $newProjectButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
     $projectPanel.Controls.Add($newProjectButton)
+
+    $resetRobotButton = New-Object Windows.Forms.Button
+    $resetRobotButton.Location = New-Object Drawing.Point(565, 48)
+    $resetRobotButton.Size = New-Object Drawing.Size(150, 32)
+    $resetRobotButton.Text = 'RESET ROBOT'
+    $resetRobotButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+    $resetRobotButton.BackColor = [Drawing.Color]::FromArgb(180,83,9)
+    $resetRobotButton.ForeColor = [Drawing.Color]::White
+    $resetRobotButton.FlatAppearance.BorderSize = 0
+    $projectPanel.Controls.Add($resetRobotButton)
 
     $projectNameBox = New-Object Windows.Forms.TextBox
     $projectNameBox.Location = New-Object Drawing.Point(18, 92)
@@ -1489,6 +1607,7 @@ function Show-PlannerExecutorControlPanel {
         $saveProjectButton.Enabled=$profileInputsEditable
         $loadProjectButton.Enabled=[bool]($safeToSwitch -and -not $profileEditor.Draft -and -not $profileEditor.Dirty -and $editorProjectId)
         $newProjectButton.Enabled=$true
+        $resetRobotButton.Enabled=$true
         $projectSelector.Enabled=$true
         $projectNameBox.ReadOnly=-not $profileInputsEditable
         $sourceBox.ReadOnly=-not $sourceInputEditable
@@ -1537,6 +1656,51 @@ function Show-PlannerExecutorControlPanel {
             $projectNameBox.Focus()
         } catch {
             [Windows.Forms.MessageBox]::Show($_.Exception.Message,'KHÔNG THỂ TẠO PROFILE','OK','Warning')|Out-Null
+        }
+    })
+
+    $resetRobotButton.Add_Click({
+        try {
+            $registry = Ensure-PlannerExecutorProjectProfiles
+            $activeId = [string](Get-OptionalPropertyValue $registry 'active_project_id' '')
+            if (-not $activeId) { throw 'Không có active project để reset.' }
+
+            $nl = [Environment]::NewLine
+            $confirmText = "RESET ROBOT sẽ STOP Robot và XÓA runtime state của ACTIVE project '$activeId': task hiện tại, assignment/result, recovery latch, progress cache và identity history. Source of Truth, Planner/Executor URL, các profile khác, Chrome login và GitHub Runner được GIỮ NGUYÊN." + $nl + $nl + "Sau reset bạn có thể chọn project khác và START. Tiếp tục?"
+            $confirm = [Windows.Forms.MessageBox]::Show(
+                $confirmText,
+                'RESET ROBOT — XÁC NHẬN',
+                [Windows.Forms.MessageBoxButtons]::YesNo,
+                [Windows.Forms.MessageBoxIcon]::Warning
+            )
+            if ($confirm -ne [Windows.Forms.DialogResult]::Yes) { return }
+
+            $finalText = "XÁC NHẬN LẦN CUỐI: state chưa hoàn tất của '$activeId' sẽ bị xóa và project_generation sẽ tăng để chặn output cũ. Thực hiện reset?"
+            $finalConfirm = [Windows.Forms.MessageBox]::Show(
+                $finalText,
+                'RESET ROBOT — XÁC NHẬN LẦN CUỐI',
+                [Windows.Forms.MessageBoxButtons]::YesNo,
+                [Windows.Forms.MessageBoxIcon]::Warning
+            )
+            if ($finalConfirm -ne [Windows.Forms.DialogResult]::Yes) { return }
+
+            $reset = Reset-PlannerExecutorActiveProject
+            $profileEditor.Draft = $false
+            $profileEditor.Dirty = $false
+            $selected = $projectSelector.Text.Trim()
+            Reload-ProjectSelector $selected
+            if ($selected) {
+                [void](Set-ProjectProfileEditor $selected)
+            }
+            Refresh-PlannerExecutorUi
+            [Windows.Forms.MessageBox]::Show(
+                "ĐÃ RESET ROBOT. Active project '$($reset.ProjectId)' đã sạch runtime state ở generation $($reset.ProjectGeneration). Bây giờ hãy chọn profile muốn chạy và bấm START.",
+                'RESET ROBOT HOÀN TẤT',
+                'OK',
+                'Information'
+            ) | Out-Null
+        } catch {
+            [Windows.Forms.MessageBox]::Show($_.Exception.Message,'RESET ROBOT THẤT BẠI','OK','Warning')|Out-Null
         }
     })
 
