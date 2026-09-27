@@ -84,3 +84,53 @@ test("production panel refresh uses Planner/Executor lifecycle truth, not legacy
   assert.match(refresh, /chatgpt_work_mode_invocations/);
   assert.doesNotMatch(refresh, /lane-status\.json|lane-registry\.json|brain_url|work_url/);
 });
+
+
+test("production panel exposes editable Planner and Executor URL inputs with guarded save", async () => {
+  const panel = await read("../windows/control-panel.ps1");
+  const start = panel.indexOf("function Show-PlannerExecutorControlPanel");
+  const end = panel.indexOf("$plannerExecutorPanelState =", start);
+  const productionPanel = panel.slice(start, end);
+
+  assert.match(panel, /function Save-PlannerExecutorTargets/);
+  assert.match(productionPanel, /LINK CHAT PLANNER/);
+  assert.match(productionPanel, /LINK CHAT EXECUTOR/);
+  assert.match(productionPanel, /LƯU 2 LINK CHAT/);
+  assert.match(productionPanel, /Save-PlannerExecutorTargets \$plannerBox\.Text\.Trim\(\) \$executorBox\.Text\.Trim\(\)/);
+  assert.match(panel, /ConvertTo-CanonicalChatConversationUrl \$PlannerUrl/);
+  assert.match(panel, /ConvertTo-CanonicalChatConversationUrl \$ExecutorUrl/);
+  assert.match(panel, /Planner và Executor phải là hai cuộc trò chuyện ChatGPT khác nhau/);
+});
+
+test("target edits are fail-closed while Robot is running or transfer state is active", async () => {
+  const panel = await read("../windows/control-panel.ps1");
+
+  const saveStart = panel.indexOf("function Save-PlannerExecutorTargets");
+  const saveEnd = panel.indexOf("function Show-PlannerExecutorControlPanel", saveStart);
+  const save = panel.slice(saveStart, saveEnd);
+  assert.match(save, /if \(\[bool\]\$truth\.wrapper_alive\)/);
+  assert.match(save, /Hãy STOP ROBOT trước khi đổi link Planner\/Executor/);
+  assert.match(save, /assignment/);
+  assert.match(save, /result/);
+
+  const refreshStart = panel.indexOf("function Refresh-PlannerExecutorUi");
+  const refreshEnd = panel.indexOf("$startButton.Add_Click", refreshStart);
+  const refresh = panel.slice(refreshStart, refreshEnd);
+  assert.match(refresh, /\$safeToEditTargets/);
+  assert.match(refresh, /\$plannerBox\.ReadOnly = -not \$safeToEditTargets/);
+  assert.match(refresh, /\$executorBox\.ReadOnly = -not \$safeToEditTargets/);
+  assert.match(refresh, /\$saveTargetsButton\.Enabled = \$safeToEditTargets/);
+});
+
+test("changing a target bumps only its revision and resets latest-turn cursor", async () => {
+  const panel = await read("../windows/control-panel.ps1");
+  const saveStart = panel.indexOf("function Save-PlannerExecutorTargets");
+  const saveEnd = panel.indexOf("function Show-PlannerExecutorControlPanel", saveStart);
+  const save = panel.slice(saveStart, saveEnd);
+
+  assert.match(save, /\$planner\.target_revision = \[int\].*\+ 1/);
+  assert.match(save, /\$executor\.target_revision = \[int\].*\+ 1/);
+  assert.match(save, /\$planner\.last_seen_assistant_turn_id = \$null/);
+  assert.match(save, /\$executor\.last_seen_assistant_turn_id = \$null/);
+  assert.match(save, /Write-JsonAtomic \$plannerExecutorStateFile \$state/);
+});
