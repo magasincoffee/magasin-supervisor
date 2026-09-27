@@ -12,21 +12,33 @@ const upstreamUserscriptText = await fs.readFile(userscriptPath, "utf8");
 const expectedBridgeOrigin = new URL(bridgeBase).origin;
 
 function applyPinnedCompatibilityOverlay(source) {
-  const needle = ': [\'button[data-testid="send-button"]\', \'button[aria-label="发送"]\', \'button[aria-label="Send"]\', \'form button[type="submit"]\'];';
-  const replacement = ': [\'button[data-testid="send-button"]\', \'button#composer-submit-button\', \'button[data-testid="composer-submit-button"]\', \'button[data-testid="composer-send-button"]\', \'button[aria-label="发送"]\', \'button[aria-label="Send"]\', \'form button[type="submit"]\'];';
-  if (!source.includes(needle)) {
+  const sendNeedle = ': [\'button[data-testid="send-button"]\', \'button[aria-label="发送"]\', \'button[aria-label="Send"]\', \'form button[type="submit"]\'];';
+  const sendReplacement = ': [\'button[data-testid="send-button"]\', \'button#composer-submit-button\', \'button[data-testid="composer-submit-button"]\', \'button[data-testid="composer-send-button"]\', \'button[aria-label="发送"]\', \'button[aria-label="Send"]\', \'button[aria-label="Gửi"]\', \'form button[type="submit"]\'];';
+  if (!source.includes(sendNeedle)) {
     throw new Error("pinned upstream ChatGPT send-selector block no longer matches expected commit");
   }
-  let patched = source.replace(needle, replacement);
+  let patched = source.replace(sendNeedle, sendReplacement);
 
-  const inputPattern = /([ \t]*editor\.innerHTML = '';\r?\n[ \t]*document\.execCommand\('insertText', false, text\);)/;
+  const inputPattern = /[ \t]*editor\.innerHTML = '';\r?\n[ \t]*document\.execCommand\('insertText', false, text\);/;
   if (!inputPattern.test(patched)) {
     throw new Error("pinned upstream ChatGPT contenteditable input block no longer matches expected commit");
   }
-  patched = patched.replace(inputPattern, (match) => [
-    match,
-    "      if (!(editor.innerText || editor.textContent || '').trim()) {",
+  const inputReplacement = [
+    "      editor.innerHTML = '';",
+    "      const range = document.createRange();",
+    "      range.selectNodeContents(editor);",
+    "      range.collapse(true);",
+    "      const selection = window.getSelection();",
+    "      selection.removeAllRanges();",
+    "      selection.addRange(range);",
+    "      const inserted = document.execCommand('insertText', false, text);",
+    "      if (!inserted || !(editor.innerText || editor.textContent || '').trim()) {",
     "        editor.textContent = text;",
+    "        const fallbackRange = document.createRange();",
+    "        fallbackRange.selectNodeContents(editor);",
+    "        fallbackRange.collapse(false);",
+    "        selection.removeAllRanges();",
+    "        selection.addRange(fallbackRange);",
     "      }",
     "      try {",
     "        editor.dispatchEvent(new InputEvent('input', {",
@@ -37,34 +49,8 @@ function applyPinnedCompatibilityOverlay(source) {
     "      } catch {",
     "        editor.dispatchEvent(new Event('input', { bubbles: true }));",
     "      }"
-  ].join("\n"));
-  const settleNeedle = "    await sleep(400);\n    // Enter";
-  const settleReplacement = [
-    "    await sleep(400);",
-    "    (globalThis.__mbv1BridgeStages ||= []).push({",
-    "      stage: 'MBV1_STAGE_AFTER_INPUT_SETTLE',",
-    "      text: (editor.innerText || editor.value || editor.textContent || '').slice(0, 300)",
-    "    });",
-    "    // Enter"
   ].join("\n");
-  if (!patched.includes(settleNeedle)) {
-    throw new Error("pinned upstream post-input settle block no longer matches expected commit");
-  }
-  patched = patched.replace(settleNeedle, settleReplacement);
-
-  const enterNeedle = "    await sleep(2000);\n    if ((editor.innerText || editor.value || '').trim().length > 0) {";
-  const enterReplacement = [
-    "    await sleep(2000);",
-    "    (globalThis.__mbv1BridgeStages ||= []).push({",
-    "      stage: 'MBV1_STAGE_AFTER_ENTER_WAIT',",
-    "      text: (editor.innerText || editor.value || editor.textContent || '').slice(0, 300)",
-    "    });",
-    "    if ((editor.innerText || editor.value || '').trim().length > 0) {"
-  ].join("\n");
-  if (!patched.includes(enterNeedle)) {
-    throw new Error("pinned upstream post-enter block no longer matches expected commit");
-  }
-  patched = patched.replace(enterNeedle, enterReplacement);
+  patched = patched.replace(inputPattern, inputReplacement);
   return patched;
 }
 
@@ -390,8 +376,6 @@ try {
   );
   log("MBV1_001_PLANNER_POST_DISPATCH_EDITOR", plannerPostDispatchSnapshot?.editorText || "");
   log("MBV1_001_PLANNER_POST_DISPATCH_GENERATING", plannerPostDispatchSnapshot?.isGenerating);
-  const bridgeStages = await plannerPage.evaluate(() => globalThis.__mbv1BridgeStages || []);
-  log("MBV1_001_PLANNER_BRIDGE_STAGES", JSON.stringify(bridgeStages));
   await logChatSurfaceDiagnostics(plannerPage, "PLANNER_POST_DISPATCH");
   await waitForBridgeTurn(plannerPageId, "user", plannerToken, 20_000);
   const plannerReplySnapshot = await waitForBridgeTurn(
