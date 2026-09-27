@@ -120,13 +120,18 @@
     {
       "id": "PE-003",
       "priority": "P1",
-      "state": "READY_TO_EXECUTE",
-      "name": "Two warm-tab runtime"
+      "state": "IMPLEMENTED_COMPLETE",
+      "name": "Two warm-tab runtime",
+      "pr": 129,
+      "merge_sha": "a2f99e5523cf7f2526c6a86f40738a89638b9fac",
+      "acceptance_status": "REGRESSION_GREEN",
+      "supervisor_tests_run": 36292664760,
+      "supervisor_integrity_run": 36292664717
     },
     {
       "id": "PE-004",
       "priority": "P1",
-      "state": "PLANNED",
+      "state": "READY_TO_EXECUTE",
       "name": "Exact-once and recovery"
     },
     {
@@ -219,5 +224,21 @@
     "canonical_machine_frame_module": "src/runtime/machine-frame.mjs",
     "newest_turn_parser": "src/runtime/latest-machine-turn.mjs",
     "full_history_scan_normal_path": false
+  },
+  "pe003_evidence": {
+    "pr": 129,
+    "merge_sha": "a2f99e5523cf7f2526c6a86f40738a89638b9fac",
+    "supervisor_tests_run": 36292664760,
+    "supervisor_tests": "PASS",
+    "supervisor_integrity_run": 36292664717,
+    "supervisor_integrity": "PASS",
+    "supervisor_lifecycle_run": 36292664723,
+    "supervisor_lifecycle": "PASS",
+    "supervisor_autostart_run": 36292664733,
+    "supervisor_autostart_isolated": "PASS",
+    "exact_warm_chatgpt_tabs": 2,
+    "chatgpt_work_mode_invocations": 0,
+    "production_cutover": false,
+    "three_lane_scheduler_dependency": false
   }
 }
