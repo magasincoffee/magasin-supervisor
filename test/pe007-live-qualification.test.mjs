@@ -44,6 +44,8 @@ test("PE-007 workflow is isolated, target guarded, and does not cut over product
   assert.doesNotMatch(workflow, /stop-supervisor\.ps1/);
 
   assert.match(wrapper, /PE007_QUAL_TARGET_MATCH=False/);
+  assert.match(wrapper, /PE007_QUAL_NON_TARGET_FAIL_CLOSED=True/);
+  assert.match(wrapper, /exit 86/);
   assert.match(wrapper, /Get-LifecycleRobotChrome/);
   assert.match(wrapper, /SUPERVISOR_PE007_CDP_URL/);
   assert.match(wrapper, /PE007_QUAL_STATE_ROOT_BINDING_MUTATED=False/);
