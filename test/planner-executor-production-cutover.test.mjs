@@ -311,6 +311,19 @@ test("Planner bootstrap runs only after execute-mode dry-run exit", async () => 
   assert.match(source.slice(dryRunIndex, bootstrapIndex), /process\.exit\(0\)/);
 });
 
+test("historical bootstrap ownership is render-equivalent but guarded clear uses the exact live composer digest", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/planner-executor-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /function normalizeBootstrapOwnershipText/);
+  assert.match(source, /\.replace\(\/\\s\+\/gu, " "\)/);
+  assert.match(source, /normalizeBootstrapOwnershipText\(candidate\) === observedOwnershipText/);
+  assert.match(source, /digest: observedDigest/);
+  assert.doesNotMatch(source, /digest: candidateDigest/);
+});
+
 test("project bootstrap safely migrates canonical Robot drafts from current or prior generations", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/planner-executor-cli.mjs", import.meta.url),
