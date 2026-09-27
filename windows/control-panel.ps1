@@ -803,17 +803,23 @@ function Save-PlannerExecutorProjectProfile(
     [string]$PlannerUrl,
     [string]$ExecutorUrl
 ) {
-    $truth = Get-LifecycleProcessTruth -Root $root
-    if ([bool]$truth.wrapper_alive) { throw 'Hãy STOP ROBOT trước khi lưu project profile.' }
     $id = Assert-ProjectId $ProjectId
     $source = ConvertTo-CanonicalSourceOfTruthUrl $SourceUrl
     $planner = ConvertTo-CanonicalChatConversationUrl $PlannerUrl
     $executor = ConvertTo-CanonicalChatConversationUrl $ExecutorUrl
     if ($planner -eq $executor) { throw 'Planner và Executor phải là hai cuộc trò chuyện ChatGPT khác nhau.' }
 
-    $registry = Save-ActiveProjectSnapshot
+    # Saving a new/inactive profile is registry-only configuration and MUST NOT
+    # disturb the active runtime. Safe-boundary checks apply only when the
+    # profile being edited is the active project.
+    $registry = Ensure-PlannerExecutorProjectProfiles
     $profile = Get-PlannerExecutorProjectProfile $registry $id
-    if ([string]$registry.active_project_id -eq $id) {
+    $isActiveProfile = [bool]([string]$registry.active_project_id -eq $id)
+    if ($isActiveProfile) {
+        $truth = Get-LifecycleProcessTruth -Root $root
+        if ([bool]$truth.wrapper_alive) {
+            throw 'Project đang active; hãy STOP ROBOT trước khi sửa Source/Chat của project này.'
+        }
         $activeState = Read-JsonFile $plannerExecutorStateFile
         if (
             $null -ne (Get-OptionalPropertyValue $activeState 'assignment' $null) -or
@@ -821,6 +827,8 @@ function Save-PlannerExecutorProjectProfile(
         ) {
             throw 'Project đang active còn assignment/result mở; chỉ được đổi Source/Chat ở safe boundary.'
         }
+        $registry = Save-ActiveProjectSnapshot
+        $profile = Get-PlannerExecutorProjectProfile $registry $id
     }
     if (-not $profile) {
         $newState = New-PlannerExecutorProjectState $id $ProjectName $source $planner $executor
@@ -1051,6 +1059,13 @@ function Show-PlannerExecutorControlPanel {
     $loadProjectButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
     $projectPanel.Controls.Add($loadProjectButton)
 
+    $newProjectButton = New-Object Windows.Forms.Button
+    $newProjectButton.Location = New-Object Drawing.Point(405, 48)
+    $newProjectButton.Size = New-Object Drawing.Size(150, 32)
+    $newProjectButton.Text = 'TẠO PROFILE MỚI'
+    $newProjectButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+    $projectPanel.Controls.Add($newProjectButton)
+
     $projectNameBox = New-Object Windows.Forms.TextBox
     $projectNameBox.Location = New-Object Drawing.Point(18, 92)
     $projectNameBox.Size = New-Object Drawing.Size(377, 27)
@@ -1172,8 +1187,13 @@ function Show-PlannerExecutorControlPanel {
     $targetNote.Size = New-Object Drawing.Size(365, 70)
     $targetNote.TextAlign = 'MiddleCenter'
     $targetNote.ForeColor = [Drawing.Color]::FromArgb(100,116,139)
-    $targetNote.Text = 'Mỗi profile lưu Source of Truth + Planner + Executor. Chỉ 1 project active / 2 ChatGPT tabs tại một thời điểm.'
+    $targetNote.Text = 'Chọn profile để xem/sửa; dùng TẠO PROFILE MỚI để lưu dự án khác. Chỉ NẠP DỰ ÁN mới đổi project active.'
     $projectPanel.Controls.Add($targetNote)
+
+    $profileEditor = [pscustomobject]@{
+        Draft = $false
+        Suppress = $false
+    }
 
     $footer = New-Object Windows.Forms.Panel
     $footer.Location = New-Object Drawing.Point(20, 748)
@@ -1192,12 +1212,52 @@ function Show-PlannerExecutorControlPanel {
     $updatedLabel.Size = New-Object Drawing.Size(940, 22)
     $footer.Controls.Add($updatedLabel)
 
-    function Reload-ProjectSelector {
+    function Set-ProjectProfileEditor([string]$ProjectId) {
+        $id = [string]$ProjectId
+        if (-not $id) { return $false }
         $registry = Ensure-PlannerExecutorProjectProfiles
+        $profile = Get-PlannerExecutorProjectProfile $registry $id
+        if (-not $profile) { return $false }
+
+        $profileEditor.Suppress = $true
+        try {
+            $projectSelector.Text = [string]$profile.project_id
+            $projectNameBox.Text = [string](Get-OptionalPropertyValue $profile 'project_name' $profile.project_id)
+            $sourceBox.Text = [string](Get-OptionalPropertyValue $profile 'source_of_truth_url' '')
+            $plannerBox.Text = [string](Get-OptionalPropertyValue $profile 'planner_url' '')
+            $executorBox.Text = [string](Get-OptionalPropertyValue $profile 'executor_url' '')
+            $profileEditor.Draft = $false
+        } finally {
+            $profileEditor.Suppress = $false
+        }
+        return $true
+    }
+
+    function Begin-NewProjectProfileDraft([string]$ProjectId = '') {
+        $profileEditor.Suppress = $true
+        try {
+            $profileEditor.Draft = $true
+            $projectSelector.Text = [string]$ProjectId
+            $projectNameBox.Text = ''
+            $sourceBox.Text = ''
+            $plannerBox.Text = ''
+            $executorBox.Text = ''
+        } finally {
+            $profileEditor.Suppress = $false
+        }
+    }
+
+    function Reload-ProjectSelector([string]$PreferredProjectId = '') {
+        $registry = Ensure-PlannerExecutorProjectProfiles
+        $current = if ($PreferredProjectId) { [string]$PreferredProjectId } else { [string]$projectSelector.Text }
         $projectSelector.Items.Clear()
         foreach ($profile in @($registry.profiles)) { [void]$projectSelector.Items.Add([string]$profile.project_id) }
         $active = [string](Get-OptionalPropertyValue $registry 'active_project_id' '')
-        if ($active) { $projectSelector.Text = $active }
+        $target = if ($current) { $current } else { $active }
+        if ($target) {
+            $profileEditor.Suppress = $true
+            try { $projectSelector.Text = $target } finally { $profileEditor.Suppress = $false }
+        }
     }
 
     function Refresh-PlannerExecutorUi {
@@ -1213,11 +1273,19 @@ function Show-PlannerExecutorControlPanel {
         $executorUrl = [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'executor' $null) 'target' '')
         $generation = [int](Get-OptionalPropertyValue $state 'project_generation' 1)
 
-        if (-not $projectSelector.Focused) { $projectSelector.Text = $projectId }
-        if (-not $projectNameBox.Focused) { $projectNameBox.Text = $projectName }
-        if (-not $sourceBox.Focused) { $sourceBox.Text = $sourceUrl }
-        if (-not $plannerBox.Focused) { $plannerBox.Text = $plannerUrl }
-        if (-not $executorBox.Focused) { $executorBox.Text = $executorUrl }
+        $editorProjectId = [string]$projectSelector.Text.Trim()
+        if (-not $editorProjectId -and -not $profileEditor.Draft) {
+            $profileEditor.Suppress = $true
+            try { $projectSelector.Text = $projectId } finally { $profileEditor.Suppress = $false }
+            $editorProjectId = $projectId
+        }
+        $editingActiveProfile = [bool](-not $profileEditor.Draft -and $editorProjectId -eq $projectId)
+        if ($editingActiveProfile) {
+            if (-not $projectNameBox.Focused) { $projectNameBox.Text = $projectName }
+            if (-not $sourceBox.Focused) { $sourceBox.Text = $sourceUrl }
+            if (-not $plannerBox.Focused) { $plannerBox.Text = $plannerUrl }
+            if (-not $executorBox.Focused) { $executorBox.Text = $executorUrl }
+        }
 
         $activeTask = [string](Get-OptionalPropertyValue $state 'active_task_id' '')
         if (-not $activeTask) { $activeTask = '—' }
@@ -1272,25 +1340,33 @@ function Show-PlannerExecutorControlPanel {
             $bootstrapValue.Text="PROJECT GENERATION: $generation" + [Environment]::NewLine + 'Source of Truth context: đã bootstrap.'
         }
 
-        $plannerReady=Test-ChatConversationUrl $plannerUrl
-        $executorReady=Test-ChatConversationUrl $executorUrl
-        $sourceReady=$false
-        try { [void](ConvertTo-CanonicalSourceOfTruthUrl $sourceUrl); $sourceReady=$true } catch {}
-        $plannerButton.Enabled=$plannerReady
-        $executorButton.Enabled=$executorReady
-        $openSourceButton.Enabled=$sourceReady
+        $activePlannerReady=Test-ChatConversationUrl $plannerUrl
+        $activeExecutorReady=Test-ChatConversationUrl $executorUrl
+        $activeSourceReady=$false
+        try { [void](ConvertTo-CanonicalSourceOfTruthUrl $sourceUrl); $activeSourceReady=$true } catch {}
+
+        $editorPlannerReady=Test-ChatConversationUrl ($plannerBox.Text.Trim())
+        $editorExecutorReady=Test-ChatConversationUrl ($executorBox.Text.Trim())
+        $editorSourceReady=$false
+        try { [void](ConvertTo-CanonicalSourceOfTruthUrl ($sourceBox.Text.Trim())); $editorSourceReady=$true } catch {}
+        $plannerButton.Enabled=$editorPlannerReady
+        $executorButton.Enabled=$editorExecutorReady
+        $openSourceButton.Enabled=$editorSourceReady
 
         $hasTransfer=[bool]($null -ne (Get-OptionalPropertyValue $state 'assignment' $null) -or $null -ne (Get-OptionalPropertyValue $state 'result' $null))
         $robotStopped=[bool](-not $truth.wrapper_alive)
         $safeToSwitch=[bool]($robotStopped -and -not $hasTransfer)
-        $saveProjectButton.Enabled=$robotStopped
-        $loadProjectButton.Enabled=$safeToSwitch
-        $projectSelector.Enabled=$robotStopped
-        $projectNameBox.ReadOnly=-not $robotStopped
-        $sourceBox.ReadOnly=-not $robotStopped
-        $plannerBox.ReadOnly=-not $robotStopped
-        $executorBox.ReadOnly=-not $robotStopped
-        $startButton.Enabled=[bool]($plannerReady -and $executorReady -and $sourceReady -and -not $running)
+        $activeProfileSafeToEdit=[bool]($safeToSwitch)
+        $profileInputsEditable=[bool](-not $editingActiveProfile -or $activeProfileSafeToEdit)
+        $saveProjectButton.Enabled=$profileInputsEditable
+        $loadProjectButton.Enabled=[bool]($safeToSwitch -and -not $profileEditor.Draft -and $editorProjectId)
+        $newProjectButton.Enabled=$true
+        $projectSelector.Enabled=$true
+        $projectNameBox.ReadOnly=-not $profileInputsEditable
+        $sourceBox.ReadOnly=-not $profileInputsEditable
+        $plannerBox.ReadOnly=-not $profileInputsEditable
+        $executorBox.ReadOnly=-not $profileInputsEditable
+        $startButton.Enabled=[bool]($activePlannerReady -and $activeExecutorReady -and $activeSourceReady -and -not $running)
         $stopButton.Enabled=[bool]($truth.wrapper_alive -or -not $ownerStop.blocked)
 
         $runner=Get-RunnerProcess
@@ -1302,19 +1378,37 @@ function Show-PlannerExecutorControlPanel {
         $diagnosticLabel.Text="Active project: $projectId • generation $generation • Source of Truth anchored." + [Environment]::NewLine + '1 active project / 2 normal ChatGPT tabs; mỗi profile có state snapshot riêng.'
     }
 
+    $projectSelector.Add_SelectionChangeCommitted({
+        if ($profileEditor.Suppress) { return }
+        [void](Set-ProjectProfileEditor ($projectSelector.Text.Trim()))
+        Refresh-PlannerExecutorUi
+    })
+
+    $newProjectButton.Add_Click({
+        Begin-NewProjectProfileDraft
+        Refresh-PlannerExecutorUi
+        $projectSelector.Focus()
+    })
+
     $saveProjectButton.Add_Click({
         try {
             $result=Save-PlannerExecutorProjectProfile ($projectSelector.Text.Trim()) ($projectNameBox.Text.Trim()) ($sourceBox.Text.Trim()) ($plannerBox.Text.Trim()) ($executorBox.Text.Trim())
-            Reload-ProjectSelector; Refresh-PlannerExecutorUi
-            $msg=if($result.Created){'Đã tạo project profile. Bấm NẠP DỰ ÁN để kích hoạt.'}else{'Đã cập nhật project profile.'}
+            Reload-ProjectSelector $result.ProjectId
+            [void](Set-ProjectProfileEditor $result.ProjectId)
+            Refresh-PlannerExecutorUi
+            $msg=if($result.Created){'Đã tạo project profile. Bấm NẠP DỰ ÁN khi muốn kích hoạt.'}else{'Đã cập nhật project profile.'}
             [Windows.Forms.MessageBox]::Show($msg,'MAGASIN SUPERVISOR','OK','Information')|Out-Null
         } catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message,'KHÔNG THỂ LƯU PROJECT','OK','Warning')|Out-Null }
     })
 
     $loadProjectButton.Add_Click({
         try {
-            [void](Switch-PlannerExecutorProject ($projectSelector.Text.Trim()))
-            Reload-ProjectSelector; Refresh-PlannerExecutorUi
+            $loadedId = $projectSelector.Text.Trim()
+            [void](Switch-PlannerExecutorProject $loadedId)
+            $profileEditor.Draft = $false
+            Reload-ProjectSelector $loadedId
+            [void](Set-ProjectProfileEditor $loadedId)
+            Refresh-PlannerExecutorUi
             [Windows.Forms.MessageBox]::Show('Đã nạp project. Khi START, Planner sẽ đọc lại Source of Truth trước khi giao task.','MAGASIN SUPERVISOR','OK','Information')|Out-Null
         } catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message,'KHÔNG THỂ NẠP PROJECT','OK','Warning')|Out-Null }
     })
@@ -1338,12 +1432,21 @@ function Show-PlannerExecutorControlPanel {
     $plannerButton.Add_Click({ Open-RobotUrl ($plannerBox.Text.Trim()) })
     $executorButton.Add_Click({ Open-RobotUrl ($executorBox.Text.Trim()) })
     $runnerButton.Add_Click({ [void](Ensure-Runner) })
-    $refreshButton.Add_Click({ Reload-ProjectSelector; Refresh-PlannerExecutorUi })
+    $refreshButton.Add_Click({
+        $selected = $projectSelector.Text.Trim()
+        Reload-ProjectSelector $selected
+        if (-not $profileEditor.Draft -and $selected) { [void](Set-ProjectProfileEditor $selected) }
+        Refresh-PlannerExecutorUi
+    })
 
     $timer=New-Object Windows.Forms.Timer
     $timer.Interval=2000
     $timer.Add_Tick({ Refresh-PlannerExecutorUi })
-    $form.Add_Shown({ Reload-ProjectSelector; Refresh-PlannerExecutorUi })
+    $form.Add_Shown({
+        Reload-ProjectSelector
+        [void](Set-ProjectProfileEditor ($projectSelector.Text.Trim()))
+        Refresh-PlannerExecutorUi
+    })
     $form.Add_FormClosed({ $timer.Stop(); $timer.Dispose() })
     $timer.Start()
     [void]$form.ShowDialog()
