@@ -1,12 +1,12 @@
 # MAGASIN Supervisor — Planner / Executor V1 Source of Truth
 
-Status: **CANONICAL FORWARD ARCHITECTURE**
+Status: **CANONICAL PRODUCTION ARCHITECTURE**
 
 This document is the forward architecture authority for MAGASIN Supervisor after Owner approval on 2026-09-27.
 
 It supersedes the unmerged Single-Lane V3 planning lineage represented by PRs #102, #103, #104, #105, #106 and #108. Those branches remain available only as implementation/reference material and must not be merged as-is.
 
-This document does **not** by itself cut over the currently released production runtime. The released Three-Lane runtime remains the rollback/production baseline until Planner/Executor V1 passes its own qualification and the Owner authorizes cutover.
+Planner/Executor V1 is the active production orchestration architecture. The released Three-Lane runtime is retained only as a rollback/historical baseline.
 
 ## 1. Canonical role model
 
@@ -339,32 +339,26 @@ Regression gates passed: Supervisor Tests `36294115756`, Integrity `36294115776`
 
 **PE-007 is now READY_TO_EXECUTE.**
 
-### PE-007 — LIVE QUALIFIED / AWAITING OWNER CUTOVER
+### PE-007 — PRODUCTION CUTOVER COMPLETE
 **Qualification and Owner-authorized cutover**
 
-Authoritative PE-007 live qualification PASSED on workflow run `36295980129` against candidate `561a64bf2cd62503b78219b53fb5e71413dc2056`.
+PE-007 live qualification and Owner-authorized production cutover are complete.
 
-Authority evidence is persisted at:
+Authoritative production cutover evidence:
 
-`.github/qualification/pe007-latest.json`
-
-Live evidence proved:
+- workflow run `36299510864`: **PASS**;
+- candidate `514e2aadfa0878e6f2aa7f9249622e87449d494f`;
 - target machine `DESKTOP-4K7IM13`;
-- exactly two normal ChatGPT conversations for Planner + Executor;
-- zero ChatGPT Work mode invocations;
-- initial assignment -> intentional FAIL report -> Planner reject with bounded correction -> correction PASS report -> Planner DONE;
-- exact correlation `A001/R001` then `A002/R002`;
-- four relay/assignment cycle sends, each confirmed by `matching-user-turn-observed`;
-- terminal DONE persisted;
-- production state, production targets, and state-root binding unchanged;
-- qualification-owned Chrome cleaned up after PASS;
-- authority gate accepted only the real target runner; non-target runner could not satisfy qualification.
+- authoritative evidence commit `542460e7fc4c34f234f7e7c214b541b54d5b9c65`;
+- evidence file `.github/qualification/pe007-cutover-latest.json`;
+- production mode `PLANNER_EXECUTOR_V1`;
+- exactly **2** normal ChatGPT tabs;
+- **0** ChatGPT Work mode invocations;
+- rollback snapshot ready before production mutation;
+- authority gate accepted only the real target-machine PASS.
 
-**Owner cutover authorization is now explicit and recorded (2026-09-27).** Production cutover remains false until the guarded target-machine cutover workflow proves PASS. The next gate is **PRODUCTION_CUTOVER_EXECUTION**, with automatic rollback required on failed mutation.
+The production runtime is now Planner/Executor V1. Three-Lane remains available only through the retained rollback snapshot/historical release evidence.
 
-The exact released legacy runtime snapshot must remain available for rollback through cutover.
-
-A cutover-specific **legacy result-review boundary** is also permitted when the only blockers are `ACTIVE_LEGACY_TASK` + `LEGACY_PLANNER_REQUEST_SENT_UNCONSUMED` and exact durable evidence proves the Executor assignment/result were already delivered, with no Executor await, dispatch/relay inflight, or Planner-request inflight. In that exact state, cutover adopts the pending review into Planner/Executor durable state and asks Planner to restate the verdict in `@M` protocol; it MUST NOT replay Executor work or re-relay the result. Any missing/ambiguous evidence remains fail-closed.
 
 ## 11. Non-goals before PE-001 is proven
 
@@ -417,4 +411,4 @@ override conflicting forward-planning language in older architecture/planning do
 
 Historical release evidence remains historical truth for the runtime version it documents.
 
-Current production is not considered cut over to Planner/Executor V1 until PE-007 qualification and explicit Owner authorization.
+Current production is Planner/Executor V1. PE-007 production cutover completed successfully under explicit Owner authorization; Three-Lane is rollback/historical only.

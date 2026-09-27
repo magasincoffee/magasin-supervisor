@@ -1,9 +1,9 @@
 {
   "schema": "supervisor-planner-executor-v1-source-of-truth.v1",
-  "status": "CANONICAL_FORWARD_ARCHITECTURE",
+  "status": "CANONICAL_PRODUCTION_ARCHITECTURE",
   "approved_date": "2026-09-27",
-  "production_cutover": false,
-  "current_production_role": "LEGACY_RELEASED_RUNTIME_UNTIL_PE007",
+  "production_cutover": true,
+  "current_production_role": "PLANNER_EXECUTOR_V1",
   "roles": {
     "planner": {
       "purpose": "plan_assign_review_decide_next",
@@ -164,13 +164,17 @@
     {
       "id": "PE-007",
       "priority": "P3",
-      "state": "CUTOVER_AUTHORIZED_EXECUTION_PENDING",
+      "state": "PRODUCTION_CUTOVER_COMPLETE",
       "name": "Qualification and Owner-authorized cutover",
-      "acceptance_status": "LIVE_QUALIFIED",
+      "acceptance_status": "PRODUCTION_PASS",
       "qualification_workflow_run": 36295980129,
       "qualification_candidate_sha": "561a64bf2cd62503b78219b53fb5e71413dc2056",
       "qualification_evidence_commit": "1300948",
-      "cutover_authorized_at": "2026-09-27T11:55:00+07:00"
+      "cutover_authorized_at": "2026-09-27T11:55:00+07:00",
+      "cutover_workflow_run": 36299510864,
+      "cutover_candidate_sha": "514e2aadfa0878e6f2aa7f9249622e87449d494f",
+      "cutover_evidence_commit": "542460e7fc4c34f234f7e7c214b541b54d5b9c65",
+      "cutover_completed_at_utc": "2026-09-27T06:19:03.8473241Z"
     }
   ],
   "pe001_acceptance": [
@@ -347,8 +351,8 @@
     "production_targets_mutated": false,
     "state_root_binding_mutated": false,
     "isolated_chrome_cleanup": true,
-    "production_cutover": false,
-    "next_gate": "PRODUCTION_CUTOVER_EXECUTION",
+    "production_cutover": true,
+    "next_gate": "PE007_COMPLETE__POST_CUTOVER_MONITORING",
     "legacy_result_review_handoff": {
       "allowed": true,
       "scope": "CUTOVER_ONLY",
@@ -375,5 +379,27 @@
     "authorized_at": "2026-09-27T11:55:00+07:00",
     "scope": "PLANNER_EXECUTOR_V1_PRODUCTION_CUTOVER",
     "source": "OWNER_EXPLICIT_AUTHORIZATION"
+  },
+  "production_cutover_evidence": {
+    "status": "PASS",
+    "workflow_run_id": 36299510864,
+    "workflow_run_number": 5,
+    "candidate_sha": "514e2aadfa0878e6f2aa7f9249622e87449d494f",
+    "authoritative_evidence_path": ".github/qualification/pe007-cutover-latest.json",
+    "authoritative_evidence_commit": "542460e7fc4c34f234f7e7c214b541b54d5b9c65",
+    "target_computer": "DESKTOP-4K7IM13",
+    "attempt_1": {
+      "target_match": false,
+      "cutover": false
+    },
+    "attempt_2": {
+      "target_match": true,
+      "cutover": true
+    },
+    "production_mode": "PLANNER_EXECUTOR_V1",
+    "normal_chatgpt_tabs": 2,
+    "chatgpt_work_mode_invocations": 0,
+    "rollback_ready": true,
+    "completed_at_utc": "2026-09-27T06:19:03.8473241Z"
   }
 }
