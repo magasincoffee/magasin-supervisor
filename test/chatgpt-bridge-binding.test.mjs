@@ -33,6 +33,18 @@ test("normalizes exact Planner and Executor ChatGPT conversation targets", () =>
   assert.equal(value.executor.canonical_url, "https://chatgpt.com/c/executor-456");
 });
 
+test("nested GPT/Project route resolves to canonical conversation identity", () => {
+  const conversationId = "12345678-1234-1234-1234-123456789abc";
+  const value = normalizeBridgeRoleTargets({
+    plannerUrl: "https://chatgpt.com/g/g-p-demo/c/" + conversationId,
+    executorUrl: "https://chatgpt.com/c/executor-456"
+  });
+  assert.equal(
+    value.planner.canonical_url,
+    "https://chatgpt.com/c/" + conversationId
+  );
+});
+
 test("fails closed when Planner and Executor URLs identify the same conversation", () => {
   assert.throws(
     () => normalizeBridgeRoleTargets({
