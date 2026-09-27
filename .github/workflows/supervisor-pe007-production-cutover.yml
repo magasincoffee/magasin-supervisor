@@ -1,24 +1,6 @@
 name: PE-007 Planner Executor Production Cutover
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/supervisor-pe007-production-cutover.yml'
-      - '.github/scripts/supervisor-pe007-production-cutover.ps1'
-      - '.github/scripts/supervisor-pe007-cutover-attempt.ps1'
-      - 'src/runtime/planner-executor-cutover.mjs'
-      - 'src/runtime/planner-executor-cutover-cli.mjs'
-      - 'src/runtime/planner-executor-cli.mjs'
-      - 'src/runtime/planner-executor.mjs'
-      - 'src/runtime/planner-executor-session.mjs'
-      - 'src/runtime/planner-executor-automation.mjs'
-      - 'windows/run-supervisor.ps1'
-      - 'windows/lifecycle-truth.ps1'
-      - 'windows/install-supervisor.ps1'
-      - 'windows/repair-supervisor.ps1'
-      - 'docs/SUPERVISOR_PLANNER_EXECUTOR_V1_SOURCE_OF_TRUTH.json'
   workflow_dispatch:
 
 permissions:
