@@ -35,7 +35,8 @@ test("project profiles keep one active project while preserving per-project stat
   assert.match(panel, /Save-ActiveProjectSnapshot/);
   assert.match(panel, /Switch-PlannerExecutorProject/);
   assert.match(panel, /state_file/);
-  assert.match(panel, /1 active project \/ 2 normal ChatGPT tabs/);
+  assert.match(panel, /1 ACTIVE PROJECT/);
+  assert.match(panel, /ChatGPT tabs:/);
 });
 
 test("stopped projects may be parked with in-flight state while Source changes stay fail-closed", async () => {
