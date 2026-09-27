@@ -13,7 +13,7 @@ test("PE-001 live qualification is isolated to two normal chats and privacy-safe
   assert.match(source, /executorPage = await adapter\.newChatPage/);
   assert.match(source, /PE001_LIVE_CHATGPT_WORK_MODE_INVOCATIONS/);
   assert.match(source, /cycleSendCount !== 3/);
-  assert.match(source, /matching-user-turn-observed/);
+  assert.match(source, /user_turn_evidence/);
   assert.match(source, /production_state_mutated: false/);
   assert.match(source, /production_targets_mutated: false/);
   assert.match(source, /preexistingPages > 2/);
@@ -35,7 +35,7 @@ test("PE-001 live workflow is target-guarded and does not deploy production", as
   );
 
   assert.match(workflow, /runs-on: self-hosted/);
-  assert.match(workflow, /DESKTOP-4K7IM13/);
+  assert.match(workflow, /DESKTOP-4K7IM13/);\n  assert.match(workflow, /supervisor-pe001-live-qualification\\.ps1/);
   assert.match(workflow, /npm install --ignore-scripts --no-audit --no-fund/);
   assert.doesNotMatch(workflow, /start-supervisor\.ps1/);
   assert.doesNotMatch(workflow, /repair-supervisor\.ps1/);
