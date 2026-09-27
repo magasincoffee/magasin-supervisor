@@ -460,6 +460,9 @@
     "planner_rollover_rearms_source_bootstrap": true,
     "executor_rollover_same_assignment_handoff": true,
     "superseded_role_tab_close_policy": "EXACT_TARGET_MATCH_AND_NO_UNSENT_DRAFT",
-    "source_change": "SAFE_BOUNDARY_REQUIRED"
+    "source_change": "SAFE_BOUNDARY_REQUIRED",
+    "new_profile_creation_requires_explicit_new_project_id": true,
+    "new_profile_draft_may_overwrite_existing_profile": false,
+    "active_profile_field_edit_is_not_implicit_new_project": true
   }
 }
