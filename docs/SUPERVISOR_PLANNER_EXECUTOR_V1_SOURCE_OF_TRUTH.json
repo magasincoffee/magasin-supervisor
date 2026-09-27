@@ -71,7 +71,8 @@
     "stop_start_rehydrates_source_of_truth": true,
     "progress_bar_source": "PLANNER_PC_PT_FROM_SOURCE_OF_TRUTH",
     "reset_clears_all_project_session_data": true,
-    "reset_preserves_browser_login_runtime_and_runner": true
+    "reset_preserves_browser_login_runtime_and_runner": true,
+    "canonical_stale_bootstrap_cleanup_survives_link_only_identity_reset": true
   },
   "protocol": {
     "marker": "@M ",
@@ -136,15 +137,11 @@
       "historical_bootstrap_recovery": {
         "allowed_only_when": "exact canonical Robot bootstrap template match",
         "required_identity_match": [
-          "project_id",
           "source_of_truth_url"
         ],
-        "allowed_generation_range": "1..current project_generation",
-        "accepted_templates": [
-          "legacy raw @M",
-          "mention-safe <AT>M"
-        ],
-        "action": "DISMISS_TRANSIENT_UI_GUARDED_CLEAR_AND_RECOMPOSE_CURRENT_GENERATION",
+        "embedded_identity_reconstruction": true,
+        "current_runtime_identity_may_differ": true,
+        "action": "DISMISS_TRANSIENT_UI_GUARDED_CLEAR_AND_RECOMPOSE_CURRENT_LIVE_SESSION",
         "foreign_or_modified_draft": "FAIL_CLOSED_NO_OVERWRITE"
       }
     },

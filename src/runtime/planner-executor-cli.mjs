@@ -285,24 +285,28 @@ function matchCanonicalHistoricalProjectBootstrapDraft(draft, state) {
     generationLine.slice("project_generation=".length).trim()
   );
   const sourceUrl = sourceLine.slice("source_of_truth=".length).trim();
-  const currentProjectId = String(state?.project_id || "").trim();
-  const currentGeneration = Number(state?.project_generation || 1);
   const currentSourceUrl = String(
     state?.project_context?.source_of_truth_url || ""
   ).trim();
 
+  // Link-only START intentionally resets runtime identity to LIVE/generation=1.
+  // A canonical Robot bootstrap left in the browser can therefore belong to an
+  // older project id and a numerically higher generation. Treat it as safe to
+  // clear only when the Source of Truth is identical and the entire draft
+  // exactly matches one of our canonical bootstrap templates reconstructed
+  // from the identity embedded in that draft.
   if (
-    projectId !== currentProjectId ||
+    !projectId ||
     sourceUrl !== currentSourceUrl ||
     !Number.isInteger(generation) ||
-    generation < 1 ||
-    generation > currentGeneration
+    generation < 1
   ) {
     return null;
   }
 
   const historicalState = {
     ...state,
+    project_id: projectId,
     project_generation: generation
   };
   const candidates = [
