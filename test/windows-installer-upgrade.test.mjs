@@ -41,7 +41,7 @@ test("installer stops orphaned Supervisor loops even when pid file is stale", as
 });
 
 
-test("canonical desktop updater hotpatches source and restarts only Three-Lane when lanes are active", async () => {
+test("canonical desktop updater hotpatches active Three-Lane or Planner/Executor without crash-killing dedicated Chrome", async () => {
   const source = await fs.readFile(
     new URL("../.github/scripts/update-latest-clean-old.ps1", import.meta.url),
     "utf8"
@@ -58,8 +58,21 @@ test("canonical desktop updater hotpatches source and restarts only Three-Lane w
   assert.match(source, /HOTPATCH_CONTROL_PANEL_REOPEN_REQUESTED/);
   assert.match(source, /ParentProcessId -eq \$wrapperPid/);
   assert.match(source, /three-lane-cli\.mjs/);
+  assert.match(source, /planner-executor-cli\.mjs/);
+  assert.match(source, /PLANNER_EXECUTOR_ACTIVE_BEFORE/);
+  assert.match(source, /\$enabledBefore -ne 0 -or \$plannerExecutorActive/);
+  assert.match(source, /HOTPATCH_OLD_CHILD_KIND/);
   assert.match(source, /UPDATE_RESULT=HOTPATCH_ENABLED_LANES/);
   assert.match(source, /PROJECT_STATE_PRESERVED=True/);
   assert.match(source, /TARGET_FINGERPRINT_UNCHANGED=True/);
   assert.doesNotMatch(source, /UPDATE_RESULT=DEFERRED_ENABLED_LANES/);
+});
+
+
+test("dedicated Supervisor Chrome suppresses crash-restore bubble", async () => {
+  const source = await fs.readFile(
+    new URL("../windows/run-supervisor.ps1", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /--hide-crash-restore-bubble/);
 });
