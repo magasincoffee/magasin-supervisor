@@ -47,7 +47,10 @@
     "owner_reset_preserves_saved_profiles": true,
     "owner_reset_preserves_source_and_chat_targets": true,
     "owner_reset_increments_project_generation": true,
-    "owner_reset_clears_active_runtime_state": true
+    "owner_reset_clears_active_runtime_state": true,
+    "machine_frame_mention_popover_must_be_dismissed_before_send": true,
+    "machine_frame_send_prefers_explicit_send_control": true,
+    "machine_frame_popover_is_not_submission_evidence": true
   },
   "protocol": {
     "marker": "@M ",
@@ -78,7 +81,13 @@
     },
     "latest_turn_only_normal_path": true,
     "unknown_additive_fields": "IGNORE",
-    "malformed_or_correlation_mismatch": "FAIL_CLOSED"
+    "malformed_or_correlation_mismatch": "FAIL_CLOSED",
+    "chatgpt_mention_popover_handling": {
+      "trigger": "@M",
+      "dismiss_before_send": true,
+      "verify_instruction_preserved": true,
+      "retry_explicit_send_once_before_enter_recovery": true
+    }
   },
   "happy_path": {
     "sends_target_max": 3,
