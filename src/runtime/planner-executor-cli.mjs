@@ -311,6 +311,7 @@ function matchCanonicalHistoricalProjectBootstrapDraft(draft, state) {
   };
   const candidates = [
     buildLegacyProjectContextBootstrapMessage(historicalState),
+    buildPreLinkOnlyMentionSafeProjectContextBootstrapMessage(historicalState),
     buildProjectContextBootstrapMessage(historicalState)
   ];
   const observedDigest = composerInstructionDigest(text);
@@ -325,6 +326,32 @@ function matchCanonicalHistoricalProjectBootstrapDraft(draft, state) {
     }
   }
   return null;
+}
+
+function buildPreLinkOnlyMentionSafeProjectContextBootstrapMessage(state) {
+  const sourceUrl = String(
+    state?.project_context?.source_of_truth_url || ""
+  ).trim();
+  if (!sourceUrl) {
+    throw new Error("project Source of Truth URL is missing");
+  }
+  const projectId = String(state.project_id || "").trim();
+  const generation = Number(state.project_generation || 1);
+  return [
+    "MAGASIN_PROJECT_BOOTSTRAP_V1",
+    `project_id=${projectId}`,
+    `project_generation=${generation}`,
+    `source_of_truth=${sourceUrl}`,
+    "",
+    "Đọc lại dự án từ Source of Truth ở link trên trước khi lập kế hoạch.",
+    "Không sử dụng task/state của dự án khác. Source of Truth là authority cho scope, trạng thái task và dependency.",
+    "Xác định tổng số task và số task đã hoàn tất từ Source of Truth.",
+    "QUY ƯỚC TRANSPORT: token <AT> bên dưới đại diện cho ký tự U+0040 (commercial at). Khi TRẢ LỜI, không được xuất chuỗi <AT>; hãy thay nó bằng đúng ký tự U+0040 ngay trước chữ M ở machine frame cuối cùng.",
+    "Nếu còn việc: giao đúng một task cho Executor và kết thúc bằng machine frame có p/g/pc/pt:",
+    `<AT>M {"v":1,"a":"assign","p":"${projectId}","g":${generation},"t":"TASK-ID","i":"NEW-ASSIGNMENT-ID","pc":COMPLETED,"pt":TOTAL}`,
+    "Nếu dự án đã hoàn tất và không có task đang chạy: kết thúc bằng:",
+    `<AT>M {"v":1,"a":"done","p":"${projectId}","g":${generation},"pc":TOTAL,"pt":TOTAL}`
+  ].join("\n");
 }
 
 function buildProjectContextBootstrapMessage(state) {
