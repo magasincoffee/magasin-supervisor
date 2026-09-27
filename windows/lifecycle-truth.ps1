@@ -15,6 +15,24 @@ function Read-LifecycleJson([string]$Path) {
 }
 
 function Get-EnabledLaneCount([string]$Root = (Get-MagasinSupervisorRoot)) {
+    # Preserve this historical function name as a lifecycle "active unit"
+    # compatibility surface. After Planner/Executor cutover, one configured
+    # Planner+Executor pair is the single active automation unit.
+    $plannerExecutor = Read-LifecycleJson (Join-Path $Root 'planner-executor-state.json')
+    if ($plannerExecutor -and [string]$plannerExecutor.mode -eq 'PLANNER_EXECUTOR_V1') {
+        $automationStatus = [string]$plannerExecutor.automation.status
+        $plannerTarget = [string]$plannerExecutor.planner.target
+        $executorTarget = [string]$plannerExecutor.executor.target
+        if (
+            $automationStatus -notin @('DONE','STOPPED') -and
+            -not [string]::IsNullOrWhiteSpace($plannerTarget) -and
+            -not [string]::IsNullOrWhiteSpace($executorTarget)
+        ) {
+            return 1
+        }
+        return 0
+    }
+
     $config = Read-LifecycleJson (Join-Path $Root 'lanes.json')
     if (-not $config -or -not $config.lanes) { return 0 }
     return @($config.lanes | Where-Object { [bool]$_.enabled }).Count
@@ -82,6 +100,37 @@ function Get-LifecycleThreeLaneProcess([string]$Root = (Get-MagasinSupervisorRoo
         Select-Object -First 1
 }
 
+function Get-LifecyclePlannerExecutorProcesses {
+    return @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.CommandLine -and
+            $_.CommandLine -like '*planner-executor-cli.mjs*'
+        })
+}
+
+function Get-LifecyclePlannerExecutorProcess([string]$Root = (Get-MagasinSupervisorRoot)) {
+    $wrapper = Get-LifecycleSupervisorWrapper -Root $Root
+    if (-not $wrapper) { return $null }
+
+    $wrapperPid = [int]$wrapper.ProcessId
+    return Get-LifecyclePlannerExecutorProcesses |
+        Where-Object { [int]$_.ParentProcessId -eq $wrapperPid } |
+        Select-Object -First 1
+}
+
+function Get-LifecycleRuntimeMode([string]$Root = (Get-MagasinSupervisorRoot)) {
+    $plannerExecutor = Read-LifecycleJson (Join-Path $Root 'planner-executor-state.json')
+    if ($plannerExecutor -and [string]$plannerExecutor.mode -eq 'PLANNER_EXECUTOR_V1') {
+        return 'PLANNER_EXECUTOR_V1'
+    }
+
+    $config = Read-LifecycleJson (Join-Path $Root 'lanes.json')
+    if ($config -and [string]$config.mode -eq 'THREE_LANE_V1') {
+        return 'THREE_LANE_V1'
+    }
+    return $null
+}
+
 function Get-LifecycleOrphanThreeLaneProcesses([string]$Root = (Get-MagasinSupervisorRoot)) {
     $wrapper = Get-LifecycleSupervisorWrapper -Root $Root
     $wrapperPid = if ($wrapper) { [int]$wrapper.ProcessId } else { 0 }
@@ -124,16 +173,26 @@ function Test-LifecycleRobotCdp(
 
 function Get-LifecycleProcessTruth([string]$Root = (Get-MagasinSupervisorRoot)) {
     $wrapper = Get-LifecycleSupervisorWrapper -Root $Root
+    $runtimeMode = Get-LifecycleRuntimeMode -Root $Root
     $threeLane = Get-LifecycleThreeLaneProcess -Root $Root
+    $plannerExecutor = Get-LifecyclePlannerExecutorProcess -Root $Root
+    $runtimeProcess = if ($runtimeMode -eq 'PLANNER_EXECUTOR_V1') {
+        $plannerExecutor
+    } else {
+        $threeLane
+    }
     $chrome = Get-LifecycleRobotChrome -Root $Root
     $cdpHealthy = Test-LifecycleRobotCdp -ChromeProcess $chrome -Root $Root
 
     return [pscustomobject]@{
+        runtime_mode = [string]$runtimeMode
         wrapper_alive = [bool]$wrapper
+        runtime_alive = [bool]$runtimeProcess
+        planner_executor_alive = [bool]$plannerExecutor
         three_lane_alive = [bool]$threeLane
         chrome_alive = [bool]$chrome
         cdp_healthy = [bool]$cdpHealthy
-        healthy = [bool]($wrapper -and $threeLane -and $chrome -and $cdpHealthy)
+        healthy = [bool]($wrapper -and $runtimeProcess -and $chrome -and $cdpHealthy)
     }
 }
 
