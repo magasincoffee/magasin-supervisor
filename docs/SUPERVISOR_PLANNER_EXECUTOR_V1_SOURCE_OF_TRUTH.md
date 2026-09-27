@@ -628,8 +628,23 @@ program = MAGASIN_BRIDGE_V1
 current_task = MBV1-002
 pc = 1
 pt = 8
-status = READY_TO_EXECUTE
+status = IN_PROGRESS
 bridge_cutover = false
 ```
 
 MBV1-002 must implement one bounded Bridge adapter around the pinned baseline and MUST prefer asynchronous enqueue + snapshot observation. It must not move workflow/state authority into the Bridge and must not cut production over.
+
+
+### 15.11 MBV1-002 implementation evidence
+
+Status: **IN_PROGRESS** (pc remains 1 / pt 8).
+
+- implementation branch: `mbv1-002-bridge-adapter`;
+- draft PR: #174;
+- candidate head: `a9c15b52ba8d1a8919bd6b33c6da33addf5dc200`;
+- adapter source: `src/runtime/chatgpt-bridge-adapter.mjs`;
+- contract tests: `test/chatgpt-bridge-adapter.test.mjs`;
+- canonical enqueue remains `POST /send_async`;
+- canonical response observation remains `GET /snapshot?page_id=...`;
+- production transport and bridge cutover remain unchanged/false;
+- MBV1-003 remains blocked until MBV1-002 is merged with green gates.
