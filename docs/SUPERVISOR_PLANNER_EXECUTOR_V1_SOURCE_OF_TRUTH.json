@@ -164,12 +164,13 @@
     {
       "id": "PE-007",
       "priority": "P3",
-      "state": "QUALIFIED_AWAITING_OWNER_CUTOVER",
+      "state": "CUTOVER_AUTHORIZED_EXECUTION_PENDING",
       "name": "Qualification and Owner-authorized cutover",
       "acceptance_status": "LIVE_QUALIFIED",
       "qualification_workflow_run": 36295980129,
       "qualification_candidate_sha": "561a64bf2cd62503b78219b53fb5e71413dc2056",
-      "qualification_evidence_commit": "1300948"
+      "qualification_evidence_commit": "1300948",
+      "cutover_authorized_at": "2026-09-27T11:55:00+07:00"
     }
   ],
   "pe001_acceptance": [
@@ -347,6 +348,12 @@
     "state_root_binding_mutated": false,
     "isolated_chrome_cleanup": true,
     "production_cutover": false,
-    "next_gate": "EXPLICIT_OWNER_CUTOVER_AUTHORIZATION"
+    "next_gate": "PRODUCTION_CUTOVER_EXECUTION"
+  },
+  "owner_cutover_authorization": {
+    "authorized": true,
+    "authorized_at": "2026-09-27T11:55:00+07:00",
+    "scope": "PLANNER_EXECUTOR_V1_PRODUCTION_CUTOVER",
+    "source": "OWNER_EXPLICIT_AUTHORIZATION"
   }
 }
