@@ -364,6 +364,8 @@ Live evidence proved:
 
 The exact released legacy runtime snapshot must remain available for rollback through cutover.
 
+A cutover-specific **legacy result-review boundary** is also permitted when the only blockers are `ACTIVE_LEGACY_TASK` + `LEGACY_PLANNER_REQUEST_SENT_UNCONSUMED` and exact durable evidence proves the Executor assignment/result were already delivered, with no Executor await, dispatch/relay inflight, or Planner-request inflight. In that exact state, cutover adopts the pending review into Planner/Executor durable state and asks Planner to restate the verdict in `@M` protocol; it MUST NOT replay Executor work or re-relay the result. Any missing/ambiguous evidence remains fail-closed.
+
 ## 11. Non-goals before PE-001 is proven
 
 Do not:
