@@ -17,6 +17,7 @@ $registryFile = Join-Path $root 'orchestration.json'
 $runtimeStatusFile = Join-Path $root 'runtime-status.json'
 $laneConfigFile = Join-Path $root 'lanes.json'
 $laneStatusFile = Join-Path $root 'lane-status.json'
+$plannerExecutorStateFile = Join-Path $root 'planner-executor-state.json'
 $projectAdapterPath = [string]$env:SUPERVISOR_PROJECT_ADAPTER_PATH
 $projectAdapterUrl = [string]$env:SUPERVISOR_PROJECT_ADAPTER_URL
 if (-not [string]::IsNullOrWhiteSpace($projectAdapterPath) -and -not [string]::IsNullOrWhiteSpace($projectAdapterUrl)) {
@@ -41,6 +42,17 @@ function Read-ConfiguredProjectAdapterState {
 }
 
 function Resolve-LocalRuntimeMode {
+    # Planner/Executor cutover state is the highest-priority local runtime
+    # authority once explicitly created by the guarded production cutover.
+    try {
+        if (Test-Path $plannerExecutorStateFile) {
+            $plannerExecutorState = Get-Content $plannerExecutorStateFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ([string]$plannerExecutorState.mode -eq 'PLANNER_EXECUTOR_V1') {
+                return 'PLANNER_EXECUTOR_V1'
+            }
+        }
+    } catch {}
+
     # The standalone Supervisor owns platform-local orchestration truth.
     # A project adapter is optional for THREE_LANE_V1, so local mode
     # resolution must run whenever the adapter supplies no mode, not only
@@ -107,7 +119,7 @@ function Get-ThreeLaneProcesses {
     return @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
         Where-Object {
             $_.CommandLine -and
-            $_.CommandLine -like '*three-lane-cli.mjs*'
+            $_.CommandLine -match '(three-lane-cli|planner-executor-cli)\.mjs'
         })
 }
 
@@ -259,22 +271,23 @@ try {
             continue
         }
 
-        $runtimeMode = $null
-        try {
-            $projectState = Read-ConfiguredProjectAdapterState
-            if ($projectState -and $projectState.supervisor_orchestration) {
-                $candidateMode = [string]$projectState.supervisor_orchestration.mode
-                if (-not [string]::IsNullOrWhiteSpace($candidateMode)) {
-                    $runtimeMode = $candidateMode
+        # Explicit local Planner/Executor cutover state outranks the legacy
+        # project-adapter mode. Otherwise preserve the existing adapter-first
+        # behavior for released legacy modes.
+        $runtimeMode = Resolve-LocalRuntimeMode
+        if ($runtimeMode -ne 'PLANNER_EXECUTOR_V1') {
+            try {
+                $projectState = Read-ConfiguredProjectAdapterState
+                if ($projectState -and $projectState.supervisor_orchestration) {
+                    $candidateMode = [string]$projectState.supervisor_orchestration.mode
+                    if (-not [string]::IsNullOrWhiteSpace($candidateMode)) {
+                        $runtimeMode = $candidateMode
+                    }
                 }
+            } catch {
+                # Adapter failure is not authority to downgrade. Keep local
+                # platform truth when available.
             }
-        } catch {
-            # Adapter failure is not authority to downgrade. Local platform
-            # truth is resolved below using the same path as the no-adapter case.
-        }
-
-        if (-not $runtimeMode) {
-            $runtimeMode = Resolve-LocalRuntimeMode
         }
 
         if (-not $runtimeMode) {
@@ -284,12 +297,13 @@ try {
         }
 
         $entryPoint = switch ($runtimeMode) {
+            'PLANNER_EXECUTOR_V1' { 'src/runtime/planner-executor-cli.mjs' }
             'THREE_LANE_V1' { 'src/runtime/three-lane-cli.mjs' }
             'BRAIN_WORKER_V1' { 'src/runtime/brain-worker-cli.mjs' }
             default { 'src/runtime/supervisor-loop-cli.mjs' }
         }
 
-        if ($runtimeMode -notin @('THREE_LANE_V1','BRAIN_WORKER_V1') -and -not (Test-Path $target)) {
+        if ($runtimeMode -notin @('PLANNER_EXECUTOR_V1','THREE_LANE_V1','BRAIN_WORKER_V1') -and -not (Test-Path $target)) {
             Write-Host 'Legacy mode was explicitly selected but no legacy target exists; waiting for authoritative project state instead of terminating.'
             Start-Sleep -Seconds 5
             continue
@@ -311,6 +325,9 @@ try {
             }
 
             $nodeArgs = @($entryPoint, '--cdp-url', $cdpBaseUrl, '--poll-ms', $pollMs)
+            if ($entryPoint -eq 'src/runtime/planner-executor-cli.mjs') {
+                $nodeArgs += @('--state', $plannerExecutorStateFile)
+            }
             if ($entryPoint -eq 'src/runtime/three-lane-cli.mjs') {
                 $nodeArgs += @(
                     '--wrapper-pid', [string]$PID,

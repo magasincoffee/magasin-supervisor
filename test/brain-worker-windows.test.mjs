@@ -15,17 +15,23 @@ test("Windows wrapper selects THREE_LANE_V1 from source of truth", async () => {
   assert.match(source, /supervisor-loop-cli\.mjs/);
 });
 
-test("wrapper resolves standalone Three-Lane mode when no project adapter is configured", async () => {
+test("wrapper preserves standalone Three-Lane fallback while explicit Planner/Executor local state has precedence", async () => {
   const source = await fs.readFile(
     new URL("../windows/run-supervisor.ps1", import.meta.url),
     "utf8"
   );
 
   assert.match(source, /function Resolve-LocalRuntimeMode/);
+  assert.match(source, /planner-executor-state\.json/);
+  assert.match(source, /return 'PLANNER_EXECUTOR_V1'/);
   assert.match(source, /lane-status\.json/);
   assert.match(source, /lanes\.json/);
   assert.match(source, /return 'THREE_LANE_V1'/);
-  assert.match(source, /if \(-not \$runtimeMode\) \{\s*\$runtimeMode = Resolve-LocalRuntimeMode/);
+  assert.match(source, /\$runtimeMode = Resolve-LocalRuntimeMode/);
+  assert.match(
+    source,
+    /if \(\$runtimeMode -ne 'PLANNER_EXECUTOR_V1'\) \{[\s\S]*?Read-ConfiguredProjectAdapterState/
+  );
   assert.match(
     source,
     /No authoritative runtime mode is available; preserving wrapper and retrying fail-closed/
