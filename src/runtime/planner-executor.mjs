@@ -18,11 +18,87 @@ export { parseMachineFrame } from "./machine-frame.mjs";
 export const PLANNER_EXECUTOR_MODE = "PLANNER_EXECUTOR_V1";
 
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/;
+const IDENTITY_HISTORY_LIMIT = 128;
 
 function requireId(value, label) {
   const id = String(value || "").trim();
   if (!ID_RE.test(id)) throw new Error(`invalid ${label}`);
   return id;
+}
+
+function pushBoundedIdentity(list, value) {
+  const id = String(value || "").trim();
+  if (!id || list.includes(id)) return;
+  list.push(id);
+  if (list.length > IDENTITY_HISTORY_LIMIT) {
+    list.splice(0, list.length - IDENTITY_HISTORY_LIMIT);
+  }
+}
+
+function ensureIdentityHistory(state) {
+  if (!state.identity_history || typeof state.identity_history !== "object") {
+    state.identity_history = {
+      assignment_ids: [],
+      result_ids: []
+    };
+  }
+  if (!Array.isArray(state.identity_history.assignment_ids)) {
+    state.identity_history.assignment_ids = [];
+  }
+  if (!Array.isArray(state.identity_history.result_ids)) {
+    state.identity_history.result_ids = [];
+  }
+
+  // Seed additive PE-004 history from durable identities that may predate
+  // this field. This preserves restart compatibility without regenerating IDs.
+  pushBoundedIdentity(
+    state.identity_history.assignment_ids,
+    state.last_completed?.assignment_id
+  );
+  pushBoundedIdentity(
+    state.identity_history.result_ids,
+    state.last_completed?.result_id
+  );
+  pushBoundedIdentity(
+    state.identity_history.assignment_ids,
+    state.assignment?.assignment_id
+  );
+  pushBoundedIdentity(
+    state.identity_history.result_ids,
+    state.result?.result_id
+  );
+  return state.identity_history;
+}
+
+function assertFreshIdentity(state, kind, value) {
+  const id = requireId(value, kind);
+  const history = ensureIdentityHistory(state);
+  const list = kind === "assignment_id"
+    ? history.assignment_ids
+    : history.result_ids;
+  if (list.includes(id)) {
+    throw new Error(`${kind} reuse is not allowed: ${id}`);
+  }
+  return id;
+}
+
+function rememberIdentity(state, kind, value) {
+  const history = ensureIdentityHistory(state);
+  const list = kind === "assignment_id"
+    ? history.assignment_ids
+    : history.result_ids;
+  pushBoundedIdentity(list, value);
+}
+
+async function captureOutboundBaseline(page, captureTurn) {
+  const latest = await captureTurn(page, "user").catch(() => null);
+  return {
+    baseline_captured: true,
+    baseline_user_turn_id: latest?.turn_id || null,
+    baseline_user_turn_digest: latest?.text
+      ? composerInstructionDigest(latest.text)
+      : null
+  };
 }
 
 export function defaultPlannerExecutorState({
@@ -49,7 +125,11 @@ export function defaultPlannerExecutorState({
     assignment: null,
     result: null,
     decision: null,
-    last_completed: null
+    last_completed: null,
+    identity_history: {
+      assignment_ids: [],
+      result_ids: []
+    }
   };
 }
 
@@ -121,7 +201,13 @@ async function reconcileOrSend({
   }
 
   const latestUser = await captureTurn(page, "user").catch(() => null);
+  const latestUserIsNew = Boolean(
+    pending.baseline_captured === true &&
+    latestUser?.turn_id &&
+    latestUser.turn_id !== pending.baseline_user_turn_id
+  );
   if (
+    latestUserIsNew &&
     latestUser?.text &&
     composerInstructionDigest(latestUser.text) === pending.message_digest
   ) {
@@ -192,6 +278,7 @@ export async function runPlannerExecutorStep({
     plannerTarget,
     executorTarget
   });
+  ensureIdentityHistory(state);
 
   // Crash/restart recovery always reconciles durable outbound intent before
   // consuming another assistant turn. This prevents a second logical send.
@@ -248,17 +335,26 @@ export async function runPlannerExecutorStep({
       return { phase: "WAIT_PLANNER_ASSIGN", ignored_action: latest.frame.a, state };
     }
 
+    const assignmentId = assertFreshIdentity(
+      state,
+      "assignment_id",
+      latest.frame.i
+    );
     const message = buildExecutorAssignmentMessage({
       taskId: latest.frame.t,
-      assignmentId: latest.frame.i,
+      assignmentId,
       body: latest.body
     });
+    const baseline = await captureOutboundBaseline(
+      executorPage,
+      captureTurn
+    );
 
     state.planner.last_seen_assistant_turn_id = latest.turn.turn_id;
     state.active_task_id = latest.frame.t;
     state.assignment = {
       task_id: latest.frame.t,
-      assignment_id: latest.frame.i,
+      assignment_id: assignmentId,
       source_turn_id: latest.turn.turn_id,
       planner_body: latest.body,
       message,
@@ -267,8 +363,10 @@ export async function runPlannerExecutorStep({
       send_attempted_at: null,
       send_confirmed_at: null,
       send_evidence: null,
-      blocked_reason: null
+      blocked_reason: null,
+      ...baseline
     };
+    rememberIdentity(state, "assignment_id", assignmentId);
     state.result = null;
     state.decision = null;
     await persist(statePath, state);
@@ -309,19 +407,24 @@ export async function runPlannerExecutorStep({
       taskId: state.assignment.task_id,
       assignmentId: state.assignment.assignment_id
     });
+    const resultId = assertFreshIdentity(state, "result_id", latest.frame.r);
 
     const relayMessage = buildPlannerReviewMessage({
       taskId: latest.frame.t,
       assignmentId: latest.frame.i,
-      resultId: latest.frame.r,
+      resultId,
       body: latest.body
     });
+    const baseline = await captureOutboundBaseline(
+      plannerPage,
+      captureTurn
+    );
 
     state.executor.last_seen_assistant_turn_id = latest.turn.turn_id;
     state.result = {
       task_id: latest.frame.t,
       assignment_id: latest.frame.i,
-      result_id: latest.frame.r,
+      result_id: resultId,
       status: latest.frame.s,
       source_turn_id: latest.turn.turn_id,
       executor_body: latest.body,
@@ -331,8 +434,10 @@ export async function runPlannerExecutorStep({
       send_attempted_at: null,
       send_confirmed_at: null,
       relay_confirmed_at: null,
-      blocked_reason: null
+      blocked_reason: null,
+      ...baseline
     };
+    rememberIdentity(state, "result_id", resultId);
     await persist(statePath, state);
 
     const outcome = await reconcileOrSend({
@@ -396,11 +501,20 @@ export async function runPlannerExecutorStep({
     resultId: state.result.result_id
   });
 
+  const nextAssignmentId = assertFreshIdentity(
+    state,
+    "assignment_id",
+    latest.frame.i
+  );
   const nextMessage = buildExecutorAssignmentMessage({
     taskId: latest.frame.n,
-    assignmentId: latest.frame.i,
+    assignmentId: nextAssignmentId,
     body: latest.body
   });
+  const baseline = await captureOutboundBaseline(
+    executorPage,
+    captureTurn
+  );
 
   state.planner.last_seen_assistant_turn_id = latest.turn.turn_id;
   state.last_completed = {
@@ -415,13 +529,13 @@ export async function runPlannerExecutorStep({
     task_id: latest.frame.t,
     result_id: latest.frame.r,
     next_task_id: latest.frame.n,
-    assignment_id: latest.frame.i,
+    assignment_id: nextAssignmentId,
     decided_at: now()
   };
   state.active_task_id = latest.frame.n;
   state.assignment = {
     task_id: latest.frame.n,
-    assignment_id: latest.frame.i,
+    assignment_id: nextAssignmentId,
     source_turn_id: latest.turn.turn_id,
     planner_body: latest.body,
     message: nextMessage,
@@ -430,8 +544,10 @@ export async function runPlannerExecutorStep({
     send_attempted_at: null,
     send_confirmed_at: null,
     send_evidence: null,
-    blocked_reason: null
+    blocked_reason: null,
+    ...baseline
   };
+  rememberIdentity(state, "assignment_id", nextAssignmentId);
   state.result = null;
   await persist(statePath, state);
 
