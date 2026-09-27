@@ -63,8 +63,27 @@ Write-Host "ENABLED_LANES_BEFORE=$enabledBefore"
 $fingerprintBefore=Get-TargetFingerprint $configFile
 $regBefore=Get-Content $registryFile -Raw -Encoding UTF8|ConvertFrom-Json
 
-if($enabledBefore -ne 0){
-  . $lifecycleScript
+. $lifecycleScript
+$truthBefore=Get-LifecycleProcessTruth -Root $canonical
+$plannerExecutorActive=[bool](
+  [bool]$truthBefore.wrapper_alive -and
+  (
+    [string]$truthBefore.runtime_mode -eq 'PLANNER_EXECUTOR_V1' -or
+    [bool]$truthBefore.planner_executor_alive
+  )
+)
+Write-Host "PLANNER_EXECUTOR_ACTIVE_BEFORE=$plannerExecutorActive"
+$activeRuntime=[bool]($enabledBefore -ne 0 -or $plannerExecutorActive)
+
+$peStateFile=Join-Path $canonical 'planner-executor-state.json'
+$peStateBefore=$null
+if($plannerExecutorActive -and (Test-Path $peStateFile -PathType Leaf)){
+  $peStateBefore=Get-Content $peStateFile -Raw -Encoding UTF8|ConvertFrom-Json
+  Write-Host "PE_HOTPATCH_PROJECT_ID=$([string]$peStateBefore.project_id)"
+  Write-Host "PE_HOTPATCH_PROJECT_GENERATION=$([int]$peStateBefore.project_generation)"
+}
+
+if($activeRuntime){
   $ownerStop=Get-LifecycleOwnerStopState -Root $canonical
   if($ownerStop.blocked){
     Write-Host 'UPDATE_RESULT=DEFERRED_OWNER_STOP'
@@ -122,15 +141,20 @@ if($enabledBefore -ne 0){
   $wrapper=Get-LifecycleSupervisorWrapper -Root $canonical
   if($wrapper){
     $wrapperPid=[int]$wrapper.ProcessId
+    $childPattern=if($plannerExecutorActive){'*planner-executor-cli.mjs*'}else{'*three-lane-cli.mjs*'}
     $child=Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
       Where-Object {
         [int]$_.ParentProcessId -eq $wrapperPid -and
-        $_.CommandLine -and $_.CommandLine -like '*three-lane-cli.mjs*'
+        $_.CommandLine -and $_.CommandLine -like $childPattern
       } |
       Select-Object -First 1
     if($child){
       Stop-Process -Id ([int]$child.ProcessId) -Force -ErrorAction Stop
-      Write-Host "HOTPATCH_OLD_THREE_LANE_STOPPED=$($child.ProcessId)"
+      if($plannerExecutorActive){
+        Write-Host "HOTPATCH_OLD_PLANNER_EXECUTOR_STOPPED=$($child.ProcessId)"
+      }else{
+        Write-Host "HOTPATCH_OLD_THREE_LANE_STOPPED=$($child.ProcessId)"
+      }
     }else{
       Write-Host 'HOTPATCH_CHILD_ALREADY_ABSENT=True'
     }
@@ -150,6 +174,8 @@ if($enabledBefore -ne 0){
       $healthy=$true
       Write-Host "HOTPATCH_WRAPPER_ALIVE=$([bool]$truth.wrapper_alive)"
       Write-Host "HOTPATCH_THREE_LANE_ALIVE=$([bool]$truth.three_lane_alive)"
+      Write-Host "HOTPATCH_PLANNER_EXECUTOR_ALIVE=$([bool]$truth.planner_executor_alive)"
+      Write-Host "HOTPATCH_RUNTIME_MODE=$([string]$truth.runtime_mode)"
       Write-Host "HOTPATCH_CDP_HEALTHY=$([bool]$truth.cdp_healthy)"
       break
     }
@@ -190,6 +216,16 @@ if($enabledBefore -ne 0){
   $enabledAfter=@($cfgAfter.lanes|Where-Object{[bool]$_.enabled}).Count
   if($enabledAfter -ne $enabledBefore){throw 'Lane enabled state changed during active-lane hotpatch.'}
 
+  if($plannerExecutorActive -and $peStateBefore){
+    if(-not (Test-Path $peStateFile -PathType Leaf)){throw 'Planner/Executor state disappeared during hotpatch.'}
+    $peStateAfter=Get-Content $peStateFile -Raw -Encoding UTF8|ConvertFrom-Json
+    if([string]$peStateAfter.project_id -ne [string]$peStateBefore.project_id){throw 'Planner/Executor project_id changed during hotpatch.'}
+    if([int]$peStateAfter.project_generation -ne [int]$peStateBefore.project_generation){throw 'Planner/Executor generation changed during hotpatch.'}
+    if([string]$peStateAfter.planner.target -ne [string]$peStateBefore.planner.target){throw 'Planner target changed during hotpatch.'}
+    if([string]$peStateAfter.executor.target -ne [string]$peStateBefore.executor.target){throw 'Executor target changed during hotpatch.'}
+    Write-Host 'PLANNER_EXECUTOR_STATE_IDENTITY_PRESERVED=True'
+  }
+
   $regAfter=Get-Content $registryFile -Raw -Encoding UTF8|ConvertFrom-Json
   foreach($laneName in @('lane-1','lane-2','lane-3')){
     $before=$regBefore.lanes.$laneName
@@ -202,11 +238,14 @@ if($enabledBefore -ne 0){
 
   Write-Host 'TARGET_FINGERPRINT_UNCHANGED=True'
   Write-Host 'PROJECT_STATE_PRESERVED=True'
-  Write-Host 'UPDATE_RESULT=HOTPATCH_ENABLED_LANES'
+  Write-Host 'UPDATE_RESULT=HOTPATCH_ACTIVE_RUNTIME'
   exit 0
 }
 
-# With all lanes disabled there is no active Brain/Work execution to preserve.
+# Only when neither legacy lanes nor Planner/Executor runtime is active may the
+# installer retire the dedicated Robot Chrome profile. Planner/Executor V1 uses
+# zero enabled legacy lanes by design, so lane count alone is never authority
+# for browser shutdown.
 # Retire only the dedicated Robot Chrome profile so the next Owner START/manual
 # open is guaranteed to launch with the current anti-throttling flags. Never
 # touch the Owner's normal Chrome profile.
