@@ -201,16 +201,21 @@ test("M active-lane hotpatch refreshes Chrome launcher scripts for the next safe
   assert.match(update, /HOTPATCH_WINDOWS_LAUNCHERS_REFRESHED=True/);
 });
 
-test("N full install retires only idle dedicated Robot Chrome so new fast flags apply", async () => {
+test("N full install retires dedicated Robot Chrome only when no legacy or Planner/Executor runtime is active", async () => {
   const update = await read("../.github/scripts/update-latest-clean-old.ps1");
 
+  assert.match(update, /PLANNER_EXECUTOR_ACTIVE_BEFORE=/);
+  assert.match(update, /runtime_mode -eq 'PLANNER_EXECUTOR_V1'/);
+  assert.match(update, /\$activeRuntime=\[bool\]\(\$enabledBefore -ne 0 -or \$plannerExecutorActive\)/);
+  assert.match(update, /HOTPATCH_OLD_PLANNER_EXECUTOR_STOPPED=/);
+  assert.match(update, /PLANNER_EXECUTOR_STATE_IDENTITY_PRESERVED=True/);
   assert.match(update, /browserProfile=Join-Path \$canonical 'browser_profile'/);
   assert.match(update, /Name='chrome\.exe'/);
   assert.match(update, /CommandLine -like "\*\$browserProfile\*"/);
   assert.match(update, /OLD_DEDICATED_CHROME_STOPPED=/);
   assert.match(update, /DEDICATED_CHROME_FAST_RESTART_ARMED=True/);
 
-  const activeBranch = update.indexOf("if($enabledBefore -ne 0)");
+  const activeBranch = update.indexOf("if($activeRuntime)");
   const activeExit = update.indexOf("exit 0", activeBranch);
   const idleChromeStop = update.indexOf("$dedicatedChrome=@(", activeExit);
   assert.ok(activeBranch >= 0 && activeExit > activeBranch);
