@@ -272,6 +272,28 @@ try {
     state: existing,
     plannerPage: warm.plannerPage
   });
+
+  // Cutover readiness must not wait for the first Planner decision plus the
+  // next outbound Executor send. Those are model/network-duration operations
+  // and can legitimately exceed the cutover health window even when the
+  // production runtime is already healthy. Persist the authoritative
+  // two-chat/bootstrap-confirmed status before entering the first orchestration
+  // step so the cutover gate observes process + topology + send truth, not
+  // completion of a later task transaction.
+  await atomicJsonWrite(statusPath, {
+    schema_version: "planner-executor-status.v1",
+    mode: "PLANNER_EXECUTOR_V1",
+    project_id: projectId,
+    phase: "BOOTSTRAP_CONFIRMED",
+    active_task_id: existing.active_task_id || null,
+    automation_status: existing.automation?.status || "RUNNING",
+    automation_reason: existing.automation?.reason || null,
+    chatgpt_tabs: adapter.getChatGptPageCount(),
+    chatgpt_work_mode_invocations: 0,
+    production_cutover: true,
+    updated_at: new Date().toISOString()
+  });
+  safeLog("PLANNER_EXECUTOR_CUTOVER_READY_STATUS", "BOOTSTRAP_CONFIRMED");
   startupStage = "RUN_LOOP";
 
   const captureTurn = createIdleAwareTurnCapture(
