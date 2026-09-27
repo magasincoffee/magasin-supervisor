@@ -168,6 +168,13 @@ Owner emergency reset / clean-state escape hatch:
 - reset requires explicit double Owner confirmation in the Control Center;
 - after reset, Owner may select another saved profile and START without repairing the discarded active project's unfinished task.
 
+Composer send safety for the `@M` machine frame:
+
+- ChatGPT may interpret `@M` as an @-mention/file trigger and open a Files/Tệp suggestion popover above the composer;
+- Supervisor MUST dismiss that transient mention popover before actuating Send, verify the exact instruction remains, then prefer the explicit Send control;
+- if the first Send click is inert and the exact instruction is still present, Supervisor may dismiss the mention popover once more and retry the explicit Send control before bounded Enter recovery;
+- an open mention/file popover is never treated as evidence that the prompt was submitted.
+
 Chat target rollover rules:
 
 - changing a Planner/Executor URL increments that role's `target_revision` but does **not** create a new project or increment `project_generation`;
