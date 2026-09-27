@@ -109,13 +109,18 @@
     {
       "id": "PE-002",
       "priority": "P1",
-      "state": "READY_TO_EXECUTE",
-      "name": "Compact protocol and newest-turn parser"
+      "state": "IMPLEMENTED_COMPLETE",
+      "name": "Compact protocol and newest-turn parser",
+      "pr": 127,
+      "merge_sha": "0684e94a21292d2d4b3cb966f2e9338ab45070d1",
+      "acceptance_status": "REGRESSION_GREEN",
+      "supervisor_tests_run": 36292309245,
+      "supervisor_integrity_run": 36292309225
     },
     {
       "id": "PE-003",
       "priority": "P1",
-      "state": "PLANNED",
+      "state": "READY_TO_EXECUTE",
       "name": "Two warm-tab runtime"
     },
     {
@@ -199,5 +204,20 @@
     "live_state_root_binding_mutated": false,
     "live_dynamic_cdp": true,
     "live_isolated_chrome_cleanup": true
+  },
+  "pe002_evidence": {
+    "pr": 127,
+    "merge_sha": "0684e94a21292d2d4b3cb966f2e9338ab45070d1",
+    "supervisor_tests_run": 36292309245,
+    "supervisor_tests": "PASS",
+    "supervisor_integrity_run": 36292309225,
+    "supervisor_integrity": "PASS",
+    "supervisor_lifecycle_run": 36292309213,
+    "supervisor_lifecycle": "PASS",
+    "supervisor_autostart_run": 36292309228,
+    "supervisor_autostart_isolated": "PASS",
+    "canonical_machine_frame_module": "src/runtime/machine-frame.mjs",
+    "newest_turn_parser": "src/runtime/latest-machine-turn.mjs",
+    "full_history_scan_normal_path": false
   }
 }
