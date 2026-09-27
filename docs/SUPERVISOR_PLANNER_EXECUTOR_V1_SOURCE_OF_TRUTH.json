@@ -641,7 +641,7 @@
   },
   "next_implementation_program": {
     "id": "MAGASIN_BRIDGE_V1",
-    "status": "CANONICAL_PLAN_READY_TO_EXECUTE_NOT_CUT_OVER",
+    "status": "CANONICAL_PLAN_IN_PROGRESS_NOT_CUT_OVER",
     "approved_date": "2026-09-27",
     "current_task": "MBV1-001",
     "progress": {
@@ -702,7 +702,7 @@
       {
         "id": "MBV1-001",
         "priority": "P0",
-        "state": "READY_TO_EXECUTE",
+        "state": "IN_PROGRESS",
         "name": "Local Bridge Baseline",
         "weight_percent": 10,
         "dod": [
@@ -714,7 +714,16 @@
           "EXECUTOR_SEND_READ_PASS",
           "ROLE_ISOLATION_PASS",
           "UPSTREAM_COMMIT_PIN_RECORDED"
-        ]
+        ],
+        "implementation": {
+          "branch": "mbv1-001-live-bridge-baseline",
+          "draft_pr": 173,
+          "candidate_head": "a3174b5bb62dabe953d7ab4bf7c1d711bd710c6b",
+          "upstream_commit": "848efb9e85f52f251c82ab099747833c0693c072",
+          "live_workflow_run": 36329984215,
+          "workflow_state": "queued",
+          "production_mutated": false
+        }
       },
       {
         "id": "MBV1-002",
