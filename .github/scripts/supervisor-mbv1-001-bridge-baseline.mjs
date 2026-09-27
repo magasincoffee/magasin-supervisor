@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
+import path from "node:path";
 import { chromium } from "playwright-core";
 
 const [cdpUrl, bridgeBase, resultPath, bridgeCommit, userscriptSha256] = process.argv.slice(2);
