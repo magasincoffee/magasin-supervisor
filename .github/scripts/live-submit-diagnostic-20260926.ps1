@@ -93,7 +93,8 @@ if (Test-Path $peStatusPath -PathType Leaf) {
   $peStatus = Get-Content $peStatusPath -Raw -Encoding UTF8 | ConvertFrom-Json
   Write-Host "PE_STATUS_PHASE=$([string]$peStatus.phase)"
   Write-Host "PE_STATUS_TABS=$([string]$peStatus.chatgpt_tabs)"
-  Write-Host "PE_STATUS_RETRY=$([string]$peStatus.bootstrap_retry_attempt)"
+  $retry = if ($peStatus.PSObject.Properties['bootstrap_retry_attempt']) { [string]$peStatus.bootstrap_retry_attempt } else { '' }
+  Write-Host "PE_STATUS_RETRY=$retry"
 }
 if (Test-Path $peFailurePath -PathType Leaf) {
   $peFailure = Get-Content $peFailurePath -Raw -Encoding UTF8 | ConvertFrom-Json
