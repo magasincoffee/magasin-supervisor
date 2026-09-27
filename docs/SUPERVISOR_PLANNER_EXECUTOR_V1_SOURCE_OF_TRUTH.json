@@ -142,13 +142,18 @@
     {
       "id": "PE-005",
       "priority": "P2",
-      "state": "READY_TO_EXECUTE",
-      "name": "Legacy-state migration adapter"
+      "state": "IMPLEMENTED_COMPLETE",
+      "name": "Legacy-state migration adapter",
+      "pr": 134,
+      "merge_sha": "9c4d8559f64c2b716b5db45ec790593db8afcc8d",
+      "acceptance_status": "REGRESSION_GREEN",
+      "supervisor_tests_run": 36293299858,
+      "supervisor_integrity_run": 36293299799
     },
     {
       "id": "PE-006",
       "priority": "P2",
-      "state": "PLANNED",
+      "state": "READY_TO_EXECUTE",
       "name": "Automated continuation"
     },
     {
@@ -264,5 +269,24 @@
     "exact_digest_draft_recovery": true,
     "ambiguous_send_no_duplicate": true,
     "result_relay_restart_no_duplicate": true
+  },
+  "pe005_evidence": {
+    "pr": 134,
+    "merge_sha": "9c4d8559f64c2b716b5db45ec790593db8afcc8d",
+    "supervisor_tests_run": 36293299858,
+    "supervisor_tests": "PASS",
+    "supervisor_integrity_run": 36293299799,
+    "supervisor_integrity": "PASS",
+    "supervisor_lifecycle_run": 36293299850,
+    "supervisor_lifecycle": "PASS",
+    "supervisor_autostart_run": 36293299812,
+    "supervisor_autostart_isolated": "PASS",
+    "explicit_lane_selection": true,
+    "read_only": true,
+    "preserves_owner_stop": true,
+    "preserves_active_task": true,
+    "preserves_exact_once_identities": true,
+    "unresolved_legacy_authority_blocks_cutover": true,
+    "production_cutover": false
   }
 }
