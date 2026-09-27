@@ -244,6 +244,21 @@ test("lifecycle truth recognizes Planner/Executor as the active production runti
   assert.match(source, /PLANNER_EXECUTOR_V1/);
 });
 
+test("cutover candidate CLI stdout is excluded from the PowerShell function return pipeline", async () => {
+  const source = await fs.readFile(
+    new URL(
+      "../.github/scripts/supervisor-pe007-production-cutover.ps1",
+      import.meta.url
+    ),
+    "utf8"
+  );
+  assert.match(source, /& node @candidateArgs \| Out-Host/);
+  assert.match(
+    source,
+    /return Get-Content \$candidatePath -Raw -Encoding UTF8 \| ConvertFrom-Json/
+  );
+});
+
 test("production cutover script has rollback, double preflight, and explicit target authority", async () => {
   const source = await fs.readFile(
     new URL(
