@@ -35,7 +35,8 @@ test("PE-001 live workflow is target-guarded and does not deploy production", as
   );
 
   assert.match(workflow, /runs-on: self-hosted/);
-  assert.match(workflow, /DESKTOP-4K7IM13/);\n  assert.match(workflow, /supervisor-pe001-live-qualification\\.ps1/);
+  assert.match(workflow, /DESKTOP-4K7IM13/);
+  assert.match(workflow, /supervisor-pe001-live-qualification\.ps1/);
   assert.match(workflow, /npm install --ignore-scripts --no-audit --no-fund/);
   assert.doesNotMatch(workflow, /start-supervisor\.ps1/);
   assert.doesNotMatch(workflow, /repair-supervisor\.ps1/);
