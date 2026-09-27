@@ -125,12 +125,29 @@ function legacyFixture() {
   };
 }
 
-async function writeLegacyRoot({ activeTask = null } = {}) {
+async function writeLegacyRoot({
+  activeTask = null,
+  reviewBoundary = false,
+  incompleteReviewEvidence = false
+} = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "magasin-pe007-cutover-"));
   const fixture = legacyFixture();
   if (activeTask) {
     fixture.registry.lanes["lane-1"].task_id = activeTask;
     fixture.registry.lanes["lane-1"].awaiting_work = true;
+  }
+  if (reviewBoundary) {
+    const lane = fixture.registry.lanes["lane-1"];
+    lane.task_id = "UI2-015";
+    lane.awaiting_work = false;
+    lane.brain_request_sent = true;
+    lane.last_dispatch_id = "legacy-A015";
+    lane.last_result_relay_id = incompleteReviewEvidence ? null : "legacy-R015";
+    lane.last_work_result_digest = incompleteReviewEvidence ? null : "result-digest-015";
+    lane.task_timing = {
+      schema_version: "task-timing.v1",
+      task_id: "UI2-015"
+    };
   }
   await fs.writeFile(
     path.join(root, "lanes.json"),
@@ -193,6 +210,74 @@ test("PE-007 cutover preserves PE-005 fail-closed blockers for an active legacy 
   assert.equal(candidate.cutover_ready, false);
   assert.ok(candidate.blockers.includes("ACTIVE_LEGACY_TASK"));
   assert.ok(candidate.blockers.includes("LEGACY_AWAITING_EXECUTOR"));
+});
+
+test("PE-007 adopts only the exact legacy result-review boundary without replaying Executor work", async () => {
+  const root = await writeLegacyRoot({ reviewBoundary: true });
+  const candidate = await preparePlannerExecutorProductionCutover({
+    root,
+    laneId: "lane-1",
+    authorizedAt: "2026-09-27T11:55:00+07:00",
+    sourceRevision: "abc123"
+  });
+
+  assert.equal(candidate.cutover_ready, true);
+  assert.deepEqual(candidate.blockers, []);
+  assert.deepEqual(candidate.resolved_blockers.sort(), [
+    "ACTIVE_LEGACY_TASK",
+    "LEGACY_PLANNER_REQUEST_SENT_UNCONSUMED"
+  ].sort());
+  assert.equal(candidate.handoff_mode, "LEGACY_RESULT_REVIEW");
+  assert.equal(candidate.state.active_task_id, "UI2-015");
+  assert.equal(candidate.state.assignment.task_id, "UI2-015");
+  assert.equal(candidate.state.assignment.assignment_id, "legacy-A015");
+  assert.ok(candidate.state.assignment.send_confirmed_at);
+  assert.equal(candidate.state.result.task_id, "UI2-015");
+  assert.equal(candidate.state.result.assignment_id, "legacy-A015");
+  assert.equal(candidate.state.result.result_id, "legacy-R015");
+  assert.ok(candidate.state.result.relay_confirmed_at);
+  assert.equal(
+    candidate.state.production_cutover.handoff_mode,
+    "LEGACY_RESULT_REVIEW"
+  );
+  assert.match(
+    candidate.state.cutover_bootstrap.message,
+    /PRODUCTION REVIEW HANDOFF/
+  );
+  assert.match(
+    candidate.state.cutover_bootstrap.message,
+    /"a":"accept_assign".*"t":"UI2-015".*"r":"legacy-R015"/
+  );
+  assert.match(
+    candidate.state.cutover_bootstrap.message,
+    /"a":"reject".*"t":"UI2-015".*"r":"legacy-R015"/
+  );
+  assert.match(
+    candidate.state.cutover_bootstrap.message,
+    /Không gửi lại result, không giao lại task cũ/
+  );
+});
+
+test("PE-007 keeps the result-review boundary blocked when exact relay evidence is incomplete", async () => {
+  const root = await writeLegacyRoot({
+    reviewBoundary: true,
+    incompleteReviewEvidence: true
+  });
+  const candidate = await preparePlannerExecutorProductionCutover({
+    root,
+    laneId: "lane-1",
+    authorizedAt: "2026-09-27T11:55:00+07:00",
+    sourceRevision: "abc123"
+  });
+
+  assert.equal(candidate.cutover_ready, false);
+  assert.ok(candidate.blockers.includes("ACTIVE_LEGACY_TASK"));
+  assert.ok(
+    candidate.blockers.includes("LEGACY_PLANNER_REQUEST_SENT_UNCONSUMED")
+  );
+  assert.equal(candidate.handoff_mode, "IDLE");
+  assert.equal(candidate.state.assignment, null);
+  assert.equal(candidate.state.result, null);
 });
 
 test("production bootstrap is compact, role-specific, and never invokes Work mode", () => {
