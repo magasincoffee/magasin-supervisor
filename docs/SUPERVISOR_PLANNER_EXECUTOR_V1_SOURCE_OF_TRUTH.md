@@ -619,52 +619,58 @@ Qualification transport finding:
 - this does not modify upstream in MBV1-001; it constrains the adapter design in MBV1-002;
 - blocking `/send` is not authoritative submission/completion evidence for MAGASIN.
 
-### 15.10 MBV1-002 next-task authority
-
-MBV1-001 is complete. Progress is now:
-
-```text
-program = MAGASIN_BRIDGE_V1
-current_task = MBV1-002
-pc = 1
-pt = 8
-status = IN_PROGRESS
-bridge_cutover = false
-```
-
-MBV1-002 must implement one bounded Bridge adapter around the pinned baseline and MUST prefer asynchronous enqueue + snapshot observation. It must not move workflow/state authority into the Bridge and must not cut production over.
-
-
-### 15.11 MBV1-002 implementation evidence
-
-Status: **COMPLETE / MERGED**.
-
-- implementation branch: `mbv1-002-bridge-adapter`;
-- draft PR: #174;
-- candidate head: `a9c15b52ba8d1a8919bd6b33c6da33addf5dc200`;
-- adapter source: `src/runtime/chatgpt-bridge-adapter.mjs`;
-- contract tests: `test/chatgpt-bridge-adapter.test.mjs`;
-- canonical enqueue remains `POST /send_async`;
-- canonical response observation remains `GET /snapshot?page_id=...`;
-- production transport and bridge cutover remain unchanged/false;
-- MBV1-003 remains blocked until MBV1-002 is merged with green gates.
-
-
-### 15.12 MBV1-002 completion evidence
+### 15.10 MBV1-002 implementation evidence
 
 Status: **COMPLETE / MERGED**
 
-- PR: #174;
-- merged head: `6cb857656888583af38df9e9b433d577333565e8`;
-- merge commit: `158091cdffa1b08d15ac398e54c18a28b9acee74`;
-- adapter: `src/runtime/chatgpt-bridge-adapter.mjs`;
-- contract tests: `test/chatgpt-bridge-adapter.test.mjs`;
-- Supervisor Tests: PASS;
-- Supervisor Integrity: PASS;
-- Supervisor Lifecycle Acceptance: PASS;
-- Supervisor Autostart Install: PASS;
-- canonical enqueue: `POST /send_async`;
-- canonical observation: `GET /snapshot?page_id=...`;
-- production transport unchanged; bridge_cutover remains false.
+Authoritative implementation:
 
-MBV1-003 is now the next task.
+- merged PR: #174;
+- merge commit: `158091cdffa1b08d15ac398e54c18a28b9acee74`;
+- final head: `6cb857656888583af38df9e9b433d577333565e8`;
+- adapter: `src/runtime/chatgpt-bridge-adapter.mjs`;
+- tests: `test/chatgpt-bridge-adapter.test.mjs`;
+- pinned upstream constants remain `OLmatter/chatgpt-bridge@848efb9e85f52f251c82ab099747833c0693c072`.
+
+Implemented adapter contract:
+
+- local HTTP Bridge origin only (`127.0.0.1`, `localhost`, loopback);
+- exact non-empty `page_id` targeting;
+- normalized `/status`, `/pages`, and `/snapshot?page_id=...` responses;
+- canonical enqueue through `POST /send_async`;
+- adapter-level `send()` performs baseline snapshot -> async enqueue -> bounded snapshot observation;
+- upstream blocking `/send` is not called by the adapter;
+- new-response evidence rejects unchanged stale snapshots;
+- baseline is correlated to the exact same `page_id`;
+- generating/busy baselines fail closed;
+- malformed/HTTP/unreachable/timeout responses become bounded typed Bridge errors;
+- Bridge-specific normalization remains in the adapter; no `@M`, task, assignment, result, ACCEPT/REJECT, or project-state semantics were moved into transport.
+
+Final regression evidence on head `6cb857656888583af38df9e9b433d577333565e8`:
+
+```text
+full node regression suite = 806 / 806 PASS
+additional contract suite   = 50 / 50 PASS
+platform/core regressions   = 192 / 192 PASS
+static audit                = PASS
+lifecycle isolated          = PASS
+installer isolated          = PASS
+production cutover          = false
+```
+
+A first regression run exposed one implementation bug (`pageId is not a function`) caused by helper/parameter shadowing. The fix renamed the validator to `requirePageId`; the final head passed all applicable gates without weakening tests.
+
+### 15.11 MBV1-003 next-task authority
+
+MBV1-002 is complete. Progress is now:
+
+```text
+program = MAGASIN_BRIDGE_V1
+current_task = MBV1-003
+pc = 2
+pt = 8
+status = READY_TO_EXECUTE
+bridge_cutover = false
+```
+
+MBV1-003 must deterministically bind the Owner-provided Planner and Executor Chat URLs to exact, distinct Bridge `page_id` values. Ambiguous matches, missing targets, duplicate role binding, or unrelated-tab adoption MUST fail closed. Page reload/reacquisition may update transport identity only under the bounded same-role rules and MUST NOT create a new project identity.
