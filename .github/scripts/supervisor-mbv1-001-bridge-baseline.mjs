@@ -38,6 +38,33 @@ function applyPinnedCompatibilityOverlay(source) {
     "        editor.dispatchEvent(new Event('input', { bubbles: true }));",
     "      }"
   ].join("\n"));
+  const settleNeedle = "    await sleep(400);\n    // Enter";
+  const settleReplacement = [
+    "    await sleep(400);",
+    "    (globalThis.__mbv1BridgeStages ||= []).push({",
+    "      stage: 'MBV1_STAGE_AFTER_INPUT_SETTLE',",
+    "      text: (editor.innerText || editor.value || editor.textContent || '').slice(0, 300)",
+    "    });",
+    "    // Enter"
+  ].join("\n");
+  if (!patched.includes(settleNeedle)) {
+    throw new Error("pinned upstream post-input settle block no longer matches expected commit");
+  }
+  patched = patched.replace(settleNeedle, settleReplacement);
+
+  const enterNeedle = "    await sleep(2000);\n    if ((editor.innerText || editor.value || '').trim().length > 0) {";
+  const enterReplacement = [
+    "    await sleep(2000);",
+    "    (globalThis.__mbv1BridgeStages ||= []).push({",
+    "      stage: 'MBV1_STAGE_AFTER_ENTER_WAIT',",
+    "      text: (editor.innerText || editor.value || editor.textContent || '').slice(0, 300)",
+    "    });",
+    "    if ((editor.innerText || editor.value || '').trim().length > 0) {"
+  ].join("\n");
+  if (!patched.includes(enterNeedle)) {
+    throw new Error("pinned upstream post-enter block no longer matches expected commit");
+  }
+  patched = patched.replace(enterNeedle, enterReplacement);
   return patched;
 }
 
@@ -363,6 +390,8 @@ try {
   );
   log("MBV1_001_PLANNER_POST_DISPATCH_EDITOR", plannerPostDispatchSnapshot?.editorText || "");
   log("MBV1_001_PLANNER_POST_DISPATCH_GENERATING", plannerPostDispatchSnapshot?.isGenerating);
+  const bridgeStages = await plannerPage.evaluate(() => globalThis.__mbv1BridgeStages || []);
+  log("MBV1_001_PLANNER_BRIDGE_STAGES", JSON.stringify(bridgeStages));
   await logChatSurfaceDiagnostics(plannerPage, "PLANNER_POST_DISPATCH");
   await waitForBridgeTurn(plannerPageId, "user", plannerToken, 20_000);
   const plannerReplySnapshot = await waitForBridgeTurn(
