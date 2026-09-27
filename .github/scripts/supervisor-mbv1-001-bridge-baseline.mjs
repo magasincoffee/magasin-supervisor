@@ -152,7 +152,7 @@ async function logChatSurfaceDiagnostics(page, label) {
       textLength: String(el.innerText || el.value || "").length
     }));
     const buttons = Array.from(document.querySelectorAll("button")).filter(visible)
-      .slice(-40).map((el) => ({
+      .slice(-80).map((el) => ({
         id: el.id || null,
         type: el.getAttribute("type"),
         ariaLabel: el.getAttribute("aria-label"),
@@ -160,10 +160,15 @@ async function logChatSurfaceDiagnostics(page, label) {
         disabled: Boolean(el.disabled) || el.getAttribute("aria-disabled") === "true",
         text: String(el.innerText || el.textContent || "").trim().slice(0, 80)
       }));
-    return { editors, buttons };
+    const sendCandidates = buttons.filter((b) =>
+      /(send|submit|gửi|composer|prompt)/i.test(
+        [b.id, b.type, b.ariaLabel, b.testId, b.text].filter(Boolean).join(" ")
+      )
+    );
+    return { editors, buttons, sendCandidates };
   });
   log(`MBV1_001_${label}_EDITORS`, JSON.stringify(diag.editors));
-  log(`MBV1_001_${label}_BUTTONS`, JSON.stringify(diag.buttons));
+  log(`MBV1_001_${label}_SEND_CANDIDATES`, JSON.stringify(diag.sendCandidates));
   return diag;
 }
 
@@ -330,6 +335,14 @@ try {
   if (plannerDispatch?.ok !== true || !plannerDispatch?.cmd_id) {
     throw new Error("Planner bridge async dispatch was not accepted");
   }
+  await new Promise((resolve) => setTimeout(resolve, 3_000));
+  const plannerPostDispatchSnapshot = await bridgeJson(
+    "GET",
+    `/snapshot?page_id=${encodeURIComponent(plannerPageId)}`
+  );
+  log("MBV1_001_PLANNER_POST_DISPATCH_EDITOR", plannerPostDispatchSnapshot?.editorText || "");
+  log("MBV1_001_PLANNER_POST_DISPATCH_GENERATING", plannerPostDispatchSnapshot?.isGenerating);
+  await logChatSurfaceDiagnostics(plannerPage, "PLANNER_POST_DISPATCH");
   await waitForBridgeTurn(plannerPageId, "user", plannerToken, 20_000);
   const plannerReplySnapshot = await waitForBridgeTurn(
     plannerPageId,
