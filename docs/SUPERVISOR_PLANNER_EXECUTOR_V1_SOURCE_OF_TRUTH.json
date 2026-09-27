@@ -745,9 +745,16 @@
       {
         "id": "MBV1-002",
         "priority": "P0",
-        "state": "READY_TO_EXECUTE",
+        "state": "IN_PROGRESS",
         "name": "Bridge Adapter",
-        "weight_percent": 10
+        "weight_percent": 10,
+        "implementation": {
+          "branch": "mbv1-002-bridge-adapter",
+          "draft_pr": 174,
+          "candidate_head": "a9c15b52ba8d1a8919bd6b33c6da33addf5dc200",
+          "production_mutated": false,
+          "bridge_cutover": false
+        }
       },
       {
         "id": "MBV1-003",
