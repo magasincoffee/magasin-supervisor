@@ -784,9 +784,9 @@
         "name": "Planner/Executor Binding",
         "weight_percent": 10,
         "implementation": {
-          "branch": "mbv1-003-role-binding",
-          "draft_pr": 175,
-          "candidate_head": "6918d1b2444f8349467d2df0c17044f5b461e417",
+          "branch": "mbv1-003-bridge-role-binding",
+          "draft_pr": 176,
+          "candidate_head": "e07eb79e71622fd8dee27121fa3fc11dded31deb",
           "production_mutated": false,
           "bridge_cutover": false
         }
