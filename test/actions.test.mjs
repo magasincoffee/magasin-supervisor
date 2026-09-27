@@ -554,6 +554,66 @@ test("composer send fails closed when click and Enter are both inert", async () 
   assert.equal(composerText, "must not be reported as sent");
 });
 
+
+
+test("send verification accepts matching user turn through modern ChatGPT user selector fallback", async () => {
+  let composerText = "";
+  let userTurns = 0;
+  let modernSelectorObserved = false;
+
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async fill(value) { composerText = value; },
+    async inputValue() { return composerText; },
+    async click() {},
+    async press() {}
+  };
+  const send = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() {
+      if (composerText) userTurns += 1;
+      composerText = "";
+    }
+  };
+  const page = {
+    locator(selector) {
+      if (selector.includes("send-button")) return send;
+      return composer;
+    },
+    async evaluate(fn, args) {
+      if (String(fn).includes("selectors.modern")) {
+        modernSelectorObserved =
+          args?.selectors?.modern === "main .text-size-chat.whitespace-pre-wrap";
+        return {
+          readable: true,
+          totalCount: userTurns,
+          exactMatchCount: userTurns
+        };
+      }
+      return [];
+    },
+    async waitForTimeout() {},
+    async bringToFront() {},
+    keyboard: { async press() {}, async insertText() {} },
+    getByRole() { return send; }
+  };
+
+  const result = await sendComposerInstruction(
+    page,
+    "modern user turn verification",
+    { dryRun: false }
+  );
+
+  assert.equal(result.executed, true);
+  assert.equal(result.user_turn_evidence, "matching-user-turn-observed");
+  assert.equal(modernSelectorObserved, true);
+});
+
 test("composer clear alone is not accepted without a matching new user turn", async () => {
   let composerText = "";
 
