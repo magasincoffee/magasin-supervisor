@@ -1,4 +1,4 @@
-> **Canonical forward architecture:** Planner / Executor V1 is the approved forward Source of Truth. Planner and Executor are two normal ChatGPT conversations; ChatGPT Work mode is not part of the orchestration path. Supervisor local durable state remains authoritative. PE-001 through PE-005 are complete, including live two-chat qualification, compact protocol, exact two-tab runtime, exact-once recovery, and read-only legacy migration. Production cutover remains pending; PE-006 automated continuation is next.
+> **Canonical forward architecture:** Planner / Executor V1 is the approved forward Source of Truth. Planner and Executor are two normal ChatGPT conversations; ChatGPT Work mode is not part of the orchestration path. Supervisor local durable state remains authoritative. PE-001 through PE-006 are complete, including live two-chat qualification, compact protocol, exact two-tab runtime, exact-once recovery, read-only legacy migration, and automated continuation/recovery. Production cutover remains pending; PE-007 qualification and Owner-authorized cutover is next.
 >
 > Canonical authority:
 > - `docs/SUPERVISOR_PLANNER_EXECUTOR_V1_SOURCE_OF_TRUTH.md`
