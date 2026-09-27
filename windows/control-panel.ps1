@@ -584,14 +584,77 @@ function Save-BrainTarget(
 }
 
 
+function Save-PlannerExecutorTargets(
+    [string]$PlannerUrl,
+    [string]$ExecutorUrl
+) {
+    $state = Read-JsonFile $plannerExecutorStateFile
+    if (-not $state -or [string]$state.mode -ne 'PLANNER_EXECUTOR_V1') {
+        throw 'Planner/Executor state chưa sẵn sàng.'
+    }
+
+    $truth = Get-LifecycleProcessTruth -Root $root
+    if ([bool]$truth.wrapper_alive) {
+        throw 'Hãy STOP ROBOT trước khi đổi link Planner/Executor.'
+    }
+
+    $automation = Get-OptionalPropertyValue $state 'automation' $null
+    $automationStatus = [string](Get-OptionalPropertyValue $automation 'status' '')
+    if (
+        $automationStatus -notin @('DONE','STOPPED') -and
+        (
+            $null -ne (Get-OptionalPropertyValue $state 'assignment' $null) -or
+            $null -ne (Get-OptionalPropertyValue $state 'result' $null)
+        )
+    ) {
+        throw 'Không thể đổi link khi task đang có assignment/result hoạt động. Hãy hoàn tất hoặc dừng ở điểm an toàn trước.'
+    }
+
+    $plannerCanonical = ConvertTo-CanonicalChatConversationUrl $PlannerUrl
+    $executorCanonical = ConvertTo-CanonicalChatConversationUrl $ExecutorUrl
+    if ($plannerCanonical -eq $executorCanonical) {
+        throw 'Planner và Executor phải là hai cuộc trò chuyện ChatGPT khác nhau.'
+    }
+
+    $planner = Get-OptionalPropertyValue $state 'planner' $null
+    $executor = Get-OptionalPropertyValue $state 'executor' $null
+    if (-not $planner -or -not $executor) {
+        throw 'Planner/Executor target state không hợp lệ.'
+    }
+
+    $changed = $false
+    if ([string]$planner.target -ne $plannerCanonical) {
+        $planner.target = $plannerCanonical
+        $planner.target_revision = [int](Get-OptionalPropertyValue $planner 'target_revision' 0) + 1
+        $planner.last_seen_assistant_turn_id = $null
+        $changed = $true
+    }
+    if ([string]$executor.target -ne $executorCanonical) {
+        $executor.target = $executorCanonical
+        $executor.target_revision = [int](Get-OptionalPropertyValue $executor 'target_revision' 0) + 1
+        $executor.last_seen_assistant_turn_id = $null
+        $changed = $true
+    }
+
+    if ($changed) {
+        Write-JsonAtomic $plannerExecutorStateFile $state
+    }
+
+    return [pscustomobject]@{
+        Changed = $changed
+        PlannerRevision = [int]$planner.target_revision
+        ExecutorRevision = [int]$executor.target_revision
+    }
+}
+
 function Show-PlannerExecutorControlPanel {
     [Windows.Forms.Application]::EnableVisualStyles()
 
     $form = New-Object Windows.Forms.Form
     $form.Text = 'MAGASIN SUPERVISOR — CONTROL CENTER'
     $form.StartPosition = 'CenterScreen'
-    $form.Size = New-Object Drawing.Size(1040, 700)
-    $form.MinimumSize = New-Object Drawing.Size(900, 620)
+    $form.Size = New-Object Drawing.Size(1040, 790)
+    $form.MinimumSize = New-Object Drawing.Size(900, 700)
     $form.AutoScaleMode = [Windows.Forms.AutoScaleMode]::Dpi
     $form.AutoScaleDimensions = New-Object Drawing.SizeF(96, 96)
     $form.BackColor = [Drawing.Color]::FromArgb(241,245,249)
@@ -691,7 +754,7 @@ function Show-PlannerExecutorControlPanel {
 
     $projectPanel = New-Object Windows.Forms.Panel
     $projectPanel.Location = New-Object Drawing.Point(20, 264)
-    $projectPanel.Size = New-Object Drawing.Size(980, 250)
+    $projectPanel.Size = New-Object Drawing.Size(980, 330)
     $projectPanel.BackColor = [Drawing.Color]::White
     $projectPanel.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
     $form.Controls.Add($projectPanel)
@@ -733,32 +796,64 @@ function Show-PlannerExecutorControlPanel {
     $lastValue.ForeColor = [Drawing.Color]::FromArgb(100,116,139)
     $projectPanel.Controls.Add($lastValue)
 
+    $plannerLinkLabel = New-Object Windows.Forms.Label
+    $plannerLinkLabel.Location = New-Object Drawing.Point(620, 48)
+    $plannerLinkLabel.Size = New-Object Drawing.Size(330, 22)
+    $plannerLinkLabel.Text = 'LINK CHAT PLANNER'
+    $plannerLinkLabel.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
+    $projectPanel.Controls.Add($plannerLinkLabel)
+
+    $plannerBox = New-Object Windows.Forms.TextBox
+    $plannerBox.Location = New-Object Drawing.Point(620, 72)
+    $plannerBox.Size = New-Object Drawing.Size(242, 27)
+    $projectPanel.Controls.Add($plannerBox)
+
     $plannerButton = New-Object Windows.Forms.Button
-    $plannerButton.Location = New-Object Drawing.Point(650, 52)
-    $plannerButton.Size = New-Object Drawing.Size(300, 52)
-    $plannerButton.Text = 'MỞ PLANNER'
+    $plannerButton.Location = New-Object Drawing.Point(872, 69)
+    $plannerButton.Size = New-Object Drawing.Size(78, 33)
+    $plannerButton.Text = 'MỞ'
     $plannerButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
-    $plannerButton.Font = New-Object Drawing.Font('Segoe UI Semibold', 10)
     $projectPanel.Controls.Add($plannerButton)
 
+    $executorLinkLabel = New-Object Windows.Forms.Label
+    $executorLinkLabel.Location = New-Object Drawing.Point(620, 116)
+    $executorLinkLabel.Size = New-Object Drawing.Size(330, 22)
+    $executorLinkLabel.Text = 'LINK CHAT EXECUTOR'
+    $executorLinkLabel.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
+    $projectPanel.Controls.Add($executorLinkLabel)
+
+    $executorBox = New-Object Windows.Forms.TextBox
+    $executorBox.Location = New-Object Drawing.Point(620, 140)
+    $executorBox.Size = New-Object Drawing.Size(242, 27)
+    $projectPanel.Controls.Add($executorBox)
+
     $executorButton = New-Object Windows.Forms.Button
-    $executorButton.Location = New-Object Drawing.Point(650, 118)
-    $executorButton.Size = New-Object Drawing.Size(300, 52)
-    $executorButton.Text = 'MỞ EXECUTOR'
+    $executorButton.Location = New-Object Drawing.Point(872, 137)
+    $executorButton.Size = New-Object Drawing.Size(78, 33)
+    $executorButton.Text = 'MỞ'
     $executorButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
-    $executorButton.Font = New-Object Drawing.Font('Segoe UI Semibold', 10)
     $projectPanel.Controls.Add($executorButton)
 
+    $saveTargetsButton = New-Object Windows.Forms.Button
+    $saveTargetsButton.Location = New-Object Drawing.Point(620, 188)
+    $saveTargetsButton.Size = New-Object Drawing.Size(330, 40)
+    $saveTargetsButton.Text = 'LƯU 2 LINK CHAT'
+    $saveTargetsButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+    $saveTargetsButton.BackColor = [Drawing.Color]::FromArgb(37,99,235)
+    $saveTargetsButton.ForeColor = [Drawing.Color]::White
+    $saveTargetsButton.FlatAppearance.BorderSize = 0
+    $projectPanel.Controls.Add($saveTargetsButton)
+
     $targetNote = New-Object Windows.Forms.Label
-    $targetNote.Location = New-Object Drawing.Point(650, 182)
-    $targetNote.Size = New-Object Drawing.Size(300, 48)
+    $targetNote.Location = New-Object Drawing.Point(620, 240)
+    $targetNote.Size = New-Object Drawing.Size(330, 70)
     $targetNote.TextAlign = 'MiddleCenter'
     $targetNote.ForeColor = [Drawing.Color]::FromArgb(100,116,139)
-    $targetNote.Text = 'Planner và Executor là 2 cuộc trò chuyện ChatGPT thường.'
+    $targetNote.Text = 'Dán 2 link chat ChatGPT thường. STOP Robot trước khi đổi target để giữ exact-once.'
     $projectPanel.Controls.Add($targetNote)
 
     $footer = New-Object Windows.Forms.Panel
-    $footer.Location = New-Object Drawing.Point(20, 530)
+    $footer.Location = New-Object Drawing.Point(20, 610)
     $footer.Size = New-Object Drawing.Size(980, 104)
     $footer.BackColor = [Drawing.Color]::FromArgb(248,250,252)
     $footer.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
@@ -844,12 +939,29 @@ function Show-PlannerExecutorControlPanel {
         $automationValue.Text = "AUTOMATION: $automationStatus"
         $phaseValue.Text = "PHA RUNTIME: $phase"
 
+        if (-not $plannerBox.Focused) { $plannerBox.Text = $plannerUrl }
+        if (-not $executorBox.Focused) { $executorBox.Text = $executorUrl }
+
         $plannerReady = Test-ChatConversationUrl $plannerUrl
         $executorReady = Test-ChatConversationUrl $executorUrl
         $plannerButton.Enabled = $plannerReady
         $executorButton.Enabled = $executorReady
 
         $targetsReady = [bool]($plannerReady -and $executorReady)
+        $hasActiveTransfer = [bool](
+            $null -ne (Get-OptionalPropertyValue $state 'assignment' $null) -or
+            $null -ne (Get-OptionalPropertyValue $state 'result' $null)
+        )
+        $safeToEditTargets = [bool](
+            -not $truth.wrapper_alive -and
+            (
+                $automationStatus -in @('DONE','STOPPED') -or
+                -not $hasActiveTransfer
+            )
+        )
+        $plannerBox.ReadOnly = -not $safeToEditTargets
+        $executorBox.ReadOnly = -not $safeToEditTargets
+        $saveTargetsButton.Enabled = $safeToEditTargets
         $startButton.Enabled = [bool]($targetsReady -and -not $running)
         $stopButton.Enabled = [bool]($truth.wrapper_alive -or -not $ownerStop.blocked)
 
@@ -932,6 +1044,31 @@ function Show-PlannerExecutorControlPanel {
             '-NoLogo','-NoProfile','-ExecutionPolicy','Bypass',
             '-File',('"' + $stopScript + '"')
         )
+    })
+
+    $saveTargetsButton.Add_Click({
+        try {
+            $saved = Save-PlannerExecutorTargets $plannerBox.Text.Trim() $executorBox.Text.Trim()
+            Refresh-PlannerExecutorUi
+            $message = if ($saved.Changed) {
+                "Đã lưu Planner r$($saved.PlannerRevision) và Executor r$($saved.ExecutorRevision)."
+            } else {
+                'Hai link không thay đổi.'
+            }
+            [Windows.Forms.MessageBox]::Show(
+                $message,
+                'MAGASIN SUPERVISOR',
+                'OK',
+                'Information'
+            ) | Out-Null
+        } catch {
+            [Windows.Forms.MessageBox]::Show(
+                $_.Exception.Message,
+                'KHÔNG THỂ LƯU LINK CHAT',
+                'OK',
+                'Warning'
+            ) | Out-Null
+        }
     })
 
     $plannerButton.Add_Click({
