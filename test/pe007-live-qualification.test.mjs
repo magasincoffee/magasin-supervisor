@@ -41,6 +41,8 @@ test("PE-007 workflow is isolated, target guarded, and does not cut over product
   assert.match(workflow, /supervisor-pe007-live-qualification\.ps1/);
   assert.match(workflow, /qualification-authority/);
   assert.match(workflow, /PE007_AUTHORITY_GATE=PASS/);
+  assert.match(workflow, /shell: cmd/);
+  assert.match(workflow, /supervisor-pe007-authority-attempt\.ps1/);
   assert.match(workflow, /attempt-1\.outputs\.qualified/);
   assert.match(workflow, /attempt-2\.outputs\.qualified/);
   assert.doesNotMatch(workflow, /start-supervisor\.ps1/);
@@ -63,4 +65,17 @@ test("PE-007 Node qualifier passes syntax check", () => {
   assert.doesNotThrow(() => {
     execFileSync(process.execPath, ["--check", scriptPath], { stdio: "pipe" });
   });
+});
+
+
+test("PE-007 authority attempt wrapper uses explicit ExecutionPolicy Bypass", async () => {
+  const source = await fs.readFile(
+    new URL("../.github/scripts/supervisor-pe007-authority-attempt.ps1", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /PE007_AUTH_TARGET_MATCH=False/);
+  assert.match(source, /qualified=false/);
+  assert.match(source, /ExecutionPolicy Bypass/);
+  assert.match(source, /supervisor-pe007-live-qualification\.ps1/);
+  assert.match(source, /qualified=true/);
 });
