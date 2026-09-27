@@ -151,6 +151,8 @@ The Control Panel progress bar is a projection of durable `pc/pt` state reported
 
 Saving or editing a **non-active** Project Profile is configuration-only. It MUST be allowed without switching the active project, and it MUST NOT mutate the active project's task, assignment/result latches, generation, or runtime state.
 
+Creating a new Project Profile is an explicit operation. The Control Panel MUST collect and validate a **new project_id** before entering draft mode, MUST visually bind the draft to that new ID, and MUST reject any draft save that would overwrite an existing profile. Merely editing the display name or Source field while the active profile remains selected is never interpreted as "create another project".
+
 For the **active project**, the Source of Truth and project activation boundary remain fail-closed: changing Source of Truth or switching to another project requires Robot STOP and no in-flight assignment/result.
 
 Planner and Executor chat URLs are different: they are **mutable role-session targets, not project identity**. Long-running projects are expected to rotate to new ChatGPT conversations when a chat becomes full. While the Robot is stopped, Owner may change the active project's Planner and/or Executor chat URL even when an assignment/result is still open. Supervisor MUST preserve `project_id`, `project_generation`, active task, assignment/result IDs, identity history, and progress.

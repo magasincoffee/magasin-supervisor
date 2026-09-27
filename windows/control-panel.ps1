@@ -827,7 +827,7 @@ function Save-PlannerExecutorProjectProfile(
             $null -ne (Get-OptionalPropertyValue $activeState 'result' $null)
         )
         if ($hasActiveTransfer -and $activeSource -ne $source) {
-            throw 'Source of Truth không được đổi khi assignment/result còn mở. Link Planner/Executor vẫn có thể đổi sau khi STOP ROBOT.'
+            throw 'Bạn đang sửa SOURCE của project ACTIVE. Source of Truth không được đổi khi assignment/result còn mở. Nếu đây là dự án khác, bấm TẠO PROFILE MỚI và nhập PROJECT ID mới; project hiện tại sẽ được giữ nguyên.'
         }
         $registry = Save-ActiveProjectSnapshot
         $profile = Get-PlannerExecutorProjectProfile $registry $id
@@ -1219,7 +1219,7 @@ function Show-PlannerExecutorControlPanel {
     $targetNote.Size = New-Object Drawing.Size(365, 70)
     $targetNote.TextAlign = 'MiddleCenter'
     $targetNote.ForeColor = [Drawing.Color]::FromArgb(100,116,139)
-    $targetNote.Text = 'Chat Planner/Executor là link phiên làm việc, không phải project ID. STOP rồi đổi link bất kỳ lúc nào; Source/NẠP dự án vẫn cần safe boundary.'
+    $targetNote.Text = 'DỰ ÁN KHÁC: bấm TẠO PROFILE MỚI → nhập PROJECT ID → dán Source/Chat → LƯU PROFILE. Chat URL có thể thay đổi; project ID + Source giữ identity.'
     $projectPanel.Controls.Add($targetNote)
 
     $profileEditor = [pscustomobject]@{
@@ -1272,11 +1272,68 @@ function Show-PlannerExecutorControlPanel {
         return $true
     }
 
+    function Prompt-NewProjectProfileId {
+        $dialog = New-Object Windows.Forms.Form
+        $dialog.Text = 'TẠO PROJECT PROFILE MỚI'
+        $dialog.StartPosition = [Windows.Forms.FormStartPosition]::CenterParent
+        $dialog.FormBorderStyle = [Windows.Forms.FormBorderStyle]::FixedDialog
+        $dialog.MaximizeBox = $false
+        $dialog.MinimizeBox = $false
+        $dialog.ShowInTaskbar = $false
+        $dialog.ClientSize = New-Object Drawing.Size(430, 170)
+
+        $label = New-Object Windows.Forms.Label
+        $label.Location = New-Object Drawing.Point(18, 16)
+        $label.Size = New-Object Drawing.Size(390, 24)
+        $label.Text = 'PROJECT ID MỚI'
+        $label.Font = New-Object Drawing.Font('Segoe UI Semibold', 10)
+        $dialog.Controls.Add($label)
+
+        $idBox = New-Object Windows.Forms.TextBox
+        $idBox.Location = New-Object Drawing.Point(18, 48)
+        $idBox.Size = New-Object Drawing.Size(390, 27)
+        $dialog.Controls.Add($idBox)
+
+        $hint = New-Object Windows.Forms.Label
+        $hint.Location = New-Object Drawing.Point(18, 82)
+        $hint.Size = New-Object Drawing.Size(390, 34)
+        $hint.ForeColor = [Drawing.Color]::FromArgb(100,116,139)
+        $hint.Text = 'Ví dụ: AUTH-PROD. ID này tách biệt với project đang active và không làm mất task hiện tại.'
+        $dialog.Controls.Add($hint)
+
+        $ok = New-Object Windows.Forms.Button
+        $ok.Location = New-Object Drawing.Point(242, 126)
+        $ok.Size = New-Object Drawing.Size(78, 30)
+        $ok.Text = 'TẠO'
+        $ok.DialogResult = [Windows.Forms.DialogResult]::OK
+        $dialog.Controls.Add($ok)
+
+        $cancel = New-Object Windows.Forms.Button
+        $cancel.Location = New-Object Drawing.Point(330, 126)
+        $cancel.Size = New-Object Drawing.Size(78, 30)
+        $cancel.Text = 'HỦY'
+        $cancel.DialogResult = [Windows.Forms.DialogResult]::Cancel
+        $dialog.Controls.Add($cancel)
+
+        $dialog.AcceptButton = $ok
+        $dialog.CancelButton = $cancel
+        $idBox.Select()
+
+        if ($dialog.ShowDialog($form) -ne [Windows.Forms.DialogResult]::OK) {
+            $dialog.Dispose()
+            return $null
+        }
+        $value = [string]$idBox.Text.Trim()
+        $dialog.Dispose()
+        return $value
+    }
+
     function Begin-NewProjectProfileDraft([string]$ProjectId = '') {
         $profileEditor.Suppress = $true
         try {
             $profileEditor.Draft = $true
             $profileEditor.Dirty = $true
+            $projectSelector.SelectedIndex = -1
             $projectSelector.Text = [string]$ProjectId
             $projectNameBox.Text = ''
             $sourceBox.Text = ''
@@ -1431,14 +1488,33 @@ function Show-PlannerExecutorControlPanel {
     })
 
     $newProjectButton.Add_Click({
-        Begin-NewProjectProfileDraft
-        Refresh-PlannerExecutorUi
-        $projectSelector.Focus()
+        try {
+            $newId = Prompt-NewProjectProfileId
+            if ([string]::IsNullOrWhiteSpace($newId)) { return }
+            $newId = Assert-ProjectId $newId
+            $registry = Ensure-PlannerExecutorProjectProfiles
+            if (Get-PlannerExecutorProjectProfile $registry $newId) {
+                throw "Project ID '$newId' đã tồn tại. Hãy chọn profile đó trong danh sách hoặc dùng một ID khác."
+            }
+            Begin-NewProjectProfileDraft $newId
+            Refresh-PlannerExecutorUi
+            $projectNameBox.Focus()
+        } catch {
+            [Windows.Forms.MessageBox]::Show($_.Exception.Message,'KHÔNG THỂ TẠO PROFILE','OK','Warning')|Out-Null
+        }
     })
 
     $saveProjectButton.Add_Click({
         try {
-            $result=Save-PlannerExecutorProjectProfile ($projectSelector.Text.Trim()) ($projectNameBox.Text.Trim()) ($sourceBox.Text.Trim()) ($plannerBox.Text.Trim()) ($executorBox.Text.Trim())
+            $requestedProjectId = $projectSelector.Text.Trim()
+            if ($profileEditor.Draft) {
+                $requestedProjectId = Assert-ProjectId $requestedProjectId
+                $registry = Ensure-PlannerExecutorProjectProfiles
+                if (Get-PlannerExecutorProjectProfile $registry $requestedProjectId) {
+                    throw "Project ID '$requestedProjectId' đã tồn tại. Draft mới không được ghi đè profile hiện có."
+                }
+            }
+            $result=Save-PlannerExecutorProjectProfile $requestedProjectId ($projectNameBox.Text.Trim()) ($sourceBox.Text.Trim()) ($plannerBox.Text.Trim()) ($executorBox.Text.Trim())
             Reload-ProjectSelector $result.ProjectId
             [void](Set-ProjectProfileEditor $result.ProjectId)
             Refresh-PlannerExecutorUi
