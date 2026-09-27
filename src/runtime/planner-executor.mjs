@@ -9,9 +9,9 @@ import {
 import { captureLatestRoleTurn } from "../ui/latest-turn.mjs";
 import {
   assertMachineFrameAction,
-  assertMachineFrameCorrelation,
-  parseMachineFrame
+  assertMachineFrameCorrelation
 } from "./machine-frame.mjs";
+import { captureNewestMachineFrame } from "./latest-machine-turn.mjs";
 
 export { parseMachineFrame } from "./machine-frame.mjs";
 
@@ -103,10 +103,6 @@ function buildPlannerReviewMessage({ taskId, assignmentId, resultId, body }) {
     'Nếu ACCEPT và có task kế tiếp: @M {"v":1,"a":"accept_assign","t":"CURRENT","r":"RESULT","n":"NEXT","i":"NEW-ASSIGNMENT"}',
     'Nếu REJECT: @M {"v":1,"a":"reject","t":"CURRENT","r":"RESULT"}'
   ].join("\n");
-}
-
-function sameTurn(turn, seen) {
-  return Boolean(turn?.turn_id && seen && turn.turn_id === seen);
 }
 
 async function reconcileOrSend({
@@ -234,31 +230,37 @@ export async function runPlannerExecutorStep({
   }
 
   if (!state.assignment) {
-    const turn = await captureTurn(plannerPage, "assistant");
-    if (!turn || sameTurn(turn, state.planner.last_seen_assistant_turn_id)) {
+    const latest = await captureNewestMachineFrame(
+      plannerPage,
+      "assistant",
+      {
+        lastSeenTurnId: state.planner.last_seen_assistant_turn_id,
+        captureTurn
+      }
+    );
+    if (!latest) {
       return { phase: "WAIT_PLANNER_ASSIGN", state };
     }
 
-    const parsed = parseMachineFrame(turn.text);
     try {
-      assertMachineFrameAction(parsed.frame, ["assign"]);
+      assertMachineFrameAction(latest.frame, ["assign"]);
     } catch {
-      return { phase: "WAIT_PLANNER_ASSIGN", ignored_action: parsed.frame.a, state };
+      return { phase: "WAIT_PLANNER_ASSIGN", ignored_action: latest.frame.a, state };
     }
 
     const message = buildExecutorAssignmentMessage({
-      taskId: parsed.frame.t,
-      assignmentId: parsed.frame.i,
-      body: parsed.body
+      taskId: latest.frame.t,
+      assignmentId: latest.frame.i,
+      body: latest.body
     });
 
-    state.planner.last_seen_assistant_turn_id = turn.turn_id;
-    state.active_task_id = parsed.frame.t;
+    state.planner.last_seen_assistant_turn_id = latest.turn.turn_id;
+    state.active_task_id = latest.frame.t;
     state.assignment = {
-      task_id: parsed.frame.t,
-      assignment_id: parsed.frame.i,
-      source_turn_id: turn.turn_id,
-      planner_body: parsed.body,
+      task_id: latest.frame.t,
+      assignment_id: latest.frame.i,
+      source_turn_id: latest.turn.turn_id,
+      planner_body: latest.body,
       message,
       message_digest: composerInstructionDigest(message),
       persisted_at: now(),
@@ -286,37 +288,43 @@ export async function runPlannerExecutorStep({
   }
 
   if (!state.result) {
-    const turn = await captureTurn(executorPage, "assistant");
-    if (!turn || sameTurn(turn, state.executor.last_seen_assistant_turn_id)) {
+    const latest = await captureNewestMachineFrame(
+      executorPage,
+      "assistant",
+      {
+        lastSeenTurnId: state.executor.last_seen_assistant_turn_id,
+        captureTurn
+      }
+    );
+    if (!latest) {
       return { phase: "WAIT_EXECUTOR_REPORT", state };
     }
 
-    const parsed = parseMachineFrame(turn.text);
     try {
-      assertMachineFrameAction(parsed.frame, ["report"]);
+      assertMachineFrameAction(latest.frame, ["report"]);
     } catch {
-      return { phase: "WAIT_EXECUTOR_REPORT", ignored_action: parsed.frame.a, state };
+      return { phase: "WAIT_EXECUTOR_REPORT", ignored_action: latest.frame.a, state };
     }
-    assertMachineFrameCorrelation(parsed.frame, {
+    assertMachineFrameCorrelation(latest.frame, {
       taskId: state.assignment.task_id,
       assignmentId: state.assignment.assignment_id
     });
 
     const relayMessage = buildPlannerReviewMessage({
-      taskId: parsed.frame.t,
-      assignmentId: parsed.frame.i,
-      resultId: parsed.frame.r,
-      body: parsed.body
+      taskId: latest.frame.t,
+      assignmentId: latest.frame.i,
+      resultId: latest.frame.r,
+      body: latest.body
     });
 
-    state.executor.last_seen_assistant_turn_id = turn.turn_id;
+    state.executor.last_seen_assistant_turn_id = latest.turn.turn_id;
     state.result = {
-      task_id: parsed.frame.t,
-      assignment_id: parsed.frame.i,
-      result_id: parsed.frame.r,
-      status: parsed.frame.s,
-      source_turn_id: turn.turn_id,
-      executor_body: parsed.body,
+      task_id: latest.frame.t,
+      assignment_id: latest.frame.i,
+      result_id: latest.frame.r,
+      status: latest.frame.s,
+      source_turn_id: latest.turn.turn_id,
+      executor_body: latest.body,
       message: relayMessage,
       message_digest: composerInstructionDigest(relayMessage),
       persisted_at: now(),
@@ -346,25 +354,28 @@ export async function runPlannerExecutorStep({
     return { phase: "EXECUTOR_REPORT", outcome, state };
   }
 
-  const plannerTurn = await captureTurn(plannerPage, "assistant");
-  if (!plannerTurn || sameTurn(
-    plannerTurn,
-    state.planner.last_seen_assistant_turn_id
-  )) {
+  const latest = await captureNewestMachineFrame(
+    plannerPage,
+    "assistant",
+    {
+      lastSeenTurnId: state.planner.last_seen_assistant_turn_id,
+      captureTurn
+    }
+  );
+  if (!latest) {
     return { phase: "WAIT_PLANNER_DECISION", state };
   }
 
-  const parsed = parseMachineFrame(plannerTurn.text);
-  if (parsed.frame.a === "reject") {
-    assertMachineFrameCorrelation(parsed.frame, {
+  if (latest.frame.a === "reject") {
+    assertMachineFrameCorrelation(latest.frame, {
       taskId: state.result.task_id,
       resultId: state.result.result_id
     });
-    state.planner.last_seen_assistant_turn_id = plannerTurn.turn_id;
+    state.planner.last_seen_assistant_turn_id = latest.turn.turn_id;
     state.decision = {
       action: "reject",
-      task_id: parsed.frame.t,
-      result_id: parsed.frame.r,
+      task_id: latest.frame.t,
+      result_id: latest.frame.r,
       decided_at: now()
     };
     await persist(statePath, state);
@@ -372,26 +383,26 @@ export async function runPlannerExecutorStep({
   }
 
   try {
-    assertMachineFrameAction(parsed.frame, ["accept_assign"]);
+    assertMachineFrameAction(latest.frame, ["accept_assign"]);
   } catch {
     return {
       phase: "WAIT_PLANNER_DECISION",
-      ignored_action: parsed.frame.a,
+      ignored_action: latest.frame.a,
       state
     };
   }
-  assertMachineFrameCorrelation(parsed.frame, {
+  assertMachineFrameCorrelation(latest.frame, {
     taskId: state.result.task_id,
     resultId: state.result.result_id
   });
 
   const nextMessage = buildExecutorAssignmentMessage({
-    taskId: parsed.frame.n,
-    assignmentId: parsed.frame.i,
-    body: parsed.body
+    taskId: latest.frame.n,
+    assignmentId: latest.frame.i,
+    body: latest.body
   });
 
-  state.planner.last_seen_assistant_turn_id = plannerTurn.turn_id;
+  state.planner.last_seen_assistant_turn_id = latest.turn.turn_id;
   state.last_completed = {
     task_id: state.result.task_id,
     assignment_id: state.result.assignment_id,
@@ -401,18 +412,18 @@ export async function runPlannerExecutorStep({
   };
   state.decision = {
     action: "accept_assign",
-    task_id: parsed.frame.t,
-    result_id: parsed.frame.r,
-    next_task_id: parsed.frame.n,
-    assignment_id: parsed.frame.i,
+    task_id: latest.frame.t,
+    result_id: latest.frame.r,
+    next_task_id: latest.frame.n,
+    assignment_id: latest.frame.i,
     decided_at: now()
   };
-  state.active_task_id = parsed.frame.n;
+  state.active_task_id = latest.frame.n;
   state.assignment = {
-    task_id: parsed.frame.n,
-    assignment_id: parsed.frame.i,
-    source_turn_id: plannerTurn.turn_id,
-    planner_body: parsed.body,
+    task_id: latest.frame.n,
+    assignment_id: latest.frame.i,
+    source_turn_id: latest.turn.turn_id,
+    planner_body: latest.body,
     message: nextMessage,
     message_digest: composerInstructionDigest(nextMessage),
     persisted_at: now(),
