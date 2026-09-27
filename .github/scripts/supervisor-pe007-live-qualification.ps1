@@ -1,5 +1,6 @@
 param(
-  [string]$TargetComputer = 'DESKTOP-4K7IM13'
+  [string]$TargetComputer = 'DESKTOP-4K7IM13',
+  [int]$NonTargetHoldSeconds = 120
 )
 
 $ErrorActionPreference = 'Stop'
@@ -8,8 +9,14 @@ Set-StrictMode -Version 2.0
 Write-Host "PE007_QUAL_MACHINE=$env:COMPUTERNAME"
 if ($env:COMPUTERNAME -ne $TargetComputer) {
   Write-Host 'PE007_QUAL_TARGET_MATCH=False'
-  Write-Host 'PE007_QUAL_SKIP_SAFE=True'
-  exit 0
+  Write-Host 'PE007_QUAL_NON_TARGET_FAIL_CLOSED=True'
+  # Keep the wrong runner occupied briefly so the second matrix slot has a
+  # fair chance to be scheduled on the actual target runner. A wrong-machine
+  # job must never produce a green qualification.
+  $hold = [math]::Max(0, [math]::Min(300, $NonTargetHoldSeconds))
+  Write-Host "PE007_QUAL_NON_TARGET_HOLD_SECONDS=$hold"
+  if ($hold -gt 0) { Start-Sleep -Seconds $hold }
+  exit 86
 }
 Write-Host 'PE007_QUAL_TARGET_MATCH=True'
 
