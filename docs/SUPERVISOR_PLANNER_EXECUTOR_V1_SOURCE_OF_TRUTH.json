@@ -21,32 +21,32 @@
     ],
     "exact_role_count": 2,
     "chatgpt_work_mode_allowed": false,
-    "durable_authority": "SUPERVISOR_LOCAL_STATE",
+    "durable_authority": "SOURCE_OF_TRUTH_URL",
     "normal_resident_chatgpt_tabs": 2,
     "one_active_task": true,
     "normal_full_history_scan": false,
     "send_success_requires_matching_user_turn": true,
     "one_active_project": true,
-    "multiple_project_profiles_allowed": true,
+    "multiple_project_profiles_allowed": false,
     "project_context_source": "OWNER_CONFIGURED_SOURCE_OF_TRUTH_URL",
-    "project_switch_requires_robot_stopped": true,
+    "project_switch_requires_robot_stopped": false,
     "project_switch_requires_no_inflight_assignment_or_result": false,
     "inactive_project_profile_save_requires_robot_stopped": false,
     "inactive_project_profile_save_mutates_active_runtime": false,
-    "active_project_source_change_requires_safe_boundary": true,
+    "active_project_source_change_requires_safe_boundary": false,
     "active_project_chat_target_rollover_requires_robot_stopped": true,
     "active_project_chat_target_rollover_requires_no_inflight_assignment_or_result": false,
     "chat_target_is_project_identity": false,
     "chat_target_revisioned": true,
     "chat_target_rollover_preserves_project_generation": true,
-    "project_switch_preserves_inflight_state": true,
-    "project_switch_preserves_project_generation": true,
+    "project_switch_preserves_inflight_state": false,
+    "project_switch_preserves_project_generation": false,
     "project_switch_is_project_reset": false,
     "owner_reset_requires_explicit_confirmation": true,
     "owner_reset_stops_robot_first": true,
-    "owner_reset_preserves_saved_profiles": true,
-    "owner_reset_preserves_source_and_chat_targets": true,
-    "owner_reset_increments_project_generation": true,
+    "owner_reset_preserves_saved_profiles": false,
+    "owner_reset_preserves_source_and_chat_targets": false,
+    "owner_reset_increments_project_generation": false,
     "owner_reset_clears_active_runtime_state": true,
     "machine_frame_mention_popover_must_be_dismissed_before_send": true,
     "machine_frame_send_prefers_explicit_send_control": true,
@@ -65,7 +65,13 @@
     "active_planner_executor_hotpatch_must_preserve_dedicated_chrome": true,
     "planner_executor_control_center_scrollable_viewport": true,
     "canonical_historical_bootstrap_draft_auto_recovery": true,
-    "bootstrap_retry_reacquires_exact_chat_targets": true
+    "bootstrap_retry_reacquires_exact_chat_targets": true,
+    "start_creates_fresh_link_only_session": true,
+    "start_restores_project_snapshot": false,
+    "stop_start_rehydrates_source_of_truth": true,
+    "progress_bar_source": "PLANNER_PC_PT_FROM_SOURCE_OF_TRUTH",
+    "reset_clears_all_project_session_data": true,
+    "reset_preserves_browser_login_runtime_and_runner": true
   },
   "protocol": {
     "marker": "@M ",
@@ -141,6 +147,15 @@
         "action": "DISMISS_TRANSIENT_UI_GUARDED_CLEAR_AND_RECOMPOSE_CURRENT_GENERATION",
         "foreign_or_modified_draft": "FAIL_CLOSED_NO_OVERWRITE"
       }
+    },
+    "project_authority": "SOURCE_OF_TRUTH",
+    "progress_projection": {
+      "source": "Planner reads Source of Truth",
+      "fields": [
+        "pc",
+        "pt"
+      ],
+      "local_persistence": "EPHEMERAL_RUNTIME_ONLY"
     }
   },
   "happy_path": {
@@ -597,5 +612,19 @@
       "autoscroll": true,
       "lower_controls_must_remain_reachable": true
     }
+  },
+  "session_model": {
+    "mode": "LINK_ONLY_EPHEMERAL",
+    "runtime_inputs": [
+      "source_of_truth_url",
+      "planner_url",
+      "executor_url"
+    ],
+    "runtime_project_id": "LIVE",
+    "fresh_generation": 1,
+    "local_project_profiles": false,
+    "per_project_snapshots": false,
+    "start_behavior": "REHYDRATE_FROM_SOURCE_OF_TRUTH",
+    "reset_behavior": "DELETE_ALL_PROJECT_SESSION_DATA_KEEP_EMPTY_MODE_SHELL"
   }
 }

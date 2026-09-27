@@ -785,6 +785,90 @@ function Assert-SafeProjectMutation {
     # from that snapshot when the project becomes active again.
 }
 
+function New-LinkOnlyPlannerExecutorShell {
+    return [ordered]@{
+        schema_version='planner-executor-state.v1'
+        mode='PLANNER_EXECUTOR_V1'
+        project_id='LIVE'
+        project_generation=1
+        project_name='LIVE SESSION'
+        project_context=[ordered]@{ source_of_truth_url=$null; strict_correlation=$false }
+        project_progress=[ordered]@{ known=$false; completed_tasks=0; total_tasks=0; percent=$null; updated_at=$null; source=$null }
+        project_context_bootstrap=$null
+        planner=[ordered]@{ target=''; target_revision=0; last_seen_assistant_turn_id=$null }
+        executor=[ordered]@{ target=''; target_revision=0; last_seen_assistant_turn_id=$null }
+        active_task_id=$null
+        assignment=$null
+        result=$null
+        decision=$null
+        last_completed=$null
+        automation=[ordered]@{ status='IDLE'; reason=$null; updated_at=[DateTimeOffset]::UtcNow.ToString('o') }
+        identity_history=[ordered]@{ assignment_ids=@(); result_ids=@() }
+    }
+}
+
+function Initialize-LinkOnlyPlannerExecutorSession(
+    [string]$SourceUrl,
+    [string]$PlannerUrl,
+    [string]$ExecutorUrl
+) {
+    $truth = Get-LifecycleProcessTruth -Root $root
+    if ([bool]$truth.wrapper_alive) {
+        throw 'Hãy STOP ROBOT trước khi tạo phiên link-only mới.'
+    }
+
+    $source = ConvertTo-CanonicalSourceOfTruthUrl $SourceUrl
+    $planner = ConvertTo-CanonicalChatConversationUrl $PlannerUrl
+    $executor = ConvertTo-CanonicalChatConversationUrl $ExecutorUrl
+    if ($planner -eq $executor) { throw 'Planner và Executor phải là hai cuộc trò chuyện ChatGPT khác nhau.' }
+
+    # Link-only mode intentionally creates a fresh runtime session on every START.
+    # No project profile/snapshot is restored; Source of Truth is the only project authority.
+    $state = New-PlannerExecutorProjectState 'LIVE' 'LIVE SESSION' $source $planner $executor
+    $state.project_generation = 1
+    $state.project_context.strict_correlation = $false
+    $state.project_context_bootstrap = New-ProjectContextBootstrap 1
+    $state.project_progress = [pscustomobject]@{
+        known=$false; completed_tasks=0; total_tasks=0; percent=$null; updated_at=$null; source=$null
+    }
+    $state.automation = [pscustomobject]@{
+        status='RUNNING'; reason=$null; updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+    }
+
+    # Remove all durable multi-project/profile artifacts before starting the fresh session.
+    Remove-Item $plannerExecutorProjectsFile -Force -ErrorAction SilentlyContinue
+    Remove-Item $plannerExecutorProjectsDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item $plannerExecutorStatusFile -Force -ErrorAction SilentlyContinue
+    Remove-Item $plannerExecutorStartupFailureFile -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $root 'planner-executor-incidents.ndjson') -Force -ErrorAction SilentlyContinue
+
+    Write-JsonAtomic $plannerExecutorStateFile $state
+    return $state
+}
+
+function Reset-LinkOnlyPlannerExecutorSession {
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $stopScript
+    if ($LASTEXITCODE -ne 0) {
+        throw 'STOP ROBOT thất bại; không thể reset phiên.'
+    }
+
+    # RESET is destructive for all project/session-local data. Browser login,
+    # Supervisor installation and GitHub Runner are intentionally preserved.
+    Remove-Item $plannerExecutorStateFile -Force -ErrorAction SilentlyContinue
+    Remove-Item $plannerExecutorStatusFile -Force -ErrorAction SilentlyContinue
+    Remove-Item $plannerExecutorStartupFailureFile -Force -ErrorAction SilentlyContinue
+    Remove-Item $plannerExecutorProjectsFile -Force -ErrorAction SilentlyContinue
+    Remove-Item $plannerExecutorProjectsDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $root 'planner-executor-incidents.ndjson') -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $root 'diagnostics\submit') -Recurse -Force -ErrorAction SilentlyContinue
+
+    # Keep only an empty mode shell so Control Center reopens in Planner/Executor mode.
+    # This shell contains no project URL, chat URL, progress, task, assignment or result.
+    $shell = New-LinkOnlyPlannerExecutorShell
+    Write-JsonAtomic $plannerExecutorStateFile $shell
+    return $shell
+}
+
 function New-ProjectContextBootstrap([int]$Generation) {
     return [pscustomobject]@{
         required=$true; generation=$Generation; baseline_captured_at=$null
@@ -1098,8 +1182,6 @@ function Switch-PlannerExecutorProject([string]$ProjectId) {
 
 function Show-PlannerExecutorControlPanel {
     [Windows.Forms.Application]::EnableVisualStyles()
-    [void](Ensure-PlannerExecutorProjectProfiles)
-
     $form = New-Object Windows.Forms.Form
     $form.Text = 'MAGASIN SUPERVISOR — CONTROL CENTER'
     $form.StartPosition = 'CenterScreen'
@@ -1226,7 +1308,7 @@ function Show-PlannerExecutorControlPanel {
     $content.Controls.Add($projectPanel)
 
     $projectTitle = New-Object Windows.Forms.Label
-    $projectTitle.Text = 'PROJECT PROFILE / SOURCE OF TRUTH'
+    $projectTitle.Text = 'SOURCE OF TRUTH / LIVE SESSION'
     $projectTitle.Location = New-Object Drawing.Point(18, 14)
     $projectTitle.Size = New-Object Drawing.Size(380, 28)
     $projectTitle.Font = New-Object Drawing.Font('Segoe UI Semibold', 13)
@@ -1383,8 +1465,19 @@ function Show-PlannerExecutorControlPanel {
     $targetNote.Size = New-Object Drawing.Size(365, 70)
     $targetNote.TextAlign = 'MiddleCenter'
     $targetNote.ForeColor = [Drawing.Color]::FromArgb(100,116,139)
-    $targetNote.Text = 'DỰ ÁN KHÁC: bấm TẠO PROFILE MỚI → nhập PROJECT ID → dán Source/Chat → LƯU PROFILE. Chat URL có thể thay đổi; project ID + Source giữ identity.'
+    $targetNote.Text = 'LINK-ONLY: dán Source of Truth + 2 link ChatGPT rồi START. Không có profile/project snapshot; RESET xóa sạch dữ liệu phiên.'
     $projectPanel.Controls.Add($targetNote)
+
+    $projectSelector.Visible = $false
+    $loadProjectButton.Visible = $false
+    $newProjectButton.Visible = $false
+    $projectNameBox.Visible = $false
+    $saveProjectButton.Visible = $false
+    $resetRobotButton.Location = New-Object Drawing.Point(805, 48)
+    $sourceLabel.Location = New-Object Drawing.Point(18, 62)
+    $sourceBox.Location = New-Object Drawing.Point(140, 59)
+    $openSourceButton.Location = New-Object Drawing.Point(710, 56)
+    $targetNote.Text = 'LINK-ONLY: dán Source of Truth + 2 link ChatGPT rồi START. Không cần LƯU/NẠP profile. RESET xóa toàn bộ dữ liệu phiên; Source of Truth là authority duy nhất.'
 
     $profileEditor = [pscustomobject]@{
         Draft = $false
@@ -1534,17 +1627,14 @@ function Show-PlannerExecutorControlPanel {
         $executorUrl = [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'executor' $null) 'target' '')
         $generation = [int](Get-OptionalPropertyValue $state 'project_generation' 1)
 
-        $editorProjectId = [string]$projectSelector.Text.Trim()
-        if (-not $editorProjectId -and -not $profileEditor.Draft) {
-            $profileEditor.Suppress = $true
-            try { $projectSelector.Text = $projectId } finally { $profileEditor.Suppress = $false }
-            $editorProjectId = $projectId
-        }
-        $editingActiveProfile = [bool](-not $profileEditor.Draft -and $editorProjectId -eq $projectId)
-        if ($editingActiveProfile -and -not $profileEditor.Dirty) {
+        # Link-only editor is not backed by project profiles. While the Robot is
+        # running, reflect the live session targets; while stopped, preserve whatever
+        # the Owner is currently typing in the three link boxes.
+        $editorProjectId = 'LIVE'
+        $editingActiveProfile = $true
+        if ([bool]$truth.wrapper_alive) {
             $profileEditor.Suppress = $true
             try {
-                if (-not $projectNameBox.Focused) { $projectNameBox.Text = $projectName }
                 if (-not $sourceBox.Focused) { $sourceBox.Text = $sourceUrl }
                 if (-not $plannerBox.Focused) { $plannerBox.Text = $plannerUrl }
                 if (-not $executorBox.Focused) { $executorBox.Text = $executorUrl }
@@ -1612,9 +1702,9 @@ function Show-PlannerExecutorControlPanel {
         $bootstrapRequired=[bool](Get-OptionalPropertyValue $bootstrap 'required' $false)
         $bootstrapDone=[string](Get-OptionalPropertyValue $bootstrap 'completed_at' '')
         if ($bootstrapRequired -and -not $bootstrapDone) {
-            $bootstrapValue.Text="PROJECT GENERATION: $generation" + [Environment]::NewLine + 'Planner sẽ đọc lại Source of Truth ở câu lệnh đầu tiên.'
+            $bootstrapValue.Text='LIVE SESSION • Source of Truth chưa đọc' + [Environment]::NewLine + 'Planner sẽ đọc Source of Truth, xác định pc/pt rồi giao đúng một task.'
         } else {
-            $bootstrapValue.Text="PROJECT GENERATION: $generation" + [Environment]::NewLine + 'Source of Truth context: đã bootstrap.'
+            $bootstrapValue.Text='LIVE SESSION • Source of Truth đã đọc' + [Environment]::NewLine + 'Tiến độ hiển thị lấy từ pc/pt do Planner đọc từ Source of Truth.'
         }
 
         $activePlannerReady=Test-ChatConversationUrl $plannerUrl
@@ -1632,34 +1722,13 @@ function Show-PlannerExecutorControlPanel {
 
         $hasTransfer=[bool]($null -ne (Get-OptionalPropertyValue $state 'assignment' $null) -or $null -ne (Get-OptionalPropertyValue $state 'result' $null))
         $robotStopped=[bool](-not $truth.wrapper_alive)
-        $safeToSwitch=[bool]($robotStopped)
-        $sourceSafeToEdit=[bool]($robotStopped -and -not $hasTransfer)
-        $activeChatTargetsEditable=[bool]($robotStopped)
-        $profileInputsEditable=[bool](-not $editingActiveProfile -or $activeChatTargetsEditable)
-        $sourceInputEditable=[bool](-not $editingActiveProfile -or $sourceSafeToEdit)
-        $savedSelectionReady=[bool](
-            -not $profileEditor.Draft -and
-            -not $profileEditor.Dirty -and
-            $editorProjectId -and
-            $editorPlannerReady -and
-            $editorExecutorReady -and
-            $editorSourceReady
-        )
-        $saveProjectButton.Enabled=$profileInputsEditable
-        $loadProjectButton.Enabled=[bool]($safeToSwitch -and -not $profileEditor.Draft -and -not $profileEditor.Dirty -and $editorProjectId)
-        $newProjectButton.Enabled=$true
+        $linkSessionReady=[bool]($editorPlannerReady -and $editorExecutorReady -and $editorSourceReady)
         $resetRobotButton.Enabled=$true
-        $projectSelector.Enabled=$true
-        $projectNameBox.ReadOnly=-not $profileInputsEditable
-        $sourceBox.ReadOnly=-not $sourceInputEditable
-        $plannerBox.ReadOnly=-not $profileInputsEditable
-        $executorBox.ReadOnly=-not $profileInputsEditable
-        $startButton.Enabled=[bool]($robotStopped -and $savedSelectionReady -and -not $running)
-        if ($savedSelectionReady -and $editorProjectId -ne $projectId) {
-            $startButton.Text = '▶  START ' + $editorProjectId
-        } else {
-            $startButton.Text = '▶  START ROBOT'
-        }
+        $sourceBox.ReadOnly=-not $robotStopped
+        $plannerBox.ReadOnly=-not $robotStopped
+        $executorBox.ReadOnly=-not $robotStopped
+        $startButton.Enabled=[bool]($robotStopped -and $linkSessionReady -and -not $running)
+        $startButton.Text = '▶  START ROBOT'
         $stopButton.Enabled=[bool]($truth.wrapper_alive -or -not $ownerStop.blocked)
 
         $runner=Get-RunnerProcess
@@ -1668,13 +1737,7 @@ function Show-PlannerExecutorControlPanel {
 
         $vietnamNow=[TimeZoneInfo]::ConvertTime([DateTimeOffset]::UtcNow,$vietnamTimeZone)
         $updatedLabel.Text='Đồng bộ: '+$vietnamNow.ToString('dd/MM/yyyy HH:mm:ss')+' giờ Việt Nam'
-        $selectionText = if ($editorProjectId -and $editorProjectId -ne $projectId) {
-            "Selected profile: $editorProjectId • START sẽ tự NẠP profile này."
-        } else {
-            'Selected profile = active project.'
-        }
-        $parkText = if ($hasTransfer) { 'Active project có transfer mở; STOP cho phép park state và chuyển profile.' } else { 'Active project không có transfer mở.' }
-        $diagnosticLabel.Text="Active project: $projectId • generation $generation • Source of Truth anchored." + [Environment]::NewLine + "$selectionText  $parkText"
+        $diagnosticLabel.Text='LINK-ONLY SESSION • Source of Truth là authority duy nhất.' + [Environment]::NewLine + 'START luôn tạo phiên runtime mới từ 3 link hiện tại; RESET xóa toàn bộ dữ liệu phiên cục bộ.'
     }
 
     $projectSelector.Add_SelectionChangeCommitted({
@@ -1702,40 +1765,32 @@ function Show-PlannerExecutorControlPanel {
 
     $resetRobotButton.Add_Click({
         try {
-            $registry = Ensure-PlannerExecutorProjectProfiles
-            $activeId = [string](Get-OptionalPropertyValue $registry 'active_project_id' '')
-            if (-not $activeId) { throw 'Không có active project để reset.' }
-
             $nl = [Environment]::NewLine
-            $confirmText = "RESET ROBOT sẽ STOP Robot và XÓA runtime state của ACTIVE project '$activeId': task hiện tại, assignment/result, recovery latch, progress cache và identity history. Source of Truth, Planner/Executor URL, các profile khác, Chrome login và GitHub Runner được GIỮ NGUYÊN." + $nl + $nl + "Sau reset bạn có thể chọn project khác và START. Tiếp tục?"
+            $confirmText = 'RESET ROBOT sẽ STOP Robot và XÓA TOÀN BỘ dữ liệu phiên cục bộ: Source link, chat links, progress, task, assignment/result, recovery state, profile/snapshot và diagnostics.' + $nl + $nl + 'Chrome login, Supervisor app và GitHub Runner được giữ lại. Tiếp tục?'
             $confirm = [Windows.Forms.MessageBox]::Show(
                 $confirmText,
-                'RESET ROBOT — XÁC NHẬN',
+                'RESET ROBOT — XÓA TOÀN BỘ PHIÊN',
                 [Windows.Forms.MessageBoxButtons]::YesNo,
                 [Windows.Forms.MessageBoxIcon]::Warning
             )
             if ($confirm -ne [Windows.Forms.DialogResult]::Yes) { return }
 
-            $finalText = "XÁC NHẬN LẦN CUỐI: state chưa hoàn tất của '$activeId' sẽ bị xóa và project_generation sẽ tăng để chặn output cũ. Thực hiện reset?"
-            $finalConfirm = [Windows.Forms.MessageBox]::Show(
-                $finalText,
-                'RESET ROBOT — XÁC NHẬN LẦN CUỐI',
-                [Windows.Forms.MessageBoxButtons]::YesNo,
-                [Windows.Forms.MessageBoxIcon]::Warning
-            )
-            if ($finalConfirm -ne [Windows.Forms.DialogResult]::Yes) { return }
-
-            $reset = Reset-PlannerExecutorActiveProject
-            $profileEditor.Draft = $false
-            $profileEditor.Dirty = $false
-            $selected = $projectSelector.Text.Trim()
-            Reload-ProjectSelector $selected
-            if ($selected) {
-                [void](Set-ProjectProfileEditor $selected)
+            [void](Reset-LinkOnlyPlannerExecutorSession)
+            $profileEditor.Suppress = $true
+            try {
+                $projectSelector.Text = 'LIVE'
+                $projectNameBox.Text = ''
+                $sourceBox.Text = ''
+                $plannerBox.Text = ''
+                $executorBox.Text = ''
+                $profileEditor.Draft = $false
+                $profileEditor.Dirty = $false
+            } finally {
+                $profileEditor.Suppress = $false
             }
             Refresh-PlannerExecutorUi
             [Windows.Forms.MessageBox]::Show(
-                "ĐÃ RESET ROBOT. Active project '$($reset.ProjectId)' đã sạch runtime state ở generation $($reset.ProjectGeneration). Bây giờ hãy chọn profile muốn chạy và bấm START.",
+                'ĐÃ RESET ROBOT. Toàn bộ dữ liệu dự án/phiên cục bộ đã bị xóa. Dán Source of Truth + link Planner + link Executor rồi START.',
                 'RESET ROBOT HOÀN TẤT',
                 'OK',
                 'Information'
@@ -1792,33 +1847,18 @@ function Show-PlannerExecutorControlPanel {
 
     $startButton.Add_Click({
         try {
-            if ($profileEditor.Draft -or $profileEditor.Dirty) {
-                throw 'Profile đang có thay đổi chưa lưu. Hãy bấm LƯU PROFILE trước khi START.'
-            }
-
-            $selectedId = Assert-ProjectId ($projectSelector.Text.Trim())
-            $registry = Ensure-PlannerExecutorProjectProfiles
-            $selectedProfile = Get-PlannerExecutorProjectProfile $registry $selectedId
-            if (-not $selectedProfile) {
-                throw "Không tìm thấy project profile đã lưu: $selectedId"
-            }
-
-            $activeId = [string](Get-OptionalPropertyValue $registry 'active_project_id' '')
-            if ($selectedId -ne $activeId) {
-                [void](Switch-PlannerExecutorProject $selectedId)
-                Reload-ProjectSelector $selectedId
-                [void](Set-ProjectProfileEditor $selectedId)
-            }
-
-            $state=Read-JsonFile $plannerExecutorStateFile
-            $source=[string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'project_context' $null) 'source_of_truth_url' '')
-            $planner=[string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'planner' $null) 'target' '')
-            $executor=[string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'executor' $null) 'target' '')
-            try { [void](ConvertTo-CanonicalSourceOfTruthUrl $source) } catch { throw 'Hãy lưu Source of Truth hợp lệ trước khi START.' }
+            $source = $sourceBox.Text.Trim()
+            $planner = $plannerBox.Text.Trim()
+            $executor = $executorBox.Text.Trim()
+            try { [void](ConvertTo-CanonicalSourceOfTruthUrl $source) } catch { throw 'Hãy dán Source of Truth hợp lệ trước khi START.' }
             if (-not (Test-ChatConversationUrl $planner) -or -not (Test-ChatConversationUrl $executor)) {
                 throw 'Planner hoặc Executor chưa có ChatGPT target hợp lệ.'
             }
 
+            # Every START is a new link-only runtime session. Nothing is loaded
+            # from a project profile or an older local project snapshot.
+            [void](Initialize-LinkOnlyPlannerExecutorSession $source $planner $executor)
+            $profileEditor.Dirty = $false
             Refresh-PlannerExecutorUi
             Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $startScript + '"'),'-Hidden')
         } catch {
@@ -1830,19 +1870,28 @@ function Show-PlannerExecutorControlPanel {
     $plannerButton.Add_Click({ Open-RobotUrl ($plannerBox.Text.Trim()) })
     $executorButton.Add_Click({ Open-RobotUrl ($executorBox.Text.Trim()) })
     $runnerButton.Add_Click({ [void](Ensure-Runner) })
-    $refreshButton.Add_Click({
-        $selected = $projectSelector.Text.Trim()
-        Reload-ProjectSelector $selected
-        if (-not $profileEditor.Draft -and $selected) { [void](Set-ProjectProfileEditor $selected) }
-        Refresh-PlannerExecutorUi
-    })
+    $refreshButton.Add_Click({ Refresh-PlannerExecutorUi })
 
     $timer=New-Object Windows.Forms.Timer
     $timer.Interval=2000
     $timer.Add_Tick({ Refresh-PlannerExecutorUi })
     $form.Add_Shown({
-        Reload-ProjectSelector
-        [void](Set-ProjectProfileEditor ($projectSelector.Text.Trim()))
+        $state = Read-JsonFile $plannerExecutorStateFile
+        $profileEditor.Suppress = $true
+        try {
+            $projectSelector.Text = 'LIVE'
+            if ($state) {
+                $stateSource = [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'project_context' $null) 'source_of_truth_url' '')
+                $statePlanner = [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'planner' $null) 'target' '')
+                $stateExecutor = [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'executor' $null) 'target' '')
+                if ($stateSource) { $sourceBox.Text = $stateSource }
+                if ($statePlanner) { $plannerBox.Text = $statePlanner }
+                if ($stateExecutor) { $executorBox.Text = $stateExecutor }
+            }
+            $profileEditor.Dirty = $false
+        } finally {
+            $profileEditor.Suppress = $false
+        }
         Refresh-PlannerExecutorUi
     })
     $form.Add_FormClosed({ $timer.Stop(); $timer.Dispose() })
