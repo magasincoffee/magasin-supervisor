@@ -117,14 +117,15 @@ export function buildProductionPlannerBootstrap({
       "Không gửi lại result, không giao lại task cũ và không dùng ChatGPT Work mode.",
       "Hãy đọc result/evidence ngay trước handoff trong ngữ cảnh chat rồi quyết định:",
       "Nếu ACCEPT và còn task kế tiếp: viết body assignment mới không rỗng rồi kết thúc bằng:",
-      `@M {"v":1,"a":"accept_assign","t":"${reviewBoundary.task_id}","r":"${reviewBoundary.result_id}","n":"NEXT-TASK-ID","i":"NEW-ASSIGNMENT-ID"}`,
+      `<AT>M {"v":1,"a":"accept_assign","t":"${reviewBoundary.task_id}","r":"${reviewBoundary.result_id}","n":"NEXT-TASK-ID","i":"NEW-ASSIGNMENT-ID"}`,
       "Nếu REJECT và có correction bounded: viết body correction không rỗng rồi kết thúc bằng:",
-      `@M {"v":1,"a":"reject","t":"${reviewBoundary.task_id}","r":"${reviewBoundary.result_id}","i":"NEW-CORRECTION-ASSIGNMENT-ID"}`,
+      `<AT>M {"v":1,"a":"reject","t":"${reviewBoundary.task_id}","r":"${reviewBoundary.result_id}","i":"NEW-CORRECTION-ASSIGNMENT-ID"}`,
       "Nếu dự án hoàn tất, kết thúc bằng:",
-      `@M {"v":1,"a":"done","t":"${reviewBoundary.task_id}","r":"${reviewBoundary.result_id}"}`,
+      `<AT>M {"v":1,"a":"done","t":"${reviewBoundary.task_id}","r":"${reviewBoundary.result_id}"}`,
       "Nếu cần Owner/dependency ngoài Executor, kết thúc bằng:",
-      `@M {"v":1,"a":"blocked","t":"${reviewBoundary.task_id}","r":"${reviewBoundary.result_id}"}`,
-      "Chỉ dùng đúng một machine frame @M ở dòng cuối."
+      `<AT>M {"v":1,"a":"blocked","t":"${reviewBoundary.task_id}","r":"${reviewBoundary.result_id}"}`,
+      "QUY ƯỚC TRANSPORT: <AT> đại diện cho ký tự U+0040. Khi TRẢ LỜI, thay <AT> bằng đúng ký tự U+0040 ngay trước M; không xuất chuỗi <AT>.",
+      "Chỉ dùng đúng một machine frame ở dòng cuối."
     ].join("\n");
   }
 
@@ -136,9 +137,10 @@ export function buildProductionPlannerBootstrap({
     "Đây là cuộc trò chuyện Planner hiện hữu; hãy dùng ngữ cảnh dự án đã có trong chat này.",
     "Rà soát trạng thái mới nhất, dependency và phần việc còn thiếu, rồi giao đúng MỘT task tiếp theo cho Executor.",
     "Không dùng ChatGPT Work mode. Không tự thực thi task thay Executor.",
+    "QUY ƯỚC TRANSPORT: <AT> đại diện cho ký tự U+0040. Khi TRẢ LỜI, thay <AT> bằng đúng ký tự U+0040 ngay trước M; không xuất chuỗi <AT>.",
     "Nội dung assignment phải đủ để Executor thực hiện độc lập và báo cáo evidence.",
     "Phản hồi ngắn gọn; dòng cuối bắt buộc là machine frame:",
-    '@M {"v":1,"a":"assign","t":"TASK-ID","i":"ASSIGNMENT-ID"}'
+    '<AT>M {"v":1,"a":"assign","t":"TASK-ID","i":"ASSIGNMENT-ID"}'
   ].join("\n");
 }
 
