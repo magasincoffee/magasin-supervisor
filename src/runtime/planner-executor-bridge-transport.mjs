@@ -1,5 +1,5 @@
 import { ChatGptBridgeError } from "./chatgpt-bridge-adapter.mjs";
-import { validateBridgeRoleBinding } from "./chatgpt-bridge-binding.mjs";
+import { validateBridgeRoleBinding, reacquirePlannerExecutorBridgePages } from "./chatgpt-bridge-binding.mjs";
 
 export const BRIDGE_TRANSPORT_PHASES = Object.freeze({
   IDLE: "IDLE",
@@ -82,7 +82,11 @@ export class PlannerExecutorBridgeTransportStateMachine {
   constructor({
     adapter,
     binding,
-    phase = BRIDGE_TRANSPORT_PHASES.IDLE
+    phase = BRIDGE_TRANSPORT_PHASES.IDLE,
+    requireExactPageSet = true,
+    reacquireAttempts = 3,
+    reacquireBackoffMs = 250,
+    sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
   } = {}) {
     this.adapter = requireAdapter(adapter);
     this.binding = validateBridgeRoleBinding(binding);
@@ -93,6 +97,11 @@ export class PlannerExecutorBridgeTransportStateMachine {
     }
     this.phase = phase;
     this.last_transport = null;
+    this.requireExactPageSet = Boolean(requireExactPageSet);
+    this.reacquireAttempts = Math.max(1, Number(reacquireAttempts) || 3);
+    this.reacquireBackoffMs = Math.max(1, Number(reacquireBackoffMs) || 250);
+    this.sleepImpl = typeof sleepImpl === "function" ? sleepImpl :
+      ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
 
   snapshot() {
@@ -126,6 +135,77 @@ export class PlannerExecutorBridgeTransportStateMachine {
     }
     this.binding = next;
     return this.snapshot();
+  }
+
+  async recoverBinding({
+    attempts = this.reacquireAttempts,
+    backoffMs = this.reacquireBackoffMs
+  } = {}) {
+    let lastError = null;
+    const maxAttempts = Math.max(1, Number(attempts) || this.reacquireAttempts);
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const next = await reacquirePlannerExecutorBridgePages(
+          this.adapter,
+          this.binding,
+          { requireExactPageSet: this.requireExactPageSet }
+        );
+        this.replaceBinding(next);
+        return {
+          ...this.snapshot(),
+          recovery: {
+            status: "REACQUIRED",
+            attempt,
+            planner_reacquired: Boolean(next.reacquired?.planner),
+            executor_reacquired: Boolean(next.reacquired?.executor)
+          }
+        };
+      } catch (error) {
+        lastError = error;
+        if (attempt < maxAttempts) {
+          await this.sleepImpl(backoffMs * attempt);
+        }
+      }
+    }
+    throw new BridgeTransportStateError(
+      "Bridge role reacquisition failed after bounded retries",
+      {
+        code: "BINDING_REACQUIRE_FAILED",
+        cause: lastError,
+        details: { attempts: maxAttempts }
+      }
+    );
+  }
+
+  async ensureRoleAvailable(role) {
+    const pageId = rolePageId(this.binding, role);
+    if (typeof this.adapter.getState !== "function") {
+      return { page_id: pageId, recovered: false };
+    }
+    try {
+      const state = await this.adapter.getState(pageId);
+      if (state?.alive === false) {
+        throw new ChatGptBridgeError("Bridge page is not alive", {
+          code: "PAGE_NOT_FOUND",
+          details: { page_id: pageId }
+        });
+      }
+      return { page_id: pageId, recovered: false };
+    } catch (error) {
+      const recoverable = [
+        "PAGE_NOT_FOUND",
+        "BRIDGE_UNREACHABLE",
+        "BRIDGE_TIMEOUT",
+        "BRIDGE_HTTP_ERROR"
+      ].includes(String(error?.code || ""));
+      if (!recoverable) throw error;
+      const recovered = await this.recoverBinding();
+      return {
+        page_id: rolePageId(this.binding, role),
+        recovered: true,
+        recovery: recovered.recovery
+      };
+    }
   }
 
   start() {
@@ -166,6 +246,7 @@ export class PlannerExecutorBridgeTransportStateMachine {
 
     let result;
     try {
+      await this.ensureRoleAvailable("executor");
       result = await this.adapter.send(
         rolePageId(this.binding, "executor"),
         message,
@@ -209,6 +290,7 @@ export class PlannerExecutorBridgeTransportStateMachine {
 
     let result;
     try {
+      await this.ensureRoleAvailable("planner");
       result = await this.adapter.send(
         rolePageId(this.binding, "planner"),
         message,

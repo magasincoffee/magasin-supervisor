@@ -21,6 +21,26 @@ export class BridgeProtocolIntegrationError extends Error {
   }
 }
 
+function seededIdentitySet(values, label) {
+  if (values === undefined || values === null) return new Set();
+  if (!Array.isArray(values) || values.length > 256) {
+    throw new BridgeProtocolIntegrationError(label + " must be a bounded array", {
+      code: "INVALID_IDENTITY_HISTORY"
+    });
+  }
+  const out = new Set();
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (!text || text.length > 512) {
+      throw new BridgeProtocolIntegrationError(label + " contains an invalid identity", {
+        code: "INVALID_IDENTITY_HISTORY"
+      });
+    }
+    out.add(text);
+  }
+  return out;
+}
+
 function requireTurnId(value) {
   const id = String(value || "").trim();
   if (!id || id.length > 512) {
@@ -86,6 +106,7 @@ export class PlannerExecutorBridgeProtocolController {
     projectGeneration = 1,
     strictProjectCorrelation = false,
     requirePlannerProgress = false,
+    identityHistory = null,
     buildExecutorMessage = ({ body }) => String(body || "").trim(),
     buildPlannerMessage = ({ body }) => String(body || "").trim()
   } = {}) {
@@ -113,9 +134,9 @@ export class PlannerExecutorBridgeProtocolController {
       current_task_id: null,
       current_assignment_id: null,
       current_result_id: null,
-      seen_assignment_ids: new Set(),
-      seen_result_ids: new Set(),
-      seen_turn_ids: new Set()
+      seen_assignment_ids: seededIdentitySet(identityHistory?.assignment_ids, "assignment identity history"),
+      seen_result_ids: seededIdentitySet(identityHistory?.result_ids, "result identity history"),
+      seen_turn_ids: seededIdentitySet(identityHistory?.turn_ids, "turn identity history")
     };
     this.buildExecutorMessage = buildExecutorMessage;
     this.buildPlannerMessage = buildPlannerMessage;
@@ -130,7 +151,12 @@ export class PlannerExecutorBridgeProtocolController {
       project_total_tasks: this.context.project_total_tasks,
       current_task_id: this.context.current_task_id,
       current_assignment_id: this.context.current_assignment_id,
-      current_result_id: this.context.current_result_id
+      current_result_id: this.context.current_result_id,
+      identity_history: {
+        assignment_ids: [...this.context.seen_assignment_ids].slice(-256),
+        result_ids: [...this.context.seen_result_ids].slice(-256),
+        turn_ids: [...this.context.seen_turn_ids].slice(-256)
+      }
     };
   }
 
