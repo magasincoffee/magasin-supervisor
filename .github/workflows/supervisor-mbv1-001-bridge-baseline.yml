@@ -14,6 +14,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: mbv1-001-bridge-baseline
+  cancel-in-progress: true
+
 jobs:
   live-baseline:
     strategy:
