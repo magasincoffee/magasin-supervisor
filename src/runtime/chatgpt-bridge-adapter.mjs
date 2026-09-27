@@ -316,8 +316,8 @@ export class ChatGptBridgeAdapter {
     return value.pages.map(normalizeBridgePage);
   }
 
-  async getState(pageId) {
-    const target = pageId(pageId);
+  async getState(pageIdValue) {
+    const target = pageId(pageIdValue);
     const pages = await this.listPages();
     const page = pages.find((candidate) => candidate.page_id === target);
     if (!page) {
