@@ -86,6 +86,7 @@ async function runBootstrapStageWithRecovery({
   statusPath,
   adapter,
   projectId,
+  recoverTarget = null,
   maxDelayMs = 5_000
 }) {
   let attempts = 0;
@@ -115,6 +116,17 @@ async function runBootstrapStageWithRecovery({
       }).catch(() => {});
       safeLog(`PLANNER_EXECUTOR_${name}_RETRY`, attempts);
       safeLog(`PLANNER_EXECUTOR_${name}_RETRY_REASON`, error?.message || error);
+      if (typeof recoverTarget === "function") {
+        try {
+          await recoverTarget(error, attempts);
+          safeLog(`PLANNER_EXECUTOR_${name}_TARGET_REACQUIRED`, attempts);
+        } catch (recoverError) {
+          safeLog(
+            `PLANNER_EXECUTOR_${name}_TARGET_REACQUIRE_ERROR`,
+            recoverError?.message || recoverError
+          );
+        }
+      }
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
@@ -602,6 +614,15 @@ try {
     updated_at: new Date().toISOString()
   });
 
+  const reacquireWarmTabs = async () => {
+    warm = await acquirePlannerExecutorWarmTabs(adapter, {
+      plannerUrl,
+      executorUrl
+    });
+    assertPlannerExecutorWarmTabs(adapter, warm);
+    return warm;
+  };
+
   await runBootstrapStageWithRecovery({
     name: "CUTOVER_BOOTSTRAP",
     statusPhase: "CUTOVER_BOOTSTRAP_RETRY",
@@ -609,6 +630,7 @@ try {
     statusPath,
     adapter,
     projectId,
+    recoverTarget: reacquireWarmTabs,
     run: () => ensureProductionPlannerBootstrap({
       statePath,
       state: existing,
@@ -636,6 +658,7 @@ try {
     statusPath,
     adapter,
     projectId,
+    recoverTarget: reacquireWarmTabs,
     run: () => ensureProjectContextBootstrap({
       statePath,
       state: existing,
