@@ -8,8 +8,20 @@ if (!cdpUrl || !bridgeBase || !resultPath || !bridgeCommit || !userscriptSha256 
   throw new Error("usage: node supervisor-mbv1-001-bridge-baseline.mjs <cdpUrl> <bridgeBase> <resultPath> <bridgeCommit> <userscriptSha256> <userscriptPath>");
 }
 
-const userscriptText = await fs.readFile(userscriptPath, "utf8");
+const upstreamUserscriptText = await fs.readFile(userscriptPath, "utf8");
 const expectedBridgeOrigin = new URL(bridgeBase).origin;
+
+function applyPinnedCompatibilityOverlay(source) {
+  const needle = ': [\'button[data-testid="send-button"]\', \'button[aria-label="发送"]\', \'button[aria-label="Send"]\', \'form button[type="submit"]\'];';
+  const replacement = ': [\'button[data-testid="send-button"]\', \'button#composer-submit-button\', \'button[data-testid="composer-submit-button"]\', \'button[data-testid="composer-send-button"]\', \'button[aria-label="发送"]\', \'button[aria-label="Send"]\', \'form button[type="submit"]\'];';
+  if (!source.includes(needle)) {
+    throw new Error("pinned upstream ChatGPT send-selector block no longer matches expected commit");
+  }
+  return source.replace(needle, replacement);
+}
+
+const userscriptText = applyPinnedCompatibilityOverlay(upstreamUserscriptText);
+const compatibilityOverlaySha256 = sha(userscriptText);
 
 const startedAt = new Date().toISOString();
 
@@ -92,6 +104,31 @@ function turnsContain(snapshot, token) {
     ...recent.map((turn) => turn?.text || "")
   ].join("\n");
   return haystack.includes(token);
+}
+
+function snapshotRoleContains(snapshot, role, token) {
+  const recent = Array.isArray(snapshot?.recentTurns) ? snapshot.recentTurns : [];
+  if (role === "assistant" && String(snapshot?.lastAssistant || "").includes(token)) {
+    return true;
+  }
+  return recent.some((turn) =>
+    String(turn?.role || "") === role &&
+    String(turn?.text || "").includes(token)
+  );
+}
+
+async function waitForBridgeTurn(pageId, role, token, timeoutMs) {
+  return waitFor(async () => {
+    const snapshot = await bridgeJson(
+      "GET",
+      `/snapshot?page_id=${encodeURIComponent(pageId)}`
+    );
+    return snapshotRoleContains(snapshot, role, token) ? snapshot : null;
+  }, {
+    timeoutMs,
+    intervalMs: 500,
+    label: `${role} turn containing qualification token`
+  });
 }
 
 async function installUserscriptTransport(context, page) {
@@ -249,14 +286,20 @@ try {
   const executorToken = `MBV1_EXECUTOR_PASS_${nonce}`;
 
   const plannerPrompt = `MBV1-001 harmless transport qualification. Reply with exactly this token and nothing else: ${plannerToken}`;
-  const plannerSend = await bridgeJson("POST", "/send", {
+  const plannerDispatch = await bridgeJson("POST", "/send_async", {
     page_id: plannerPageId,
     text: plannerPrompt
-  }, 150_000);
-
-  if (plannerSend?.ok !== true || !String(plannerSend?.reply || "").includes(plannerToken)) {
-    throw new Error("Planner bridge send/read did not return the correlated probe token");
+  }, 20_000);
+  if (plannerDispatch?.ok !== true || !plannerDispatch?.cmd_id) {
+    throw new Error("Planner bridge async dispatch was not accepted");
   }
+  await waitForBridgeTurn(plannerPageId, "user", plannerToken, 20_000);
+  const plannerReplySnapshot = await waitForBridgeTurn(
+    plannerPageId,
+    "assistant",
+    plannerToken,
+    120_000
+  );
   log("MBV1_001_PLANNER_SEND_READ", "PASS");
 
   const executorAfterPlanner = await bridgeJson(
@@ -268,14 +311,20 @@ try {
   }
 
   const executorPrompt = `MBV1-001 harmless transport qualification. Reply with exactly this token and nothing else: ${executorToken}`;
-  const executorSend = await bridgeJson("POST", "/send", {
+  const executorDispatch = await bridgeJson("POST", "/send_async", {
     page_id: executorPageId,
     text: executorPrompt
-  }, 150_000);
-
-  if (executorSend?.ok !== true || !String(executorSend?.reply || "").includes(executorToken)) {
-    throw new Error("Executor bridge send/read did not return the correlated probe token");
+  }, 20_000);
+  if (executorDispatch?.ok !== true || !executorDispatch?.cmd_id) {
+    throw new Error("Executor bridge async dispatch was not accepted");
   }
+  await waitForBridgeTurn(executorPageId, "user", executorToken, 20_000);
+  const executorReplySnapshot = await waitForBridgeTurn(
+    executorPageId,
+    "assistant",
+    executorToken,
+    120_000
+  );
   log("MBV1_001_EXECUTOR_SEND_READ", "PASS");
 
   const plannerAfterExecutor = await bridgeJson(
@@ -292,7 +341,8 @@ try {
   await writeResult({
     status: "PASS",
     target_surface: "ISOLATED_BROWSER_CONTEXT_WITH_AUTH_STATE_COPIED_FROM_DEDICATED_CHROME",
-    userscript_transport: "PINNED_UPSTREAM_USERSCRIPT_WITH_PLAYWRIGHT_EXPOSED_GM_BRIDGE",
+    userscript_transport: "PINNED_UPSTREAM_USERSCRIPT_WITH_PLAYWRIGHT_EXPOSED_GM_BRIDGE_AND_BOUNDED_SEND_SELECTOR_OVERLAY",
+    compatibility_overlay_sha256: compatibilityOverlaySha256,
     bridge_service_online: true,
     bridge_status: finalStatus,
     planner_connected: true,
@@ -303,8 +353,8 @@ try {
     planner_send_read: "PASS",
     executor_send_read: "PASS",
     role_isolation: "PASS",
-    planner_reply_digest: sha(plannerSend.reply),
-    executor_reply_digest: sha(executorSend.reply),
+    planner_reply_digest: sha(plannerReplySnapshot.lastAssistant || ""),
+    executor_reply_digest: sha(executorReplySnapshot.lastAssistant || ""),
     openai_api_required_for_bridge_transport: false,
     production_state_mutated: false,
     production_targets_mutated: false,
