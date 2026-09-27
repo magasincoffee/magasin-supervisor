@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import path from "node:path";
+import { atomicJsonWrite } from "./atomic-json-write.mjs";
 
 import {
   composerInstructionDigest,
@@ -136,10 +136,7 @@ export async function readPlannerExecutorState(
 
 export async function writePlannerExecutorState(statePath, state) {
   if (!statePath) throw new Error("statePath is required");
-  await fs.mkdir(path.dirname(statePath), { recursive: true });
-  const tempPath = `${statePath}.tmp-${process.pid}`;
-  await fs.writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
-  await fs.rename(tempPath, statePath);
+  await atomicJsonWrite(statePath, state);
 }
 
 function buildExecutorAssignmentMessage({ taskId, assignmentId, body }) {
