@@ -320,7 +320,9 @@
       "docs/SUPERVISOR_PLANNER_EXECUTOR_V1_SOURCE_OF_TRUTH.md",
       "docs/SUPERVISOR_PLANNER_EXECUTOR_V1_SOURCE_OF_TRUTH.json"
     ],
-    "historical_evidence_preserved": true
+    "historical_evidence_preserved": true,
+    "next_phase_authority": "MAGASIN_BRIDGE_V1_SECTION_15_AND_NEXT_IMPLEMENTATION_PROGRAM",
+    "current_next_phase_task": "MBV1-001"
   },
   "pe001_evidence": {
     "pr": 120,
@@ -636,5 +638,157 @@
     "per_project_snapshots": false,
     "start_behavior": "REHYDRATE_FROM_SOURCE_OF_TRUTH",
     "reset_behavior": "DELETE_ALL_PROJECT_SESSION_DATA_KEEP_EMPTY_MODE_SHELL"
+  },
+  "next_implementation_program": {
+    "id": "MAGASIN_BRIDGE_V1",
+    "status": "CANONICAL_PLAN_READY_TO_EXECUTE_NOT_CUT_OVER",
+    "approved_date": "2026-09-27",
+    "current_task": "MBV1-001",
+    "progress": {
+      "pc": 0,
+      "pt": 8,
+      "percent": 0
+    },
+    "authority_model": {
+      "project_truth": "OWNER_CONFIGURED_SOURCE_OF_TRUTH_URL",
+      "workflow_authority": "MAGASIN_ORCHESTRATOR",
+      "machine_protocol": "@M_V1",
+      "transport_only": "CHATGPT_BRIDGE",
+      "control_ui": "OWNER_INPUTS_MONITORING_START_STOP_RESET_PROGRESS_PROJECTION"
+    },
+    "upstream": {
+      "repository": "https://github.com/OLmatter/chatgpt-bridge",
+      "pin_policy": "MBV1-001_MUST_RECORD_EXACT_UPSTREAM_COMMIT_BEFORE_INTEGRATION",
+      "floating_upstream_allowed_in_production": false,
+      "deployment": "LOCAL_WINDOWS",
+      "api_base_candidate": "http://127.0.0.1:5000",
+      "openai_api_required_for_bridge_transport": false
+    },
+    "migration_policy": {
+      "rewrite": false,
+      "preserve": [
+        "SOURCE_OF_TRUTH_URL",
+        "PLANNER_CHAT_URL",
+        "EXECUTOR_CHAT_URL",
+        "PLANNER_EXECUTOR_ROLES",
+        "@M_V1",
+        "TASK_ASSIGNMENT_RESULT_CORRELATION",
+        "SOURCE_OF_TRUTH_PC_PT",
+        "STOP_RESET",
+        "EXACT_ONCE_FAIL_CLOSED"
+      ],
+      "replace_after_qualification": [
+        "PRIMARY_DIRECT_COMPOSER_DOM_ACTUATION",
+        "PRIMARY_DIRECT_PAGE_SUBMIT_HEURISTICS",
+        "DUPLICATED_LOW_LEVEL_BROWSER_SEND_LOGIC"
+      ]
+    },
+    "binding": {
+      "role_identity": "page_id",
+      "planner_executor_must_be_distinct": true,
+      "ambiguous_match": "FAIL_CLOSED",
+      "unrelated_tab_auto_adoption": false
+    },
+    "outbound_lifecycle": [
+      "QUEUED",
+      "SUBMITTING",
+      "SUBMITTED",
+      "GENERATING",
+      "RESPONSE_RECEIVED",
+      "PARSED",
+      "ACKNOWLEDGED"
+    ],
+    "tasks": [
+      {
+        "id": "MBV1-001",
+        "priority": "P0",
+        "state": "READY_TO_EXECUTE",
+        "name": "Local Bridge Baseline",
+        "weight_percent": 10,
+        "dod": [
+          "BRIDGE_SERVICE_ONLINE",
+          "PLANNER_CONNECTED",
+          "EXECUTOR_CONNECTED",
+          "DISTINCT_PAGE_ID",
+          "PLANNER_SEND_READ_PASS",
+          "EXECUTOR_SEND_READ_PASS",
+          "ROLE_ISOLATION_PASS",
+          "UPSTREAM_COMMIT_PIN_RECORDED"
+        ]
+      },
+      {
+        "id": "MBV1-002",
+        "priority": "P0",
+        "state": "BLOCKED_BY_MBV1_001",
+        "name": "Bridge Adapter",
+        "weight_percent": 10
+      },
+      {
+        "id": "MBV1-003",
+        "priority": "P0",
+        "state": "BLOCKED_BY_MBV1_002",
+        "name": "Planner/Executor Binding",
+        "weight_percent": 10
+      },
+      {
+        "id": "MBV1-004",
+        "priority": "P0",
+        "state": "BLOCKED_BY_MBV1_003",
+        "name": "Transport State Machine",
+        "weight_percent": 20
+      },
+      {
+        "id": "MBV1-005",
+        "priority": "P1",
+        "state": "BLOCKED_BY_MBV1_004",
+        "name": "@M Protocol Integration",
+        "weight_percent": 15
+      },
+      {
+        "id": "MBV1-006",
+        "priority": "P1",
+        "state": "BLOCKED_BY_MBV1_005",
+        "name": "Project Bootstrap",
+        "weight_percent": 10
+      },
+      {
+        "id": "MBV1-007",
+        "priority": "P2",
+        "state": "BLOCKED_BY_MBV1_006",
+        "name": "Reliability Layer",
+        "weight_percent": 15
+      },
+      {
+        "id": "MBV1-008",
+        "priority": "P3",
+        "state": "BLOCKED_BY_MBV1_007",
+        "name": "Qualification and Cutover",
+        "weight_percent": 10
+      }
+    ],
+    "qualification": {
+      "scenarios": [
+        "HAPPY_PATH_DONE",
+        "FAIL_REJECT_CORRECTION_PASS_DONE",
+        "BLOCKED",
+        "DUPLICATE_MACHINE_FRAME",
+        "STALE_RESULT_ID",
+        "WRONG_ASSIGNMENT_ID",
+        "PLANNER_RELOAD",
+        "EXECUTOR_RELOAD",
+        "BRIDGE_RESTART",
+        "RESET_ROBOT",
+        "NEW_SOURCE_OF_TRUTH_SESSION",
+        "LONG_GENERATION_NO_PREMATURE_PARSE"
+      ],
+      "explicit_cutover_required": true
+    },
+    "cutover": {
+      "bridge_cutover": false,
+      "current_production_transport": "PRE_BRIDGE_DIRECT_BROWSER_RUNTIME",
+      "target_primary_transport": "CHATGPT_BRIDGE_ADAPTER",
+      "direct_dom_after_cutover": "ROLLBACK_OR_FALLBACK_ONLY",
+      "qualification_task": "MBV1-008"
+    }
   }
 }
