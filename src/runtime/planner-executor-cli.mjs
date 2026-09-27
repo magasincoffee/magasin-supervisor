@@ -16,6 +16,12 @@ import {
   createIdleAwareTurnCapture,
   expectedWaitRole
 } from "./planner-executor-session.mjs";
+import {
+  isPlannerExecutorTerminalPhase,
+  plannerExecutorFailureIncident,
+  recordPlannerExecutorIncident,
+  recoverPlannerExecutorWarmTabs
+} from "./planner-executor-automation.mjs";
 
 function parseArgs(argv) {
   const out = {
@@ -59,6 +65,10 @@ const statePath = path.resolve(
   args.statePath || path.join(root, "planner-executor-state.json")
 );
 const statusPath = path.join(path.dirname(statePath), "planner-executor-status.json");
+const incidentPath = path.join(
+  path.dirname(statePath),
+  "planner-executor-incidents.ndjson"
+);
 
 const stateExists = await fs.access(statePath).then(() => true).catch(() => false);
 if (
@@ -118,7 +128,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 }
 
 try {
-  const warm = await acquirePlannerExecutorWarmTabs(adapter, {
+  let warm = await acquirePlannerExecutorWarmTabs(adapter, {
     plannerUrl,
     executorUrl
   });
@@ -147,17 +157,56 @@ try {
   );
 
   while (!stopping) {
-    assertPlannerExecutorWarmTabs(adapter, warm);
+    try {
+      assertPlannerExecutorWarmTabs(adapter, warm);
+    } catch (error) {
+      await recordPlannerExecutorIncident(incidentPath, {
+        type: "TOPOLOGY_RECOVERY",
+        phase: "PRE_STEP",
+        reason_code: "WARM_TAB_GUARD_FAILED",
+        project_id: projectId,
+        error_name: error?.name,
+        error_message: error?.message
+      }).catch(() => {});
 
-    const result = await runPlannerExecutorStep({
-      statePath,
-      projectId,
-      plannerPage: warm.plannerPage,
-      executorPage: warm.executorPage,
-      plannerTarget: plannerUrl,
-      executorTarget: executorUrl,
-      captureTurn
-    });
+      warm = await recoverPlannerExecutorWarmTabs(adapter, {
+        plannerUrl,
+        executorUrl,
+        attempts: 2
+      });
+      safeLog("PLANNER_EXECUTOR_HEALTH_RECOVERY", "RECOVERED");
+      continue;
+    }
+
+    let result = null;
+    try {
+      result = await runPlannerExecutorStep({
+        statePath,
+        projectId,
+        plannerPage: warm.plannerPage,
+        executorPage: warm.executorPage,
+        plannerTarget: plannerUrl,
+        executorTarget: executorUrl,
+        captureTurn
+      });
+    } catch (error) {
+      const durable = await readPlannerExecutorState(statePath, {
+        projectId,
+        plannerTarget: plannerUrl,
+        executorTarget: executorUrl
+      }).catch(() => null);
+      await recordPlannerExecutorIncident(
+        incidentPath,
+        plannerExecutorFailureIncident({ state: durable }, error)
+      ).catch(() => {});
+      throw error;
+    }
+
+    const incident = plannerExecutorFailureIncident(result);
+    if (incident) {
+      await recordPlannerExecutorIncident(incidentPath, incident)
+        .catch(() => {});
+    }
 
     await atomicJsonWrite(statusPath, {
       schema_version: "planner-executor-status.v1",
@@ -165,11 +214,18 @@ try {
       project_id: projectId,
       phase: result.phase,
       active_task_id: result.state?.active_task_id || null,
+      automation_status: result.state?.automation?.status || "RUNNING",
+      automation_reason: result.state?.automation?.reason || null,
       chatgpt_tabs: adapter.getChatGptPageCount(),
       chatgpt_work_mode_invocations: 0,
       production_cutover: false,
       updated_at: new Date().toISOString()
     });
+
+    if (isPlannerExecutorTerminalPhase(result.phase)) {
+      safeLog("PLANNER_EXECUTOR_TERMINAL_PHASE", result.phase);
+      break;
+    }
 
     const waitRole = expectedWaitRole(result.phase);
     const page = waitRole === "planner"

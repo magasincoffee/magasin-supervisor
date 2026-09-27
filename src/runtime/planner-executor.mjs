@@ -126,6 +126,11 @@ export function defaultPlannerExecutorState({
     result: null,
     decision: null,
     last_completed: null,
+    automation: {
+      status: "RUNNING",
+      reason: null,
+      updated_at: null
+    },
     identity_history: {
       assignment_ids: [],
       result_ids: []
@@ -181,7 +186,9 @@ function buildPlannerReviewMessage({ taskId, assignmentId, resultId, body }) {
     "",
     "VERIFY theo DoD/evidence. Dòng cuối dùng @M.",
     'Nếu ACCEPT và có task kế tiếp: @M {"v":1,"a":"accept_assign","t":"CURRENT","r":"RESULT","n":"NEXT","i":"NEW-ASSIGNMENT"}',
-    'Nếu REJECT: @M {"v":1,"a":"reject","t":"CURRENT","r":"RESULT"}'
+    'Nếu REJECT và correction có thể giao ngay: viết body correction không rỗng rồi dùng @M {"v":1,"a":"reject","t":"CURRENT","r":"RESULT","i":"NEW-CORRECTION-ASSIGNMENT"}.',
+    'Nếu REJECT nhưng cần Owner/dependency ngoài Executor: dùng @M {"v":1,"a":"blocked","t":"CURRENT","r":"RESULT"}.',
+    'Nếu dự án hoàn tất: @M {"v":1,"a":"done","t":"CURRENT","r":"RESULT"}.'
   ].join("\n");
 }
 
@@ -279,6 +286,51 @@ export async function runPlannerExecutorStep({
     executorTarget
   });
   ensureIdentityHistory(state);
+
+  if (state.automation?.status === "DONE") {
+    return { phase: "PLANNER_DONE", state };
+  }
+  if (state.automation?.status === "STOPPED") {
+    return { phase: "PLANNER_STOPPED", state };
+  }
+  if (state.automation?.status === "BLOCKED") {
+    const latestControl = await captureNewestMachineFrame(
+      plannerPage,
+      "assistant",
+      {
+        lastSeenTurnId: state.planner.last_seen_assistant_turn_id,
+        captureTurn
+      }
+    );
+    if (!latestControl) {
+      return { phase: "WAIT_PLANNER_RESUME", state };
+    }
+    if (latestControl.frame.a !== "resume") {
+      return {
+        phase: "WAIT_PLANNER_RESUME",
+        ignored_action: latestControl.frame.a,
+        state
+      };
+    }
+    if (latestControl.frame.t && state.active_task_id) {
+      assertMachineFrameCorrelation(latestControl.frame, {
+        taskId: state.active_task_id
+      });
+    }
+    state.planner.last_seen_assistant_turn_id = latestControl.turn.turn_id;
+    state.automation = {
+      status: "RUNNING",
+      reason: null,
+      updated_at: now()
+    };
+    state.decision = {
+      action: "resume",
+      task_id: latestControl.frame.t || state.active_task_id,
+      decided_at: now()
+    };
+    await persist(statePath, state);
+    return { phase: "PLANNER_RESUMED", state };
+  }
 
   // Crash/restart recovery always reconciles durable outbound intent before
   // consuming another assistant turn. This prevents a second logical send.
@@ -471,12 +523,152 @@ export async function runPlannerExecutorStep({
     return { phase: "WAIT_PLANNER_DECISION", state };
   }
 
-  if (latest.frame.a === "reject") {
+  if (latest.frame.a === "blocked") {
     assertMachineFrameCorrelation(latest.frame, {
       taskId: state.result.task_id,
       resultId: state.result.result_id
     });
     state.planner.last_seen_assistant_turn_id = latest.turn.turn_id;
+    state.automation = {
+      status: "BLOCKED",
+      reason: latest.body || "planner-blocked",
+      updated_at: now()
+    };
+    state.decision = {
+      action: "blocked",
+      task_id: latest.frame.t,
+      result_id: latest.frame.r,
+      decided_at: now()
+    };
+    await persist(statePath, state);
+    return { phase: "PLANNER_BLOCKED", state };
+  }
+
+  if (latest.frame.a === "done") {
+    assertMachineFrameCorrelation(latest.frame, {
+      taskId: state.result.task_id,
+      resultId: state.result.result_id
+    });
+    state.planner.last_seen_assistant_turn_id = latest.turn.turn_id;
+    state.last_completed = {
+      task_id: state.result.task_id,
+      assignment_id: state.result.assignment_id,
+      result_id: state.result.result_id,
+      status: state.result.status,
+      accepted_at: now()
+    };
+    state.active_task_id = null;
+    state.automation = {
+      status: "DONE",
+      reason: latest.body || "project-complete",
+      updated_at: now()
+    };
+    state.decision = {
+      action: "done",
+      task_id: latest.frame.t,
+      result_id: latest.frame.r,
+      decided_at: now()
+    };
+    await persist(statePath, state);
+    return { phase: "PLANNER_DONE", state };
+  }
+
+  if (latest.frame.a === "stop") {
+    state.planner.last_seen_assistant_turn_id = latest.turn.turn_id;
+    state.automation = {
+      status: "STOPPED",
+      reason: latest.body || "planner-stop",
+      updated_at: now()
+    };
+    state.decision = {
+      action: "stop",
+      task_id: latest.frame.t || state.result.task_id,
+      result_id: latest.frame.r || state.result.result_id,
+      decided_at: now()
+    };
+    await persist(statePath, state);
+    return { phase: "PLANNER_STOPPED", state };
+  }
+
+  if (latest.frame.a === "reject") {
+    assertMachineFrameCorrelation(latest.frame, {
+      taskId: state.result.task_id,
+      resultId: state.result.result_id
+    });
+
+    // Fast correction path: one Planner response both rejects the result and
+    // creates a fresh correction assignment for the same task. The existing
+    // @M reject action carries optional i=NEW-ASSIGNMENT, avoiding another
+    // Planner round trip while preserving exact-once assignment identity.
+    if (latest.frame.i && latest.body) {
+      const correctionAssignmentId = assertFreshIdentity(
+        state,
+        "assignment_id",
+        latest.frame.i
+      );
+      const correctionMessage = buildExecutorAssignmentMessage({
+        taskId: state.result.task_id,
+        assignmentId: correctionAssignmentId,
+        body: latest.body
+      });
+      const baseline = await captureOutboundBaseline(
+        executorPage,
+        captureTurn
+      );
+
+      state.planner.last_seen_assistant_turn_id = latest.turn.turn_id;
+      state.decision = {
+        action: "reject_correction",
+        task_id: latest.frame.t,
+        result_id: latest.frame.r,
+        assignment_id: correctionAssignmentId,
+        decided_at: now()
+      };
+      state.automation = {
+        status: "RUNNING",
+        reason: null,
+        updated_at: now()
+      };
+      state.active_task_id = state.result.task_id;
+      state.assignment = {
+        task_id: state.result.task_id,
+        assignment_id: correctionAssignmentId,
+        correction_of_result_id: state.result.result_id,
+        source_turn_id: latest.turn.turn_id,
+        planner_body: latest.body,
+        message: correctionMessage,
+        message_digest: composerInstructionDigest(correctionMessage),
+        persisted_at: now(),
+        send_attempted_at: null,
+        send_confirmed_at: null,
+        send_evidence: null,
+        blocked_reason: null,
+        ...baseline
+      };
+      rememberIdentity(state, "assignment_id", correctionAssignmentId);
+      state.result = null;
+      await persist(statePath, state);
+
+      const outcome = await reconcileOrSend({
+        page: executorPage,
+        pending: state.assignment,
+        state,
+        statePath,
+        persist,
+        captureTurn,
+        inspectDraft,
+        sendInstruction,
+        now
+      });
+      return { phase: "PLANNER_REJECT_CORRECTION", outcome, state };
+    }
+
+    state.planner.last_seen_assistant_turn_id = latest.turn.turn_id;
+    state.automation = {
+      status: "BLOCKED",
+      reason: "reject-missing-bounded-correction",
+      updated_at: now()
+    };
     state.decision = {
       action: "reject",
       task_id: latest.frame.t,
@@ -484,7 +676,7 @@ export async function runPlannerExecutorStep({
       decided_at: now()
     };
     await persist(statePath, state);
-    return { phase: "PLANNER_REJECT", state };
+    return { phase: "PLANNER_REJECT_BLOCKED", state };
   }
 
   try {
@@ -517,6 +709,11 @@ export async function runPlannerExecutorStep({
   );
 
   state.planner.last_seen_assistant_turn_id = latest.turn.turn_id;
+  state.automation = {
+    status: "RUNNING",
+    reason: null,
+    updated_at: now()
+  };
   state.last_completed = {
     task_id: state.result.task_id,
     assignment_id: state.result.assignment_id,
