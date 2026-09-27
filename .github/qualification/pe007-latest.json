@@ -1,18 +1,18 @@
 {
     "schema":  "pe007-live-qualification-result.v1",
     "status":  "PASS",
-    "candidate_sha":  "3d105a4e08176dc8a9ab8a7c48a0f84903c418c9",
-    "workflow_run_id":  36318559843,
-    "workflow_run_number":  9,
+    "candidate_sha":  "dcbce552e56fee693806f26a19ccac519dfec2af",
+    "workflow_run_id":  36321209443,
+    "workflow_run_number":  10,
     "target_computer":  "DESKTOP-4K7IM13",
     "attempt_1":  {
-                      "target_match":  false,
-                      "qualified":  false
-                  },
-    "attempt_2":  {
                       "target_match":  true,
                       "qualified":  true
                   },
+    "attempt_2":  {
+                      "target_match":  false,
+                      "qualified":  false
+                  },
     "production_cutover":  false,
-    "recorded_at_utc":  "2026-09-27T12:27:42.7864781Z"
+    "recorded_at_utc":  "2026-09-27T13:16:39.0332347Z"
 }
