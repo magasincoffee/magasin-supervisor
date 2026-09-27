@@ -25,12 +25,14 @@ function adapterFixture(pages, snapshots) {
 }
 
 test("normalizes exact Planner and Executor ChatGPT conversation targets", () => {
+  const plannerId = "11111111-1111-1111-1111-111111111111";
+  const executorId = "22222222-2222-2222-2222-222222222222";
   const value = normalizeBridgeRoleTargets({
-    plannerUrl: "https://chatgpt.com/c/planner-123?x=1#frag",
-    executorUrl: "https://chatgpt.com/c/executor-456/"
+    plannerUrl: "https://chatgpt.com/c/" + plannerId + "?x=1#frag",
+    executorUrl: "https://chatgpt.com/c/" + executorId + "/"
   });
-  assert.equal(value.planner.canonical_url, "https://chatgpt.com/c/planner-123");
-  assert.equal(value.executor.canonical_url, "https://chatgpt.com/c/executor-456");
+  assert.equal(value.planner.canonical_url, "https://chatgpt.com/c/" + plannerId);
+  assert.equal(value.executor.canonical_url, "https://chatgpt.com/c/" + executorId);
 });
 
 test("nested GPT/Project route resolves to canonical conversation identity", () => {
