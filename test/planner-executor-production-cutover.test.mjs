@@ -311,7 +311,7 @@ test("Planner bootstrap runs only after execute-mode dry-run exit", async () => 
   assert.match(source.slice(dryRunIndex, bootstrapIndex), /process\.exit\(0\)/);
 });
 
-test("project bootstrap safely migrates an exact legacy raw-@M Robot draft to mention-safe transport", async () => {
+test("project bootstrap safely migrates canonical Robot drafts from current or prior generations", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/planner-executor-cli.mjs", import.meta.url),
     "utf8"
@@ -319,10 +319,13 @@ test("project bootstrap safely migrates an exact legacy raw-@M Robot draft to me
 
   assert.match(source, /discardComposerDraftIfDigest/);
   assert.match(source, /buildLegacyProjectContextBootstrapMessage/);
-  assert.match(source, /migrated-legacy-raw-machine-frame-bootstrap-draft/);
-  assert.match(source, /draft\.digest === legacyDigest/);
+  assert.match(source, /matchCanonicalHistoricalProjectBootstrapDraft/);
+  assert.match(source, /generation > currentGeneration/);
+  assert.match(source, /buildProjectContextBootstrapMessage\(historicalState\)/);
+  assert.match(source, /migrated-canonical-bootstrap-draft-generation-/);
   assert.match(source, /bootstrap\.send_attempted_at = null/);
   assert.match(source, /draft\.has_text = false/);
+  assert.match(source, /draft\.normalized_text = null/);
   assert.match(source, /project bootstrap blocked by foreign or Owner draft/);
 });
 
