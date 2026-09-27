@@ -803,7 +803,8 @@ function Save-PlannerExecutorProjectProfile(
     [string]$PlannerUrl,
     [string]$ExecutorUrl
 ) {
-    Assert-SafeProjectMutation
+    $truth = Get-LifecycleProcessTruth -Root $root
+    if ([bool]$truth.wrapper_alive) { throw 'Hãy STOP ROBOT trước khi lưu project profile.' }
     $id = Assert-ProjectId $ProjectId
     $source = ConvertTo-CanonicalSourceOfTruthUrl $SourceUrl
     $planner = ConvertTo-CanonicalChatConversationUrl $PlannerUrl
@@ -812,6 +813,15 @@ function Save-PlannerExecutorProjectProfile(
 
     $registry = Save-ActiveProjectSnapshot
     $profile = Get-PlannerExecutorProjectProfile $registry $id
+    if ([string]$registry.active_project_id -eq $id) {
+        $activeState = Read-JsonFile $plannerExecutorStateFile
+        if (
+            $null -ne (Get-OptionalPropertyValue $activeState 'assignment' $null) -or
+            $null -ne (Get-OptionalPropertyValue $activeState 'result' $null)
+        ) {
+            throw 'Project đang active còn assignment/result mở; chỉ được đổi Source/Chat ở safe boundary.'
+        }
+    }
     if (-not $profile) {
         $newState = New-PlannerExecutorProjectState $id $ProjectName $source $planner $executor
         $stateFile = Get-ProjectProfileStatePath $id
@@ -1271,14 +1281,15 @@ function Show-PlannerExecutorControlPanel {
         $openSourceButton.Enabled=$sourceReady
 
         $hasTransfer=[bool]($null -ne (Get-OptionalPropertyValue $state 'assignment' $null) -or $null -ne (Get-OptionalPropertyValue $state 'result' $null))
-        $safeToMutate=[bool](-not $truth.wrapper_alive -and -not $hasTransfer)
-        $saveProjectButton.Enabled=$safeToMutate
-        $loadProjectButton.Enabled=$safeToMutate
-        $projectSelector.Enabled=$safeToMutate
-        $projectNameBox.ReadOnly=-not $safeToMutate
-        $sourceBox.ReadOnly=-not $safeToMutate
-        $plannerBox.ReadOnly=-not $safeToMutate
-        $executorBox.ReadOnly=-not $safeToMutate
+        $robotStopped=[bool](-not $truth.wrapper_alive)
+        $safeToSwitch=[bool]($robotStopped -and -not $hasTransfer)
+        $saveProjectButton.Enabled=$robotStopped
+        $loadProjectButton.Enabled=$safeToSwitch
+        $projectSelector.Enabled=$robotStopped
+        $projectNameBox.ReadOnly=-not $robotStopped
+        $sourceBox.ReadOnly=-not $robotStopped
+        $plannerBox.ReadOnly=-not $robotStopped
+        $executorBox.ReadOnly=-not $robotStopped
         $startButton.Enabled=[bool]($plannerReady -and $executorReady -and $sourceReady -and -not $running)
         $stopButton.Enabled=[bool]($truth.wrapper_alive -or -not $ownerStop.blocked)
 
