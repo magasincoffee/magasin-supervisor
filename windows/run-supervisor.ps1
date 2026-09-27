@@ -248,6 +248,7 @@ try {
                 ('--user-data-dir="' + $profile + '"'),
                 '--no-first-run',
                 '--no-default-browser-check',
+                '--hide-crash-restore-bubble',
                 '--start-minimized',
                 '--disable-background-timer-throttling',
                 '--disable-backgrounding-occluded-windows',
