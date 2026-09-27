@@ -149,9 +149,22 @@ Project-aware additive `@M` fields are:
 
 The Control Panel progress bar is a projection of durable `pc/pt` state reported by Planner from the configured Source of Truth. Chat conversation memory is never the authority for project completion.
 
-Saving or editing a **non-active** Project Profile is configuration-only. It MUST be allowed without switching the active project, and it MUST NOT mutate the active project's task, assignment/result latches, generation, or runtime state. Safe-boundary requirements apply to **project activation/switching** and to mutation of the **currently active** profile's Source/Planner/Executor targets.
+Saving or editing a **non-active** Project Profile is configuration-only. It MUST be allowed without switching the active project, and it MUST NOT mutate the active project's task, assignment/result latches, generation, or runtime state.
 
-Implementation authority: PR #153, merge `e928bc03980f564c007a97b197f1b8af7c727fde`.
+For the **active project**, the Source of Truth and project activation boundary remain fail-closed: changing Source of Truth or switching to another project requires Robot STOP and no in-flight assignment/result.
+
+Planner and Executor chat URLs are different: they are **mutable role-session targets, not project identity**. Long-running projects are expected to rotate to new ChatGPT conversations when a chat becomes full. While the Robot is stopped, Owner may change the active project's Planner and/or Executor chat URL even when an assignment/result is still open. Supervisor MUST preserve `project_id`, `project_generation`, active task, assignment/result IDs, identity history, and progress.
+
+Chat target rollover rules:
+
+- changing a Planner/Executor URL increments that role's `target_revision` but does **not** create a new project or increment `project_generation`;
+- a new Planner target re-arms Source of Truth bootstrap so the replacement Planner rehydrates project context before continuing;
+- if an Executor rollover occurs while the current assignment is still unresolved, the same logical assignment ID is handed to the new Executor with `MAGASIN_CHAT_ROLLOVER_V1`; the replacement Executor must verify current Source of Truth/evidence first and must not repeat already-completed side effects;
+- if a Planner rollover occurs while a result is awaiting review, the same result ID is relayed to the replacement Planner with `MAGASIN_CHAT_ROLLOVER_V1`;
+- the old role chat is retired only when it exactly matches the persisted superseded target and contains no unsent draft; unrelated ChatGPT conversations remain fail-closed;
+- the normal steady-state topology remains exactly two ChatGPT tabs.
+
+Implementation authority: PR #153, merge `e928bc03980f564c007a97b197f1b8af7c727fde`, plus the chat-target rollover hardening that supersedes the earlier active-profile chat safe-boundary restriction.
 
 ## 5. Happy-path performance contract
 
