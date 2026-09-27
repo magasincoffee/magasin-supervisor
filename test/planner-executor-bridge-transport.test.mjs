@@ -148,10 +148,14 @@ test("invalid phase transitions fail closed before transport mutation", async ()
   assert.equal(fixture.calls.length, 0);
 });
 
-test("send failure restores stable wait phase and does not manufacture progress", async () => {
+test("send failure stays BLOCKED with ambiguous in-flight evidence and cannot resend", async () => {
+  const calls = [];
   const adapter = {
-    async send() {
-      throw new Error("bridge unavailable");
+    async send(pageId, message) {
+      calls.push({ pageId, message });
+      const error = new Error("bridge timeout after possible enqueue");
+      error.code = "RESPONSE_TIMEOUT";
+      throw error;
     }
   };
   const machine = createPlannerExecutorBridgeTransportStateMachine({
@@ -164,9 +168,66 @@ test("send failure restores stable wait phase and does not manufacture progress"
   await assert.rejects(
     () => machine.plannerEvent({ action: "assign", message: "task" }),
     (error) => error instanceof BridgeTransportStateError &&
-      error.code === "TRANSPORT_SEND_FAILED"
+      error.code === "AMBIGUOUS_SEND"
   );
-  assert.equal(machine.snapshot().phase, BRIDGE_TRANSPORT_PHASES.WAIT_PLANNER);
+
+  const state = machine.snapshot();
+  assert.equal(state.phase, BRIDGE_TRANSPORT_PHASES.BLOCKED);
+  assert.equal(state.in_flight.outcome, "AMBIGUOUS");
+  assert.equal(state.in_flight.to_role, "executor");
+  assert.equal(state.in_flight.error_code, "RESPONSE_TIMEOUT");
+  assert.equal(calls.length, 1);
+
+  assert.throws(
+    () => machine.resumePlanner(),
+    (error) => error instanceof BridgeTransportStateError &&
+      error.code === "AMBIGUOUS_IN_FLIGHT"
+  );
+  await assert.rejects(
+    () => machine.plannerEvent({ action: "assign", message: "task" }),
+    (error) => error instanceof BridgeTransportStateError &&
+      error.code === "INVALID_PHASE"
+  );
+  assert.equal(calls.length, 1);
+});
+
+test("Executor-to-Planner send failure also remains non-resendable BLOCKED", async () => {
+  let calls = 0;
+  const adapter = {
+    async send() {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          ok: true,
+          cmd_id: "cmd-1",
+          snapshot: { last_assistant: "executor response" },
+          evidence: { response_changed: true }
+        };
+      }
+      const error = new Error("planner response timeout");
+      error.code = "RESPONSE_TIMEOUT";
+      throw error;
+    }
+  };
+  const machine = createPlannerExecutorBridgeTransportStateMachine({
+    adapter,
+    binding: binding()
+  });
+  machine.start();
+  machine.plannerBootstrapDispatched();
+  await machine.plannerEvent({ action: "assign", message: "task" });
+
+  await assert.rejects(
+    () => machine.executorEvent({ action: "report", message: "result" }),
+    (error) => error instanceof BridgeTransportStateError &&
+      error.code === "AMBIGUOUS_SEND"
+  );
+
+  const state = machine.snapshot();
+  assert.equal(state.phase, BRIDGE_TRANSPORT_PHASES.BLOCKED);
+  assert.equal(state.in_flight.from_role, "executor");
+  assert.equal(state.in_flight.to_role, "planner");
+  assert.equal(state.in_flight.outcome, "AMBIGUOUS");
 });
 
 test("binding reacquisition may replace page_id only when canonical role identity is unchanged", () => {
@@ -191,6 +252,31 @@ test("binding reacquisition may replace page_id only when canonical role identit
     () => machine.replaceBinding(changed),
     (error) => error instanceof BridgeTransportStateError &&
       error.code === "ROLE_IDENTITY_CHANGED"
+  );
+});
+
+test("binding replacement is blocked while a send outcome is ambiguous", async () => {
+  const adapter = {
+    async send() {
+      throw Object.assign(new Error("timeout"), { code: "RESPONSE_TIMEOUT" });
+    }
+  };
+  const machine = createPlannerExecutorBridgeTransportStateMachine({
+    adapter,
+    binding: binding()
+  });
+  machine.start();
+  machine.plannerBootstrapDispatched();
+  await assert.rejects(
+    () => machine.plannerEvent({ action: "assign", message: "task" }),
+    (error) => error.code === "AMBIGUOUS_SEND"
+  );
+
+  const rebound = binding({ plannerPage: "planner_new" });
+  assert.throws(
+    () => machine.replaceBinding(rebound),
+    (error) => error instanceof BridgeTransportStateError &&
+      error.code === "AMBIGUOUS_IN_FLIGHT"
   );
 });
 
