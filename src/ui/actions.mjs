@@ -319,12 +319,17 @@ export async function discardComposerDraftIfDigest(
   };
 }
 
+const USER_TURN_SELECTORS = Object.freeze({
+  legacy: '[data-message-author-role="user"]',
+  modern: "main .text-size-chat.whitespace-pre-wrap"
+});
+
 async function captureUserTurnState(page, instruction) {
   if (!page || typeof page.evaluate !== "function") {
     return { readable: false, totalCount: 0, exactMatchCount: 0 };
   }
   try {
-    return await page.evaluate((expected) => {
+    return await page.evaluate(({ expected, selectors }) => {
       const normalize = (value) => String(value || "")
         .replace(/\u200B/g, "")
         .replace(/\r\n/g, "\n")
@@ -332,9 +337,18 @@ async function captureUserTurnState(page, instruction) {
         .replace(/\s+/gu, " ")
         .trim();
       const wanted = normalize(expected);
-      const turns = Array.from(
-        document.querySelectorAll('[data-message-author-role="user"]')
+
+      // Prefer semantic role nodes when the UI exposes them. Current ChatGPT
+      // can instead render user turns only through the modern text surface, so
+      // fall back to that selector rather than reporting a false send failure
+      // after the composer has already transitioned.
+      const legacyTurns = Array.from(
+        document.querySelectorAll(selectors.legacy)
       );
+      const turns = legacyTurns.length
+        ? legacyTurns
+        : Array.from(document.querySelectorAll(selectors.modern));
+
       let exactMatchCount = 0;
       for (const node of turns) {
         const text = normalize(node.innerText || node.textContent || "");
@@ -345,7 +359,10 @@ async function captureUserTurnState(page, instruction) {
         totalCount: turns.length,
         exactMatchCount
       };
-    }, instruction);
+    }, {
+      expected: instruction,
+      selectors: USER_TURN_SELECTORS
+    });
   } catch {
     return { readable: false, totalCount: 0, exactMatchCount: 0 };
   }
