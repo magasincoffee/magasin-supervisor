@@ -287,6 +287,51 @@ export async function runPlannerExecutorStep({
   });
   ensureIdentityHistory(state);
 
+  if (state.automation?.status === "DONE") {
+    return { phase: "PLANNER_DONE", state };
+  }
+  if (state.automation?.status === "STOPPED") {
+    return { phase: "PLANNER_STOPPED", state };
+  }
+  if (state.automation?.status === "BLOCKED") {
+    const latestControl = await captureNewestMachineFrame(
+      plannerPage,
+      "assistant",
+      {
+        lastSeenTurnId: state.planner.last_seen_assistant_turn_id,
+        captureTurn
+      }
+    );
+    if (!latestControl) {
+      return { phase: "WAIT_PLANNER_RESUME", state };
+    }
+    if (latestControl.frame.a !== "resume") {
+      return {
+        phase: "WAIT_PLANNER_RESUME",
+        ignored_action: latestControl.frame.a,
+        state
+      };
+    }
+    if (latestControl.frame.t && state.active_task_id) {
+      assertMachineFrameCorrelation(latestControl.frame, {
+        taskId: state.active_task_id
+      });
+    }
+    state.planner.last_seen_assistant_turn_id = latestControl.turn.turn_id;
+    state.automation = {
+      status: "RUNNING",
+      reason: null,
+      updated_at: now()
+    };
+    state.decision = {
+      action: "resume",
+      task_id: latestControl.frame.t || state.active_task_id,
+      decided_at: now()
+    };
+    await persist(statePath, state);
+    return { phase: "PLANNER_RESUMED", state };
+  }
+
   // Crash/restart recovery always reconciles durable outbound intent before
   // consuming another assistant turn. This prevents a second logical send.
   if (state.assignment && !state.assignment.send_confirmed_at) {
