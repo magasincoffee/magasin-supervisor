@@ -166,6 +166,7 @@ async function installUserscriptTransport(context, page) {
 }
 
 let browser = null;
+let qualificationContext = null;
 let plannerPage = null;
 let executorPage = null;
 
@@ -178,24 +179,24 @@ try {
   if (contexts.length !== 1) {
     throw new Error(`qualification Chrome expected one context, found ${contexts.length}`);
   }
-  const context = contexts[0];
-  const preexistingPages = context.pages().slice();
-  log("MBV1_001_PREEXISTING_PAGES", preexistingPages.length);
+  const sourceContext = contexts[0];
+  const preexistingPages = sourceContext.pages().slice();
+  log("MBV1_001_PRODUCTION_CONTEXT_PAGES", preexistingPages.length);
 
-  if (preexistingPages.length > 3) {
-    throw new Error(`qualification refuses to add temporary tabs when dedicated Chrome already has ${preexistingPages.length} pages`);
-  }
+  const storageState = await sourceContext.storageState();
+  qualificationContext = await browser.newContext({ storageState });
+  log("MBV1_001_QUALIFICATION_CONTEXT", "ISOLATED");
 
-  plannerPage = await context.newPage();
-  executorPage = await context.newPage();
+  plannerPage = await qualificationContext.newPage();
+  executorPage = await qualificationContext.newPage();
 
   await Promise.all([
     plannerPage.goto("https://chatgpt.com/?mbv1_role=planner", { waitUntil: "domcontentloaded", timeout: 60_000 }),
     executorPage.goto("https://chatgpt.com/?mbv1_role=executor", { waitUntil: "domcontentloaded", timeout: 60_000 })
   ]);
 
-  await installUserscriptTransport(context, plannerPage);
-  await installUserscriptTransport(context, executorPage);
+  await installUserscriptTransport(qualificationContext, plannerPage);
+  await installUserscriptTransport(qualificationContext, executorPage);
 
   await Promise.all([
     plannerPage.waitForFunction(() => String(window.name || "").startsWith("bridge_"), null, { timeout: 30_000 }),
@@ -290,7 +291,7 @@ try {
 
   await writeResult({
     status: "PASS",
-    target_surface: "EXISTING_DEDICATED_WINDOWS_CHROME_WITH_EPHEMERAL_QUALIFICATION_TABS",
+    target_surface: "ISOLATED_BROWSER_CONTEXT_WITH_AUTH_STATE_COPIED_FROM_DEDICATED_CHROME",
     userscript_transport: "PINNED_UPSTREAM_USERSCRIPT_WITH_PLAYWRIGHT_EXPOSED_GM_BRIDGE",
     bridge_service_online: true,
     bridge_status: finalStatus,
@@ -312,7 +313,8 @@ try {
   });
 
   log("MBV1_001_STATUS", "PASS");
-  log("MBV1_001_PRODUCTION_PROFILE_MUTATED", "False");
+  log("MBV1_001_PREEXISTING_PAGES_CLOSED", "False");
+  log("MBV1_001_PRODUCTION_BROWSER_STOPPED", "False");
 } catch (error) {
   await writeResult({
     status: "FAIL",
@@ -332,7 +334,8 @@ try {
     executorPage && !executorPage.isClosed() ? executorPage.close().catch(() => {}) : null,
     plannerPage && !plannerPage.isClosed() ? plannerPage.close().catch(() => {}) : null
   ]);
+  await qualificationContext?.close().catch(() => {});
   // Intentionally do not call browser.close(): this connection targets the
   // already-running dedicated production Chrome. Process exit disconnects CDP
-  // without stopping the browser or its pre-existing Planner/Executor pages.
+  // without stopping the browser or its default production context.
 }
