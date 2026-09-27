@@ -67,6 +67,41 @@ if ($wrapper.Count -gt 0) { Write-Host "WRAPPER_PID=$([int]$wrapper[0].ProcessId
 Write-Host "THREE_LANE_COUNT=$($threeLane.Count)"
 if ($threeLane.Count -gt 0) { Write-Host "THREE_LANE_PID=$([int]$threeLane[0].ProcessId)" }
 
+$plannerExecutor = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -and $_.CommandLine -like '*planner-executor-cli.mjs*' })
+Write-Host "PLANNER_EXECUTOR_COUNT=$($plannerExecutor.Count)"
+if ($plannerExecutor.Count -gt 0) {
+  Write-Host "PLANNER_EXECUTOR_PID=$([int]$plannerExecutor[0].ProcessId)"
+}
+
+$peStatePath = Join-Path $root 'planner-executor-state.json'
+$peStatusPath = Join-Path $root 'planner-executor-status.json'
+$peFailurePath = Join-Path $root 'planner-executor-startup-failure.json'
+if (Test-Path $peStatePath -PathType Leaf) {
+  $peState = Get-Content $peStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
+  Write-Host "PE_PROJECT_ID=$([string]$peState.project_id)"
+  Write-Host "PE_PROJECT_GENERATION=$([int]$peState.project_generation)"
+  Write-Host "PE_ACTIVE_TASK=$([string]$peState.active_task_id)"
+  if ($peState.project_context_bootstrap) {
+    Write-Host "PE_PROJECT_BOOTSTRAP_REQUIRED=$([bool]$peState.project_context_bootstrap.required)"
+    Write-Host "PE_PROJECT_BOOTSTRAP_ATTEMPTED=$([bool](-not [string]::IsNullOrWhiteSpace([string]$peState.project_context_bootstrap.send_attempted_at)))"
+    Write-Host "PE_PROJECT_BOOTSTRAP_CONFIRMED=$([bool](-not [string]::IsNullOrWhiteSpace([string]$peState.project_context_bootstrap.send_confirmed_at)))"
+    Write-Host "PE_PROJECT_BOOTSTRAP_LAST_ERROR=$([string]$peState.project_context_bootstrap.last_send_error)"
+  }
+}
+if (Test-Path $peStatusPath -PathType Leaf) {
+  $peStatus = Get-Content $peStatusPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  Write-Host "PE_STATUS_PHASE=$([string]$peStatus.phase)"
+  Write-Host "PE_STATUS_TABS=$([string]$peStatus.chatgpt_tabs)"
+  Write-Host "PE_STATUS_RETRY=$([string]$peStatus.bootstrap_retry_attempt)"
+}
+if (Test-Path $peFailurePath -PathType Leaf) {
+  $peFailure = Get-Content $peFailurePath -Raw -Encoding UTF8 | ConvertFrom-Json
+  Write-Host "PE_FAILURE_STAGE=$([string]$peFailure.stage)"
+  Write-Host "PE_FAILURE_NAME=$([string]$peFailure.error_name)"
+  Write-Host "PE_FAILURE_DIGEST=$([string]$peFailure.error_digest)"
+}
+
 $diagRoot = Join-Path $root 'diagnostics\submit'
 if (-not (Test-Path $diagRoot -PathType Container)) {
   Write-Host 'SUBMIT_DIAG_ROOT_PRESENT=False'
