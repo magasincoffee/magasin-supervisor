@@ -329,6 +329,20 @@ test("project bootstrap safely migrates canonical Robot drafts from current or p
   assert.match(source, /project bootstrap blocked by foreign or Owner draft/);
 });
 
+test("bootstrap recovery reacquires Planner/Executor pages when ChatGPT closes or replaces a target page", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/planner-executor-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /recoverTarget = null/);
+  assert.match(source, /PLANNER_EXECUTOR_\$\{name\}_TARGET_REACQUIRED/);
+  assert.match(source, /const reacquireWarmTabs = async \(\) =>/);
+  assert.match(source, /acquirePlannerExecutorWarmTabs\(adapter/);
+  assert.match(source, /assertPlannerExecutorWarmTabs\(adapter, warm\)/);
+  assert.match(source, /recoverTarget: reacquireWarmTabs/);
+});
+
 test("bootstrap recovery survives ChatGPT rerender when baseline user turn proves no submission occurred", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/planner-executor-cli.mjs", import.meta.url),
