@@ -7,81 +7,22 @@ import {
   sendComposerInstruction
 } from "../ui/actions.mjs";
 import { captureLatestRoleTurn } from "../ui/latest-turn.mjs";
+import {
+  assertMachineFrameAction,
+  assertMachineFrameCorrelation
+} from "./machine-frame.mjs";
+import { captureNewestMachineFrame } from "./latest-machine-turn.mjs";
+
+export { parseMachineFrame } from "./machine-frame.mjs";
 
 export const PLANNER_EXECUTOR_MODE = "PLANNER_EXECUTOR_V1";
-export const MACHINE_FRAME_PREFIX = "@M ";
 
-const ACTIONS = new Set([
-  "assign",
-  "report",
-  "accept_assign",
-  "reject",
-  "blocked",
-  "resume",
-  "stop",
-  "done"
-]);
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/;
 
 function requireId(value, label) {
   const id = String(value || "").trim();
   if (!ID_RE.test(id)) throw new Error(`invalid ${label}`);
   return id;
-}
-
-function normalizeReportStatus(value) {
-  const status = String(value || "").trim().toLowerCase();
-  if (!["pass", "fail", "blocked"].includes(status)) {
-    throw new Error("invalid report status");
-  }
-  return status;
-}
-
-export function parseMachineFrame(text) {
-  const raw = String(text || "").replace(/\r\n/g, "\n").trimEnd();
-  if (!raw) throw new Error("assistant turn is empty");
-
-  const lines = raw.split("\n");
-  let index = lines.length - 1;
-  while (index >= 0 && !lines[index].trim()) index -= 1;
-  if (index < 0 || !lines[index].trim().startsWith(MACHINE_FRAME_PREFIX)) {
-    throw new Error("assistant turn missing final @M frame");
-  }
-
-  const jsonText = lines[index].trim().slice(MACHINE_FRAME_PREFIX.length);
-  const payload = JSON.parse(jsonText);
-  if (Number(payload?.v) !== 1) throw new Error("unsupported @M protocol version");
-
-  const action = String(payload?.a || "").trim().toLowerCase();
-  if (!ACTIONS.has(action)) throw new Error("unsupported @M action");
-
-  const frame = { v: 1, a: action };
-  if (payload.t !== undefined) frame.t = requireId(payload.t, "task_id");
-  if (payload.i !== undefined) frame.i = requireId(payload.i, "assignment_id");
-  if (payload.r !== undefined) frame.r = requireId(payload.r, "result_id");
-  if (payload.n !== undefined) frame.n = requireId(payload.n, "next_task_id");
-  if (payload.s !== undefined) frame.s = normalizeReportStatus(payload.s);
-
-  if (action === "assign" && (!frame.t || !frame.i)) {
-    throw new Error("assign requires task_id and assignment_id");
-  }
-  if (action === "report" && (!frame.t || !frame.i || !frame.r || !frame.s)) {
-    throw new Error("report requires task_id, assignment_id, result_id and status");
-  }
-  if (action === "accept_assign" && (!frame.t || !frame.r || !frame.n || !frame.i)) {
-    throw new Error(
-      "accept_assign requires reviewed task_id, result_id, next_task_id and new assignment_id"
-    );
-  }
-  if (action === "reject" && (!frame.t || !frame.r)) {
-    throw new Error("reject requires task_id and result_id");
-  }
-
-  return {
-    frame,
-    body: lines.slice(0, index).join("\n").trim(),
-    raw
-  };
 }
 
 export function defaultPlannerExecutorState({
@@ -162,10 +103,6 @@ function buildPlannerReviewMessage({ taskId, assignmentId, resultId, body }) {
     'Nếu ACCEPT và có task kế tiếp: @M {"v":1,"a":"accept_assign","t":"CURRENT","r":"RESULT","n":"NEXT","i":"NEW-ASSIGNMENT"}',
     'Nếu REJECT: @M {"v":1,"a":"reject","t":"CURRENT","r":"RESULT"}'
   ].join("\n");
-}
-
-function sameTurn(turn, seen) {
-  return Boolean(turn?.turn_id && seen && turn.turn_id === seen);
 }
 
 async function reconcileOrSend({
@@ -293,29 +230,37 @@ export async function runPlannerExecutorStep({
   }
 
   if (!state.assignment) {
-    const turn = await captureTurn(plannerPage, "assistant");
-    if (!turn || sameTurn(turn, state.planner.last_seen_assistant_turn_id)) {
+    const latest = await captureNewestMachineFrame(
+      plannerPage,
+      "assistant",
+      {
+        lastSeenTurnId: state.planner.last_seen_assistant_turn_id,
+        captureTurn
+      }
+    );
+    if (!latest) {
       return { phase: "WAIT_PLANNER_ASSIGN", state };
     }
 
-    const parsed = parseMachineFrame(turn.text);
-    if (parsed.frame.a !== "assign") {
-      return { phase: "WAIT_PLANNER_ASSIGN", ignored_action: parsed.frame.a, state };
+    try {
+      assertMachineFrameAction(latest.frame, ["assign"]);
+    } catch {
+      return { phase: "WAIT_PLANNER_ASSIGN", ignored_action: latest.frame.a, state };
     }
 
     const message = buildExecutorAssignmentMessage({
-      taskId: parsed.frame.t,
-      assignmentId: parsed.frame.i,
-      body: parsed.body
+      taskId: latest.frame.t,
+      assignmentId: latest.frame.i,
+      body: latest.body
     });
 
-    state.planner.last_seen_assistant_turn_id = turn.turn_id;
-    state.active_task_id = parsed.frame.t;
+    state.planner.last_seen_assistant_turn_id = latest.turn.turn_id;
+    state.active_task_id = latest.frame.t;
     state.assignment = {
-      task_id: parsed.frame.t,
-      assignment_id: parsed.frame.i,
-      source_turn_id: turn.turn_id,
-      planner_body: parsed.body,
+      task_id: latest.frame.t,
+      assignment_id: latest.frame.i,
+      source_turn_id: latest.turn.turn_id,
+      planner_body: latest.body,
       message,
       message_digest: composerInstructionDigest(message),
       persisted_at: now(),
@@ -343,37 +288,43 @@ export async function runPlannerExecutorStep({
   }
 
   if (!state.result) {
-    const turn = await captureTurn(executorPage, "assistant");
-    if (!turn || sameTurn(turn, state.executor.last_seen_assistant_turn_id)) {
+    const latest = await captureNewestMachineFrame(
+      executorPage,
+      "assistant",
+      {
+        lastSeenTurnId: state.executor.last_seen_assistant_turn_id,
+        captureTurn
+      }
+    );
+    if (!latest) {
       return { phase: "WAIT_EXECUTOR_REPORT", state };
     }
 
-    const parsed = parseMachineFrame(turn.text);
-    if (parsed.frame.a !== "report") {
-      return { phase: "WAIT_EXECUTOR_REPORT", ignored_action: parsed.frame.a, state };
+    try {
+      assertMachineFrameAction(latest.frame, ["report"]);
+    } catch {
+      return { phase: "WAIT_EXECUTOR_REPORT", ignored_action: latest.frame.a, state };
     }
-    if (
-      parsed.frame.t !== state.assignment.task_id ||
-      parsed.frame.i !== state.assignment.assignment_id
-    ) {
-      throw new Error("Executor report correlation mismatch");
-    }
-
-    const relayMessage = buildPlannerReviewMessage({
-      taskId: parsed.frame.t,
-      assignmentId: parsed.frame.i,
-      resultId: parsed.frame.r,
-      body: parsed.body
+    assertMachineFrameCorrelation(latest.frame, {
+      taskId: state.assignment.task_id,
+      assignmentId: state.assignment.assignment_id
     });
 
-    state.executor.last_seen_assistant_turn_id = turn.turn_id;
+    const relayMessage = buildPlannerReviewMessage({
+      taskId: latest.frame.t,
+      assignmentId: latest.frame.i,
+      resultId: latest.frame.r,
+      body: latest.body
+    });
+
+    state.executor.last_seen_assistant_turn_id = latest.turn.turn_id;
     state.result = {
-      task_id: parsed.frame.t,
-      assignment_id: parsed.frame.i,
-      result_id: parsed.frame.r,
-      status: parsed.frame.s,
-      source_turn_id: turn.turn_id,
-      executor_body: parsed.body,
+      task_id: latest.frame.t,
+      assignment_id: latest.frame.i,
+      result_id: latest.frame.r,
+      status: latest.frame.s,
+      source_turn_id: latest.turn.turn_id,
+      executor_body: latest.body,
       message: relayMessage,
       message_digest: composerInstructionDigest(relayMessage),
       persisted_at: now(),
@@ -403,54 +354,55 @@ export async function runPlannerExecutorStep({
     return { phase: "EXECUTOR_REPORT", outcome, state };
   }
 
-  const plannerTurn = await captureTurn(plannerPage, "assistant");
-  if (!plannerTurn || sameTurn(
-    plannerTurn,
-    state.planner.last_seen_assistant_turn_id
-  )) {
+  const latest = await captureNewestMachineFrame(
+    plannerPage,
+    "assistant",
+    {
+      lastSeenTurnId: state.planner.last_seen_assistant_turn_id,
+      captureTurn
+    }
+  );
+  if (!latest) {
     return { phase: "WAIT_PLANNER_DECISION", state };
   }
 
-  const parsed = parseMachineFrame(plannerTurn.text);
-  if (parsed.frame.a === "reject") {
-    if (
-      parsed.frame.t !== state.result.task_id ||
-      parsed.frame.r !== state.result.result_id
-    ) {
-      throw new Error("Planner reject correlation mismatch");
-    }
-    state.planner.last_seen_assistant_turn_id = plannerTurn.turn_id;
+  if (latest.frame.a === "reject") {
+    assertMachineFrameCorrelation(latest.frame, {
+      taskId: state.result.task_id,
+      resultId: state.result.result_id
+    });
+    state.planner.last_seen_assistant_turn_id = latest.turn.turn_id;
     state.decision = {
       action: "reject",
-      task_id: parsed.frame.t,
-      result_id: parsed.frame.r,
+      task_id: latest.frame.t,
+      result_id: latest.frame.r,
       decided_at: now()
     };
     await persist(statePath, state);
     return { phase: "PLANNER_REJECT", state };
   }
 
-  if (parsed.frame.a !== "accept_assign") {
+  try {
+    assertMachineFrameAction(latest.frame, ["accept_assign"]);
+  } catch {
     return {
       phase: "WAIT_PLANNER_DECISION",
-      ignored_action: parsed.frame.a,
+      ignored_action: latest.frame.a,
       state
     };
   }
-  if (
-    parsed.frame.t !== state.result.task_id ||
-    parsed.frame.r !== state.result.result_id
-  ) {
-    throw new Error("Planner accept_assign correlation mismatch");
-  }
-
-  const nextMessage = buildExecutorAssignmentMessage({
-    taskId: parsed.frame.n,
-    assignmentId: parsed.frame.i,
-    body: parsed.body
+  assertMachineFrameCorrelation(latest.frame, {
+    taskId: state.result.task_id,
+    resultId: state.result.result_id
   });
 
-  state.planner.last_seen_assistant_turn_id = plannerTurn.turn_id;
+  const nextMessage = buildExecutorAssignmentMessage({
+    taskId: latest.frame.n,
+    assignmentId: latest.frame.i,
+    body: latest.body
+  });
+
+  state.planner.last_seen_assistant_turn_id = latest.turn.turn_id;
   state.last_completed = {
     task_id: state.result.task_id,
     assignment_id: state.result.assignment_id,
@@ -460,18 +412,18 @@ export async function runPlannerExecutorStep({
   };
   state.decision = {
     action: "accept_assign",
-    task_id: parsed.frame.t,
-    result_id: parsed.frame.r,
-    next_task_id: parsed.frame.n,
-    assignment_id: parsed.frame.i,
+    task_id: latest.frame.t,
+    result_id: latest.frame.r,
+    next_task_id: latest.frame.n,
+    assignment_id: latest.frame.i,
     decided_at: now()
   };
-  state.active_task_id = parsed.frame.n;
+  state.active_task_id = latest.frame.n;
   state.assignment = {
-    task_id: parsed.frame.n,
-    assignment_id: parsed.frame.i,
-    source_turn_id: plannerTurn.turn_id,
-    planner_body: parsed.body,
+    task_id: latest.frame.n,
+    assignment_id: latest.frame.i,
+    source_turn_id: latest.turn.turn_id,
+    planner_body: latest.body,
     message: nextMessage,
     message_digest: composerInstructionDigest(nextMessage),
     persisted_at: now(),
