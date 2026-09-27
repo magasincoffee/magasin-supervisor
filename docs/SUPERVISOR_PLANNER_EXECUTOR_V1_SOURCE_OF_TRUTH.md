@@ -715,3 +715,10 @@ bridge_cutover = false
 ```
 
 MBV1-004 must implement the Bridge-backed transport state machine that carries the autonomous Planner -> Executor -> Planner loop while keeping protocol interpretation and project/task authority outside the Bridge transport layer. It MUST reuse the MBV1-002 adapter and MBV1-003 binding, remain fail-closed on invalid phase/role transitions, and MUST NOT production-cut over.
+
+
+### 15.14 MBV1-004 implementation evidence
+
+Status: **IN_PROGRESS** (pc remains 3 / pt 8).
+
+MBV1-004 must implement the Bridge-backed transport state machine while preserving MAGASIN as workflow authority. The implementation must reuse the merged Bridge adapter and role binding and must not move `@M` parsing/correlation authority into the Bridge. Production cutover remains false.
