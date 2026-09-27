@@ -519,7 +519,7 @@ Status: **CANONICAL PLAN / IN PROGRESS / NOT YET CUT OVER**
 
 Owner decision date: **2026-09-27**
 
-Current task: **MBV1-004 — Transport State Machine**. Progress: pc=3 / pt=8.
+Current task: **MBV1-005 — @M Protocol Integration**. Progress: pc=4 / pt=8.
 
 This program replaces only the Planner/Executor transport layer. It preserves the existing Source-of-Truth authority, Planner/Executor roles, @M v1 protocol, task/assignment/result correlation, pc/pt semantics, STOP/RESET behavior, exact-once principles and Control UI concept.
 
@@ -719,6 +719,36 @@ MBV1-004 must implement the Bridge-backed transport state machine that carries t
 
 ### 15.14 MBV1-004 implementation evidence
 
-Status: **IN_PROGRESS** (pc remains 3 / pt 8).
+Status: **COMPLETE / MERGED**
 
-MBV1-004 must implement the Bridge-backed transport state machine while preserving MAGASIN as workflow authority. The implementation must reuse the merged Bridge adapter and role binding and must not move `@M` parsing/correlation authority into the Bridge. Production cutover remains false.
+Authoritative implementation:
+
+- merged PR: #177;
+- final head: `c77f8744759dcb75c899c313d7907a1925a8c255`;
+- merge commit: `e3c693013a616ed99c535c5851ceceb2e0b2bfac`;
+- state machine: `src/runtime/planner-executor-bridge-transport.mjs`;
+- tests: `test/planner-executor-bridge-transport.test.mjs`;
+- Bridge adapter + deterministic binding are reused;
+- Planner -> Executor -> Planner -> next Executor routing is explicit;
+- invalid phase transitions and send failures fail closed;
+- role reacquisition may change transport page_id only when canonical role identity is unchanged;
+- transport state machine contains no project/protocol parser authority;
+- production transport remains pre-Bridge and `bridge_cutover=false`.
+
+Final gate evidence:
+
+```text
+Supervisor Tests                = PASS (run 36331951645)
+Supervisor Integrity            = PASS (run 36331951605)
+Supervisor Lifecycle Acceptance = PASS (run 36331951696)
+Supervisor Autostart Install    = PASS (run 36331951686)
+```
+
+MBV1-005 is now the current implementation task.
+
+
+### 15.15 MBV1-005 implementation evidence
+
+Status: **IN_PROGRESS** (pc remains 4 / pt 8).
+
+MBV1-005 must connect the canonical `@M` v1 parser/correlation guards to the Bridge transport state machine without duplicating protocol semantics. Malformed, stale, duplicate, mismatched, or impossible frames must fail closed before transport mutation. Production cutover remains false.
