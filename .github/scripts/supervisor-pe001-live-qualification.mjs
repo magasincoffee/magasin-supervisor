@@ -165,7 +165,7 @@ try {
     // ChatGPT tabs rather than a third unused landing tab.
     if (preexistingPages > 1) {
       throw new Error(
-        \`qualification-owned Chrome expected <=1 initial ChatGPT page; found ${preexistingPages}\`
+        `qualification-owned Chrome expected <=1 initial ChatGPT page; found ${preexistingPages}`
       );
     }
     plannerPage = existingPages[0] || await adapter.newChatPage("https://chatgpt.com/");
@@ -186,7 +186,7 @@ try {
     // room for two ephemeral qualification chats without eviction.
     if (preexistingPages > 2) {
       throw new Error(
-        \`live qualification requires <=2 pre-existing ChatGPT pages; found ${preexistingPages}\`
+        `live qualification requires <=2 pre-existing ChatGPT pages; found ${preexistingPages}`
       );
     }
     plannerPage = await adapter.newChatPage("https://chatgpt.com/");
