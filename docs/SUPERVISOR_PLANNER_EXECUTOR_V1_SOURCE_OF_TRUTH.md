@@ -178,6 +178,12 @@ Composer send safety for the `@M` machine frame:
 - Supervisor also keeps the bounded mention-popover dismissal path as defense in depth;
 - an open mention/file popover is never treated as evidence that the prompt was submitted.
 
+Control Center viewport:
+
+- Planner/Executor Control Center uses a fixed logical canvas inside an AutoScroll viewport;
+- vertical scrolling MUST remain available when Windows DPI scaling or a short display makes the logical canvas taller than the visible client area;
+- lower controls and footer diagnostics must never become unreachable merely because the window cannot display the full logical height at once.
+
 Dedicated browser continuity:
 
 - Planner/Executor runtime is considered active independently of legacy `lanes.json` enabled-lane count;
