@@ -519,7 +519,7 @@ Status: **CANONICAL PLAN / IN PROGRESS / NOT YET CUT OVER**
 
 Owner decision date: **2026-09-27**
 
-Current task: **MBV1-003 — Planner/Executor Binding**. Progress: pc=2 / pt=8.
+Current task: **MBV1-004 — Transport State Machine**. Progress: pc=3 / pt=8.
 
 This program replaces only the Planner/Executor transport layer. It preserves the existing Source-of-Truth authority, Planner/Executor roles, @M v1 protocol, task/assignment/result correlation, pc/pt semantics, STOP/RESET behavior, exact-once principles and Control UI concept.
 
@@ -575,7 +575,7 @@ Until MBV1-008 PASS and explicit cutover: bridge_cutover=false and production co
 
 ### 15.8 Next-task authority
 
-program=MAGASIN_BRIDGE_V1; current_task=MBV1-003; pc=2; pt=8; status=IN_PROGRESS. Planner MUST select MBV1-003 next. MBV1-004 and later tasks remain blocked by dependency order.
+program=MAGASIN_BRIDGE_V1; current_task=MBV1-004; pc=3; pt=8; status=READY_TO_EXECUTE. Planner MUST select MBV1-004 next. MBV1-005 and later tasks remain blocked by dependency order.
 
 
 ### 15.9 MBV1-001 implementation evidence
@@ -660,43 +660,58 @@ production cutover          = false
 
 A first regression run exposed one implementation bug (`pageId is not a function`) caused by helper/parameter shadowing. The fix renamed the validator to `requirePageId`; the final head passed all applicable gates without weakening tests.
 
-### 15.11 MBV1-003 next-task authority
+### 15.11 MBV1-003 implementation evidence
 
-MBV1-002 is complete. Progress is now:
+Status: **COMPLETE / MERGED**
+
+Canonical implementation:
+
+- merged PR: #176;
+- merge commit: `76a0723e77df285acd46f3b25a5be74307d8f9d6`;
+- final head: `e07eb79e71622fd8dee27121fa3fc11dded31deb`;
+- binding module: `src/runtime/chatgpt-bridge-binding.mjs`;
+- contract tests: `test/chatgpt-bridge-binding.test.mjs`;
+- stale duplicate PR #175 was closed unmerged and is explicitly superseded by #176.
+
+Implemented binding contract:
+
+- reuses canonical `targetFromUrl()` and `pageMatchesTarget()` conversation identity;
+- exact Owner Planner URL -> one live Planner `page_id`;
+- exact Owner Executor URL -> one live Executor `page_id`;
+- Planner and Executor canonical conversations must differ;
+- Planner and Executor `page_id` values must differ;
+- missing role target fails closed;
+- duplicate live tabs for the same role target fail closed as ambiguous;
+- unrelated live Bridge pages block the default exact two-role topology;
+- stale unrelated pages are ignored but never adopted;
+- optional diagnostic non-exact mode reports unrelated pages but never assigns them to a role;
+- bounded reacquisition may change a role's `page_id` after reload/replacement only while preserving the same canonical conversation identity;
+- invalid Owner ChatGPT URLs fail before page enumeration;
+- project identity, task state and workflow semantics remain outside the binding layer.
+
+Final regression evidence on head `e07eb79e71622fd8dee27121fa3fc11dded31deb`:
+
+```text
+full node regression suite = 818 / 818 PASS
+additional contract suite   = 50 / 50 PASS
+platform/core regressions   = 192 / 192 PASS
+static audit                = PASS
+lifecycle isolated          = PASS
+installer isolated          = PASS
+production cutover          = false
+```
+
+### 15.12 MBV1-004 next-task authority
+
+MBV1-003 is complete. Progress is now:
 
 ```text
 program = MAGASIN_BRIDGE_V1
-current_task = MBV1-003
-pc = 2
+current_task = MBV1-004
+pc = 3
 pt = 8
-status = IN_PROGRESS
+status = READY_TO_EXECUTE
 bridge_cutover = false
 ```
 
-MBV1-003 must deterministically bind the Owner-provided Planner and Executor Chat URLs to exact, distinct Bridge `page_id` values. Ambiguous matches, missing targets, duplicate role binding, or unrelated-tab adoption MUST fail closed. Page reload/reacquisition may update transport identity only under the bounded same-role rules and MUST NOT create a new project identity.
-
-
-### 15.13 MBV1-003 implementation evidence
-
-Status: **IN_PROGRESS** (pc remains 2 / pt 8).
-
-- implementation branch: `mbv1-003-role-binding`;
-- draft PR: #175;
-- candidate head: `6918d1b2444f8349467d2df0c17044f5b461e417`;
-- binding source: `src/runtime/chatgpt-bridge-binding.mjs`;
-- contract tests: `test/chatgpt-bridge-binding.test.mjs`;
-- production transport unchanged; bridge_cutover remains false;
-- MBV1-004 remains blocked until MBV1-003 is merged with green gates.
-
-
-### 15.12 MBV1-003 implementation evidence
-
-Status: **IN_PROGRESS** (pc remains 2 / pt 8).
-
-- branch: `mbv1-003-bridge-role-binding`;
-- draft PR: #176;
-- candidate head: `e07eb79e71622fd8dee27121fa3fc11dded31deb`;
-- binding module: `src/runtime/chatgpt-bridge-binding.mjs`;
-- tests: `test/chatgpt-bridge-binding.test.mjs`;
-- canonical URL identity is reused from `targetFromUrl()` / `pageMatchesTarget()`;
-- production transport remains pre-Bridge and `bridge_cutover=false`.
+MBV1-004 must implement the Bridge-backed transport state machine that carries the autonomous Planner -> Executor -> Planner loop while keeping protocol interpretation and project/task authority outside the Bridge transport layer. It MUST reuse the MBV1-002 adapter and MBV1-003 binding, remain fail-closed on invalid phase/role transitions, and MUST NOT production-cut over.
