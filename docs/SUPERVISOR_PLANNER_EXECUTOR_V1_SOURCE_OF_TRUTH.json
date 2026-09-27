@@ -1,0 +1,171 @@
+{
+  "schema": "supervisor-planner-executor-v1-source-of-truth.v1",
+  "status": "CANONICAL_FORWARD_ARCHITECTURE",
+  "approved_date": "2026-09-27",
+  "production_cutover": false,
+  "current_production_role": "LEGACY_RELEASED_RUNTIME_UNTIL_PE007",
+  "roles": {
+    "planner": {
+      "purpose": "plan_assign_review_decide_next",
+      "chat_surface": "NORMAL_CHATGPT_CONVERSATION"
+    },
+    "executor": {
+      "purpose": "execute_verify_report",
+      "chat_surface": "NORMAL_CHATGPT_CONVERSATION"
+    }
+  },
+  "hard_invariants": {
+    "role_names": [
+      "Planner",
+      "Executor"
+    ],
+    "exact_role_count": 2,
+    "chatgpt_work_mode_allowed": false,
+    "durable_authority": "SUPERVISOR_LOCAL_STATE",
+    "normal_resident_chatgpt_tabs": 2,
+    "one_active_task": true,
+    "normal_full_history_scan": false,
+    "send_success_requires_matching_user_turn": true
+  },
+  "protocol": {
+    "marker": "@M ",
+    "version": 1,
+    "encoding": "ONE_LINE_JSON",
+    "actions": [
+      "assign",
+      "report",
+      "accept_assign",
+      "reject",
+      "blocked",
+      "resume",
+      "stop",
+      "done"
+    ],
+    "fields": {
+      "v": "protocol_version",
+      "a": "action",
+      "t": "task_id",
+      "i": "assignment_id",
+      "r": "result_id",
+      "n": "next_task_id",
+      "s": "report_status"
+    },
+    "latest_turn_only_normal_path": true,
+    "unknown_additive_fields": "IGNORE",
+    "malformed_or_correlation_mismatch": "FAIL_CLOSED"
+  },
+  "happy_path": {
+    "sends_target_max": 3,
+    "separate_ack_required": false,
+    "combined_close_and_next_action": "accept_assign",
+    "sequence": [
+      "PLANNER_ASSIGN",
+      "EXECUTOR_REPORT",
+      "PLANNER_ACCEPT_ASSIGN"
+    ]
+  },
+  "forward_name_mapping": {
+    "brain_url": "planner_url",
+    "brain_url_revision": "planner_url_revision",
+    "work_url": "executor_url",
+    "work_url_revision": "executor_url_revision",
+    "work_generation": "executor_generation",
+    "dispatch_id": "assignment_id",
+    "relay_id": "result_id"
+  },
+  "legacy_policy": {
+    "brain_work_forward_semantics": "DEPRECATED",
+    "legacy_source": "ROLLBACK_OR_MIGRATION_ONLY",
+    "superseded_open_prs": [
+      102,
+      103,
+      104,
+      105,
+      106,
+      108
+    ],
+    "merge_as_is": false
+  },
+  "five_step_method": [
+    "QUESTION_REQUIREMENTS",
+    "DELETE",
+    "SIMPLIFY",
+    "ACCELERATE",
+    "AUTOMATE"
+  ],
+  "roadmap": [
+    {
+      "id": "PE-001",
+      "priority": "P0",
+      "state": "READY_TO_EXECUTE",
+      "name": "Planner/Executor minimal end-to-end vertical slice"
+    },
+    {
+      "id": "PE-002",
+      "priority": "P1",
+      "state": "PLANNED",
+      "name": "Compact protocol and newest-turn parser"
+    },
+    {
+      "id": "PE-003",
+      "priority": "P1",
+      "state": "PLANNED",
+      "name": "Two warm-tab runtime"
+    },
+    {
+      "id": "PE-004",
+      "priority": "P1",
+      "state": "PLANNED",
+      "name": "Exact-once and recovery"
+    },
+    {
+      "id": "PE-005",
+      "priority": "P2",
+      "state": "PLANNED",
+      "name": "Legacy-state migration adapter"
+    },
+    {
+      "id": "PE-006",
+      "priority": "P2",
+      "state": "PLANNED",
+      "name": "Automated continuation"
+    },
+    {
+      "id": "PE-007",
+      "priority": "P3",
+      "state": "PLANNED",
+      "name": "Qualification and Owner-authorized cutover"
+    }
+  ],
+  "pe001_acceptance": [
+    "TWO_NORMAL_CHATGPT_CONVERSATIONS_ONLY",
+    "ZERO_CHATGPT_WORK_MODE",
+    "LOCAL_DURABLE_STATE_AUTHORITY",
+    "PLANNER_ASSIGN_PERSISTED_BEFORE_SEND",
+    "EXECUTOR_EXACTLY_ONCE_ASSIGNMENT",
+    "CORRELATED_EXECUTOR_REPORT",
+    "RESULT_PERSISTED_BEFORE_PLANNER_RELAY",
+    "CORRELATED_PLANNER_DECISION",
+    "ACCEPT_ASSIGN_COMBINED_NEXT_TASK",
+    "MATCHING_USER_TURN_REQUIRED_FOR_SEND_SUCCESS",
+    "POPULATED_ROBOT_DRAFT_BOUNDED_RECOVERY",
+    "RESTART_NO_DUPLICATE_ASSIGNMENT_OR_RESULT",
+    "NO_FULL_HISTORY_SCAN_NORMAL_PATH"
+  ],
+  "kpis": {
+    "resident_chatgpt_tabs": 2,
+    "chatgpt_work_mode_invocations": 0,
+    "max_happy_path_sends_per_task": 3,
+    "normal_full_history_dom_scans": 0,
+    "duplicate_assignment_after_recovery": 0,
+    "duplicate_result_after_recovery": 0,
+    "unbounded_populated_composer_stall": 0
+  },
+  "precedence": {
+    "forward_authority": [
+      "docs/SUPERVISOR_PLANNER_EXECUTOR_V1_SOURCE_OF_TRUTH.md",
+      "docs/SUPERVISOR_PLANNER_EXECUTOR_V1_SOURCE_OF_TRUTH.json"
+    ],
+    "historical_evidence_preserved": true
+  }
+}
