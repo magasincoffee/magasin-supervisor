@@ -369,6 +369,7 @@ export async function runPlannerExecutorStep({
     executorTarget
   });
   ensureIdentityHistory(state);
+  ensureProjectMetadata(state);
 
   if (state.automation?.status === "DONE") {
     return { phase: "PLANNER_DONE", state };
@@ -395,11 +396,13 @@ export async function runPlannerExecutorStep({
         state
       };
     }
+    assertProjectCorrelation(latestControl.frame, state);
     if (latestControl.frame.t && state.active_task_id) {
       assertMachineFrameCorrelation(latestControl.frame, {
         taskId: state.active_task_id
       });
     }
+    applyPlannerProgress(latestControl.frame, state, now);
     state.planner.last_seen_assistant_turn_id = latestControl.turn.turn_id;
     state.automation = {
       status: "RUNNING",
@@ -464,6 +467,27 @@ export async function runPlannerExecutorStep({
       return { phase: "WAIT_PLANNER_ASSIGN", state };
     }
 
+    assertProjectCorrelation(latest.frame, state);
+    applyPlannerProgress(latest.frame, state, now);
+
+    if (latest.frame.a === "done") {
+      state.planner.last_seen_assistant_turn_id = latest.turn.turn_id;
+      state.active_task_id = null;
+      state.automation = {
+        status: "DONE",
+        reason: latest.body || "project-complete",
+        updated_at: now()
+      };
+      state.decision = {
+        action: "done",
+        task_id: latest.frame.t || null,
+        result_id: latest.frame.r || null,
+        decided_at: now()
+      };
+      await persist(statePath, state);
+      return { phase: "PLANNER_DONE", state };
+    }
+
     try {
       assertMachineFrameAction(latest.frame, ["assign"]);
     } catch {
@@ -478,7 +502,8 @@ export async function runPlannerExecutorStep({
     const message = buildExecutorAssignmentMessage({
       taskId: latest.frame.t,
       assignmentId,
-      body: latest.body
+      body: latest.body,
+      state
     });
     const baseline = await captureOutboundBaseline(
       executorPage,
@@ -538,6 +563,7 @@ export async function runPlannerExecutorStep({
     } catch {
       return { phase: "WAIT_EXECUTOR_REPORT", ignored_action: latest.frame.a, state };
     }
+    assertProjectCorrelation(latest.frame, state);
     assertMachineFrameCorrelation(latest.frame, {
       taskId: state.assignment.task_id,
       assignmentId: state.assignment.assignment_id
@@ -548,7 +574,8 @@ export async function runPlannerExecutorStep({
       taskId: latest.frame.t,
       assignmentId: latest.frame.i,
       resultId,
-      body: latest.body
+      body: latest.body,
+      state
     });
     const baseline = await captureOutboundBaseline(
       plannerPage,
@@ -605,6 +632,9 @@ export async function runPlannerExecutorStep({
   if (!latest) {
     return { phase: "WAIT_PLANNER_DECISION", state };
   }
+
+  assertProjectCorrelation(latest.frame, state);
+  applyPlannerProgress(latest.frame, state, now);
 
   if (latest.frame.a === "blocked") {
     assertMachineFrameCorrelation(latest.frame, {
@@ -692,7 +722,8 @@ export async function runPlannerExecutorStep({
       const correctionMessage = buildExecutorAssignmentMessage({
         taskId: state.result.task_id,
         assignmentId: correctionAssignmentId,
-        body: latest.body
+        body: latest.body,
+        state
       });
       const baseline = await captureOutboundBaseline(
         executorPage,
@@ -784,7 +815,8 @@ export async function runPlannerExecutorStep({
   const nextMessage = buildExecutorAssignmentMessage({
     taskId: latest.frame.n,
     assignmentId: nextAssignmentId,
-    body: latest.body
+    body: latest.body,
+    state
   });
   const baseline = await captureOutboundBaseline(
     executorPage,
