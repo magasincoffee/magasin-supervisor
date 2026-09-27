@@ -33,7 +33,12 @@
     "project_switch_requires_no_inflight_assignment_or_result": true,
     "inactive_project_profile_save_requires_robot_stopped": false,
     "inactive_project_profile_save_mutates_active_runtime": false,
-    "active_project_profile_mutation_requires_safe_boundary": true
+    "active_project_source_change_requires_safe_boundary": true,
+    "active_project_chat_target_rollover_requires_robot_stopped": true,
+    "active_project_chat_target_rollover_requires_no_inflight_assignment_or_result": false,
+    "chat_target_is_project_identity": false,
+    "chat_target_revisioned": true,
+    "chat_target_rollover_preserves_project_generation": true
   },
   "protocol": {
     "marker": "@M ",
@@ -440,6 +445,21 @@
     "implementation_pr": 153,
     "implementation_merge_sha": "e928bc03980f564c007a97b197f1b8af7c727fde",
     "inactive_profile_save": "ALLOWED_WITHOUT_ACTIVE_PROJECT_SWITCH",
-    "active_profile_mutation": "SAFE_BOUNDARY_REQUIRED"
+    "active_profile_mutation": "SAFE_BOUNDARY_REQUIRED",
+    "chat_target_role": "MUTABLE_ROLE_SESSION_ENDPOINT",
+    "chat_target_rollover_marker": "MAGASIN_CHAT_ROLLOVER_V1",
+    "chat_target_rollover_preserves": [
+      "project_id",
+      "project_generation",
+      "active_task_id",
+      "assignment_id",
+      "result_id",
+      "identity_history",
+      "project_progress"
+    ],
+    "planner_rollover_rearms_source_bootstrap": true,
+    "executor_rollover_same_assignment_handoff": true,
+    "superseded_role_tab_close_policy": "EXACT_TARGET_MATCH_AND_NO_UNSENT_DRAFT",
+    "source_change": "SAFE_BOUNDARY_REQUIRED"
   }
 }
