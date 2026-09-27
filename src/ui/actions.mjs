@@ -431,17 +431,30 @@ async function dismissMachineFrameMentionPopover(page, composer, instruction) {
   }
 
   try {
+    // Keep focus anchored to the live composer. ChatGPT can move focus into the
+    // Files/Tệp mention list after @M is recognized, in which case a page-level
+    // Escape may be swallowed by the list rather than closing it.
+    if (composer && typeof composer.click === "function") {
+      await composer.click({ timeout: 1_000 }).catch(() => {});
+    }
     if (page.keyboard && typeof page.keyboard.press === "function") {
+      await page.keyboard.press("Escape");
+      if (typeof page.waitForTimeout === "function") {
+        await page.waitForTimeout(60);
+      }
+      // A second bounded Escape handles the nested mention/listbox layer used
+      // by current ChatGPT without touching the composer text.
       await page.keyboard.press("Escape");
     } else if (composer && typeof composer.press === "function") {
       await composer.press("Escape", { timeout: 1_500 });
+      await composer.press("Escape", { timeout: 1_500 }).catch(() => {});
     }
   } catch {
     return { attempted: true, preserved: exactBefore !== false };
   }
 
   if (typeof page.waitForTimeout === "function") {
-    await page.waitForTimeout(100);
+    await page.waitForTimeout(120);
   }
   const fresh = await waitForReadyComposer(page, { timeoutMs: 1_500 });
   if (!fresh) {
@@ -597,6 +610,74 @@ async function composerFormScope(composer) {
   }
 }
 
+async function findGeometricComposerSendControl(form) {
+  if (!form || typeof form.locator !== "function") return null;
+  const formBox = typeof form.boundingBox === "function"
+    ? await form.boundingBox().catch(() => null)
+    : null;
+  if (!formBox || formBox.width <= 0 || formBox.height <= 0) return null;
+
+  const buttons = form.locator("button");
+  const count = Math.min(
+    40,
+    typeof buttons.count === "function"
+      ? await buttons.count().catch(() => 0)
+      : 0
+  );
+  const candidates = [];
+  const rejectRe = /(attach|attachment|file|upload|plus|add|voice|mic|microphone|dictat|audio|model|tool|stop|retry|continue|tệp|đính kèm|thêm|giọng|âm thanh)/i;
+
+  for (let index = 0; index < count; index += 1) {
+    const button = buttons.nth(index);
+    const visible = await button.isVisible().catch(() => false);
+    if (!visible) continue;
+    const enabled = typeof button.isEnabled === "function"
+      ? await button.isEnabled().catch(() => false)
+      : true;
+    if (!enabled) continue;
+
+    const box = typeof button.boundingBox === "function"
+      ? await button.boundingBox().catch(() => null)
+      : null;
+    if (!box || box.width < 22 || box.height < 22 || box.width > 96 || box.height > 96) {
+      continue;
+    }
+
+    const attrs = await Promise.all([
+      button.getAttribute?.("aria-label").catch?.(() => null),
+      button.getAttribute?.("title").catch?.(() => null),
+      button.getAttribute?.("data-testid").catch?.(() => null),
+      button.getAttribute?.("id").catch?.(() => null),
+      button.getAttribute?.("type").catch?.(() => null)
+    ]);
+    const text = typeof button.innerText === "function"
+      ? await button.innerText().catch(() => "")
+      : "";
+    const haystack = [...attrs, text].filter(Boolean).join(" ");
+    if (rejectRe.test(haystack)) continue;
+
+    const centerX = box.x + box.width / 2;
+    const centerY = box.y + box.height / 2;
+    const rightBand = formBox.x + formBox.width * 0.62;
+    const lowerBand = formBox.y + formBox.height * 0.35;
+    if (centerX < rightBand || centerY < lowerBand) continue;
+
+    let score = centerX - formBox.x;
+    if (String(attrs[4] || "").toLowerCase() === "submit") score += 1000;
+    if (/(send|submit|gửi)/i.test(haystack)) score += 2000;
+    candidates.push({ button, score, index });
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  const best = candidates[0] || null;
+  if (!best) return null;
+  return {
+    button: best.button,
+    selector: "geometric-rightmost-composer-action",
+    scope: "composer-form-geometric"
+  };
+}
+
 async function findReadyDirectSendControl(page, composer = null) {
   const scopes = [];
   const form = await composerFormScope(composer);
@@ -622,6 +703,10 @@ async function findReadyDirectSendControl(page, composer = null) {
         };
       }
     }
+  }
+  if (form) {
+    const geometric = await findGeometricComposerSendControl(form);
+    if (geometric) return geometric;
   }
   return null;
 }
@@ -864,8 +949,9 @@ export async function sendComposerInstruction(
         rejection_class: SEND_REJECTION_CLASSES.COMPOSER_NOT_READY
       });
     }
-    await recorder.capture("after-type").catch(() => {});
-
+    // Do not let diagnostics run before the mention popover is dismissed.
+    // The recorder is observational only and must never delay the control
+    // action that makes the composer sendable.
     // "@M" is our protocol marker but also ChatGPT's mention/file trigger.
     // Dismiss that transient popover before looking for the submit control so
     // it cannot capture Enter or interfere with the send click.
@@ -891,6 +977,9 @@ export async function sendComposerInstruction(
         textSet.composer = mentionDismiss.composer;
       }
     }
+    await recorder.capture("after-type-and-mention-dismiss", {
+      preserved: mentionDismiss.preserved
+    }).catch(() => {});
 
     // Prefer a Send control from the same composer form before falling back to
     // page-wide semantics. This prevents unrelated visible controls elsewhere in

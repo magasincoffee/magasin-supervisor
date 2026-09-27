@@ -28,6 +28,23 @@ async function writeJson(filePath, value) {
   await fs.writeFile(filePath, JSON.stringify(value, null, 2) + "\n", "utf8");
 }
 
+async function bounded(promise, timeoutMs, label) {
+  let timer = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+          timeoutMs
+        );
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function diagnosticsRoot(env = process.env) {
   const explicit = String(env.MAGASIN_SUBMIT_DEBUG_DIR || "").trim();
   if (explicit) return path.resolve(explicit);
@@ -39,7 +56,7 @@ function diagnosticsRoot(env = process.env) {
 }
 
 async function collectDomState(page, target = {}) {
-  const raw = await page.evaluate(({ targetSelector, targetScope }) => {
+  const raw = await bounded(page.evaluate(({ targetSelector, targetScope }) => {
     const visible = (el) => {
       if (!el) return false;
       const style = getComputedStyle(el);
@@ -130,7 +147,7 @@ async function collectDomState(page, target = {}) {
   }, {
     targetSelector: target?.selector || null,
     targetScope: target?.scope || null
-  });
+  }), 1_200, "submit diagnostic DOM capture");
 
   const composerText = String(raw?.composerText || "");
   return {
@@ -174,11 +191,11 @@ class SubmitFlightRecorder {
     const tracing = this.page?.context?.()?.tracing;
     if (tracing && typeof tracing.start === "function") {
       try {
-        await tracing.start({
+        await bounded(tracing.start({
           screenshots: true,
           snapshots: true,
           sources: false
-        });
+        }), 1_500, "submit diagnostic tracing start");
         this.traceStarted = true;
       } catch (error) {
         this.traceError = String(error?.message || error).slice(0, 500);
@@ -200,21 +217,33 @@ class SubmitFlightRecorder {
     if (!this.enabled || !this.page || this.page.isClosed?.()) return null;
     this.sequence += 1;
     const prefix = `${String(this.sequence).padStart(2, "0")}-${safeStage(stage)}`;
+    let domState = {};
+    try {
+      domState = await collectDomState(this.page, target);
+    } catch (error) {
+      domState = {
+        diagnostic_capture_error: String(error?.message || error).slice(0, 300)
+      };
+    }
     const payload = {
       schema_version: 1,
       captured_at: new Date().toISOString(),
       stage: String(stage || ""),
       instruction_chars: this.instructionChars,
       instruction_digest: this.instructionDigest,
-      ...(await collectDomState(this.page, target))
+      ...domState
     };
-    await writeJson(path.join(this.dir, `${prefix}.json`), payload)
-      .catch(() => {});
+    await bounded(
+      writeJson(path.join(this.dir, `${prefix}.json`), payload),
+      800,
+      "submit diagnostic JSON write"
+    ).catch(() => {});
     if (typeof this.page.screenshot === "function") {
-      await this.page.screenshot({
+      await bounded(this.page.screenshot({
         path: path.join(this.dir, `${prefix}.png`),
-        fullPage: false
-      }).catch(() => {});
+        fullPage: false,
+        timeout: 1_200
+      }), 1_500, "submit diagnostic screenshot").catch(() => {});
     }
     return payload;
   }
@@ -224,9 +253,9 @@ class SubmitFlightRecorder {
 
     if (this.traceStarted) {
       try {
-        await this.page.context().tracing.stop({
+        await bounded(this.page.context().tracing.stop({
           path: path.join(this.dir, "trace.zip")
-        });
+        }), 1_500, "submit diagnostic tracing stop");
       } catch (traceError) {
         this.traceError = String(traceError?.message || traceError).slice(0, 500);
       }

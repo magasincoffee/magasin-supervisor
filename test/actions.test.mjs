@@ -751,7 +751,10 @@ test("composer send prefers an exact visible send-button selector before bounded
   assert.match(source, /data-testid\*="submit"/);
   assert.match(source, /aria-label\*="Submit"/);
   assert.match(source, /dismissMachineFrameMentionPopover/);
-  assert.match(source, /after-mention-dismiss/);
+  assert.match(source, /findGeometricComposerSendControl/);
+  assert.match(source, /geometric-rightmost-composer-action/);
+  assert.match(source, /after-type-and-mention-dismiss/);
+  assert.match(source, /await page\.keyboard\.press\("Escape"\);[\s\S]*await page\.keyboard\.press\("Escape"\);/);
   assert.match(source, /clickReadyDirectSendControl/);
   assert.match(source, /ancestor::form\[1\]/);
   assert.match(source, /waitForComposerSubmission/);

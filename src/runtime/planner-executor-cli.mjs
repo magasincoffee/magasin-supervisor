@@ -478,6 +478,20 @@ try {
     process.exit(0);
   }
 
+  await atomicJsonWrite(statusPath, {
+    schema_version: "planner-executor-status.v1",
+    mode: "PLANNER_EXECUTOR_V1",
+    project_id: projectId,
+    phase: "CUTOVER_BOOTSTRAP",
+    active_task_id: existing.active_task_id || null,
+    automation_status: existing.automation?.status || "RUNNING",
+    automation_reason: existing.automation?.reason || null,
+    chatgpt_tabs: adapter.getChatGptPageCount(),
+    chatgpt_work_mode_invocations: 0,
+    production_cutover: true,
+    updated_at: new Date().toISOString()
+  });
+
   await runBootstrapStageWithRecovery({
     name: "CUTOVER_BOOTSTRAP",
     statusPhase: "CUTOVER_BOOTSTRAP_RETRY",
@@ -492,6 +506,19 @@ try {
     })
   });
   startupStage = "PROJECT_CONTEXT_BOOTSTRAP";
+  await atomicJsonWrite(statusPath, {
+    schema_version: "planner-executor-status.v1",
+    mode: "PLANNER_EXECUTOR_V1",
+    project_id: projectId,
+    phase: "PROJECT_CONTEXT_BOOTSTRAP",
+    active_task_id: existing.active_task_id || null,
+    automation_status: existing.automation?.status || "RUNNING",
+    automation_reason: existing.automation?.reason || null,
+    chatgpt_tabs: adapter.getChatGptPageCount(),
+    chatgpt_work_mode_invocations: 0,
+    production_cutover: true,
+    updated_at: new Date().toISOString()
+  });
   await runBootstrapStageWithRecovery({
     name: "PROJECT_CONTEXT_BOOTSTRAP",
     statusPhase: "PROJECT_CONTEXT_BOOTSTRAP_RETRY",

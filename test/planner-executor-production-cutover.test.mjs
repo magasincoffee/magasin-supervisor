@@ -430,6 +430,21 @@ test("production cutover script has rollback, double preflight, and explicit tar
 });
 
 
+test("production CLI publishes ChatGPT tab heartbeat before each bootstrap send stage", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/planner-executor-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  const first = source.indexOf('phase: "CUTOVER_BOOTSTRAP"');
+  const second = source.indexOf('phase: "PROJECT_CONTEXT_BOOTSTRAP"');
+  const confirmed = source.indexOf('phase: "BOOTSTRAP_CONFIRMED"');
+  assert.ok(first >= 0);
+  assert.ok(second > first);
+  assert.ok(confirmed > second);
+  assert.match(source.slice(first, confirmed), /chatgpt_tabs:\s*adapter\.getChatGptPageCount\(\)/);
+});
+
 test("production CLI persists cutover-ready status immediately after bootstrap confirmation", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/planner-executor-cli.mjs", import.meta.url),

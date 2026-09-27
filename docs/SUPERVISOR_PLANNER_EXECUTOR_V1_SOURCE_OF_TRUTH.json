@@ -53,7 +53,12 @@
     "machine_frame_popover_is_not_submission_evidence": true,
     "chatgpt_theme_or_rerender_changes_project_identity": false,
     "bootstrap_safe_rearm_requires_unchanged_baseline_user_turn": true,
-    "bootstrap_recoverable_failure_keeps_runtime_alive": true
+    "bootstrap_recoverable_failure_keeps_runtime_alive": true,
+    "submit_diagnostics_may_block_send": false,
+    "submit_diagnostics_are_bounded": true,
+    "geometric_send_fallback_scoped_to_composer_form": true,
+    "geometric_send_fallback_is_submission_evidence": false,
+    "bootstrap_status_publishes_chatgpt_tabs_before_send": true
   },
   "protocol": {
     "marker": "@M ",
@@ -96,6 +101,12 @@
       "ambiguous_or_changed_user_turn": "FAIL_CLOSED_NO_RESEND",
       "recoverable_phase_suffix": "BOOTSTRAP_RETRY",
       "backoff": "BOUNDED"
+    },
+    "send_path_liveness": {
+      "mention_dismiss_before_diagnostics": true,
+      "diagnostic_timeout_bounded": true,
+      "geometric_fallback": "LOWER_RIGHT_COMPOSER_FORM_EXCLUDING_NON_SEND_CONTROLS",
+      "confirmation": "MATCHING_NEW_USER_TURN_REQUIRED"
     }
   },
   "happy_path": {
