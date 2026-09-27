@@ -204,9 +204,26 @@ async function installUserscriptTransport(context, page) {
         body: request.body == null ? undefined : String(request.body),
         signal: controller.signal
       });
+      const responseText = await response.text();
+      if (target.pathname === "/poll") {
+        try {
+          const payload = JSON.parse(responseText || "{}");
+          if (payload?.id && payload?.cmd) {
+            log("MBV1_001_BRIDGE_COMMAND_DELIVERED", `${payload.id}:${payload.cmd}`);
+          }
+        } catch {}
+      } else if (target.pathname === "/result") {
+        try {
+          const payload = JSON.parse(String(request.body || "{}"));
+          log(
+            "MBV1_001_BRIDGE_COMMAND_RESULT",
+            `${payload?.id || "unknown"}:${payload?.result?.ok === true ? "ok" : "not-ok"}`
+          );
+        } catch {}
+      }
       return {
         status: response.status,
-        responseText: await response.text()
+        responseText
       };
     } finally {
       clearTimeout(timer);
