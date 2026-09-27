@@ -649,16 +649,276 @@ function Save-PlannerExecutorTargets(
     }
 }
 
+
+function ConvertTo-CanonicalSourceOfTruthUrl([string]$Url) {
+    if ([string]::IsNullOrWhiteSpace($Url)) { throw 'Source of Truth URL trống.' }
+    $uri = [Uri]$Url.Trim()
+    if ($uri.Scheme -ne 'https' -or [string]::IsNullOrWhiteSpace($uri.Host)) {
+        throw 'Source of Truth phải là URL https hợp lệ.'
+    }
+    if ($uri.UserInfo) { throw 'Source of Truth URL không được chứa username/password.' }
+    return $uri.AbsoluteUri
+}
+
+function Assert-ProjectId([string]$ProjectId) {
+    $id = if ($ProjectId) { $ProjectId.Trim() } else { '' }
+    if ($id -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$') {
+        throw 'Project ID chỉ dùng chữ, số, dấu chấm, gạch dưới hoặc gạch ngang; tối đa 64 ký tự.'
+    }
+    return $id
+}
+
+function Get-ProjectProfileStatePath([string]$ProjectId) {
+    $id = Assert-ProjectId $ProjectId
+    New-Item -ItemType Directory -Force -Path $plannerExecutorProjectsDir | Out-Null
+    return Join-Path $plannerExecutorProjectsDir ($id + '.json')
+}
+
+function New-PlannerExecutorProjectState(
+    [string]$ProjectId,
+    [string]$ProjectName,
+    [string]$SourceUrl,
+    [string]$PlannerUrl,
+    [string]$ExecutorUrl
+) {
+    $id = Assert-ProjectId $ProjectId
+    $source = ConvertTo-CanonicalSourceOfTruthUrl $SourceUrl
+    $planner = ConvertTo-CanonicalChatConversationUrl $PlannerUrl
+    $executor = ConvertTo-CanonicalChatConversationUrl $ExecutorUrl
+    if ($planner -eq $executor) { throw 'Planner và Executor phải là hai cuộc trò chuyện ChatGPT khác nhau.' }
+    return [ordered]@{
+        schema_version = 'planner-executor-state.v1'
+        mode = 'PLANNER_EXECUTOR_V1'
+        project_id = $id
+        project_generation = 1
+        project_name = if ($ProjectName) { $ProjectName.Trim() } else { $id }
+        project_context = [ordered]@{ source_of_truth_url = $source; strict_correlation = $false }
+        project_progress = [ordered]@{ known = $false; completed_tasks = 0; total_tasks = 0; percent = $null; updated_at = $null; source = $null }
+        project_context_bootstrap = [ordered]@{
+            required = $true; generation = 1; baseline_captured_at = $null
+            baseline_assistant_turn_id = $null; baseline_user_turn_id = $null
+            send_attempted_at = $null; send_confirmed_at = $null; send_evidence = $null
+            completed_at = $null; message_digest = $null; last_send_error = $null
+        }
+        planner = [ordered]@{ target = $planner; target_revision = 1; last_seen_assistant_turn_id = $null }
+        executor = [ordered]@{ target = $executor; target_revision = 1; last_seen_assistant_turn_id = $null }
+        active_task_id = $null
+        assignment = $null
+        result = $null
+        decision = $null
+        last_completed = $null
+        automation = [ordered]@{ status = 'RUNNING'; reason = $null; updated_at = [DateTimeOffset]::UtcNow.ToString('o') }
+        identity_history = [ordered]@{ assignment_ids = @(); result_ids = @() }
+    }
+}
+
+function Ensure-PlannerExecutorProjectProfiles {
+    $profiles = Read-JsonFile $plannerExecutorProjectsFile
+    if ($profiles -and [string]$profiles.schema_version -eq 'planner-executor-projects.v1' -and $null -ne $profiles.profiles) {
+        return $profiles
+    }
+    $state = Read-JsonFile $plannerExecutorStateFile
+    if (-not $state -or [string]$state.mode -ne 'PLANNER_EXECUTOR_V1') {
+        $empty = [ordered]@{ schema_version='planner-executor-projects.v1'; active_project_id=$null; profiles=@() }
+        Write-JsonAtomic $plannerExecutorProjectsFile $empty
+        return Read-JsonFile $plannerExecutorProjectsFile
+    }
+    $projectId = Assert-ProjectId ([string]$state.project_id)
+    if (-not $state.PSObject.Properties['project_generation']) { $state | Add-Member -NotePropertyName 'project_generation' -NotePropertyValue 1 }
+    if (-not $state.PSObject.Properties['project_context']) {
+        $state | Add-Member -NotePropertyName 'project_context' -NotePropertyValue ([pscustomobject]@{ source_of_truth_url=''; strict_correlation=$false })
+    }
+    if (-not $state.PSObject.Properties['project_progress']) {
+        $state | Add-Member -NotePropertyName 'project_progress' -NotePropertyValue ([pscustomobject]@{ known=$false; completed_tasks=0; total_tasks=0; percent=$null; updated_at=$null; source=$null })
+    }
+    $statePath = Get-ProjectProfileStatePath $projectId
+    Write-JsonAtomic $statePath $state
+    $registry = [ordered]@{
+        schema_version='planner-executor-projects.v1'
+        active_project_id=$projectId
+        profiles=@([ordered]@{
+            project_id=$projectId
+            project_name=[string](Get-OptionalPropertyValue $state 'project_name' $projectId)
+            source_of_truth_url=[string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'project_context' $null) 'source_of_truth_url' '')
+            planner_url=[string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'planner' $null) 'target' '')
+            executor_url=[string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'executor' $null) 'target' '')
+            project_generation=[int](Get-OptionalPropertyValue $state 'project_generation' 1)
+            state_file=$statePath
+        })
+    }
+    Write-JsonAtomic $plannerExecutorProjectsFile $registry
+    return Read-JsonFile $plannerExecutorProjectsFile
+}
+
+function Get-PlannerExecutorProjectProfile($Registry, [string]$ProjectId) {
+    return @($Registry.profiles | Where-Object { [string]$_.project_id -eq $ProjectId } | Select-Object -First 1)[0]
+}
+
+function Save-ActiveProjectSnapshot {
+    $registry = Ensure-PlannerExecutorProjectProfiles
+    $activeId = [string](Get-OptionalPropertyValue $registry 'active_project_id' '')
+    if (-not $activeId) { return $registry }
+    $state = Read-JsonFile $plannerExecutorStateFile
+    if (-not $state) { return $registry }
+    $profile = Get-PlannerExecutorProjectProfile $registry $activeId
+    if (-not $profile) { return $registry }
+    $profile.project_name = [string](Get-OptionalPropertyValue $state 'project_name' $activeId)
+    $profile.source_of_truth_url = [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'project_context' $null) 'source_of_truth_url' '')
+    $profile.planner_url = [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'planner' $null) 'target' '')
+    $profile.executor_url = [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'executor' $null) 'target' '')
+    $profile.project_generation = [int](Get-OptionalPropertyValue $state 'project_generation' 1)
+    $stateFile = [string](Get-OptionalPropertyValue $profile 'state_file' '')
+    if (-not $stateFile) { $stateFile = Get-ProjectProfileStatePath $activeId; $profile.state_file = $stateFile }
+    Write-JsonAtomic $stateFile $state
+    Write-JsonAtomic $plannerExecutorProjectsFile $registry
+    return $registry
+}
+
+function Assert-SafeProjectMutation {
+    $truth = Get-LifecycleProcessTruth -Root $root
+    if ([bool]$truth.wrapper_alive) { throw 'Hãy STOP ROBOT trước khi lưu hoặc chuyển dự án.' }
+    $state = Read-JsonFile $plannerExecutorStateFile
+    if ($state) {
+        $assignment = Get-OptionalPropertyValue $state 'assignment' $null
+        $result = Get-OptionalPropertyValue $state 'result' $null
+        if ($null -ne $assignment -or $null -ne $result) {
+            throw 'Dự án hiện tại còn assignment/result đang mở. Hãy hoàn tất hoặc dừng ở safe boundary trước khi chuyển dự án.'
+        }
+    }
+}
+
+function New-ProjectContextBootstrap([int]$Generation) {
+    return [pscustomobject]@{
+        required=$true; generation=$Generation; baseline_captured_at=$null
+        baseline_assistant_turn_id=$null; baseline_user_turn_id=$null
+        send_attempted_at=$null; send_confirmed_at=$null; send_evidence=$null
+        completed_at=$null; message_digest=$null; last_send_error=$null
+    }
+}
+
+function Save-PlannerExecutorProjectProfile(
+    [string]$ProjectId,
+    [string]$ProjectName,
+    [string]$SourceUrl,
+    [string]$PlannerUrl,
+    [string]$ExecutorUrl
+) {
+    Assert-SafeProjectMutation
+    $id = Assert-ProjectId $ProjectId
+    $source = ConvertTo-CanonicalSourceOfTruthUrl $SourceUrl
+    $planner = ConvertTo-CanonicalChatConversationUrl $PlannerUrl
+    $executor = ConvertTo-CanonicalChatConversationUrl $ExecutorUrl
+    if ($planner -eq $executor) { throw 'Planner và Executor phải là hai cuộc trò chuyện ChatGPT khác nhau.' }
+
+    $registry = Save-ActiveProjectSnapshot
+    $profile = Get-PlannerExecutorProjectProfile $registry $id
+    if (-not $profile) {
+        $newState = New-PlannerExecutorProjectState $id $ProjectName $source $planner $executor
+        $stateFile = Get-ProjectProfileStatePath $id
+        Write-JsonAtomic $stateFile $newState
+        $registry.profiles = @($registry.profiles) + @([pscustomobject]@{
+            project_id=$id; project_name=$(if ($ProjectName) { $ProjectName.Trim() } else { $id })
+            source_of_truth_url=$source; planner_url=$planner; executor_url=$executor
+            project_generation=1; state_file=$stateFile
+        })
+        Write-JsonAtomic $plannerExecutorProjectsFile $registry
+        return [pscustomobject]@{ Created=$true; ProjectId=$id; Active=$false }
+    }
+
+    $stateFile = [string](Get-OptionalPropertyValue $profile 'state_file' '')
+    if (-not $stateFile) { $stateFile = Get-ProjectProfileStatePath $id }
+    $state = Read-JsonFile $stateFile
+    if (-not $state) { $state = New-PlannerExecutorProjectState $id $ProjectName $source $planner $executor }
+
+    $oldSource = [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'project_context' $null) 'source_of_truth_url' '')
+    $oldPlanner = [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'planner' $null) 'target' '')
+    $oldExecutor = [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'executor' $null) 'target' '')
+    $sourceChanged = ($oldSource -ne $source)
+    $plannerChanged = ($oldPlanner -ne $planner)
+    $executorChanged = ($oldExecutor -ne $executor)
+
+    $state.project_name = if ($ProjectName) { $ProjectName.Trim() } else { $id }
+    if (-not $state.PSObject.Properties['project_generation']) { $state | Add-Member -NotePropertyName 'project_generation' -NotePropertyValue 1 }
+    if (-not $state.PSObject.Properties['project_context']) {
+        $state | Add-Member -NotePropertyName 'project_context' -NotePropertyValue ([pscustomobject]@{ source_of_truth_url=$source; strict_correlation=$false })
+    }
+    $state.project_context.source_of_truth_url = $source
+
+    if ($sourceChanged) {
+        $state.project_generation = [int]$state.project_generation + 1
+        $state.project_context.strict_correlation = $false
+        $state.project_context_bootstrap = New-ProjectContextBootstrap ([int]$state.project_generation)
+        $state.project_progress = [pscustomobject]@{ known=$false; completed_tasks=0; total_tasks=0; percent=$null; updated_at=$null; source=$null }
+        $state.planner.last_seen_assistant_turn_id = $null
+    }
+    if ($plannerChanged) {
+        $state.planner.target = $planner
+        $state.planner.target_revision = [int](Get-OptionalPropertyValue $state.planner 'target_revision' 0) + 1
+        $state.planner.last_seen_assistant_turn_id = $null
+    }
+    if ($executorChanged) {
+        $state.executor.target = $executor
+        $state.executor.target_revision = [int](Get-OptionalPropertyValue $state.executor 'target_revision' 0) + 1
+        $state.executor.last_seen_assistant_turn_id = $null
+    }
+
+    $profile.project_name=$state.project_name
+    $profile.source_of_truth_url=$source
+    $profile.planner_url=$planner
+    $profile.executor_url=$executor
+    $profile.project_generation=[int]$state.project_generation
+    $profile.state_file=$stateFile
+    Write-JsonAtomic $stateFile $state
+    if ([string]$registry.active_project_id -eq $id) {
+        Write-JsonAtomic $plannerExecutorStateFile $state
+        Remove-Item $plannerExecutorStatusFile -Force -ErrorAction SilentlyContinue
+    }
+    Write-JsonAtomic $plannerExecutorProjectsFile $registry
+    return [pscustomobject]@{ Created=$false; ProjectId=$id; Active=([string]$registry.active_project_id -eq $id) }
+}
+
+function Switch-PlannerExecutorProject([string]$ProjectId) {
+    Assert-SafeProjectMutation
+    $id = Assert-ProjectId $ProjectId
+    $registry = Save-ActiveProjectSnapshot
+    $profile = Get-PlannerExecutorProjectProfile $registry $id
+    if (-not $profile) { throw "Không tìm thấy project profile: $id" }
+    $stateFile = [string](Get-OptionalPropertyValue $profile 'state_file' '')
+    if (-not $stateFile) { $stateFile = Get-ProjectProfileStatePath $id }
+    $state = Read-JsonFile $stateFile
+    if (-not $state) { throw "Không tìm thấy state snapshot cho project: $id" }
+
+    if (-not $state.PSObject.Properties['project_generation']) { $state | Add-Member -NotePropertyName 'project_generation' -NotePropertyValue 1 }
+    $state.project_generation = [int]$state.project_generation + 1
+    if (-not $state.PSObject.Properties['project_context']) {
+        $state | Add-Member -NotePropertyName 'project_context' -NotePropertyValue ([pscustomobject]@{ source_of_truth_url=[string]$profile.source_of_truth_url; strict_correlation=$false })
+    }
+    $state.project_context.source_of_truth_url = [string]$profile.source_of_truth_url
+    $state.project_context.strict_correlation = $false
+    $state.project_context_bootstrap = New-ProjectContextBootstrap ([int]$state.project_generation)
+    $state.planner.last_seen_assistant_turn_id = $null
+    $state.executor.last_seen_assistant_turn_id = $null
+    $state.automation = [pscustomobject]@{ status='RUNNING'; reason=$null; updated_at=[DateTimeOffset]::UtcNow.ToString('o') }
+
+    Write-JsonAtomic $stateFile $state
+    Write-JsonAtomic $plannerExecutorStateFile $state
+    Remove-Item $plannerExecutorStatusFile -Force -ErrorAction SilentlyContinue
+    $registry.active_project_id = $id
+    $profile.project_generation = [int]$state.project_generation
+    Write-JsonAtomic $plannerExecutorProjectsFile $registry
+    return $state
+}
+
 function Show-PlannerExecutorControlPanel {
     [Windows.Forms.Application]::EnableVisualStyles()
+    [void](Ensure-PlannerExecutorProjectProfiles)
 
     $form = New-Object Windows.Forms.Form
     $form.Text = 'MAGASIN SUPERVISOR — CONTROL CENTER'
     $form.StartPosition = 'CenterScreen'
-    $form.Size = New-Object Drawing.Size(1040, 790)
-    $form.MinimumSize = New-Object Drawing.Size(900, 700)
+    $form.Size = New-Object Drawing.Size(1040, 900)
+    $form.MinimumSize = New-Object Drawing.Size(920, 760)
     $form.AutoScaleMode = [Windows.Forms.AutoScaleMode]::Dpi
-    $form.AutoScaleDimensions = New-Object Drawing.SizeF(96, 96)
     $form.BackColor = [Drawing.Color]::FromArgb(241,245,249)
     $form.Font = New-Object Drawing.Font('Segoe UI', 9)
 
@@ -677,9 +937,9 @@ function Show-PlannerExecutorControlPanel {
     $hero.Controls.Add($title)
 
     $subtitle = New-Object Windows.Forms.Label
-    $subtitle.Text = 'PLANNER / EXECUTOR  •  1 DỰ ÁN  •  2 CHATGPT THƯỜNG'
+    $subtitle.Text = 'PLANNER / EXECUTOR  •  1 ACTIVE PROJECT  •  MULTI-PROJECT PROFILES'
     $subtitle.Location = New-Object Drawing.Point(25, 61)
-    $subtitle.Size = New-Object Drawing.Size(590, 24)
+    $subtitle.Size = New-Object Drawing.Size(620, 24)
     $subtitle.ForeColor = [Drawing.Color]::FromArgb(203,213,225)
     $hero.Controls.Add($subtitle)
 
@@ -710,7 +970,7 @@ function Show-PlannerExecutorControlPanel {
 
     $runtimeLabel = New-Object Windows.Forms.Label
     $runtimeLabel.Location = New-Object Drawing.Point(18, 12)
-    $runtimeLabel.Size = New-Object Drawing.Size(540, 28)
+    $runtimeLabel.Size = New-Object Drawing.Size(590, 28)
     $runtimeLabel.Font = New-Object Drawing.Font('Segoe UI Semibold', 11)
     $overview.Controls.Add($runtimeLabel)
 
@@ -756,122 +1016,179 @@ function Show-PlannerExecutorControlPanel {
 
     $projectPanel = New-Object Windows.Forms.Panel
     $projectPanel.Location = New-Object Drawing.Point(20, 264)
-    $projectPanel.Size = New-Object Drawing.Size(980, 330)
+    $projectPanel.Size = New-Object Drawing.Size(980, 470)
     $projectPanel.BackColor = [Drawing.Color]::White
     $projectPanel.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
     $form.Controls.Add($projectPanel)
 
     $projectTitle = New-Object Windows.Forms.Label
-    $projectTitle.Text = 'DỰ ÁN ĐANG HOẠT ĐỘNG'
+    $projectTitle.Text = 'PROJECT PROFILE / SOURCE OF TRUTH'
     $projectTitle.Location = New-Object Drawing.Point(18, 14)
-    $projectTitle.Size = New-Object Drawing.Size(300, 28)
+    $projectTitle.Size = New-Object Drawing.Size(380, 28)
     $projectTitle.Font = New-Object Drawing.Font('Segoe UI Semibold', 13)
     $projectPanel.Controls.Add($projectTitle)
 
-    $projectValue = New-Object Windows.Forms.Label
-    $projectValue.Location = New-Object Drawing.Point(18, 50)
-    $projectValue.Size = New-Object Drawing.Size(580, 30)
-    $projectValue.Font = New-Object Drawing.Font('Segoe UI Semibold', 11)
-    $projectPanel.Controls.Add($projectValue)
+    $projectSelector = New-Object Windows.Forms.ComboBox
+    $projectSelector.Location = New-Object Drawing.Point(18, 50)
+    $projectSelector.Size = New-Object Drawing.Size(240, 28)
+    $projectSelector.DropDownStyle = [Windows.Forms.ComboBoxStyle]::DropDown
+    $projectPanel.Controls.Add($projectSelector)
+
+    $loadProjectButton = New-Object Windows.Forms.Button
+    $loadProjectButton.Location = New-Object Drawing.Point(270, 48)
+    $loadProjectButton.Size = New-Object Drawing.Size(125, 32)
+    $loadProjectButton.Text = 'NẠP DỰ ÁN'
+    $loadProjectButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+    $projectPanel.Controls.Add($loadProjectButton)
+
+    $projectNameBox = New-Object Windows.Forms.TextBox
+    $projectNameBox.Location = New-Object Drawing.Point(18, 92)
+    $projectNameBox.Size = New-Object Drawing.Size(377, 27)
+    $projectPanel.Controls.Add($projectNameBox)
+
+    $sourceLabel = New-Object Windows.Forms.Label
+    $sourceLabel.Location = New-Object Drawing.Point(18, 132)
+    $sourceLabel.Size = New-Object Drawing.Size(120, 22)
+    $sourceLabel.Text = 'SOURCE OF TRUTH'
+    $projectPanel.Controls.Add($sourceLabel)
+
+    $sourceBox = New-Object Windows.Forms.TextBox
+    $sourceBox.Location = New-Object Drawing.Point(140, 129)
+    $sourceBox.Size = New-Object Drawing.Size(560, 27)
+    $projectPanel.Controls.Add($sourceBox)
+
+    $openSourceButton = New-Object Windows.Forms.Button
+    $openSourceButton.Location = New-Object Drawing.Point(710, 126)
+    $openSourceButton.Size = New-Object Drawing.Size(110, 33)
+    $openSourceButton.Text = 'MỞ SOURCE'
+    $openSourceButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+    $projectPanel.Controls.Add($openSourceButton)
+
+    $saveProjectButton = New-Object Windows.Forms.Button
+    $saveProjectButton.Location = New-Object Drawing.Point(830, 126)
+    $saveProjectButton.Size = New-Object Drawing.Size(125, 33)
+    $saveProjectButton.Text = 'LƯU PROFILE'
+    $saveProjectButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+    $saveProjectButton.BackColor = [Drawing.Color]::FromArgb(37,99,235)
+    $saveProjectButton.ForeColor = [Drawing.Color]::White
+    $saveProjectButton.FlatAppearance.BorderSize = 0
+    $projectPanel.Controls.Add($saveProjectButton)
+
+    $progressLabel = New-Object Windows.Forms.Label
+    $progressLabel.Location = New-Object Drawing.Point(18, 174)
+    $progressLabel.Size = New-Object Drawing.Size(260, 22)
+    $progressLabel.Text = 'TIẾN ĐỘ DỰ ÁN: CHƯA ĐỒNG BỘ'
+    $progressLabel.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
+    $projectPanel.Controls.Add($progressLabel)
+
+    $progressBar = New-Object Windows.Forms.ProgressBar
+    $progressBar.Location = New-Object Drawing.Point(285, 178)
+    $progressBar.Size = New-Object Drawing.Size(570, 16)
+    $progressBar.Minimum = 0
+    $progressBar.Maximum = 100
+    $progressBar.Value = 0
+    $projectPanel.Controls.Add($progressBar)
+
+    $progressPercent = New-Object Windows.Forms.Label
+    $progressPercent.Location = New-Object Drawing.Point(865, 172)
+    $progressPercent.Size = New-Object Drawing.Size(90, 26)
+    $progressPercent.TextAlign = 'MiddleRight'
+    $progressPercent.Font = New-Object Drawing.Font('Segoe UI Semibold', 10)
+    $progressPercent.Text = '—'
+    $projectPanel.Controls.Add($progressPercent)
 
     $taskValue = New-Object Windows.Forms.Label
-    $taskValue.Location = New-Object Drawing.Point(18, 88)
-    $taskValue.Size = New-Object Drawing.Size(580, 24)
-    $taskValue.ForeColor = [Drawing.Color]::FromArgb(51,65,85)
+    $taskValue.Location = New-Object Drawing.Point(18, 212)
+    $taskValue.Size = New-Object Drawing.Size(560, 24)
     $projectPanel.Controls.Add($taskValue)
 
     $automationValue = New-Object Windows.Forms.Label
-    $automationValue.Location = New-Object Drawing.Point(18, 118)
-    $automationValue.Size = New-Object Drawing.Size(580, 24)
-    $automationValue.ForeColor = [Drawing.Color]::FromArgb(51,65,85)
+    $automationValue.Location = New-Object Drawing.Point(18, 242)
+    $automationValue.Size = New-Object Drawing.Size(560, 24)
     $projectPanel.Controls.Add($automationValue)
 
     $phaseValue = New-Object Windows.Forms.Label
-    $phaseValue.Location = New-Object Drawing.Point(18, 148)
-    $phaseValue.Size = New-Object Drawing.Size(580, 24)
-    $phaseValue.ForeColor = [Drawing.Color]::FromArgb(51,65,85)
+    $phaseValue.Location = New-Object Drawing.Point(18, 272)
+    $phaseValue.Size = New-Object Drawing.Size(560, 24)
     $projectPanel.Controls.Add($phaseValue)
 
     $lastValue = New-Object Windows.Forms.Label
-    $lastValue.Location = New-Object Drawing.Point(18, 178)
-    $lastValue.Size = New-Object Drawing.Size(580, 50)
-    $lastValue.ForeColor = [Drawing.Color]::FromArgb(100,116,139)
+    $lastValue.Location = New-Object Drawing.Point(18, 302)
+    $lastValue.Size = New-Object Drawing.Size(560, 45)
     $projectPanel.Controls.Add($lastValue)
 
+    $bootstrapValue = New-Object Windows.Forms.Label
+    $bootstrapValue.Location = New-Object Drawing.Point(18, 358)
+    $bootstrapValue.Size = New-Object Drawing.Size(550, 58)
+    $bootstrapValue.ForeColor = [Drawing.Color]::FromArgb(100,116,139)
+    $projectPanel.Controls.Add($bootstrapValue)
+
     $plannerLinkLabel = New-Object Windows.Forms.Label
-    $plannerLinkLabel.Location = New-Object Drawing.Point(620, 48)
-    $plannerLinkLabel.Size = New-Object Drawing.Size(330, 22)
+    $plannerLinkLabel.Location = New-Object Drawing.Point(590, 212)
+    $plannerLinkLabel.Size = New-Object Drawing.Size(360, 22)
     $plannerLinkLabel.Text = 'LINK CHAT PLANNER'
-    $plannerLinkLabel.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
     $projectPanel.Controls.Add($plannerLinkLabel)
 
     $plannerBox = New-Object Windows.Forms.TextBox
-    $plannerBox.Location = New-Object Drawing.Point(620, 72)
-    $plannerBox.Size = New-Object Drawing.Size(190, 27)
+    $plannerBox.Location = New-Object Drawing.Point(590, 238)
+    $plannerBox.Size = New-Object Drawing.Size(225, 27)
     $projectPanel.Controls.Add($plannerBox)
 
     $plannerButton = New-Object Windows.Forms.Button
-    $plannerButton.Location = New-Object Drawing.Point(820, 69)
+    $plannerButton.Location = New-Object Drawing.Point(825, 235)
     $plannerButton.Size = New-Object Drawing.Size(130, 33)
     $plannerButton.Text = 'MỞ PLANNER'
-    $plannerButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
     $projectPanel.Controls.Add($plannerButton)
 
     $executorLinkLabel = New-Object Windows.Forms.Label
-    $executorLinkLabel.Location = New-Object Drawing.Point(620, 116)
-    $executorLinkLabel.Size = New-Object Drawing.Size(330, 22)
+    $executorLinkLabel.Location = New-Object Drawing.Point(590, 278)
+    $executorLinkLabel.Size = New-Object Drawing.Size(360, 22)
     $executorLinkLabel.Text = 'LINK CHAT EXECUTOR'
-    $executorLinkLabel.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
     $projectPanel.Controls.Add($executorLinkLabel)
 
     $executorBox = New-Object Windows.Forms.TextBox
-    $executorBox.Location = New-Object Drawing.Point(620, 140)
-    $executorBox.Size = New-Object Drawing.Size(190, 27)
+    $executorBox.Location = New-Object Drawing.Point(590, 304)
+    $executorBox.Size = New-Object Drawing.Size(225, 27)
     $projectPanel.Controls.Add($executorBox)
 
     $executorButton = New-Object Windows.Forms.Button
-    $executorButton.Location = New-Object Drawing.Point(820, 137)
+    $executorButton.Location = New-Object Drawing.Point(825, 301)
     $executorButton.Size = New-Object Drawing.Size(130, 33)
     $executorButton.Text = 'MỞ EXECUTOR'
-    $executorButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
     $projectPanel.Controls.Add($executorButton)
 
-    $saveTargetsButton = New-Object Windows.Forms.Button
-    $saveTargetsButton.Location = New-Object Drawing.Point(620, 188)
-    $saveTargetsButton.Size = New-Object Drawing.Size(330, 40)
-    $saveTargetsButton.Text = 'LƯU 2 LINK CHAT'
-    $saveTargetsButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
-    $saveTargetsButton.BackColor = [Drawing.Color]::FromArgb(37,99,235)
-    $saveTargetsButton.ForeColor = [Drawing.Color]::White
-    $saveTargetsButton.FlatAppearance.BorderSize = 0
-    $projectPanel.Controls.Add($saveTargetsButton)
-
     $targetNote = New-Object Windows.Forms.Label
-    $targetNote.Location = New-Object Drawing.Point(620, 240)
-    $targetNote.Size = New-Object Drawing.Size(330, 70)
+    $targetNote.Location = New-Object Drawing.Point(590, 346)
+    $targetNote.Size = New-Object Drawing.Size(365, 70)
     $targetNote.TextAlign = 'MiddleCenter'
     $targetNote.ForeColor = [Drawing.Color]::FromArgb(100,116,139)
-    $targetNote.Text = 'Dán 2 link chat ChatGPT thường. STOP Robot trước khi đổi target để giữ exact-once.'
+    $targetNote.Text = 'Mỗi profile lưu Source of Truth + Planner + Executor. Chỉ 1 project active / 2 ChatGPT tabs tại một thời điểm.'
     $projectPanel.Controls.Add($targetNote)
 
     $footer = New-Object Windows.Forms.Panel
-    $footer.Location = New-Object Drawing.Point(20, 610)
-    $footer.Size = New-Object Drawing.Size(980, 104)
+    $footer.Location = New-Object Drawing.Point(20, 748)
+    $footer.Size = New-Object Drawing.Size(980, 94)
     $footer.BackColor = [Drawing.Color]::FromArgb(248,250,252)
     $footer.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
     $form.Controls.Add($footer)
 
     $diagnosticLabel = New-Object Windows.Forms.Label
     $diagnosticLabel.Location = New-Object Drawing.Point(18, 12)
-    $diagnosticLabel.Size = New-Object Drawing.Size(940, 52)
-    $diagnosticLabel.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
+    $diagnosticLabel.Size = New-Object Drawing.Size(940, 48)
     $footer.Controls.Add($diagnosticLabel)
 
     $updatedLabel = New-Object Windows.Forms.Label
-    $updatedLabel.Location = New-Object Drawing.Point(18, 70)
+    $updatedLabel.Location = New-Object Drawing.Point(18, 65)
     $updatedLabel.Size = New-Object Drawing.Size(940, 22)
-    $updatedLabel.ForeColor = [Drawing.Color]::FromArgb(100,116,139)
     $footer.Controls.Add($updatedLabel)
+
+    function Reload-ProjectSelector {
+        $registry = Ensure-PlannerExecutorProjectProfiles
+        $projectSelector.Items.Clear()
+        foreach ($profile in @($registry.profiles)) { [void]$projectSelector.Items.Add([string]$profile.project_id) }
+        $active = [string](Get-OptionalPropertyValue $registry 'active_project_id' '')
+        if ($active) { $projectSelector.Text = $active }
+    }
 
     function Refresh-PlannerExecutorUi {
         $state = Read-JsonFile $plannerExecutorStateFile
@@ -879,232 +1196,145 @@ function Show-PlannerExecutorControlPanel {
         $ownerStop = Get-LifecycleOwnerStopState -Root $root
         $truth = Get-LifecycleProcessTruth -Root $root
 
+        $projectId = [string](Get-OptionalPropertyValue $state 'project_id' '')
+        $projectName = [string](Get-OptionalPropertyValue $state 'project_name' $projectId)
+        $sourceUrl = [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'project_context' $null) 'source_of_truth_url' '')
         $plannerUrl = [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'planner' $null) 'target' '')
         $executorUrl = [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'executor' $null) 'target' '')
-        $projectName = [string](Get-OptionalPropertyValue $state 'project_name' '')
-        $projectId = [string](Get-OptionalPropertyValue $state 'project_id' '')
-        if ([string]::IsNullOrWhiteSpace($projectName)) { $projectName = $projectId }
-        if ([string]::IsNullOrWhiteSpace($projectName)) { $projectName = '—' }
+        $generation = [int](Get-OptionalPropertyValue $state 'project_generation' 1)
 
-        $activeTask = [string](Get-OptionalPropertyValue $state 'active_task_id' '')
-        if ([string]::IsNullOrWhiteSpace($activeTask)) { $activeTask = '—' }
-
-        $automation = Get-OptionalPropertyValue $state 'automation' $null
-        $automationStatus = [string](Get-OptionalPropertyValue $automation 'status' 'UNKNOWN')
-        $automationReason = [string](Get-OptionalPropertyValue $automation 'reason' '')
-        $phase = [string](Get-OptionalPropertyValue $status 'phase' '')
-        if ([string]::IsNullOrWhiteSpace($phase)) { $phase = '—' }
-
-        $lastCompleted = Get-OptionalPropertyValue $state 'last_completed' $null
-        $lastTask = [string](Get-OptionalPropertyValue $lastCompleted 'task_id' '')
-        $lastResult = [string](Get-OptionalPropertyValue $lastCompleted 'result_id' '')
-        if ($lastTask -or $lastResult) {
-            $lastValue.Text = "HOÀN TẤT GẦN NHẤT: task=$lastTask  result=$lastResult"
-        } elseif ($automationReason) {
-            $lastValue.Text = "CHI TIẾT: $automationReason"
-        } else {
-            $lastValue.Text = 'HOÀN TẤT GẦN NHẤT: —'
-        }
-
-        $running = [bool](
-            [string]$truth.runtime_mode -eq 'PLANNER_EXECUTOR_V1' -and
-            [bool]$truth.healthy -and
-            [bool]$truth.planner_executor_alive
-        )
-        if ($ownerStop.blocked) {
-            $runtimeLabel.Text = 'ROBOT: ĐÃ DỪNG (OWNER STOP)'
-            $runtimeLabel.ForeColor = [Drawing.Color]::FromArgb(185,28,28)
-        } elseif ($running) {
-            $runtimeLabel.Text = 'ROBOT: ĐANG CHẠY — PLANNER_EXECUTOR_V1'
-            $runtimeLabel.ForeColor = [Drawing.Color]::FromArgb(22,163,74)
-        } elseif ($truth.wrapper_alive) {
-            $runtimeLabel.Text = 'ROBOT: ĐANG KHỞI ĐỘNG / TỰ KHÔI PHỤC'
-            $runtimeLabel.ForeColor = [Drawing.Color]::FromArgb(217,119,6)
-        } else {
-            $runtimeLabel.Text = 'ROBOT: CHƯA CHẠY'
-            $runtimeLabel.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
-        }
-
-        $tabs = Get-OptionalPropertyValue $status 'chatgpt_tabs' $null
-        $workInvocations = Get-OptionalPropertyValue $status 'chatgpt_work_mode_invocations' 0
-        $healthLabel.Text = (
-            "Chrome: " + $(if ($truth.chrome_alive) { 'OK' } else { 'OFF' }) +
-            "  •  CDP: " + $(if ($truth.cdp_healthy) { 'OK' } else { 'OFF' }) +
-            "  •  Planner/Executor process: " + $(if ($truth.planner_executor_alive) { 'OK' } else { 'OFF' }) +
-            "  •  ChatGPT tabs: " + $(if ($null -eq $tabs) { '—' } else { [string]$tabs }) +
-            [Environment]::NewLine +
-            "ChatGPT Work mode invocations: $workInvocations"
-        )
-
-        $projectValue.Text = $projectName
-        $taskValue.Text = "TASK ĐANG HOẠT ĐỘNG: $activeTask"
-        $automationValue.Text = "AUTOMATION: $automationStatus"
-        $phaseValue.Text = "PHA RUNTIME: $phase"
-
+        if (-not $projectSelector.Focused) { $projectSelector.Text = $projectId }
+        if (-not $projectNameBox.Focused) { $projectNameBox.Text = $projectName }
+        if (-not $sourceBox.Focused) { $sourceBox.Text = $sourceUrl }
         if (-not $plannerBox.Focused) { $plannerBox.Text = $plannerUrl }
         if (-not $executorBox.Focused) { $executorBox.Text = $executorUrl }
 
-        $plannerReady = Test-ChatConversationUrl $plannerUrl
-        $executorReady = Test-ChatConversationUrl $executorUrl
-        $plannerButton.Enabled = $plannerReady
-        $executorButton.Enabled = $executorReady
+        $activeTask = [string](Get-OptionalPropertyValue $state 'active_task_id' '')
+        if (-not $activeTask) { $activeTask = '—' }
+        $automation = Get-OptionalPropertyValue $state 'automation' $null
+        $automationStatus = [string](Get-OptionalPropertyValue $automation 'status' 'UNKNOWN')
+        $automationReason = [string](Get-OptionalPropertyValue $automation 'reason' '')
+        $phase = [string](Get-OptionalPropertyValue $status 'phase' '—')
+        if (-not $phase) { $phase='—' }
 
-        $targetsReady = [bool]($plannerReady -and $executorReady)
-        $hasActiveTransfer = [bool](
-            $null -ne (Get-OptionalPropertyValue $state 'assignment' $null) -or
-            $null -ne (Get-OptionalPropertyValue $state 'result' $null)
-        )
-        $safeToEditTargets = [bool](
-            -not $truth.wrapper_alive -and
-            (
-                $automationStatus -in @('DONE','STOPPED') -or
-                -not $hasActiveTransfer
-            )
-        )
-        $plannerBox.ReadOnly = -not $safeToEditTargets
-        $executorBox.ReadOnly = -not $safeToEditTargets
-        $saveTargetsButton.Enabled = $safeToEditTargets
-        $startButton.Enabled = [bool]($targetsReady -and -not $running)
-        $stopButton.Enabled = [bool]($truth.wrapper_alive -or -not $ownerStop.blocked)
+        $running = [bool]([string]$truth.runtime_mode -eq 'PLANNER_EXECUTOR_V1' -and [bool]$truth.healthy -and [bool]$truth.planner_executor_alive)
+        if ($ownerStop.blocked) { $runtimeLabel.Text='ROBOT: ĐÃ DỪNG (OWNER STOP)'; $runtimeLabel.ForeColor=[Drawing.Color]::FromArgb(185,28,28) }
+        elseif ($running) { $runtimeLabel.Text='ROBOT: ĐANG CHẠY — PLANNER_EXECUTOR_V1'; $runtimeLabel.ForeColor=[Drawing.Color]::FromArgb(22,163,74) }
+        elseif ($truth.wrapper_alive) { $runtimeLabel.Text='ROBOT: ĐANG KHỞI ĐỘNG / TỰ KHÔI PHỤC'; $runtimeLabel.ForeColor=[Drawing.Color]::FromArgb(217,119,6) }
+        else { $runtimeLabel.Text='ROBOT: CHƯA CHẠY'; $runtimeLabel.ForeColor=[Drawing.Color]::FromArgb(71,85,105) }
 
-        $runner = Get-RunnerProcess
-        if ($runner) {
-            $runnerButton.Text = 'GITHUB ĐANG KẾT NỐI'
-            $runnerButton.ForeColor = [Drawing.Color]::FromArgb(22,163,74)
+        $tabs = Get-OptionalPropertyValue $status 'chatgpt_tabs' $null
+        $workInvocations = Get-OptionalPropertyValue $status 'chatgpt_work_mode_invocations' 0
+        $healthLabel.Text = "Chrome: " + $(if ($truth.chrome_alive) {'OK'} else {'OFF'}) + "  •  CDP: " + $(if ($truth.cdp_healthy) {'OK'} else {'OFF'}) + "  •  ChatGPT tabs: " + $(if ($null -eq $tabs) {'—'} else {[string]$tabs}) + [Environment]::NewLine + "ChatGPT Work mode invocations: $workInvocations"
+
+        $progress = Get-OptionalPropertyValue $state 'project_progress' $null
+        $known = [bool](Get-OptionalPropertyValue $progress 'known' $false)
+        $completed = [int](Get-OptionalPropertyValue $progress 'completed_tasks' 0)
+        $total = [int](Get-OptionalPropertyValue $progress 'total_tasks' 0)
+        $percentRaw = Get-OptionalPropertyValue $progress 'percent' $null
+        if ($known -and $null -ne $percentRaw) {
+            $percent=[Math]::Max(0,[Math]::Min(100,[int]$percentRaw))
+            $progressLabel.Text="TIẾN ĐỘ DỰ ÁN: $completed/$total TASK"
+            $progressBar.Value=$percent
+            $progressPercent.Text="$percent%"
         } else {
-            [void](Request-RunnerRecovery)
-            $runnerButton.Text = 'GITHUB ĐANG TỰ KẾT NỐI'
-            $runnerButton.ForeColor = [Drawing.Color]::FromArgb(217,119,6)
+            $progressLabel.Text='TIẾN ĐỘ DỰ ÁN: ĐANG CHỜ PLANNER ĐỌC SOURCE OF TRUTH'
+            $progressBar.Value=0
+            $progressPercent.Text='—'
         }
 
-        if (
-            $targetsReady -and
-            -not $ownerStop.blocked -and
-            -not $truth.healthy -and
-            $automationStatus -notin @('DONE','STOPPED')
-        ) {
-            Request-LifecycleRecovery
+        $taskValue.Text="TASK ĐANG HOẠT ĐỘNG: $activeTask"
+        $automationValue.Text="AUTOMATION: $automationStatus"
+        $phaseValue.Text="PHA RUNTIME: $phase"
+        $lastCompleted=Get-OptionalPropertyValue $state 'last_completed' $null
+        $lastTask=[string](Get-OptionalPropertyValue $lastCompleted 'task_id' '')
+        $lastResult=[string](Get-OptionalPropertyValue $lastCompleted 'result_id' '')
+        if ($lastTask -or $lastResult) { $lastValue.Text="HOÀN TẤT GẦN NHẤT: task=$lastTask  result=$lastResult" }
+        elseif ($automationReason) { $lastValue.Text="CHI TIẾT: $automationReason" }
+        else { $lastValue.Text='HOÀN TẤT GẦN NHẤT: —' }
+
+        $bootstrap=Get-OptionalPropertyValue $state 'project_context_bootstrap' $null
+        $bootstrapRequired=[bool](Get-OptionalPropertyValue $bootstrap 'required' $false)
+        $bootstrapDone=[string](Get-OptionalPropertyValue $bootstrap 'completed_at' '')
+        if ($bootstrapRequired -and -not $bootstrapDone) {
+            $bootstrapValue.Text="PROJECT GENERATION: $generation" + [Environment]::NewLine + 'Planner sẽ đọc lại Source of Truth ở câu lệnh đầu tiên.'
+        } else {
+            $bootstrapValue.Text="PROJECT GENERATION: $generation" + [Environment]::NewLine + 'Source of Truth context: đã bootstrap.'
         }
 
-        $vietnamNow = [TimeZoneInfo]::ConvertTime(
-            [DateTimeOffset]::UtcNow,
-            $vietnamTimeZone
-        )
-        $updatedLabel.Text = (
-            'Đồng bộ: ' + $vietnamNow.ToString('dd/MM/yyyy HH:mm:ss') +
-            ' giờ Việt Nam'
-        )
-        $diagnosticLabel.Text = (
-            'Production topology: 1 dự án • Planner + Executor • local durable state authority.' +
-            [Environment]::NewLine +
-            'Legacy 3-lane UI chỉ xuất hiện khi rollback về THREE_LANE_V1.'
-        )
+        $plannerReady=Test-ChatConversationUrl $plannerUrl
+        $executorReady=Test-ChatConversationUrl $executorUrl
+        $sourceReady=$false
+        try { [void](ConvertTo-CanonicalSourceOfTruthUrl $sourceUrl); $sourceReady=$true } catch {}
+        $plannerButton.Enabled=$plannerReady
+        $executorButton.Enabled=$executorReady
+        $openSourceButton.Enabled=$sourceReady
+
+        $hasTransfer=[bool]($null -ne (Get-OptionalPropertyValue $state 'assignment' $null) -or $null -ne (Get-OptionalPropertyValue $state 'result' $null))
+        $safeToMutate=[bool](-not $truth.wrapper_alive -and -not $hasTransfer)
+        $saveProjectButton.Enabled=$safeToMutate
+        $loadProjectButton.Enabled=$safeToMutate
+        $projectSelector.Enabled=$safeToMutate
+        $projectNameBox.ReadOnly=-not $safeToMutate
+        $sourceBox.ReadOnly=-not $safeToMutate
+        $plannerBox.ReadOnly=-not $safeToMutate
+        $executorBox.ReadOnly=-not $safeToMutate
+        $startButton.Enabled=[bool]($plannerReady -and $executorReady -and $sourceReady -and -not $running)
+        $stopButton.Enabled=[bool]($truth.wrapper_alive -or -not $ownerStop.blocked)
+
+        $runner=Get-RunnerProcess
+        if ($runner) { $runnerButton.Text='GITHUB ĐANG KẾT NỐI'; $runnerButton.ForeColor=[Drawing.Color]::FromArgb(22,163,74) }
+        else { [void](Request-RunnerRecovery); $runnerButton.Text='GITHUB ĐANG TỰ KẾT NỐI'; $runnerButton.ForeColor=[Drawing.Color]::FromArgb(217,119,6) }
+
+        $vietnamNow=[TimeZoneInfo]::ConvertTime([DateTimeOffset]::UtcNow,$vietnamTimeZone)
+        $updatedLabel.Text='Đồng bộ: '+$vietnamNow.ToString('dd/MM/yyyy HH:mm:ss')+' giờ Việt Nam'
+        $diagnosticLabel.Text="Active project: $projectId • generation $generation • Source of Truth anchored." + [Environment]::NewLine + '1 active project / 2 normal ChatGPT tabs; mỗi profile có state snapshot riêng.'
     }
 
-    $startButton.Add_Click({
-        $state = Read-JsonFile $plannerExecutorStateFile
-        $planner = Get-OptionalPropertyValue $state 'planner' $null
-        $executor = Get-OptionalPropertyValue $state 'executor' $null
-        if (
-            -not (Test-ChatConversationUrl ([string](Get-OptionalPropertyValue $planner 'target' ''))) -or
-            -not (Test-ChatConversationUrl ([string](Get-OptionalPropertyValue $executor 'target' '')))
-        ) {
-            [Windows.Forms.MessageBox]::Show(
-                'Planner hoặc Executor chưa có ChatGPT target hợp lệ.',
-                'MAGASIN SUPERVISOR',
-                'OK',
-                'Warning'
-            ) | Out-Null
-            return
-        }
-        if (-not (Test-Path $startScript)) {
-            [Windows.Forms.MessageBox]::Show(
-                'Không tìm thấy start-supervisor.ps1 trong runtime.',
-                'MAGASIN SUPERVISOR',
-                'OK',
-                'Error'
-            ) | Out-Null
-            return
-        }
-        Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
-            '-NoLogo','-NoProfile','-ExecutionPolicy','Bypass',
-            '-File',('"' + $startScript + '"'),'-Hidden'
-        )
-    })
-
-    $stopButton.Add_Click({
-        if (-not (Test-Path $stopScript)) {
-            [Windows.Forms.MessageBox]::Show(
-                'Không tìm thấy stop-supervisor.ps1 trong runtime.',
-                'MAGASIN SUPERVISOR',
-                'OK',
-                'Error'
-            ) | Out-Null
-            return
-        }
-        Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
-            '-NoLogo','-NoProfile','-ExecutionPolicy','Bypass',
-            '-File',('"' + $stopScript + '"')
-        )
-    })
-
-    $saveTargetsButton.Add_Click({
+    $saveProjectButton.Add_Click({
         try {
-            $saved = Save-PlannerExecutorTargets $plannerBox.Text.Trim() $executorBox.Text.Trim()
-            Refresh-PlannerExecutorUi
-            $message = if ($saved.Changed) {
-                "Đã lưu Planner r$($saved.PlannerRevision) và Executor r$($saved.ExecutorRevision)."
-            } else {
-                'Hai link không thay đổi.'
-            }
-            [Windows.Forms.MessageBox]::Show(
-                $message,
-                'MAGASIN SUPERVISOR',
-                'OK',
-                'Information'
-            ) | Out-Null
-        } catch {
-            [Windows.Forms.MessageBox]::Show(
-                $_.Exception.Message,
-                'KHÔNG THỂ LƯU LINK CHAT',
-                'OK',
-                'Warning'
-            ) | Out-Null
-        }
+            $result=Save-PlannerExecutorProjectProfile ($projectSelector.Text.Trim()) ($projectNameBox.Text.Trim()) ($sourceBox.Text.Trim()) ($plannerBox.Text.Trim()) ($executorBox.Text.Trim())
+            Reload-ProjectSelector; Refresh-PlannerExecutorUi
+            $msg=if($result.Created){'Đã tạo project profile. Bấm NẠP DỰ ÁN để kích hoạt.'}else{'Đã cập nhật project profile.'}
+            [Windows.Forms.MessageBox]::Show($msg,'MAGASIN SUPERVISOR','OK','Information')|Out-Null
+        } catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message,'KHÔNG THỂ LƯU PROJECT','OK','Warning')|Out-Null }
     })
 
-    $plannerButton.Add_Click({
-        $state = Read-JsonFile $plannerExecutorStateFile
-        $planner = Get-OptionalPropertyValue $state 'planner' $null
-        Open-RobotUrl ([string](Get-OptionalPropertyValue $planner 'target' ''))
+    $loadProjectButton.Add_Click({
+        try {
+            [void](Switch-PlannerExecutorProject ($projectSelector.Text.Trim()))
+            Reload-ProjectSelector; Refresh-PlannerExecutorUi
+            [Windows.Forms.MessageBox]::Show('Đã nạp project. Khi START, Planner sẽ đọc lại Source of Truth trước khi giao task.','MAGASIN SUPERVISOR','OK','Information')|Out-Null
+        } catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message,'KHÔNG THỂ NẠP PROJECT','OK','Warning')|Out-Null }
     })
 
-    $executorButton.Add_Click({
-        $state = Read-JsonFile $plannerExecutorStateFile
-        $executor = Get-OptionalPropertyValue $state 'executor' $null
-        Open-RobotUrl ([string](Get-OptionalPropertyValue $executor 'target' ''))
+    $openSourceButton.Add_Click({
+        try { $url=ConvertTo-CanonicalSourceOfTruthUrl ($sourceBox.Text.Trim()); Start-Process $url }
+        catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message,'SOURCE OF TRUTH','OK','Warning')|Out-Null }
     })
 
-    $runnerButton.Add_Click({
-        if (-not (Ensure-Runner)) {
-            [Windows.Forms.MessageBox]::Show(
-                'Không thể khởi động GitHub Runner.',
-                'MAGASIN SUPERVISOR',
-                'OK',
-                'Warning'
-            ) | Out-Null
-        }
+    $startButton.Add_Click({
+        $state=Read-JsonFile $plannerExecutorStateFile
+        $source=[string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'project_context' $null) 'source_of_truth_url' '')
+        $planner=[string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'planner' $null) 'target' '')
+        $executor=[string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'executor' $null) 'target' '')
+        try { [void](ConvertTo-CanonicalSourceOfTruthUrl $source) } catch { [Windows.Forms.MessageBox]::Show('Hãy lưu Source of Truth hợp lệ trước khi START.','MAGASIN SUPERVISOR','OK','Warning')|Out-Null; return }
+        if (-not (Test-ChatConversationUrl $planner) -or -not (Test-ChatConversationUrl $executor)) { [Windows.Forms.MessageBox]::Show('Planner hoặc Executor chưa có ChatGPT target hợp lệ.','MAGASIN SUPERVISOR','OK','Warning')|Out-Null; return }
+        Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $startScript + '"'),'-Hidden')
     })
 
-    $refreshButton.Add_Click({ Refresh-PlannerExecutorUi })
+    $stopButton.Add_Click({ Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $stopScript + '"')) })
+    $plannerButton.Add_Click({ Open-RobotUrl ($plannerBox.Text.Trim()) })
+    $executorButton.Add_Click({ Open-RobotUrl ($executorBox.Text.Trim()) })
+    $runnerButton.Add_Click({ [void](Ensure-Runner) })
+    $refreshButton.Add_Click({ Reload-ProjectSelector; Refresh-PlannerExecutorUi })
 
-    $timer = New-Object Windows.Forms.Timer
-    $timer.Interval = 2000
+    $timer=New-Object Windows.Forms.Timer
+    $timer.Interval=2000
     $timer.Add_Tick({ Refresh-PlannerExecutorUi })
-    $form.Add_Shown({ Refresh-PlannerExecutorUi })
+    $form.Add_Shown({ Reload-ProjectSelector; Refresh-PlannerExecutorUi })
     $form.Add_FormClosed({ $timer.Stop(); $timer.Dispose() })
     $timer.Start()
-
     [void]$form.ShowDialog()
 }
 
