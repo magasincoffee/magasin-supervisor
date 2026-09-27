@@ -30,7 +30,10 @@
     "multiple_project_profiles_allowed": true,
     "project_context_source": "OWNER_CONFIGURED_SOURCE_OF_TRUTH_URL",
     "project_switch_requires_robot_stopped": true,
-    "project_switch_requires_no_inflight_assignment_or_result": true
+    "project_switch_requires_no_inflight_assignment_or_result": true,
+    "inactive_project_profile_save_requires_robot_stopped": false,
+    "inactive_project_profile_save_mutates_active_runtime": false,
+    "active_project_profile_mutation_requires_safe_boundary": true
   },
   "protocol": {
     "marker": "@M ",
@@ -435,6 +438,8 @@
       "pt"
     ],
     "implementation_pr": 153,
-    "implementation_merge_sha": "e928bc03980f564c007a97b197f1b8af7c727fde"
+    "implementation_merge_sha": "e928bc03980f564c007a97b197f1b8af7c727fde",
+    "inactive_profile_save": "ALLOWED_WITHOUT_ACTIVE_PROJECT_SWITCH",
+    "active_profile_mutation": "SAFE_BOUNDARY_REQUIRED"
   }
 }
