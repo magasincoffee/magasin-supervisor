@@ -97,16 +97,19 @@
     {
       "id": "PE-001",
       "priority": "P0",
-      "state": "IMPLEMENTED_CANDIDATE",
+      "state": "QUALIFIED_COMPLETE",
       "name": "Planner/Executor minimal end-to-end vertical slice",
       "merge_sha": "4ba8d836dc227b312ede15a9f176be6ed4a6de85",
       "pr": 120,
-      "acceptance_status": "SYNTHETIC_AND_REGRESSION_GREEN__LIVE_QUALIFICATION_PENDING"
+      "acceptance_status": "LIVE_QUALIFIED",
+      "live_qualification_run": 36291749758,
+      "live_qualification_job": 108543035889,
+      "live_qualification_head": "0fb8b5112e4e2a77b08966616d2be4a0e065cb01"
     },
     {
       "id": "PE-002",
       "priority": "P1",
-      "state": "PLANNED",
+      "state": "READY_TO_EXECUTE",
       "name": "Compact protocol and newest-turn parser"
     },
     {
@@ -183,6 +186,18 @@
     "supervisor_autostart_run": 36288896093,
     "supervisor_autostart_isolated": "PASS",
     "production_cutover": false,
-    "live_planner_executor_qualification": "PENDING"
+    "live_planner_executor_qualification": "PASS",
+    "live_qualification_run": 36291749758,
+    "live_qualification_job": 108543035889,
+    "live_qualification_head": "0fb8b5112e4e2a77b08966616d2be4a0e065cb01",
+    "live_normal_chat_count": 2,
+    "live_chatgpt_work_mode_invocations": 0,
+    "live_cycle_send_count": 3,
+    "live_matching_user_turn_required": true,
+    "live_production_state_mutated": false,
+    "live_production_targets_mutated": false,
+    "live_state_root_binding_mutated": false,
+    "live_dynamic_cdp": true,
+    "live_isolated_chrome_cleanup": true
   }
 }
