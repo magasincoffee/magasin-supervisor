@@ -7,6 +7,7 @@ import { ChatGptUiAdapter } from "../ui/playwright-adapter.mjs";
 import { captureLatestRoleTurn } from "../ui/latest-turn.mjs";
 import {
   composerInstructionDigest,
+  discardComposerDraftIfDigest,
   inspectComposerDraftDigest,
   sendComposerInstruction
 } from "../ui/actions.mjs";
@@ -229,6 +230,31 @@ async function ensureProductionPlannerBootstrap({
   return state;
 }
 
+function buildLegacyProjectContextBootstrapMessage(state) {
+  const sourceUrl = String(
+    state?.project_context?.source_of_truth_url || ""
+  ).trim();
+  if (!sourceUrl) {
+    throw new Error("project Source of Truth URL is missing");
+  }
+  const projectId = String(state.project_id || "").trim();
+  const generation = Number(state.project_generation || 1);
+  return [
+    "MAGASIN_PROJECT_BOOTSTRAP_V1",
+    `project_id=${projectId}`,
+    `project_generation=${generation}`,
+    `source_of_truth=${sourceUrl}`,
+    "",
+    "Đọc lại dự án từ Source of Truth ở link trên trước khi lập kế hoạch.",
+    "Không sử dụng task/state của dự án khác. Source of Truth là authority cho scope, trạng thái task và dependency.",
+    "Xác định tổng số task và số task đã hoàn tất từ Source of Truth.",
+    "Nếu còn việc: giao đúng một task cho Executor và kết thúc bằng machine frame có p/g/pc/pt:",
+    `@M {"v":1,"a":"assign","p":"${projectId}","g":${generation},"t":"TASK-ID","i":"NEW-ASSIGNMENT-ID","pc":COMPLETED,"pt":TOTAL}`,
+    "Nếu dự án đã hoàn tất và không có task đang chạy: kết thúc bằng:",
+    `@M {"v":1,"a":"done","p":"${projectId}","g":${generation},"pc":TOTAL,"pt":TOTAL}`
+  ].join("\n");
+}
+
 function buildProjectContextBootstrapMessage(state) {
   const sourceUrl = String(
     state?.project_context?.source_of_truth_url || ""
@@ -297,7 +323,31 @@ async function ensureProjectContextBootstrap({
       const draft = await inspectComposerDraftDigest(plannerPage)
         .catch(() => null);
       if (draft?.has_text === true && draft.digest !== expectedDigest) {
-        throw new Error("project bootstrap blocked by foreign or Owner draft");
+        const legacyMessage = buildLegacyProjectContextBootstrapMessage(state);
+        const legacyDigest = composerInstructionDigest(legacyMessage);
+        if (draft.digest === legacyDigest) {
+          const discarded = await discardComposerDraftIfDigest(
+            plannerPage,
+            legacyDigest,
+            { timeoutMs: 3_000 }
+          );
+          if (!discarded?.discarded) {
+            throw new Error(
+              "legacy project bootstrap draft matched but guarded discard failed"
+            );
+          }
+          bootstrap.send_attempted_at = null;
+          bootstrap.send_confirmed_at = null;
+          bootstrap.send_evidence = null;
+          bootstrap.retry_count = Number(bootstrap.retry_count || 0) + 1;
+          bootstrap.last_send_error =
+            "migrated-legacy-raw-machine-frame-bootstrap-draft";
+          await writePlannerExecutorState(statePath, state);
+          draft.has_text = false;
+          draft.digest = null;
+        } else {
+          throw new Error("project bootstrap blocked by foreign or Owner draft");
+        }
       }
       const exactPendingDraft = Boolean(
         draft?.has_text === true && draft.digest === expectedDigest

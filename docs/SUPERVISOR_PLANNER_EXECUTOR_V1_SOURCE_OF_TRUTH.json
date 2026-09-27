@@ -116,7 +116,12 @@
       "outbound_prompt_example_prefix": "<AT>M",
       "token_definition": "<AT>=U+0040",
       "inbound_assistant_prefix": "@M",
-      "parser_behavior": "UNCHANGED"
+      "parser_behavior": "UNCHANGED",
+      "legacy_draft_migration": {
+        "allowed_only_when": "composer_digest_equals_canonical_pre_transport_bootstrap_digest",
+        "action": "GUARDED_DISCARD_AND_RESEND_MENTION_SAFE_BOOTSTRAP",
+        "foreign_draft": "FAIL_CLOSED_NO_OVERWRITE"
+      }
     }
   },
   "happy_path": {
