@@ -786,17 +786,25 @@
         "implementation": {
           "branch": "mbv1-003-bridge-role-binding",
           "pr": 176,
-          "merge_commit": "76a0723e77df285acd46f3b25a5be74307d8f9d6",
           "final_head": "e07eb79e71622fd8dee27121fa3fc11dded31deb",
-          "binding_path": "src/runtime/chatgpt-bridge-binding.mjs",
-          "test_path": "test/chatgpt-bridge-binding.test.mjs",
-          "full_regression": "818/818 PASS",
-          "additional_contract": "50/50 PASS",
-          "platform_core_regression": "192/192 PASS",
-          "static_audit": "PASS",
-          "lifecycle_isolated": "PASS",
-          "installer_isolated": "PASS",
-          "superseded_duplicate_pr": 175,
+          "merge_commit": "76a0723e77df285acd46f3b25a5be74307d8f9d6",
+          "supervisor_tests": {
+            "status": "PASS",
+            "run": 36331560317
+          },
+          "supervisor_integrity": {
+            "status": "PASS",
+            "run": 36331560314
+          },
+          "supervisor_lifecycle": {
+            "status": "PASS",
+            "run": 36331560320
+          },
+          "supervisor_autostart": {
+            "status": "PASS",
+            "run": 36331560378
+          },
+          "superseded_pr": 175,
           "production_mutated": false,
           "bridge_cutover": false
         },
@@ -816,9 +824,13 @@
       {
         "id": "MBV1-004",
         "priority": "P0",
-        "state": "READY_TO_EXECUTE",
+        "state": "IN_PROGRESS",
         "name": "Transport State Machine",
-        "weight_percent": 20
+        "weight_percent": 20,
+        "implementation": {
+          "production_mutated": false,
+          "bridge_cutover": false
+        }
       },
       {
         "id": "MBV1-005",
