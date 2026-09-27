@@ -1,0 +1,18 @@
+{
+    "schema":  "pe007-live-qualification-result.v1",
+    "status":  "PASS",
+    "candidate_sha":  "561a64bf2cd62503b78219b53fb5e71413dc2056",
+    "workflow_run_id":  36295980129,
+    "workflow_run_number":  5,
+    "target_computer":  "DESKTOP-4K7IM13",
+    "attempt_1":  {
+                      "target_match":  false,
+                      "qualified":  false
+                  },
+    "attempt_2":  {
+                      "target_match":  true,
+                      "qualified":  true
+                  },
+    "production_cutover":  false,
+    "recorded_at_utc":  "2026-09-27T05:09:16.1331569Z"
+}
