@@ -643,11 +643,11 @@
     "id": "MAGASIN_BRIDGE_V1",
     "status": "CANONICAL_PLAN_IN_PROGRESS_NOT_CUT_OVER",
     "approved_date": "2026-09-27",
-    "current_task": "MBV1-002",
+    "current_task": "MBV1-003",
     "progress": {
-      "pc": 1,
+      "pc": 2,
       "pt": 8,
-      "percent": 12.5
+      "percent": 25
     },
     "authority_model": {
       "project_truth": "OWNER_CONFIGURED_SOURCE_OF_TRUTH_URL",
@@ -745,13 +745,18 @@
       {
         "id": "MBV1-002",
         "priority": "P0",
-        "state": "IN_PROGRESS",
+        "state": "COMPLETE",
         "name": "Bridge Adapter",
         "weight_percent": 10,
         "implementation": {
           "branch": "mbv1-002-bridge-adapter",
-          "draft_pr": 174,
-          "candidate_head": "a9c15b52ba8d1a8919bd6b33c6da33addf5dc200",
+          "pr": 174,
+          "merged_head": "6cb857656888583af38df9e9b433d577333565e8",
+          "merge_commit": "158091cdffa1b08d15ac398e54c18a28b9acee74",
+          "supervisor_tests": "PASS",
+          "supervisor_integrity": "PASS",
+          "supervisor_lifecycle": "PASS",
+          "supervisor_autostart": "PASS",
           "production_mutated": false,
           "bridge_cutover": false
         }
@@ -759,7 +764,7 @@
       {
         "id": "MBV1-003",
         "priority": "P0",
-        "state": "BLOCKED_BY_MBV1_002",
+        "state": "READY_TO_EXECUTE",
         "name": "Planner/Executor Binding",
         "weight_percent": 10
       },
