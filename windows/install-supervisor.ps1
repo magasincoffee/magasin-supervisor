@@ -11,6 +11,7 @@ $runtime = Join-Path $root 'runtime'
 $pidFile = Join-Path $root 'supervisor.pid'
 $stopFile = Join-Path $root 'STOP'
 $autostartDisabled = Join-Path $root 'AUTOSTART_DISABLED'
+$plannerExecutorTransportFile = Join-Path $root 'planner-executor-transport.json'
 $ownerStopWasPresent = [bool]((Test-Path $stopFile) -or (Test-Path $autostartDisabled))
 $desktop = [Environment]::GetFolderPath('Desktop')
 
@@ -102,6 +103,18 @@ try {
 } finally {
     Pop-Location
 }
+
+# Bridge dependencies are infrastructure, not project/session state. Install
+# them only when the persistent transport selector says Bridge is primary.
+if (Test-Path $plannerExecutorTransportFile -PathType Leaf) {
+    $transportConfig = Get-Content $plannerExecutorTransportFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ([string]$transportConfig.primary -eq 'CHATGPT_BRIDGE_V1') {
+        . (Join-Path $SourceRoot 'windows\chatgpt-bridge-runtime.ps1')
+        Write-Host 'CHATGPT_BRIDGE_INSTALL_REQUESTED=True'
+        [void](Install-ChatGptBridgeRuntime -Root $root)
+    }
+}
+
 
 $panelTarget = Join-Path $runtime 'windows\control-panel.ps1'
 if (-not (Test-Path $panelTarget)) {
