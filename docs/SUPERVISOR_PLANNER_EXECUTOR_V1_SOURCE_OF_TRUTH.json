@@ -322,7 +322,7 @@
     ],
     "historical_evidence_preserved": true,
     "next_phase_authority": "MAGASIN_BRIDGE_V1_SECTION_15_AND_NEXT_IMPLEMENTATION_PROGRAM",
-    "current_next_phase_task": "MBV1-001"
+    "current_next_phase_task": "MBV1-002"
   },
   "pe001_evidence": {
     "pr": 120,
@@ -643,11 +643,11 @@
     "id": "MAGASIN_BRIDGE_V1",
     "status": "CANONICAL_PLAN_IN_PROGRESS_NOT_CUT_OVER",
     "approved_date": "2026-09-27",
-    "current_task": "MBV1-001",
+    "current_task": "MBV1-002",
     "progress": {
-      "pc": 0,
+      "pc": 1,
       "pt": 8,
-      "percent": 0
+      "percent": 12.5
     },
     "authority_model": {
       "project_truth": "OWNER_CONFIGURED_SOURCE_OF_TRUTH_URL",
@@ -702,7 +702,7 @@
       {
         "id": "MBV1-001",
         "priority": "P0",
-        "state": "IN_PROGRESS",
+        "state": "COMPLETE",
         "name": "Local Bridge Baseline",
         "weight_percent": 10,
         "dod": [
@@ -717,18 +717,35 @@
         ],
         "implementation": {
           "branch": "mbv1-001-live-bridge-baseline",
-          "draft_pr": 173,
-          "candidate_head": "a3174b5bb62dabe953d7ab4bf7c1d711bd710c6b",
+          "pr": 173,
+          "merge_commit": "8146ca53e99cba08292eac80be4ad6403a875fa4",
+          "qualified_candidate_head": "dc02330b788409ca9b3799b15f54c703e921cb93",
           "upstream_commit": "848efb9e85f52f251c82ab099747833c0693c072",
-          "live_workflow_run": 36329984215,
-          "workflow_state": "queued",
-          "production_mutated": false
+          "live_workflow_run": 36330634492,
+          "target_job": 108651748072,
+          "authority_job": 108652177893,
+          "target_computer": "DESKTOP-4K7IM13",
+          "authority_status": "PASS",
+          "static_audit": "PASS",
+          "unit_tests": "PASS",
+          "production_state_mutated": false,
+          "production_targets_mutated": false
+        },
+        "dod_result": {
+          "bridge_service_online": "PASS",
+          "planner_connected": "PASS",
+          "executor_connected": "PASS",
+          "distinct_page_id": "PASS",
+          "planner_send_read": "PASS",
+          "executor_send_read": "PASS",
+          "role_isolation": "PASS",
+          "upstream_commit_pin_recorded": "PASS"
         }
       },
       {
         "id": "MBV1-002",
         "priority": "P0",
-        "state": "BLOCKED_BY_MBV1_001",
+        "state": "READY_TO_EXECUTE",
         "name": "Bridge Adapter",
         "weight_percent": 10
       },
@@ -798,6 +815,12 @@
       "target_primary_transport": "CHATGPT_BRIDGE_ADAPTER",
       "direct_dom_after_cutover": "ROLLBACK_OR_FALLBACK_ONLY",
       "qualification_task": "MBV1-008"
+    },
+    "transport_selection": {
+      "canonical_enqueue": "POST /send_async",
+      "canonical_observation": "GET /snapshot?page_id=",
+      "blocking_send_authority": false,
+      "rationale": "Pinned upstream blocking /send did not satisfy live qualification reliably under current ChatGPT completion timing; async enqueue plus snapshot observation passed on target machine."
     }
   }
 }
