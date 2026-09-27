@@ -575,4 +575,18 @@ Until MBV1-008 PASS and explicit cutover: bridge_cutover=false and production co
 
 ### 15.8 Next-task authority
 
-program=MAGASIN_BRIDGE_V1; current_task=MBV1-001; pc=0; pt=8; status=READY_TO_EXECUTE. Planner MUST select MBV1-001 next and MUST NOT skip to integration, reliability hardening or production cutover before the local two-tab Bridge baseline is proven.
+program=MAGASIN_BRIDGE_V1; current_task=MBV1-001; pc=0; pt=8; status=IN_PROGRESS. Planner MUST select MBV1-001 next and MUST NOT skip to integration, reliability hardening or production cutover before the local two-tab Bridge baseline is proven.
+
+
+### 15.9 MBV1-001 implementation evidence
+
+Status: **IN_PROGRESS** (not yet PASS; pc remains 0 / pt 8).
+
+- implementation branch: `mbv1-001-live-bridge-baseline`;
+- draft PR: #173;
+- candidate head: `a3174b5bb62dabe953d7ab4bf7c1d711bd710c6b`;
+- pinned upstream: `OLmatter/chatgpt-bridge@848efb9e85f52f251c82ab099747833c0693c072`;
+- live qualification workflow run: `36329984215`;
+- current workflow state at Source-of-Truth update: `queued`;
+- production transport/state/targets remain unchanged;
+- MBV1-002 remains blocked until a target-machine PASS satisfies all MBV1-001 DoD items.
