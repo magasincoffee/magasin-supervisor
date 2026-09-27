@@ -207,6 +207,8 @@ Bootstrap liveness across ChatGPT rerenders/reloads:
 - if a bootstrap send was attempted, the composer draft later disappears, and the latest visible user-turn identity is still exactly the persisted pre-send baseline user-turn identity, Supervisor has positive evidence that no new user turn was submitted; it may safely re-arm that same bootstrap send instead of entering a permanent ambiguous-send crash loop;
 - if the latest user-turn identity changed or cannot be correlated, exact-once remains fail-closed and Supervisor MUST NOT manufacture a resend;
 - recoverable bootstrap UI/navigation/send failures keep the Planner/Executor runtime alive in an explicit `*_BOOTSTRAP_RETRY` phase with bounded backoff rather than repeatedly killing/restarting the Node runtime;
+- each recoverable bootstrap retry MUST reacquire the exact Planner/Executor target pages from CDP before retrying; a closed/replaced Playwright page handle must never be retried forever;
+- target reacquisition must reassert the exact two-normal-chat topology before the bootstrap send is attempted again;
 - Control Center must surface the retry/startup-failure phase so Owner can distinguish browser reload from a dead Robot.
 
 Chat target rollover rules:
