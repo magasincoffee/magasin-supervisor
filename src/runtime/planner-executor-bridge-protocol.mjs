@@ -85,6 +85,7 @@ export class PlannerExecutorBridgeProtocolController {
     projectId = "LIVE",
     projectGeneration = 1,
     strictProjectCorrelation = false,
+    requirePlannerProgress = false,
     buildExecutorMessage = ({ body }) => String(body || "").trim(),
     buildPlannerMessage = ({ body }) => String(body || "").trim()
   } = {}) {
@@ -106,6 +107,9 @@ export class PlannerExecutorBridgeProtocolController {
       project_id: String(projectId || "").trim(),
       project_generation: Number(projectGeneration),
       strict_project_correlation: Boolean(strictProjectCorrelation),
+      require_planner_progress: Boolean(requirePlannerProgress),
+      project_completed_tasks: null,
+      project_total_tasks: null,
       current_task_id: null,
       current_assignment_id: null,
       current_result_id: null,
@@ -122,6 +126,8 @@ export class PlannerExecutorBridgeProtocolController {
       transport: this.transport.snapshot(),
       project_id: this.context.project_id,
       project_generation: this.context.project_generation,
+      project_completed_tasks: this.context.project_completed_tasks,
+      project_total_tasks: this.context.project_total_tasks,
       current_task_id: this.context.current_task_id,
       current_assignment_id: this.context.current_assignment_id,
       current_result_id: this.context.current_result_id
@@ -150,6 +156,12 @@ export class PlannerExecutorBridgeProtocolController {
     }
   }
 
+  #commitPlannerProgress(frame) {
+    if (frame.pc === undefined || frame.pt === undefined) return;
+    this.context.project_completed_tasks = frame.pc;
+    this.context.project_total_tasks = frame.pt;
+  }
+
   #freshResult(id) {
     if (this.context.seen_result_ids.has(id)) {
       throw new BridgeProtocolIntegrationError("result_id reuse is not allowed", {
@@ -163,6 +175,15 @@ export class PlannerExecutorBridgeProtocolController {
     const parsed = parse(text);
     const { frame, body } = parsed;
     projectCorrelation(frame, this.context);
+    if (
+      this.context.require_planner_progress &&
+      (frame.pc === undefined || frame.pt === undefined)
+    ) {
+      throw new BridgeProtocolIntegrationError(
+        "Planner frame must include Source-of-Truth pc/pt progress",
+        { code: "PROJECT_PROGRESS_REQUIRED" }
+      );
+    }
 
     const phase = this.transport.snapshot().phase;
     const initial = phase === BRIDGE_TRANSPORT_PHASES.WAIT_PLANNER;
@@ -192,6 +213,7 @@ export class PlannerExecutorBridgeProtocolController {
       this.context.current_assignment_id = frame.i;
       this.context.current_result_id = null;
       this.context.seen_assignment_ids.add(frame.i);
+      this.#commitPlannerProgress(frame);
       this.#commitTurn(id);
       return { parsed, outcome };
     }
@@ -215,6 +237,7 @@ export class PlannerExecutorBridgeProtocolController {
       this.context.current_assignment_id = frame.i;
       this.context.current_result_id = null;
       this.context.seen_assignment_ids.add(frame.i);
+      this.#commitPlannerProgress(frame);
       this.#commitTurn(id);
       return { parsed, outcome };
     }
@@ -238,11 +261,13 @@ export class PlannerExecutorBridgeProtocolController {
         this.context.current_assignment_id = frame.i;
         this.context.current_result_id = null;
         this.context.seen_assignment_ids.add(frame.i);
+        this.#commitPlannerProgress(frame);
         this.#commitTurn(id);
         return { parsed, outcome };
       }
 
       const outcome = await this.transport.plannerEvent({ action: "blocked" });
+      this.#commitPlannerProgress(frame);
       this.#commitTurn(id);
       return { parsed, outcome, bounded_correction: false };
     }
@@ -255,6 +280,7 @@ export class PlannerExecutorBridgeProtocolController {
     }
 
     const outcome = await this.transport.plannerEvent({ action: frame.a });
+    this.#commitPlannerProgress(frame);
     this.#commitTurn(id);
     return { parsed, outcome };
   }
