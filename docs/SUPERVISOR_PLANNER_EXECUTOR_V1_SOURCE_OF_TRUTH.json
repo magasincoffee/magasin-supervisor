@@ -348,7 +348,27 @@
     "state_root_binding_mutated": false,
     "isolated_chrome_cleanup": true,
     "production_cutover": false,
-    "next_gate": "PRODUCTION_CUTOVER_EXECUTION"
+    "next_gate": "PRODUCTION_CUTOVER_EXECUTION",
+    "legacy_result_review_handoff": {
+      "allowed": true,
+      "scope": "CUTOVER_ONLY",
+      "required_blockers_exactly": [
+        "ACTIVE_LEGACY_TASK",
+        "LEGACY_PLANNER_REQUEST_SENT_UNCONSUMED"
+      ],
+      "requires": [
+        "NO_EXECUTOR_AWAIT",
+        "NO_ASSIGNMENT_INFLIGHT",
+        "NO_RESULT_RELAY_INFLIGHT",
+        "NO_PLANNER_REQUEST_INFLIGHT",
+        "CONFIRMED_LEGACY_ASSIGNMENT_ID",
+        "CONFIRMED_LEGACY_RESULT_ID",
+        "CONFIRMED_LEGACY_RESULT_DIGEST",
+        "NO_ALREADY_CONSUMED_MATCHING_VERDICT"
+      ],
+      "behavior": "ADOPT_REVIEW_STATE_WITHOUT_EXECUTOR_REPLAY",
+      "fail_closed_on_missing_evidence": true
+    }
   },
   "owner_cutover_authorization": {
     "authorized": true,
