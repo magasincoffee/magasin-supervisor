@@ -74,8 +74,8 @@ test("PE-007 authority attempt wrapper uses explicit ExecutionPolicy Bypass", as
     "utf8"
   );
   assert.match(source, /PE007_AUTH_TARGET_MATCH=False/);
-  assert.match(source, /qualified=false/);
+  assert.match(source, /Set-JobOutput -Name 'qualified' -Value 'false'/);
   assert.match(source, /ExecutionPolicy Bypass/);
   assert.match(source, /supervisor-pe007-live-qualification\.ps1/);
-  assert.match(source, /qualified=true/);
+  assert.match(source, /Set-JobOutput -Name 'qualified' -Value 'true'/);
 });
