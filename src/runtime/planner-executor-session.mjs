@@ -100,6 +100,29 @@ export async function acquirePlannerExecutorWarmTabs(
   };
 }
 
+export function assertPlannerExecutorWarmTabs(
+  adapter,
+  { plannerPage, executorPage, plannerTarget, executorTarget } = {}
+) {
+  if (!plannerPage || !executorPage) {
+    throw new Error("Planner and Executor warm pages are required");
+  }
+  if (plannerPage.isClosed?.() || executorPage.isClosed?.()) {
+    throw new Error("Planner or Executor warm tab was closed");
+  }
+  const pages = adapter.getChatGptPages();
+  if (pages.length !== 2) {
+    throw new Error(`warm runtime topology drifted from 2 ChatGPT tabs to ${pages.length}`);
+  }
+  if (
+    !pageMatchesTarget(plannerPage.url(), plannerTarget) ||
+    !pageMatchesTarget(executorPage.url(), executorTarget)
+  ) {
+    throw new Error("Planner/Executor warm target identity drift");
+  }
+  return true;
+}
+
 export function expectedWaitRole(phase) {
   const value = String(phase || "");
   if (value.startsWith("WAIT_EXECUTOR")) return "executor";
