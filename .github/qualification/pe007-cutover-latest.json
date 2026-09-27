@@ -3,19 +3,19 @@
     "status":  "PASS",
     "production_cutover":  true,
     "mode":  "PLANNER_EXECUTOR_V1",
-    "candidate_sha":  "148f8c737cd715fb5510aec9edece09bf43d5602",
-    "workflow_run_id":  36330906414,
-    "workflow_run_number":  28,
+    "candidate_sha":  "c3562e9c5a6a3aaaa19ba827ea5339b350ddf2a6",
+    "workflow_run_id":  36331163535,
+    "workflow_run_number":  29,
     "target_computer":  "DESKTOP-4K7IM13",
     "attempt_1":  {
-                      "target_match":  false,
-                      "cutover":  false
-                  },
-    "attempt_2":  {
                       "target_match":  true,
                       "cutover":  true
                   },
+    "attempt_2":  {
+                      "target_match":  false,
+                      "cutover":  false
+                  },
     "chatgpt_work_mode_invocations":  0,
     "rollback_required":  true,
-    "recorded_at_utc":  "2026-09-27T15:51:22.2257969Z"
+    "recorded_at_utc":  "2026-09-27T15:55:30.3055852Z"
 }
