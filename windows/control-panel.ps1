@@ -961,10 +961,22 @@ function Reset-PlannerExecutorActiveProject {
     $state.project_name = [string](Get-OptionalPropertyValue $profile 'project_name' $activeId)
 
     if (-not $state.PSObject.Properties['project_context']) {
-        $state | Add-Member -NotePropertyName 'project_context' -NotePropertyValue ([pscustomobject]@{})
+        $state | Add-Member -NotePropertyName 'project_context' -NotePropertyValue ([pscustomobject]@{
+            source_of_truth_url=[string](Get-OptionalPropertyValue $profile 'source_of_truth_url' '')
+            strict_correlation=$false
+        })
+    } else {
+        if (-not $state.project_context.PSObject.Properties['source_of_truth_url']) {
+            $state.project_context | Add-Member -NotePropertyName 'source_of_truth_url' -NotePropertyValue ([string](Get-OptionalPropertyValue $profile 'source_of_truth_url' ''))
+        } else {
+            $state.project_context.source_of_truth_url = [string](Get-OptionalPropertyValue $profile 'source_of_truth_url' '')
+        }
+        if (-not $state.project_context.PSObject.Properties['strict_correlation']) {
+            $state.project_context | Add-Member -NotePropertyName 'strict_correlation' -NotePropertyValue $false
+        } else {
+            $state.project_context.strict_correlation = $false
+        }
     }
-    $state.project_context.source_of_truth_url = [string](Get-OptionalPropertyValue $profile 'source_of_truth_url' '')
-    $state.project_context.strict_correlation = $false
     $state.project_context_bootstrap = New-ProjectContextBootstrap $nextGeneration
     $state.project_progress = [pscustomobject]@{
         known=$false
