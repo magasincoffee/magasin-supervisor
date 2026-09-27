@@ -203,8 +203,19 @@ Automation must never preserve unnecessary complexity merely because it already 
 
 ## 10. Implementation roadmap
 
-### PE-001 — P0 / EXECUTE FIRST
+### PE-001 — P0 / IMPLEMENTED CANDIDATE
 **Planner/Executor minimal end-to-end vertical slice**
+
+Implementation PR #120 merged at `4ba8d836dc227b312ede15a9f176be6ed4a6de85`.
+
+Current evidence:
+- Supervisor Tests run `36288896091`: full suite **711/711 PASS**;
+- Supervisor Integrity run `36288896111`: **PASS**;
+- Supervisor Lifecycle Acceptance run `36288896100`: isolated acceptance **PASS**;
+- Supervisor Autostart Install run `36288896093`: isolated contract **PASS**;
+- PE-001 focused tests prove 3-send happy path, durable-before-send ordering, exact-digest populated-draft recovery, foreign-draft preservation, and restart no-duplicate fail-closed behavior.
+
+**Production cutover remains false. Live Planner/Executor qualification is still pending; PE-001 must not be described as production-released.**
 
 Primary outcome: prove the new architecture end-to-end on top of current main without broad legacy cleanup.
 
