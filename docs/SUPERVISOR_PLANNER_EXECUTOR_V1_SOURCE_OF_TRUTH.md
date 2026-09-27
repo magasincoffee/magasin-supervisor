@@ -244,8 +244,23 @@ Planner assign
 
 PE-001 MUST reuse the current main composer send/verification layer instead of creating another browser-action stack.
 
-### PE-002 — Compact protocol and newest-turn parser
-Implement strict `@M` v1 parsing, latest-turn-only observation, correlation validation, and fail-closed malformed-frame handling.
+### PE-002 — COMPLETE
+**Compact protocol and newest-turn parser**
+
+PR #127 merged at `0684e94a21292d2d4b3cb966f2e9338ab45070d1`.
+
+Implemented:
+- canonical `src/runtime/machine-frame.mjs` for strict `@M` v1 parsing, serialization, action guards and correlation guards;
+- canonical `src/runtime/latest-machine-turn.mjs` for newest-unseen-turn parsing;
+- Planner/Executor runtime no longer carries duplicate protocol/correlation parsing logic;
+- final-line machine semantics remain authoritative;
+- unknown additive fields remain forward-compatible;
+- malformed output and task/assignment/result mismatches fail closed;
+- normal path still performs no full-history conversation scan.
+
+Regression gates passed: Supervisor Tests `36292309245`, Integrity `36292309225`, Lifecycle `36292309213`, Autostart isolated `36292309228`.
+
+**PE-003 is the next execution task.**
 
 ### PE-003 — Two warm-tab runtime
 Replace the forward orchestration path with exactly Planner + Executor warm conversations and no normal Three-Lane scheduler dependency.
