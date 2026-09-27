@@ -30,7 +30,7 @@
     "multiple_project_profiles_allowed": true,
     "project_context_source": "OWNER_CONFIGURED_SOURCE_OF_TRUTH_URL",
     "project_switch_requires_robot_stopped": true,
-    "project_switch_requires_no_inflight_assignment_or_result": true,
+    "project_switch_requires_no_inflight_assignment_or_result": false,
     "inactive_project_profile_save_requires_robot_stopped": false,
     "inactive_project_profile_save_mutates_active_runtime": false,
     "active_project_source_change_requires_safe_boundary": true,
@@ -38,7 +38,10 @@
     "active_project_chat_target_rollover_requires_no_inflight_assignment_or_result": false,
     "chat_target_is_project_identity": false,
     "chat_target_revisioned": true,
-    "chat_target_rollover_preserves_project_generation": true
+    "chat_target_rollover_preserves_project_generation": true,
+    "project_switch_preserves_inflight_state": true,
+    "project_switch_preserves_project_generation": true,
+    "project_switch_is_project_reset": false
   },
   "protocol": {
     "marker": "@M ",
@@ -463,6 +466,22 @@
     "source_change": "SAFE_BOUNDARY_REQUIRED",
     "new_profile_creation_requires_explicit_new_project_id": true,
     "new_profile_draft_may_overwrite_existing_profile": false,
-    "active_profile_field_edit_is_not_implicit_new_project": true
+    "active_profile_field_edit_is_not_implicit_new_project": true,
+    "switch_policy": "PARK_CURRENT_STATE_THEN_ACTIVATE_SELECTED",
+    "switch_preserves": [
+      "project_generation",
+      "active_task_id",
+      "assignment",
+      "result",
+      "decision",
+      "identity_history",
+      "project_progress",
+      "project_context_bootstrap",
+      "planner.last_seen_assistant_turn_id",
+      "executor.last_seen_assistant_turn_id",
+      "send_recovery_metadata"
+    ],
+    "start_selected_saved_profile": true,
+    "start_blocks_unsaved_draft_or_dirty_editor": true
   }
 }
