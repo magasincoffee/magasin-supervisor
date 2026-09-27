@@ -275,6 +275,101 @@ function buildPlannerReviewMessage({ taskId, assignmentId, resultId, body, state
   ].join("\n");
 }
 
+function buildExecutorRolloverMessage(pending, state, toRevision) {
+  const base = pending?.planner_body
+    ? buildExecutorAssignmentMessage({
+        taskId: pending.task_id,
+        assignmentId: pending.assignment_id,
+        body: pending.planner_body,
+        state
+      })
+    : String(pending?.message || "").trim();
+  return [
+    "MAGASIN_CHAT_ROLLOVER_V1",
+    "Role: Executor",
+    `Executor target revision: ${toRevision}`,
+    "",
+    "Đây là handoff của CÙNG MỘT assignment sang cuộc trò chuyện Executor mới vì link chat đã được thay.",
+    "Giữ nguyên task_id và assignment_id. Trước khi tạo bất kỳ side effect nào, kiểm tra Source of Truth/evidence hiện tại để tránh lặp lại phần việc đã hoàn tất ở chat cũ.",
+    "Nếu công việc đã hoàn tất ở chat cũ, chỉ VERIFY trạng thái hiện tại và report evidence; không thực hiện lại side effect.",
+    "",
+    base
+  ].join("\n");
+}
+
+function buildPlannerRolloverMessage(pending, state, toRevision) {
+  const base = pending?.executor_body
+    ? buildPlannerReviewMessage({
+        taskId: pending.task_id,
+        assignmentId: pending.assignment_id,
+        resultId: pending.result_id,
+        body: pending.executor_body,
+        state
+      })
+    : String(pending?.message || "").trim();
+  return [
+    "MAGASIN_CHAT_ROLLOVER_V1",
+    "Role: Planner",
+    `Planner target revision: ${toRevision}`,
+    "",
+    "Đây là handoff của CÙNG MỘT result sang cuộc trò chuyện Planner mới vì link chat đã được thay.",
+    "Đọc Source of Truth và review đúng result_id hiện tại. Không tạo một project/task mới chỉ vì chat đã đổi.",
+    "",
+    base
+  ].join("\n");
+}
+
+async function retargetPendingForRoleRollover({
+  role,
+  pending,
+  state,
+  statePath,
+  page,
+  captureTurn,
+  persist,
+  now
+}) {
+  if (!pending) return false;
+  const roleState = role === "executor" ? state.executor : state.planner;
+  const currentRevision = Number(roleState?.target_revision || 0);
+  const pendingRevision = Number(
+    pending.target_revision === undefined || pending.target_revision === null
+      ? currentRevision
+      : pending.target_revision
+  );
+  if (pendingRevision === currentRevision) return false;
+  if (!Number.isInteger(currentRevision) || currentRevision < 0) {
+    throw new Error(`invalid ${role} target revision`);
+  }
+  if (!Number.isInteger(pendingRevision) || pendingRevision < 0) {
+    throw new Error(`invalid pending ${role} target revision`);
+  }
+
+  const baseline = await captureOutboundBaseline(page, captureTurn);
+  const message = role === "executor"
+    ? buildExecutorRolloverMessage(pending, state, currentRevision)
+    : buildPlannerRolloverMessage(pending, state, currentRevision);
+
+  pending.rollover_from_target_revision = pendingRevision;
+  pending.target_revision = currentRevision;
+  pending.rollover_prepared_at = now();
+  pending.message = message;
+  pending.message_digest = composerInstructionDigest(message);
+  pending.send_attempted_at = null;
+  pending.send_confirmed_at = null;
+  pending.send_evidence = null;
+  pending.last_send_error = null;
+  pending.blocked_reason = null;
+  pending.baseline_captured = baseline.baseline_captured;
+  pending.baseline_user_turn_id = baseline.baseline_user_turn_id;
+  pending.baseline_user_turn_digest = baseline.baseline_user_turn_digest;
+  if (role === "planner") {
+    pending.relay_confirmed_at = null;
+  }
+  await persist(statePath, state);
+  return true;
+}
+
 async function reconcileOrSend({
   page,
   pending,
@@ -377,6 +472,31 @@ export async function runPlannerExecutorStep({
   if (state.automation?.status === "STOPPED") {
     return { phase: "PLANNER_STOPPED", state };
   }
+  if (state.assignment && !state.result) {
+    await retargetPendingForRoleRollover({
+      role: "executor",
+      pending: state.assignment,
+      state,
+      statePath,
+      page: executorPage,
+      captureTurn,
+      persist,
+      now
+    });
+  }
+  if (state.result) {
+    await retargetPendingForRoleRollover({
+      role: "planner",
+      pending: state.result,
+      state,
+      statePath,
+      page: plannerPage,
+      captureTurn,
+      persist,
+      now
+    });
+  }
+
   if (state.automation?.status === "BLOCKED") {
     const latestControl = await captureNewestMachineFrame(
       plannerPage,
@@ -524,6 +644,7 @@ export async function runPlannerExecutorStep({
       send_confirmed_at: null,
       send_evidence: null,
       blocked_reason: null,
+      target_revision: Number(state.executor?.target_revision || 0),
       ...baseline
     };
     rememberIdentity(state, "assignment_id", assignmentId);
@@ -597,6 +718,7 @@ export async function runPlannerExecutorStep({
       send_confirmed_at: null,
       relay_confirmed_at: null,
       blocked_reason: null,
+      target_revision: Number(state.planner?.target_revision || 0),
       ...baseline
     };
     rememberIdentity(state, "result_id", resultId);
@@ -757,6 +879,7 @@ export async function runPlannerExecutorStep({
         send_confirmed_at: null,
         send_evidence: null,
         blocked_reason: null,
+        target_revision: Number(state.executor?.target_revision || 0),
         ...baseline
       };
       rememberIdentity(state, "assignment_id", correctionAssignmentId);
@@ -857,6 +980,7 @@ export async function runPlannerExecutorStep({
     send_confirmed_at: null,
     send_evidence: null,
     blocked_reason: null,
+    target_revision: Number(state.executor?.target_revision || 0),
     ...baseline
   };
   rememberIdentity(state, "assignment_id", nextAssignmentId);

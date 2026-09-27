@@ -120,6 +120,97 @@ test("PE-003 refuses to close an unrelated extra conversation or a blank tab wit
   assert.equal(guardedBlank.isClosed(), false);
 });
 
+test("chat target rollover retires only the exact superseded role tab and keeps two-tab topology", async () => {
+  const oldPlannerUrl = "https://chatgpt.com/c/old-planner";
+  const newPlannerUrl = "https://chatgpt.com/c/new-planner";
+  const executorUrl = "https://chatgpt.com/c/executor-current";
+  const oldPlannerPage = fakePage(oldPlannerUrl);
+  const newPlannerPage = fakePage(newPlannerUrl);
+  const executorPage = fakePage(executorUrl);
+  const pages = [oldPlannerPage, executorPage];
+
+  const adapter = {
+    async open() { return oldPlannerPage; },
+    getChatGptPages() { return pages.filter((page) => !page.isClosed()); },
+    findPageForTarget(target) {
+      return this.getChatGptPages().find((page) => {
+        const url = new URL(page.url());
+        return url.origin === target.origin && url.pathname === target.pathname;
+      }) || null;
+    },
+    async reopenTargetPage(url) {
+      if (url === newPlannerUrl) {
+        pages.push(newPlannerPage);
+        return newPlannerPage;
+      }
+      throw new Error("unexpected reopen");
+    },
+    async hasNonPersistedComposerArtifact(page) { return Boolean(page.draft); },
+    async closePage(page) { await page.close(); return true; },
+    async probePage() {
+      return {
+        snapshot: {
+          loginRequired: false,
+          hasCaptcha: false,
+          conversationAccessDenied: false,
+          conversationMissing: false,
+          responseRunning: false,
+          assistantBusy: false
+        }
+      };
+    }
+  };
+
+  const warm = await acquirePlannerExecutorWarmTabs(adapter, {
+    plannerUrl: newPlannerUrl,
+    executorUrl,
+    previousPlannerUrl: oldPlannerUrl
+  });
+
+  assert.equal(oldPlannerPage.isClosed(), true);
+  assert.equal(warm.plannerPage, newPlannerPage);
+  assert.equal(warm.executorPage, executorPage);
+  assert.equal(adapter.getChatGptPages().length, 2);
+});
+
+test("chat target rollover preserves a superseded role tab when it contains an unsent draft", async () => {
+  const oldPlannerUrl = "https://chatgpt.com/c/old-planner-draft";
+  const newPlannerUrl = "https://chatgpt.com/c/new-planner-draft";
+  const executorUrl = "https://chatgpt.com/c/executor-current-draft";
+  const oldPlannerPage = fakePage(oldPlannerUrl, { draft: true });
+  const executorPage = fakePage(executorUrl);
+  const newPlannerPage = fakePage(newPlannerUrl);
+  const pages = [oldPlannerPage, executorPage];
+
+  const adapter = {
+    async open() { return oldPlannerPage; },
+    getChatGptPages() { return pages.filter((page) => !page.isClosed()); },
+    findPageForTarget(target) {
+      return this.getChatGptPages().find((page) => {
+        const url = new URL(page.url());
+        return url.origin === target.origin && url.pathname === target.pathname;
+      }) || null;
+    },
+    async reopenTargetPage() {
+      pages.push(newPlannerPage);
+      return newPlannerPage;
+    },
+    async hasNonPersistedComposerArtifact(page) { return Boolean(page.draft); },
+    async closePage(page) { await page.close(); return true; },
+    async probePage() { return { snapshot: {} }; }
+  };
+
+  await assert.rejects(
+    acquirePlannerExecutorWarmTabs(adapter, {
+      plannerUrl: newPlannerUrl,
+      executorUrl,
+      previousPlannerUrl: oldPlannerUrl
+    }),
+    /superseded ChatGPT role tab contains a non-persisted composer artifact/
+  );
+  assert.equal(oldPlannerPage.isClosed(), false);
+});
+
 test("PE-003 topology guard fails closed on page-count or identity drift", () => {
   const plannerUrl = "https://chatgpt.com/c/11111111-1111-1111-1111-111111111111";
   const executorUrl = "https://chatgpt.com/c/22222222-2222-2222-2222-222222222222";
@@ -204,6 +295,10 @@ test("PE-003 forward CLI is a two-tab runtime with no Three-Lane scheduler depen
   assert.match(source, /CHATGPT_WORK_MODE_INVOCATIONS", 0/);
   assert.match(source, /production_cutover: false/);
   assert.match(source, /assertPlannerExecutorWarmTabs/);
+  assert.match(source, /previousPlannerUrl/);
+  assert.match(source, /PLANNER_EXECUTOR_CHAT_TARGET_ROLLOVER/);
+  assert.match(session, /previousPlannerUrl/);
+  assert.match(session, /superseded ChatGPT role tab/);
   assert.match(session, /pages\.length !== 2/);
 
   assert.doesNotMatch(source, /browser-scheduler/i);

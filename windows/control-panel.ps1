@@ -818,14 +818,16 @@ function Save-PlannerExecutorProjectProfile(
     if ($isActiveProfile) {
         $truth = Get-LifecycleProcessTruth -Root $root
         if ([bool]$truth.wrapper_alive) {
-            throw 'Project đang active; hãy STOP ROBOT trước khi sửa Source/Chat của project này.'
+            throw 'Hãy STOP ROBOT trước khi đổi link của project đang active.'
         }
         $activeState = Read-JsonFile $plannerExecutorStateFile
-        if (
+        $activeSource = [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $activeState 'project_context' $null) 'source_of_truth_url' '')
+        $hasActiveTransfer = [bool](
             $null -ne (Get-OptionalPropertyValue $activeState 'assignment' $null) -or
             $null -ne (Get-OptionalPropertyValue $activeState 'result' $null)
-        ) {
-            throw 'Project đang active còn assignment/result mở; chỉ được đổi Source/Chat ở safe boundary.'
+        )
+        if ($hasActiveTransfer -and $activeSource -ne $source) {
+            throw 'Source of Truth không được đổi khi assignment/result còn mở. Link Planner/Executor vẫn có thể đổi sau khi STOP ROBOT.'
         }
         $registry = Save-ActiveProjectSnapshot
         $profile = Get-PlannerExecutorProjectProfile $registry $id
@@ -870,13 +872,36 @@ function Save-PlannerExecutorProjectProfile(
         $state.planner.last_seen_assistant_turn_id = $null
     }
     if ($plannerChanged) {
+        $oldPlannerRevision = [int](Get-OptionalPropertyValue $state.planner 'target_revision' 0)
+        if ($state.result -and -not $state.result.PSObject.Properties['target_revision']) {
+            $state.result | Add-Member -NotePropertyName 'target_revision' -NotePropertyValue $oldPlannerRevision
+        }
+        if (-not $state.planner.PSObject.Properties['previous_target']) {
+            $state.planner | Add-Member -NotePropertyName 'previous_target' -NotePropertyValue $oldPlanner
+        } elseif (-not [string]$state.planner.previous_target) {
+            $state.planner.previous_target = $oldPlanner
+        }
         $state.planner.target = $planner
-        $state.planner.target_revision = [int](Get-OptionalPropertyValue $state.planner 'target_revision' 0) + 1
+        $state.planner.target_revision = $oldPlannerRevision + 1
         $state.planner.last_seen_assistant_turn_id = $null
+
+        # A new Planner conversation has no prior project context. Re-arm the
+        # Source of Truth bootstrap without changing project identity/generation.
+        $state.project_context.strict_correlation = $false
+        $state.project_context_bootstrap = New-ProjectContextBootstrap ([int]$state.project_generation)
     }
     if ($executorChanged) {
+        $oldExecutorRevision = [int](Get-OptionalPropertyValue $state.executor 'target_revision' 0)
+        if ($state.assignment -and -not $state.result -and -not $state.assignment.PSObject.Properties['target_revision']) {
+            $state.assignment | Add-Member -NotePropertyName 'target_revision' -NotePropertyValue $oldExecutorRevision
+        }
+        if (-not $state.executor.PSObject.Properties['previous_target']) {
+            $state.executor | Add-Member -NotePropertyName 'previous_target' -NotePropertyValue $oldExecutor
+        } elseif (-not [string]$state.executor.previous_target) {
+            $state.executor.previous_target = $oldExecutor
+        }
         $state.executor.target = $executor
-        $state.executor.target_revision = [int](Get-OptionalPropertyValue $state.executor 'target_revision' 0) + 1
+        $state.executor.target_revision = $oldExecutorRevision + 1
         $state.executor.last_seen_assistant_turn_id = $null
     }
 
@@ -892,7 +917,14 @@ function Save-PlannerExecutorProjectProfile(
         Remove-Item $plannerExecutorStatusFile -Force -ErrorAction SilentlyContinue
     }
     Write-JsonAtomic $plannerExecutorProjectsFile $registry
-    return [pscustomobject]@{ Created=$false; ProjectId=$id; Active=([string]$registry.active_project_id -eq $id) }
+    return [pscustomobject]@{
+        Created=$false
+        ProjectId=$id
+        Active=([string]$registry.active_project_id -eq $id)
+        PlannerRollover=$plannerChanged
+        ExecutorRollover=$executorChanged
+        SourceChanged=$sourceChanged
+    }
 }
 
 function Switch-PlannerExecutorProject([string]$ProjectId) {
@@ -1187,12 +1219,18 @@ function Show-PlannerExecutorControlPanel {
     $targetNote.Size = New-Object Drawing.Size(365, 70)
     $targetNote.TextAlign = 'MiddleCenter'
     $targetNote.ForeColor = [Drawing.Color]::FromArgb(100,116,139)
-    $targetNote.Text = 'Chọn profile để xem/sửa; dùng TẠO PROFILE MỚI để lưu dự án khác. Chỉ NẠP DỰ ÁN mới đổi project active.'
+    $targetNote.Text = 'Chat Planner/Executor là link phiên làm việc, không phải project ID. STOP rồi đổi link bất kỳ lúc nào; Source/NẠP dự án vẫn cần safe boundary.'
     $projectPanel.Controls.Add($targetNote)
 
     $profileEditor = [pscustomobject]@{
         Draft = $false
         Suppress = $false
+        Dirty = $false
+    }
+    foreach ($profileInput in @($projectNameBox,$sourceBox,$plannerBox,$executorBox)) {
+        $profileInput.Add_TextChanged({
+            if (-not $profileEditor.Suppress) { $profileEditor.Dirty = $true }
+        })
     }
 
     $footer = New-Object Windows.Forms.Panel
@@ -1227,6 +1265,7 @@ function Show-PlannerExecutorControlPanel {
             $plannerBox.Text = [string](Get-OptionalPropertyValue $profile 'planner_url' '')
             $executorBox.Text = [string](Get-OptionalPropertyValue $profile 'executor_url' '')
             $profileEditor.Draft = $false
+            $profileEditor.Dirty = $false
         } finally {
             $profileEditor.Suppress = $false
         }
@@ -1237,6 +1276,7 @@ function Show-PlannerExecutorControlPanel {
         $profileEditor.Suppress = $true
         try {
             $profileEditor.Draft = $true
+            $profileEditor.Dirty = $true
             $projectSelector.Text = [string]$ProjectId
             $projectNameBox.Text = ''
             $sourceBox.Text = ''
@@ -1280,11 +1320,16 @@ function Show-PlannerExecutorControlPanel {
             $editorProjectId = $projectId
         }
         $editingActiveProfile = [bool](-not $profileEditor.Draft -and $editorProjectId -eq $projectId)
-        if ($editingActiveProfile) {
-            if (-not $projectNameBox.Focused) { $projectNameBox.Text = $projectName }
-            if (-not $sourceBox.Focused) { $sourceBox.Text = $sourceUrl }
-            if (-not $plannerBox.Focused) { $plannerBox.Text = $plannerUrl }
-            if (-not $executorBox.Focused) { $executorBox.Text = $executorUrl }
+        if ($editingActiveProfile -and -not $profileEditor.Dirty) {
+            $profileEditor.Suppress = $true
+            try {
+                if (-not $projectNameBox.Focused) { $projectNameBox.Text = $projectName }
+                if (-not $sourceBox.Focused) { $sourceBox.Text = $sourceUrl }
+                if (-not $plannerBox.Focused) { $plannerBox.Text = $plannerUrl }
+                if (-not $executorBox.Focused) { $executorBox.Text = $executorUrl }
+            } finally {
+                $profileEditor.Suppress = $false
+            }
         }
 
         $activeTask = [string](Get-OptionalPropertyValue $state 'active_task_id' '')
@@ -1356,14 +1401,15 @@ function Show-PlannerExecutorControlPanel {
         $hasTransfer=[bool]($null -ne (Get-OptionalPropertyValue $state 'assignment' $null) -or $null -ne (Get-OptionalPropertyValue $state 'result' $null))
         $robotStopped=[bool](-not $truth.wrapper_alive)
         $safeToSwitch=[bool]($robotStopped -and -not $hasTransfer)
-        $activeProfileSafeToEdit=[bool]($safeToSwitch)
-        $profileInputsEditable=[bool](-not $editingActiveProfile -or $activeProfileSafeToEdit)
+        $activeChatTargetsEditable=[bool]($robotStopped)
+        $profileInputsEditable=[bool](-not $editingActiveProfile -or $activeChatTargetsEditable)
+        $sourceInputEditable=[bool](-not $editingActiveProfile -or $safeToSwitch)
         $saveProjectButton.Enabled=$profileInputsEditable
         $loadProjectButton.Enabled=[bool]($safeToSwitch -and -not $profileEditor.Draft -and $editorProjectId)
         $newProjectButton.Enabled=$true
         $projectSelector.Enabled=$true
         $projectNameBox.ReadOnly=-not $profileInputsEditable
-        $sourceBox.ReadOnly=-not $profileInputsEditable
+        $sourceBox.ReadOnly=-not $sourceInputEditable
         $plannerBox.ReadOnly=-not $profileInputsEditable
         $executorBox.ReadOnly=-not $profileInputsEditable
         $startButton.Enabled=[bool]($activePlannerReady -and $activeExecutorReady -and $activeSourceReady -and -not $running)
@@ -1396,7 +1442,13 @@ function Show-PlannerExecutorControlPanel {
             Reload-ProjectSelector $result.ProjectId
             [void](Set-ProjectProfileEditor $result.ProjectId)
             Refresh-PlannerExecutorUi
-            $msg=if($result.Created){'Đã tạo project profile. Bấm NẠP DỰ ÁN khi muốn kích hoạt.'}else{'Đã cập nhật project profile.'}
+            if ($result.Created) {
+                $msg='Đã tạo project profile. Bấm NẠP DỰ ÁN khi muốn kích hoạt.'
+            } elseif ($result.PlannerRollover -or $result.ExecutorRollover) {
+                $msg='Đã đổi link ChatGPT nhưng GIỮ NGUYÊN project/task hiện tại. Khi START, Supervisor sẽ handoff state sang chat mới; Source of Truth và assignment/result ID không bị reset.'
+            } else {
+                $msg='Đã cập nhật project profile.'
+            }
             [Windows.Forms.MessageBox]::Show($msg,'MAGASIN SUPERVISOR','OK','Information')|Out-Null
         } catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message,'KHÔNG THỂ LƯU PROJECT','OK','Warning')|Out-Null }
     })

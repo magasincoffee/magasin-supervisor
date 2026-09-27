@@ -410,3 +410,118 @@ test("PE-004 persists outbound user-turn baseline before first send", async () =
   assert.deepEqual(durable.identity_history.assignment_ids, ["A1"]);
   assert.equal(durable.planner.last_seen_assistant_turn_id, "planner:assign");
 });
+
+
+test("chat rollover re-hands the same confirmed assignment to a replacement Executor without changing assignment identity", async () => {
+  const statePath = await tempStatePath();
+  const { plannerPage, executorPage } = pages();
+  const state = assignmentState({
+    message: "old executor assignment",
+    confirmed: "2026-09-27T00:00:02.000Z"
+  });
+  state.executor.target = "https://chatgpt.com/c/new-executor";
+  state.executor.target_revision = 2;
+  state.assignment.target_revision = 1;
+  await writePlannerExecutorState(statePath, state);
+
+  let sentMessage = "";
+  const result = await runPlannerExecutorStep({
+    statePath,
+    projectId: "P1",
+    plannerPage,
+    executorPage,
+    captureTurn: async () => null,
+    inspectDraft: async () => ({
+      ready: true,
+      has_text: false,
+      digest: null
+    }),
+    sendInstruction: async (_page, message) => {
+      sentMessage = message;
+      return {
+        executed: true,
+        user_turn_evidence: "matching-user-turn-observed"
+      };
+    }
+  });
+
+  assert.equal(result.phase, "ASSIGNMENT_SEND_RECOVERY");
+  assert.equal(result.outcome.status, "CONFIRMED");
+  assert.match(sentMessage, /MAGASIN_CHAT_ROLLOVER_V1/);
+  assert.match(sentMessage, /Role: Executor/);
+  assert.match(sentMessage, /assignment A1/);
+  assert.match(sentMessage, /không thực hiện lại side effect/);
+
+  const durable = JSON.parse(await fs.readFile(statePath, "utf8"));
+  assert.equal(durable.assignment.assignment_id, "A1");
+  assert.equal(durable.assignment.target_revision, 2);
+  assert.equal(durable.assignment.rollover_from_target_revision, 1);
+  assert.ok(durable.assignment.send_confirmed_at);
+  assert.deepEqual(durable.identity_history.assignment_ids, ["A1"]);
+});
+
+test("chat rollover re-relays the same result to a replacement Planner without changing result identity", async () => {
+  const statePath = await tempStatePath();
+  const { plannerPage, executorPage } = pages();
+  const state = assignmentState({
+    message: "assignment",
+    confirmed: "2026-09-27T00:00:02.000Z"
+  });
+  state.planner.target = "https://chatgpt.com/c/new-planner";
+  state.planner.target_revision = 3;
+  state.result = {
+    task_id: "T1",
+    assignment_id: "A1",
+    result_id: "R1",
+    status: "pass",
+    source_turn_id: "executor:1",
+    executor_body: "PASS with evidence.",
+    message: "old planner review",
+    message_digest: composerInstructionDigest("old planner review"),
+    persisted_at: "2026-09-27T00:00:03.000Z",
+    send_attempted_at: "2026-09-27T00:00:04.000Z",
+    send_confirmed_at: "2026-09-27T00:00:05.000Z",
+    relay_confirmed_at: "2026-09-27T00:00:05.000Z",
+    blocked_reason: null,
+    baseline_captured: true,
+    baseline_user_turn_id: "planner:user:old",
+    baseline_user_turn_digest: null,
+    target_revision: 2
+  };
+  state.identity_history.result_ids.push("R1");
+  await writePlannerExecutorState(statePath, state);
+
+  let sentMessage = "";
+  const result = await runPlannerExecutorStep({
+    statePath,
+    projectId: "P1",
+    plannerPage,
+    executorPage,
+    captureTurn: async () => null,
+    inspectDraft: async () => ({
+      ready: true,
+      has_text: false,
+      digest: null
+    }),
+    sendInstruction: async (_page, message) => {
+      sentMessage = message;
+      return {
+        executed: true,
+        user_turn_evidence: "matching-user-turn-observed"
+      };
+    }
+  });
+
+  assert.equal(result.phase, "RESULT_RELAY_RECOVERY");
+  assert.equal(result.outcome.status, "CONFIRMED");
+  assert.match(sentMessage, /MAGASIN_CHAT_ROLLOVER_V1/);
+  assert.match(sentMessage, /Role: Planner/);
+  assert.match(sentMessage, /Review result R1/);
+
+  const durable = JSON.parse(await fs.readFile(statePath, "utf8"));
+  assert.equal(durable.result.result_id, "R1");
+  assert.equal(durable.result.target_revision, 3);
+  assert.equal(durable.result.rollover_from_target_revision, 2);
+  assert.ok(durable.result.relay_confirmed_at);
+  assert.deepEqual(durable.identity_history.result_ids, ["R1"]);
+});

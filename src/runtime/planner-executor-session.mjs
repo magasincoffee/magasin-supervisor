@@ -27,28 +27,89 @@ export function validatePlannerExecutorTargets(plannerUrl, executorUrl) {
 
 export async function acquirePlannerExecutorWarmTabs(
   adapter,
-  { plannerUrl, executorUrl } = {}
+  {
+    plannerUrl,
+    executorUrl,
+    previousPlannerUrl = "",
+    previousExecutorUrl = ""
+  } = {}
 ) {
   if (!adapter) throw new TypeError("adapter is required");
   const targets = validatePlannerExecutorTargets(plannerUrl, executorUrl);
 
+  const parsePrevious = (value) => {
+    if (!value) return null;
+    try {
+      return targetFromUrl(String(value));
+    } catch {
+      return null;
+    }
+  };
+  const previousTargets = [
+    parsePrevious(previousPlannerUrl),
+    parsePrevious(previousExecutorUrl)
+  ].filter((target) =>
+    target &&
+    !sameTarget(target, targets.planner) &&
+    !sameTarget(target, targets.executor)
+  );
+
   await adapter.open();
 
-  const plannerPage =
-    adapter.findPageForTarget(targets.planner) ||
-    await adapter.reopenTargetPage(plannerUrl);
-  const executorPage =
-    adapter.findPageForTarget(targets.executor) ||
-    await adapter.reopenTargetPage(executorUrl);
+  const acquireRolePage = async (url, target, previousTarget) => {
+    const exact = adapter.findPageForTarget(target);
+    if (exact) return exact;
+    if (previousTarget && !sameTarget(previousTarget, target)) {
+      const retiredPage = adapter.findPageForTarget(previousTarget);
+      if (retiredPage) {
+        const guarded = await adapter.hasNonPersistedComposerArtifact(retiredPage)
+          .catch(() => true);
+        if (guarded) {
+          throw new Error(
+            "superseded ChatGPT role tab contains a non-persisted composer artifact"
+          );
+        }
+        await adapter.closePage(retiredPage);
+      }
+    }
+    return adapter.reopenTargetPage(url);
+  };
+
+  const plannerPage = await acquireRolePage(
+    plannerUrl,
+    targets.planner,
+    parsePrevious(previousPlannerUrl)
+  );
+  const executorPage = await acquireRolePage(
+    executorUrl,
+    targets.executor,
+    parsePrevious(previousExecutorUrl)
+  );
 
   if (plannerPage === executorPage) {
     throw new Error("Planner and Executor resolved to the same browser page");
   }
 
-  // The forward runtime owns only two warm ChatGPT tabs. Remove only an empty
-  // landing tab with no draft; never close an unrelated conversation.
+  // The forward runtime owns only two warm ChatGPT tabs. A conversation that
+  // exactly matches a Supervisor-recorded superseded role target may be closed
+  // after a draft guard; unrelated conversations still fail closed.
   for (const page of adapter.getChatGptPages()) {
     if (page === plannerPage || page === executorPage) continue;
+    const pageUrl = page.url();
+    const retired = previousTargets.some((target) =>
+      pageMatchesTarget(pageUrl, target)
+    );
+    if (retired) {
+      const guarded = await adapter.hasNonPersistedComposerArtifact(page)
+        .catch(() => true);
+      if (guarded) {
+        throw new Error(
+          "superseded ChatGPT role tab contains a non-persisted composer artifact"
+        );
+      }
+      await adapter.closePage(page);
+      continue;
+    }
     if (!isBlankChatGptPage(page)) {
       throw new Error(
         "unexpected extra ChatGPT conversation blocks exact two-tab topology"
