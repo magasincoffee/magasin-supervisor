@@ -72,7 +72,8 @@
     "progress_bar_source": "PLANNER_PC_PT_FROM_SOURCE_OF_TRUTH",
     "reset_clears_all_project_session_data": true,
     "reset_preserves_browser_login_runtime_and_runner": true,
-    "canonical_stale_bootstrap_cleanup_survives_link_only_identity_reset": true
+    "canonical_stale_bootstrap_cleanup_survives_link_only_identity_reset": true,
+    "canonical_bootstrap_ownership_render_equivalent": true
   },
   "protocol": {
     "marker": "@M ",
@@ -142,7 +143,14 @@
         "embedded_identity_reconstruction": true,
         "current_runtime_identity_may_differ": true,
         "action": "DISMISS_TRANSIENT_UI_GUARDED_CLEAR_AND_RECOMPOSE_CURRENT_LIVE_SESSION",
-        "foreign_or_modified_draft": "FAIL_CLOSED_NO_OVERWRITE"
+        "foreign_or_modified_draft": "FAIL_CLOSED_NO_OVERWRITE",
+        "ownership_normalization": [
+          "CRLF_TO_LF",
+          "NBSP_TO_SPACE",
+          "REMOVE_ZERO_WIDTH",
+          "COLLAPSE_WHITESPACE"
+        ],
+        "guarded_clear_digest": "EXACT_LIVE_COMPOSER_DIGEST"
       },
       "historical_bootstrap_templates": [
         "legacy raw @M",
