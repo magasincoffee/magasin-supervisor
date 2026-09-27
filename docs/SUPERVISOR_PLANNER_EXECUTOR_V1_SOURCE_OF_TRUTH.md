@@ -360,7 +360,7 @@ Live evidence proved:
 - qualification-owned Chrome cleaned up after PASS;
 - authority gate accepted only the real target runner; non-target runner could not satisfy qualification.
 
-**Production cutover remains false.** PE-007 qualification is complete, but production must not switch from the released Three-Lane baseline until the Owner explicitly authorizes cutover. The next gate is therefore **EXPLICIT_OWNER_CUTOVER_AUTHORIZATION**.
+**Owner cutover authorization is now explicit and recorded (2026-09-27).** Production cutover remains false until the guarded target-machine cutover workflow proves PASS. The next gate is **PRODUCTION_CUTOVER_EXECUTION**, with automatic rollback required on failed mutation.
 
 The exact released legacy runtime snapshot must remain available for rollback through cutover.
 
