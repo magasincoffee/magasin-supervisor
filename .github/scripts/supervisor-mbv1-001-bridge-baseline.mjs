@@ -3,10 +3,13 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { chromium } from "playwright-core";
 
-const [cdpUrl, bridgeBase, resultPath, bridgeCommit, userscriptSha256] = process.argv.slice(2);
-if (!cdpUrl || !bridgeBase || !resultPath || !bridgeCommit || !userscriptSha256) {
-  throw new Error("usage: node supervisor-mbv1-001-bridge-baseline.mjs <cdpUrl> <bridgeBase> <resultPath> <bridgeCommit> <userscriptSha256>");
+const [cdpUrl, bridgeBase, resultPath, bridgeCommit, userscriptSha256, userscriptPath] = process.argv.slice(2);
+if (!cdpUrl || !bridgeBase || !resultPath || !bridgeCommit || !userscriptSha256 || !userscriptPath) {
+  throw new Error("usage: node supervisor-mbv1-001-bridge-baseline.mjs <cdpUrl> <bridgeBase> <resultPath> <bridgeCommit> <userscriptSha256> <userscriptPath>");
 }
+
+const userscriptText = await fs.readFile(userscriptPath, "utf8");
+const expectedBridgeOrigin = new URL(bridgeBase).origin;
 
 const startedAt = new Date().toISOString();
 
@@ -91,6 +94,77 @@ function turnsContain(snapshot, token) {
   return haystack.includes(token);
 }
 
+async function installUserscriptTransport(context, page) {
+  await context.exposeBinding("__mbv1BridgeRequest", async (_source, request = {}) => {
+    const target = new URL(String(request.url || ""));
+    if (target.origin !== expectedBridgeOrigin) {
+      throw new Error("qualification GM bridge rejected non-local target");
+    }
+
+    const controller = new AbortController();
+    const timeoutMs = Math.max(1, Number(request.timeout || 10_000));
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(target, {
+        method: String(request.method || "GET"),
+        headers: request.headers || {},
+        body: request.body == null ? undefined : String(request.body),
+        signal: controller.signal
+      });
+      return {
+        status: response.status,
+        responseText: await response.text()
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }).catch((error) => {
+    if (!String(error?.message || error).includes("has been already registered")) throw error;
+  });
+
+  await page.evaluate(() => {
+    globalThis.GM_xmlhttpRequest = function mbv1GmXmlHttpRequest(options = {}) {
+      const timeoutMs = Math.max(1, Number(options.timeout || 10_000));
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        if (typeof options.ontimeout === "function") options.ontimeout();
+      }, timeoutMs + 500);
+
+      globalThis.__mbv1BridgeRequest({
+        method: options.method || "GET",
+        url: String(options.url || ""),
+        headers: options.headers || {},
+        body: options.data == null ? null : options.data,
+        timeout: timeoutMs
+      }).then((response) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (typeof options.onload === "function") {
+          options.onload({
+            status: response.status,
+            responseText: response.responseText || ""
+          });
+        }
+      }).catch((error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (typeof options.onerror === "function") options.onerror(error);
+      });
+    };
+    globalThis.GM = {
+      ...(globalThis.GM || {}),
+      xmlHttpRequest: globalThis.GM_xmlhttpRequest
+    };
+  });
+
+  const runner = new Function(userscriptText);
+  await page.evaluate(runner);
+}
+
 let browser = null;
 let plannerPage = null;
 let executorPage = null;
@@ -113,6 +187,9 @@ try {
     plannerPage.goto("https://chatgpt.com/?mbv1_role=planner", { waitUntil: "domcontentloaded", timeout: 60_000 }),
     executorPage.goto("https://chatgpt.com/?mbv1_role=executor", { waitUntil: "domcontentloaded", timeout: 60_000 })
   ]);
+
+  await installUserscriptTransport(context, plannerPage);
+  await installUserscriptTransport(context, executorPage);
 
   for (const page of context.pages()) {
     if (page !== plannerPage && page !== executorPage) {
@@ -207,7 +284,7 @@ try {
   await writeResult({
     status: "PASS",
     target_surface: "ISOLATED_CLONED_WINDOWS_CHROME_PROFILE",
-    userscript_transport: "PINNED_UPSTREAM_USERSCRIPT_WITH_QUALIFICATION_EXTENSION_GM_SHIM",
+    userscript_transport: "PINNED_UPSTREAM_USERSCRIPT_WITH_PLAYWRIGHT_EXPOSED_GM_BRIDGE",
     bridge_service_online: true,
     bridge_status: finalStatus,
     planner_connected: true,
