@@ -39,6 +39,10 @@ test("PE-007 workflow is isolated, target guarded, and does not cut over product
   assert.match(workflow, /runs-on: self-hosted/);
   assert.match(workflow, /DESKTOP-4K7IM13/);
   assert.match(workflow, /supervisor-pe007-live-qualification\.ps1/);
+  assert.match(workflow, /qualification-authority/);
+  assert.match(workflow, /PE007_AUTHORITY_GATE=PASS/);
+  assert.match(workflow, /attempt-1\.outputs\.qualified/);
+  assert.match(workflow, /attempt-2\.outputs\.qualified/);
   assert.doesNotMatch(workflow, /start-supervisor\.ps1/);
   assert.doesNotMatch(workflow, /repair-supervisor\.ps1/);
   assert.doesNotMatch(workflow, /stop-supervisor\.ps1/);
