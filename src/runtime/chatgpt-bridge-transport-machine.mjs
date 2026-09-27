@@ -241,6 +241,33 @@ export class ChatGptBridgeTransportMachine {
     return TERMINAL_PHASES.has(this.state.phase);
   }
 
+  replaceBinding(binding) {
+    if (this.state.in_flight) {
+      throw new ChatGptBridgeTransportError(
+        "Cannot replace role binding while transport outcome is ambiguous",
+        { code: "AMBIGUOUS_IN_FLIGHT" }
+      );
+    }
+
+    const next = clone(requireBinding(binding));
+    if (
+      next.planner.canonical_target !== this.binding.planner.canonical_target ||
+      next.executor.canonical_target !== this.binding.executor.canonical_target
+    ) {
+      throw new ChatGptBridgeTransportError(
+        "Binding replacement changed canonical Planner/Executor identity",
+        { code: "ROLE_IDENTITY_CHANGED" }
+      );
+    }
+
+    this.binding = next;
+    this.state.role_page_ids = {
+      planner: next.planner.page_id,
+      executor: next.executor.page_id
+    };
+    return this.snapshot();
+  }
+
   async start(plannerBootstrapMessage) {
     assertPhase(
       this.state,
