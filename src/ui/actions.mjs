@@ -240,7 +240,8 @@ export async function inspectComposerDraftDigest(
   return {
     ready: true,
     has_text: true,
-    digest: normalizedComposerDigest(normalized)
+    digest: normalizedComposerDigest(normalized),
+    normalized_text: normalized
   };
 }
 
@@ -286,6 +287,22 @@ export async function discardComposerDraftIfDigest(
       discarded: false,
       reason: "composer draft digest mismatch"
     };
+  }
+
+  // Ownership is proven by the exact digest above. Close transient ChatGPT
+  // mention/file UI before clearing the Robot-owned draft so a stale @M
+  // autocomplete cannot retain focus or intercept the next send attempt.
+  try {
+    await composer.click({ timeout: 1_000 }).catch(() => {});
+    if (page.keyboard && typeof page.keyboard.press === "function") {
+      await page.keyboard.press("Escape").catch(() => {});
+      await page.keyboard.press("Escape").catch(() => {});
+    } else if (typeof composer.press === "function") {
+      await composer.press("Escape", { timeout: 1_000 }).catch(() => {});
+      await composer.press("Escape", { timeout: 1_000 }).catch(() => {});
+    }
+  } catch {
+    // Continue to the guarded clear; the digest check remains the authority.
   }
 
   const cleared = await clearComposerText(page, { timeoutMs });
