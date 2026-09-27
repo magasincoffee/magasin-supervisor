@@ -74,7 +74,10 @@ function Write-Candidate {
     '--authorized-at', $authorizedAt,
     '--source-revision', $sourceRevision
   )
-  & node @candidateArgs
+  # External-command stdout must not leak into this PowerShell function's
+  # return pipeline; otherwise callers receive an array of log strings plus
+  # the candidate object and StrictMode property access fails.
+  & node @candidateArgs | Out-Host
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path $candidatePath)) {
     throw 'Planner/Executor cutover candidate generation failed.'
   }
