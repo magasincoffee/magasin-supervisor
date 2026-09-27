@@ -1,10 +1,10 @@
-> **Canonical forward architecture:** Planner / Executor V1 is the approved forward Source of Truth. Planner and Executor are two normal ChatGPT conversations; ChatGPT Work mode is not part of the orchestration path. Supervisor local durable state remains authoritative. Planner/Executor V1 has passed PE-007 live qualification and explicit Owner cutover authorization is recorded; guarded production cutover execution is pending.
+> **Canonical production architecture:** Planner / Executor V1 is active production. Planner and Executor are two normal ChatGPT conversations; ChatGPT Work mode is not part of the orchestration path. Supervisor local durable state remains authoritative. PE-007 production cutover PASS is recorded by workflow run `36299510864` and evidence commit `542460e7fc4c34f234f7e7c214b541b54d5b9c65`.
 >
 > Canonical authority:
 > - `docs/SUPERVISOR_PLANNER_EXECUTOR_V1_SOURCE_OF_TRUTH.md`
 > - `docs/SUPERVISOR_PLANNER_EXECUTOR_V1_SOURCE_OF_TRUTH.json`
 >
-> The currently released Three-Lane runtime remains the production/rollback baseline until PE-007 qualification and explicit Owner cutover. Unmerged Single-Lane V3 PRs #102, #103, #104, #105, #106 and #108 are superseded and must not be merged as-is.
+> The former Three-Lane runtime is no longer active production; it is retained only as rollback/historical evidence.
 
 > **Canonical migration state:** `MAGASIN_SUPERVISOR_INDEPENDENT_REPOSITORY_V1` is **COMPLETE**. MIG-005 production cutover is complete; MIG-006 / TASK-RBT-009 is complete and released; MIG-007 final cleanup removed the authorized legacy Business OS Supervisor surface and closed the active source-code rollback window.
 
