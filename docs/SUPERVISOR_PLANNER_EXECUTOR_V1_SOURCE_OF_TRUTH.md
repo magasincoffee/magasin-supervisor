@@ -173,7 +173,9 @@ Composer send safety for the `@M` machine frame:
 - ChatGPT may interpret literal `@M` inside a Robot-authored prompt as an @-mention/file trigger and open a Files/Tệp suggestion popover above the composer;
 - **Robot-authored outbound instructions MUST NOT contain literal `@M` examples.** They transport examples as `<AT>M`, explicitly define `<AT>` as U+0040, and instruct Planner/Executor to emit the real U+0040 + `M` prefix in the assistant response;
 - inbound assistant machine frames remain canonical `@M {...}` and are parsed/correlated exactly as before; the transport encoding changes only Robot-to-ChatGPT prompt text, not the protocol;
-- legacy/raw prompts may still be encountered after recovery, so Supervisor keeps the bounded mention-popover dismissal path as defense in depth;
+- legacy/raw prompts may still be encountered after recovery. If the live composer draft digest exactly matches the canonical pre-transport Robot bootstrap text, Supervisor may guarded-discard that exact legacy Robot-owned draft, clear only its send-attempt latch, and resend the mention-safe `<AT>M` bootstrap;
+- any non-matching populated draft remains foreign/Owner-authored and blocks automatic overwrite;
+- Supervisor also keeps the bounded mention-popover dismissal path as defense in depth;
 - an open mention/file popover is never treated as evidence that the prompt was submitted.
 
 Dedicated browser continuity:
