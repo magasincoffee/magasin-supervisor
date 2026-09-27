@@ -575,7 +575,7 @@ Until MBV1-008 PASS and explicit cutover: bridge_cutover=false and production co
 
 ### 15.8 Next-task authority
 
-program=MAGASIN_BRIDGE_V1; current_task=MBV1-004; pc=3; pt=8; status=READY_TO_EXECUTE. Planner MUST select MBV1-004 next. MBV1-005 and later tasks remain blocked by dependency order.
+program=MAGASIN_BRIDGE_V1; current_task=MBV1-007; pc=6; pt=8; status=IN_PROGRESS. Planner MUST select MBV1-004 next. MBV1-005 and later tasks remain blocked by dependency order.
 
 
 ### 15.9 MBV1-001 implementation evidence
@@ -781,3 +781,20 @@ MBV1-006 is now the current implementation task.
 Status: **IN_PROGRESS** (pc remains 5 / pt 8).
 
 MBV1-006 must bind the link-only START inputs (Source of Truth URL, Planner Chat URL, Executor Chat URL) to the merged Bridge role binding, send the canonical Planner bootstrap through the Bridge, require Planner-reported `pc/pt`, and begin the validated protocol loop without creating any local project authority. Production cutover remains false.
+
+
+### 15.14 MBV1-006 completion evidence
+
+Status: **COMPLETE**.
+
+- PR: #181;
+- final head: `30e8f5e1092e352f1b5d9696db5f138a43af3bb5`;
+- merge commit: `be7bd4a1c218640aac274216efb5e233f4623702`;
+- link-only Source of Truth + Planner + Executor inputs validated;
+- exact Bridge role binding reused;
+- mention-safe `MAGASIN_PROJECT_BOOTSTRAP_V1` sent only to Planner;
+- strict `p/g/pc/pt` enforced before downstream dispatch;
+- ambiguous bootstrap send fails closed without automatic resend;
+- production cutover remains false.
+
+Current progress: `pc=6 / pt=8` (75%). Next task: **MBV1-007 — Reliability Layer**.
