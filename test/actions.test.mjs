@@ -5,6 +5,7 @@ import { ACTIONS } from "../src/decision.mjs";
 import {
   discardComposerDraftIfDigest,
   executeDecision,
+  inspectComposerDraftDigest,
   sendComposerInstruction
 } from "../src/ui/actions.mjs";
 
@@ -662,6 +663,29 @@ test("composer clear alone is not accepted without a matching new user turn", as
   assert.equal(result.user_turn_evidence, "matching-user-turn-not-observed");
 });
 
+test("composer draft inspection returns normalized text for guarded bootstrap-family recovery", async () => {
+  let composerText = "MAGASIN_PROJECT_BOOTSTRAP_V1\r\nproject_id=WEB\r\n";
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async inputValue() { return composerText; }
+  };
+  const page = {
+    locator() { return composer; },
+    async waitForTimeout() {}
+  };
+
+  const inspected = await inspectComposerDraftDigest(page);
+  assert.equal(inspected.has_text, true);
+  assert.equal(
+    inspected.normalized_text,
+    "MAGASIN_PROJECT_BOOTSTRAP_V1\nproject_id=WEB"
+  );
+  assert.match(inspected.digest, /^[0-9a-f]{64}$/);
+});
+
 test("guarded stale draft discard clears only an exact digest match", async () => {
   let composerText = "stale brain request";
   const crypto = await import("node:crypto");
@@ -681,12 +705,17 @@ test("guarded stale draft discard clears only an exact digest match", async () =
       if (key === "Backspace") composerText = "";
     }
   };
+  const events = [];
   const page = {
     locator() { return composer; },
+    keyboard: {
+      async press(key) { events.push(key); }
+    },
     async waitForTimeout() {}
   };
 
   const cleared = await discardComposerDraftIfDigest(page, digest);
+  assert.deepEqual(events.slice(0, 2), ["Escape", "Escape"]);
   assert.equal(cleared.discarded, true);
   assert.equal(composerText, "");
 
