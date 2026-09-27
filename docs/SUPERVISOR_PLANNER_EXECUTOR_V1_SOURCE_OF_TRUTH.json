@@ -131,13 +131,18 @@
     {
       "id": "PE-004",
       "priority": "P1",
-      "state": "READY_TO_EXECUTE",
-      "name": "Exact-once and recovery"
+      "state": "IMPLEMENTED_COMPLETE",
+      "name": "Exact-once and recovery",
+      "pr": 131,
+      "merge_sha": "f6122c448432b1ee7d3118510c1791e2ffe45105",
+      "acceptance_status": "REGRESSION_GREEN",
+      "supervisor_tests_run": 36292966975,
+      "supervisor_integrity_run": 36292966966
     },
     {
       "id": "PE-005",
       "priority": "P2",
-      "state": "PLANNED",
+      "state": "READY_TO_EXECUTE",
       "name": "Legacy-state migration adapter"
     },
     {
@@ -240,5 +245,24 @@
     "chatgpt_work_mode_invocations": 0,
     "production_cutover": false,
     "three_lane_scheduler_dependency": false
+  },
+  "pe004_evidence": {
+    "pr": 131,
+    "merge_sha": "f6122c448432b1ee7d3118510c1791e2ffe45105",
+    "supervisor_tests_run": 36292966975,
+    "supervisor_tests": "PASS",
+    "supervisor_integrity_run": 36292966966,
+    "supervisor_integrity": "PASS",
+    "supervisor_lifecycle_run": 36292967002,
+    "supervisor_lifecycle": "PASS",
+    "supervisor_autostart_run": 36292966990,
+    "supervisor_autostart_isolated": "PASS",
+    "persisted_outbound_user_turn_baseline": true,
+    "bounded_identity_history": true,
+    "historical_identical_text_false_confirmation_blocked": true,
+    "matching_new_user_turn_reconciliation": true,
+    "exact_digest_draft_recovery": true,
+    "ambiguous_send_no_duplicate": true,
+    "result_relay_restart_no_duplicate": true
   }
 }
