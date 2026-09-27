@@ -442,6 +442,16 @@ Authoritative production cutover evidence:
 
 The production runtime is now Planner/Executor V1. Three-Lane remains available only through the retained rollback snapshot/historical release evidence.
 
+**Post-cutover production stability rules**
+
+- PE-001/PE-007 live qualification and PE-007 production cutover are certification/maintenance workflows after cutover; they are **Owner-triggered only** via `workflow_dispatch` and MUST NOT auto-run on ordinary `main` pushes.
+- Qualification MUST NOT open ephemeral ChatGPT conversations inside the same dedicated production browser while the live Planner/Executor runtime is operating.
+- Deployment authority MUST treat a live `PLANNER_EXECUTOR_V1` wrapper as an active runtime even when all legacy lane `enabled` flags are false.
+- A normal code hotpatch while Planner/Executor is active MUST preserve the dedicated Chrome process/profile and the two production chat tabs. It may restart only the Planner/Executor Node child so the wrapper reloads the new source.
+- A deployment may retire/force-stop dedicated Robot Chrome only when neither legacy lane runtime nor Planner/Executor runtime is active.
+- Hotpatch must preserve `project_id`, `project_generation`, Planner target and Executor target across the child restart.
+- Browser crash-recovery UI such as **“Restore pages? Chrome didn't shut down correctly.”** during a routine hotpatch is evidence of an invalid deployment path and must not be treated as normal operation.
+
 
 ## 11. Non-goals before PE-001 is proven
 

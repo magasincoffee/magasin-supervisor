@@ -1,16 +1,6 @@
 name: PE-001 Live Planner Executor Qualification
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/supervisor-pe001-live-qualification.yml'
-      - '.github/scripts/supervisor-pe001-live-qualification.ps1'
-      - '.github/scripts/supervisor-pe001-live-qualification.mjs'
-      - 'src/runtime/planner-executor.mjs'
-      - 'src/ui/latest-turn.mjs'
-      - 'src/ui/actions.mjs'
   workflow_dispatch:
 
 permissions:

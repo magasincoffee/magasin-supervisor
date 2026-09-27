@@ -58,7 +58,13 @@
     "submit_diagnostics_are_bounded": true,
     "geometric_send_fallback_scoped_to_composer_form": true,
     "geometric_send_fallback_is_submission_evidence": false,
-    "bootstrap_status_publishes_chatgpt_tabs_before_send": true
+    "bootstrap_status_publishes_chatgpt_tabs_before_send": true,
+    "live_qualification_auto_runs_on_main_push": false,
+    "production_cutover_auto_runs_on_main_push": false,
+    "planner_executor_active_runtime_independent_of_legacy_lane_enabled_count": true,
+    "active_planner_executor_hotpatch_may_kill_dedicated_chrome": false,
+    "active_planner_executor_hotpatch_restarts_only_node_child": true,
+    "routine_hotpatch_may_trigger_chrome_restore_pages": false
   },
   "protocol": {
     "marker": "@M ",
@@ -547,6 +553,30 @@
         "other_project_profiles"
       ],
       "generation": "INCREMENT_AND_REBOOTSTRAP_SOURCE_OF_TRUTH"
+    }
+  },
+  "production": {
+    "post_cutover_workflow_policy": {
+      "pe001_live_qualification": "OWNER_WORKFLOW_DISPATCH_ONLY",
+      "pe007_live_qualification": "OWNER_WORKFLOW_DISPATCH_ONLY",
+      "pe007_production_cutover": "OWNER_WORKFLOW_DISPATCH_ONLY"
+    },
+    "hotpatch_policy": {
+      "active_runtime_detection": [
+        "LEGACY_ENABLED_LANE",
+        "PLANNER_EXECUTOR_V1_WRAPPER"
+      ],
+      "preserve": [
+        "DEDICATED_CHROME",
+        "BROWSER_PROFILE",
+        "PRODUCTION_CHAT_TABS",
+        "project_id",
+        "project_generation",
+        "planner.target",
+        "executor.target"
+      ],
+      "restart": "PLANNER_EXECUTOR_NODE_CHILD_ONLY",
+      "full_browser_retirement": "ONLY_WHEN_NO_RUNTIME_ACTIVE"
     }
   }
 }

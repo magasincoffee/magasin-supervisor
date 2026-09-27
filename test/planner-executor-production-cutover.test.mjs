@@ -410,6 +410,19 @@ test("cutover timeout emits privacy-safe runtime/startup diagnostics before roll
   assert.doesNotMatch(diagBlock, /cutover_bootstrap\.message/);
 });
 
+test("live Planner/Executor qualification and cutover workflows are Owner-triggered only after production certification", async () => {
+  const workflows = await Promise.all([
+    fs.readFile(new URL("../.github/workflows/supervisor-pe001-live-qualification.yml", import.meta.url), "utf8"),
+    fs.readFile(new URL("../.github/workflows/supervisor-pe007-live-qualification.yml", import.meta.url), "utf8"),
+    fs.readFile(new URL("../.github/workflows/supervisor-pe007-production-cutover.yml", import.meta.url), "utf8")
+  ]);
+
+  for (const workflow of workflows) {
+    assert.match(workflow, /workflow_dispatch:/);
+    assert.doesNotMatch(workflow, /^\s{2}push:/m);
+  }
+});
+
 test("production cutover script has rollback, double preflight, and explicit target authority", async () => {
   const source = await fs.readFile(
     new URL(
