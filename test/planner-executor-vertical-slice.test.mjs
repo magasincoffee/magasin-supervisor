@@ -380,8 +380,22 @@ test("latest-turn observation implementation does not call historical capture he
     "utf8"
   );
   assert.match(source, /captureLatestRoleTurn/);
-  assert.match(source, /lastVisible/);
+  assert.match(source, /Reverse-walk from the end/);
   assert.doesNotMatch(source, /captureConversationTurns/);
   assert.doesNotMatch(source, /captureRecentConversationTurns/);
   assert.doesNotMatch(source, /limit:\s*120/);
+});
+
+
+test("Planner/Executor forward runtime has no scheduler or ChatGPT Work mode dependency", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/planner-executor.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.doesNotMatch(source, /browser-scheduler/i);
+  assert.doesNotMatch(source, /three-lane/i);
+  assert.doesNotMatch(source, /ChatGPT Work/i);
+  assert.doesNotMatch(source, /MAGASIN_WORK_DISPATCH_V1/);
+  assert.match(source, /plannerPage/);
+  assert.match(source, /executorPage/);
 });
