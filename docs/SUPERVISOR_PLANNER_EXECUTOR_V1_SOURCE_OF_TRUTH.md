@@ -203,7 +203,7 @@ Automation must never preserve unnecessary complexity merely because it already 
 
 ## 10. Implementation roadmap
 
-### PE-001 — P0 / IMPLEMENTED CANDIDATE
+### PE-001 — P0 / QUALIFIED COMPLETE
 **Planner/Executor minimal end-to-end vertical slice**
 
 Implementation PR #120 merged at `4ba8d836dc227b312ede15a9f176be6ed4a6de85`.
@@ -215,7 +215,18 @@ Current evidence:
 - Supervisor Autostart Install run `36288896093`: isolated contract **PASS**;
 - PE-001 focused tests prove 3-send happy path, durable-before-send ordering, exact-digest populated-draft recovery, foreign-draft preservation, and restart no-duplicate fail-closed behavior.
 
-**Production cutover remains false. Live Planner/Executor qualification is still pending; PE-001 must not be described as production-released.**
+**PE-001 live Planner/Executor qualification PASSED on run `36291749758`, target job `108543035889`, at main `0fb8b5112e4e2a77b08966616d2be4a0e065cb01`.**
+
+Live evidence proved:
+- target machine `DESKTOP-4K7IM13`;
+- exactly **2 normal ChatGPT chats** for Planner + Executor;
+- **0 ChatGPT Work mode invocations**;
+- Planner `assign` -> Executor `report` -> Planner `accept_assign` -> next Executor assignment;
+- exactly **3 cycle sends**, each confirmed by `matching-user-turn-observed`;
+- production state, production targets and state-root binding unchanged;
+- qualification-owned Chrome cleaned up after PASS.
+
+**Production cutover remains false. PE-001 is qualified, not production-cutover. PE-002 is the next execution task.**
 
 Primary outcome: prove the new architecture end-to-end on top of current main without broad legacy cleanup.
 
