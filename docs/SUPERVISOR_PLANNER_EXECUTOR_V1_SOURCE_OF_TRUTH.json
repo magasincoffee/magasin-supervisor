@@ -64,7 +64,8 @@
     "planner_executor_active_independent_of_legacy_lane_count": true,
     "active_planner_executor_hotpatch_must_preserve_dedicated_chrome": true,
     "planner_executor_control_center_scrollable_viewport": true,
-    "canonical_historical_bootstrap_draft_auto_recovery": true
+    "canonical_historical_bootstrap_draft_auto_recovery": true,
+    "bootstrap_retry_reacquires_exact_chat_targets": true
   },
   "protocol": {
     "marker": "@M ",
@@ -106,7 +107,9 @@
       "safe_rearm_condition": "latest_user_turn_id_equals_persisted_baseline_user_turn_id",
       "ambiguous_or_changed_user_turn": "FAIL_CLOSED_NO_RESEND",
       "recoverable_phase_suffix": "BOOTSTRAP_RETRY",
-      "backoff": "BOUNDED"
+      "backoff": "BOUNDED",
+      "reacquire_targets_each_retry": true,
+      "reassert_two_normal_chat_topology": true
     },
     "send_path_liveness": {
       "mention_dismiss_before_diagnostics": true,
