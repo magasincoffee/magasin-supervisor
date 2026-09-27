@@ -267,6 +267,15 @@ function buildLegacyProjectContextBootstrapMessage(state) {
   ].join("\n");
 }
 
+function normalizeBootstrapOwnershipText(value) {
+  return String(value || "")
+    .replace(/\u200B/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\u00A0/g, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
 function matchCanonicalHistoricalProjectBootstrapDraft(draft, state) {
   if (draft?.has_text !== true || !draft.normalized_text) return null;
   const text = String(draft.normalized_text);
@@ -315,11 +324,15 @@ function matchCanonicalHistoricalProjectBootstrapDraft(draft, state) {
     buildProjectContextBootstrapMessage(historicalState)
   ];
   const observedDigest = composerInstructionDigest(text);
+  const observedOwnershipText = normalizeBootstrapOwnershipText(text);
   for (const candidate of candidates) {
-    const candidateDigest = composerInstructionDigest(candidate);
-    if (candidateDigest === observedDigest) {
+    if (
+      normalizeBootstrapOwnershipText(candidate) === observedOwnershipText
+    ) {
       return {
-        digest: candidateDigest,
+        // Ownership is proven modulo render-only whitespace, but guarded clear
+        // must use the exact digest of the CURRENT composer surface.
+        digest: observedDigest,
         generation,
         transport: candidate.includes("<AT>M") ? "mention-safe" : "legacy-raw-at"
       };
