@@ -1,32 +1,24 @@
 import {
   ChatGptBridgeError
 } from "./chatgpt-bridge-adapter.mjs";
-
-const CHATGPT_HOSTS = new Set(["chatgpt.com", "chat.openai.com"]);
+import {
+  targetFromUrl
+} from "./recovery.mjs";
 
 function normalizeConversationUrl(value, label) {
-  let url;
   try {
-    url = new URL(String(value || ""));
+    const target = targetFromUrl(String(value || ""));
+    return {
+      origin: target.origin,
+      pathname: target.pathname,
+      canonical_url: target.origin + target.pathname
+    };
   } catch (error) {
-    throw new ChatGptBridgeError(label + " is not a valid URL", {
+    throw new ChatGptBridgeError(label + " must be an exact ChatGPT conversation URL", {
       code: "INVALID_CHAT_TARGET_URL",
       cause: error
     });
   }
-
-  if (url.protocol !== "https:" || !CHATGPT_HOSTS.has(url.hostname)) {
-    throw new ChatGptBridgeError(label + " must be a ChatGPT HTTPS URL", {
-      code: "INVALID_CHAT_TARGET_URL"
-    });
-  }
-
-  const pathname = url.pathname.replace(/\/+$/, "") || "/";
-  return {
-    origin: url.origin,
-    pathname,
-    canonical_url: url.origin + pathname
-  };
 }
 
 function sameTarget(a, b) {
