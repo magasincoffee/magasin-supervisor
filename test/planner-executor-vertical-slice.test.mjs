@@ -399,3 +399,116 @@ test("Planner/Executor forward runtime has no scheduler or ChatGPT Work mode dep
   assert.match(source, /plannerPage/);
   assert.match(source, /executorPage/);
 });
+
+
+test("project-aware Planner frame persists Source-of-Truth progress and anchors Executor message", async () => {
+  const statePath = await tempStatePath();
+  const h = makeHarness();
+  const state = defaultPlannerExecutorState({
+    projectId: "UI2",
+    plannerTarget: "https://chatgpt.com/c/11111111-1111-1111-1111-111111111111",
+    executorTarget: "https://chatgpt.com/c/22222222-2222-2222-2222-222222222222"
+  });
+  state.project_generation = 4;
+  state.project_name = "UI2";
+  state.project_context = {
+    source_of_truth_url: "https://github.com/example/ui2/blob/main/SOURCE_OF_TRUTH.md",
+    strict_correlation: true
+  };
+  await writePlannerExecutorState(statePath, state);
+
+  h.turns.planner.assistant = {
+    turn_id: "planner-project-turn-1",
+    text: [
+      "Implement UI2-018 from canonical project truth.",
+      '@M {"v":1,"a":"assign","p":"UI2","g":4,"t":"UI2-018","i":"A018","pc":17,"pt":24}'
+    ].join("\n")
+  };
+
+  const first = await runPlannerExecutorStep({
+    statePath,
+    projectId: "UI2",
+    plannerPage: h.plannerPage,
+    executorPage: h.executorPage,
+    captureTurn: h.captureTurn,
+    inspectDraft: h.inspectDraft,
+    sendInstruction: h.sendInstruction
+  });
+
+  assert.equal(first.phase, "PLANNER_ASSIGN");
+  assert.equal(first.state.project_progress.known, true);
+  assert.equal(first.state.project_progress.completed_tasks, 17);
+  assert.equal(first.state.project_progress.total_tasks, 24);
+  assert.equal(first.state.project_progress.percent, 71);
+  assert.match(h.sends[0].message, /Project: UI2/);
+  assert.match(h.sends[0].message, /Project generation: 4/);
+  assert.match(h.sends[0].message, /Canonical Source of Truth:/);
+  assert.match(h.sends[0].message, /"p":"UI2","g":4/);
+});
+
+test("strict project correlation rejects a stale frame from another project generation", async () => {
+  const statePath = await tempStatePath();
+  const h = makeHarness();
+  const state = defaultPlannerExecutorState({ projectId: "UI2" });
+  state.project_generation = 5;
+  state.project_context = {
+    source_of_truth_url: "https://example.com/ui2-source",
+    strict_correlation: true
+  };
+  await writePlannerExecutorState(statePath, state);
+
+  h.turns.planner.assistant = {
+    turn_id: "stale-project-turn",
+    text: [
+      "stale",
+      '@M {"v":1,"a":"assign","p":"UI2","g":4,"t":"UI2-999","i":"A999","pc":1,"pt":10}'
+    ].join("\n")
+  };
+
+  await assert.rejects(
+    runPlannerExecutorStep({
+      statePath,
+      projectId: "UI2",
+      plannerPage: h.plannerPage,
+      executorPage: h.executorPage,
+      captureTurn: h.captureTurn,
+      inspectDraft: h.inspectDraft,
+      sendInstruction: h.sendInstruction
+    }),
+    /project_generation correlation mismatch/
+  );
+  assert.equal(h.sends.length, 0);
+});
+
+test("Planner may declare a freshly bootstrapped project already complete before assignment", async () => {
+  const statePath = await tempStatePath();
+  const h = makeHarness();
+  const state = defaultPlannerExecutorState({ projectId: "DONEPROJ" });
+  state.project_generation = 2;
+  state.project_context = {
+    source_of_truth_url: "https://example.com/done",
+    strict_correlation: true
+  };
+  await writePlannerExecutorState(statePath, state);
+
+  h.turns.planner.assistant = {
+    turn_id: "done-project-turn",
+    text: [
+      "Source of Truth shows every task complete.",
+      '@M {"v":1,"a":"done","p":"DONEPROJ","g":2,"pc":12,"pt":12}'
+    ].join("\n")
+  };
+
+  const result = await runPlannerExecutorStep({
+    statePath,
+    projectId: "DONEPROJ",
+    plannerPage: h.plannerPage,
+    executorPage: h.executorPage,
+    captureTurn: h.captureTurn,
+    inspectDraft: h.inspectDraft,
+    sendInstruction: h.sendInstruction
+  });
+  assert.equal(result.phase, "PLANNER_DONE");
+  assert.equal(result.state.project_progress.percent, 100);
+  assert.equal(h.sends.length, 0);
+});

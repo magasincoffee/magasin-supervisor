@@ -155,6 +155,118 @@ async function ensureProductionPlannerBootstrap({
   return state;
 }
 
+function buildProjectContextBootstrapMessage(state) {
+  const sourceUrl = String(
+    state?.project_context?.source_of_truth_url || ""
+  ).trim();
+  if (!sourceUrl) {
+    throw new Error("project Source of Truth URL is missing");
+  }
+  const projectId = String(state.project_id || "").trim();
+  const generation = Number(state.project_generation || 1);
+  return [
+    "MAGASIN_PROJECT_BOOTSTRAP_V1",
+    `project_id=${projectId}`,
+    `project_generation=${generation}`,
+    `source_of_truth=${sourceUrl}`,
+    "",
+    "Đọc lại dự án từ Source of Truth ở link trên trước khi lập kế hoạch.",
+    "Không sử dụng task/state của dự án khác. Source of Truth là authority cho scope, trạng thái task và dependency.",
+    "Xác định tổng số task và số task đã hoàn tất từ Source of Truth.",
+    "Nếu còn việc: giao đúng một task cho Executor và kết thúc bằng machine frame có p/g/pc/pt:",
+    `@M {"v":1,"a":"assign","p":"${projectId}","g":${generation},"t":"TASK-ID","i":"NEW-ASSIGNMENT-ID","pc":COMPLETED,"pt":TOTAL}`,
+    "Nếu dự án đã hoàn tất và không có task đang chạy: kết thúc bằng:",
+    `@M {"v":1,"a":"done","p":"${projectId}","g":${generation},"pc":TOTAL,"pt":TOTAL}`
+  ].join("\n");
+}
+
+async function ensureProjectContextBootstrap({
+  statePath,
+  state,
+  plannerPage
+}) {
+  const bootstrap = state?.project_context_bootstrap;
+  if (!bootstrap?.required || bootstrap.completed_at) return state;
+
+  const message = buildProjectContextBootstrapMessage(state);
+  const expectedDigest = composerInstructionDigest(message);
+  bootstrap.message_digest = expectedDigest;
+
+  if (!bootstrap.baseline_captured_at) {
+    const [assistant, user] = await Promise.all([
+      captureLatestRoleTurn(plannerPage, "assistant").catch(() => null),
+      captureLatestRoleTurn(plannerPage, "user").catch(() => null)
+    ]);
+    bootstrap.baseline_assistant_turn_id = assistant?.turn_id || null;
+    bootstrap.baseline_user_turn_id = user?.turn_id || null;
+    bootstrap.baseline_captured_at = new Date().toISOString();
+    state.planner.last_seen_assistant_turn_id =
+      bootstrap.baseline_assistant_turn_id;
+    await writePlannerExecutorState(statePath, state);
+  }
+
+  if (!bootstrap.send_confirmed_at) {
+    const latestUser = await captureLatestRoleTurn(plannerPage, "user")
+      .catch(() => null);
+    const matchingNewUserTurn = Boolean(
+      latestUser?.turn_id &&
+      latestUser.turn_id !== bootstrap.baseline_user_turn_id &&
+      latestUser?.text &&
+      composerInstructionDigest(latestUser.text) === expectedDigest
+    );
+    if (matchingNewUserTurn) {
+      bootstrap.send_confirmed_at = new Date().toISOString();
+      bootstrap.send_evidence = "matching-user-turn-observed";
+      await writePlannerExecutorState(statePath, state);
+    } else {
+      const draft = await inspectComposerDraftDigest(plannerPage)
+        .catch(() => null);
+      if (draft?.has_text === true && draft.digest !== expectedDigest) {
+        throw new Error("project bootstrap blocked by foreign or Owner draft");
+      }
+      const exactPendingDraft = Boolean(
+        draft?.has_text === true && draft.digest === expectedDigest
+      );
+      if (bootstrap.send_attempted_at && !exactPendingDraft) {
+        throw new Error(
+          "project bootstrap send outcome is ambiguous; refusing duplicate"
+        );
+      }
+
+      bootstrap.send_attempted_at =
+        bootstrap.send_attempted_at || new Date().toISOString();
+      await writePlannerExecutorState(statePath, state);
+
+      const sent = await sendComposerInstruction(plannerPage, message, {
+        dryRun: false
+      });
+      if (!sent?.executed) {
+        bootstrap.last_send_error = String(
+          sent?.reason || sent?.rejection_class || "bootstrap-send-not-confirmed"
+        ).slice(0, 300);
+        await writePlannerExecutorState(statePath, state);
+        throw new Error("project Planner bootstrap send was not confirmed");
+      }
+      bootstrap.send_confirmed_at = new Date().toISOString();
+      bootstrap.send_evidence =
+        sent.user_turn_evidence || "sendComposerInstruction-confirmed";
+      bootstrap.last_send_error = null;
+      await writePlannerExecutorState(statePath, state);
+    }
+  }
+
+  bootstrap.completed_at = new Date().toISOString();
+  state.project_context.strict_correlation = true;
+  state.automation = {
+    status: "RUNNING",
+    reason: null,
+    updated_at: bootstrap.completed_at
+  };
+  await writePlannerExecutorState(statePath, state);
+  safeLog("PLANNER_EXECUTOR_PROJECT_BOOTSTRAP", "SENT_CONFIRMED");
+  return state;
+}
+
 const args = parseArgs(process.argv.slice(2));
 if (!args.cdpUrl) throw new Error("--cdp-url is required");
 if (!Number.isFinite(args.pollMs) || args.pollMs < 100 || args.pollMs > 10_000) {
@@ -268,6 +380,12 @@ try {
   }
 
   await ensureProductionPlannerBootstrap({
+    statePath,
+    state: existing,
+    plannerPage: warm.plannerPage
+  });
+  startupStage = "PROJECT_CONTEXT_BOOTSTRAP";
+  await ensureProjectContextBootstrap({
     statePath,
     state: existing,
     plannerPage: warm.plannerPage

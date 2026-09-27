@@ -28,6 +28,22 @@ function normalizeReportStatus(value) {
   return status;
 }
 
+function normalizeCount(value, label) {
+  const count = Number(value);
+  if (!Number.isInteger(count) || count < 0 || count > 1000000) {
+    throw new Error(`invalid ${label}`);
+  }
+  return count;
+}
+
+function normalizeGeneration(value) {
+  const generation = Number(value);
+  if (!Number.isInteger(generation) || generation < 1 || generation > 1000000) {
+    throw new Error("invalid project_generation");
+  }
+  return generation;
+}
+
 function assertPlainObject(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("@M payload must be a JSON object");
@@ -67,6 +83,16 @@ export function parseMachineFrame(text) {
   if (payload.r !== undefined) frame.r = requireId(payload.r, "result_id");
   if (payload.n !== undefined) frame.n = requireId(payload.n, "next_task_id");
   if (payload.s !== undefined) frame.s = normalizeReportStatus(payload.s);
+  if (payload.p !== undefined) frame.p = requireId(payload.p, "project_id");
+  if (payload.g !== undefined) frame.g = normalizeGeneration(payload.g);
+  if (payload.pc !== undefined) frame.pc = normalizeCount(payload.pc, "project_completed_tasks");
+  if (payload.pt !== undefined) frame.pt = normalizeCount(payload.pt, "project_total_tasks");
+  if ((frame.pc === undefined) !== (frame.pt === undefined)) {
+    throw new Error("project progress requires both pc and pt");
+  }
+  if (frame.pc !== undefined && frame.pc > frame.pt) {
+    throw new Error("project_completed_tasks cannot exceed project_total_tasks");
+  }
 
   if (action === "assign" && (!frame.t || !frame.i)) {
     throw new Error("assign requires task_id and assignment_id");

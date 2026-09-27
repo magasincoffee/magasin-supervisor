@@ -101,6 +101,65 @@ async function captureOutboundBaseline(page, captureTurn) {
   };
 }
 
+function ensureProjectMetadata(state) {
+  if (!Number.isInteger(state.project_generation) || state.project_generation < 1) {
+    state.project_generation = 1;
+  }
+  if (!state.project_progress || typeof state.project_progress !== "object") {
+    state.project_progress = {
+      known: false,
+      completed_tasks: 0,
+      total_tasks: 0,
+      percent: null,
+      updated_at: null,
+      source: null
+    };
+  }
+  if (!state.project_context || typeof state.project_context !== "object") {
+    state.project_context = {
+      source_of_truth_url: null,
+      strict_correlation: false
+    };
+  }
+  return state;
+}
+
+function assertProjectCorrelation(frame, state) {
+  if (!state.project_context?.strict_correlation) return;
+  if (frame.p !== state.project_id) {
+    throw new Error("@M project_id correlation mismatch");
+  }
+  if (frame.g !== state.project_generation) {
+    throw new Error("@M project_generation correlation mismatch");
+  }
+}
+
+function applyPlannerProgress(frame, state, now) {
+  if (frame.pc === undefined || frame.pt === undefined) return;
+  const percent = frame.pt === 0
+    ? (frame.a === "done" ? 100 : 0)
+    : Math.max(0, Math.min(100, Math.round((frame.pc / frame.pt) * 100)));
+  state.project_progress = {
+    known: true,
+    completed_tasks: frame.pc,
+    total_tasks: frame.pt,
+    percent,
+    updated_at: now(),
+    source: "planner-source-of-truth"
+  };
+}
+
+function projectAnchorLines(state) {
+  const lines = [
+    `Project: ${state.project_id}`,
+    `Project generation: ${state.project_generation}`
+  ];
+  if (state.project_context?.source_of_truth_url) {
+    lines.push(`Canonical Source of Truth: ${state.project_context.source_of_truth_url}`);
+  }
+  return lines;
+}
+
 export function defaultPlannerExecutorState({
   projectId,
   plannerTarget = "",
@@ -111,6 +170,21 @@ export function defaultPlannerExecutorState({
     schema_version: "planner-executor-state.v1",
     mode: PLANNER_EXECUTOR_MODE,
     project_id: project,
+    project_generation: 1,
+    project_name: project,
+    project_context: {
+      source_of_truth_url: null,
+      strict_correlation: false
+    },
+    project_progress: {
+      known: false,
+      completed_tasks: 0,
+      total_tasks: 0,
+      percent: null,
+      updated_at: null,
+      source: null
+    },
+    project_context_bootstrap: null,
     planner: {
       target: String(plannerTarget || "").trim(),
       target_revision: plannerTarget ? 1 : 0,
@@ -151,6 +225,7 @@ export async function readPlannerExecutorState(
     ) {
       throw new Error("unsupported Planner/Executor state");
     }
+    ensureProjectMetadata(parsed);
     return parsed;
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
@@ -165,30 +240,38 @@ export async function writePlannerExecutorState(statePath, state) {
   await atomicJsonWrite(statePath, state);
 }
 
-function buildExecutorAssignmentMessage({ taskId, assignmentId, body }) {
+function buildExecutorAssignmentMessage({ taskId, assignmentId, body, state }) {
   const details = String(body || "").trim();
   if (!details) throw new Error("Planner assignment body is empty");
+  const frame = state?.project_context?.strict_correlation
+    ? `@M {"v":1,"a":"report","p":"${state.project_id}","g":${state.project_generation},"t":"${taskId}","i":"${assignmentId}","r":"RESULT-ID","s":"pass|fail|blocked"}`
+    : `@M {"v":1,"a":"report","t":"${taskId}","i":"${assignmentId}","r":"RESULT-ID","s":"pass|fail|blocked"}`;
   return [
     `Task ${taskId} · assignment ${assignmentId}`,
+    ...projectAnchorLines(state || {}),
     "",
     details,
     "",
-    "Thực hiện đúng task này, báo cáo result/evidence rồi dừng.",
-    `Dòng cuối bắt buộc: @M {"v":1,"a":"report","t":"${taskId}","i":"${assignmentId}","r":"RESULT-ID","s":"pass|fail|blocked"}`
+    "Thực hiện đúng task này trong đúng project ở trên, báo cáo result/evidence rồi dừng.",
+    `Dòng cuối bắt buộc: ${frame}`
   ].join("\n");
 }
 
-function buildPlannerReviewMessage({ taskId, assignmentId, resultId, body }) {
+function buildPlannerReviewMessage({ taskId, assignmentId, resultId, body, state }) {
+  const prefix = state?.project_context?.strict_correlation
+    ? `"p":"${state.project_id}","g":${state.project_generation},`
+    : "";
   return [
     `Review result ${resultId} for task ${taskId} · assignment ${assignmentId}.`,
+    ...projectAnchorLines(state || {}),
     "",
     String(body || "").trim(),
     "",
-    "VERIFY theo DoD/evidence. Dòng cuối dùng @M.",
-    'Nếu ACCEPT và có task kế tiếp: @M {"v":1,"a":"accept_assign","t":"CURRENT","r":"RESULT","n":"NEXT","i":"NEW-ASSIGNMENT"}',
-    'Nếu REJECT và correction có thể giao ngay: viết body correction không rỗng rồi dùng @M {"v":1,"a":"reject","t":"CURRENT","r":"RESULT","i":"NEW-CORRECTION-ASSIGNMENT"}.',
-    'Nếu REJECT nhưng cần Owner/dependency ngoài Executor: dùng @M {"v":1,"a":"blocked","t":"CURRENT","r":"RESULT"}.',
-    'Nếu dự án hoàn tất: @M {"v":1,"a":"done","t":"CURRENT","r":"RESULT"}.'
+    "VERIFY theo Source of Truth + DoD/evidence. Cập nhật pc/pt theo Source of Truth ở mọi quyết định Planner.",
+    `Nếu ACCEPT và có task kế tiếp: @M {"v":1,"a":"accept_assign",${prefix}"t":"CURRENT","r":"RESULT","n":"NEXT","i":"NEW-ASSIGNMENT","pc":COMPLETED,"pt":TOTAL}`,
+    `Nếu REJECT và correction có thể giao ngay: viết body correction không rỗng rồi dùng @M {"v":1,"a":"reject",${prefix}"t":"CURRENT","r":"RESULT","i":"NEW-CORRECTION-ASSIGNMENT","pc":COMPLETED,"pt":TOTAL}.`,
+    `Nếu REJECT nhưng cần Owner/dependency ngoài Executor: dùng @M {"v":1,"a":"blocked",${prefix}"t":"CURRENT","r":"RESULT","pc":COMPLETED,"pt":TOTAL}.`,
+    `Nếu dự án hoàn tất: @M {"v":1,"a":"done",${prefix}"t":"CURRENT","r":"RESULT","pc":TOTAL,"pt":TOTAL}.`
   ].join("\n");
 }
 
@@ -286,6 +369,7 @@ export async function runPlannerExecutorStep({
     executorTarget
   });
   ensureIdentityHistory(state);
+  ensureProjectMetadata(state);
 
   if (state.automation?.status === "DONE") {
     return { phase: "PLANNER_DONE", state };
@@ -312,11 +396,13 @@ export async function runPlannerExecutorStep({
         state
       };
     }
+    assertProjectCorrelation(latestControl.frame, state);
     if (latestControl.frame.t && state.active_task_id) {
       assertMachineFrameCorrelation(latestControl.frame, {
         taskId: state.active_task_id
       });
     }
+    applyPlannerProgress(latestControl.frame, state, now);
     state.planner.last_seen_assistant_turn_id = latestControl.turn.turn_id;
     state.automation = {
       status: "RUNNING",
@@ -381,6 +467,27 @@ export async function runPlannerExecutorStep({
       return { phase: "WAIT_PLANNER_ASSIGN", state };
     }
 
+    assertProjectCorrelation(latest.frame, state);
+    applyPlannerProgress(latest.frame, state, now);
+
+    if (latest.frame.a === "done") {
+      state.planner.last_seen_assistant_turn_id = latest.turn.turn_id;
+      state.active_task_id = null;
+      state.automation = {
+        status: "DONE",
+        reason: latest.body || "project-complete",
+        updated_at: now()
+      };
+      state.decision = {
+        action: "done",
+        task_id: latest.frame.t || null,
+        result_id: latest.frame.r || null,
+        decided_at: now()
+      };
+      await persist(statePath, state);
+      return { phase: "PLANNER_DONE", state };
+    }
+
     try {
       assertMachineFrameAction(latest.frame, ["assign"]);
     } catch {
@@ -395,7 +502,8 @@ export async function runPlannerExecutorStep({
     const message = buildExecutorAssignmentMessage({
       taskId: latest.frame.t,
       assignmentId,
-      body: latest.body
+      body: latest.body,
+      state
     });
     const baseline = await captureOutboundBaseline(
       executorPage,
@@ -455,6 +563,7 @@ export async function runPlannerExecutorStep({
     } catch {
       return { phase: "WAIT_EXECUTOR_REPORT", ignored_action: latest.frame.a, state };
     }
+    assertProjectCorrelation(latest.frame, state);
     assertMachineFrameCorrelation(latest.frame, {
       taskId: state.assignment.task_id,
       assignmentId: state.assignment.assignment_id
@@ -465,7 +574,8 @@ export async function runPlannerExecutorStep({
       taskId: latest.frame.t,
       assignmentId: latest.frame.i,
       resultId,
-      body: latest.body
+      body: latest.body,
+      state
     });
     const baseline = await captureOutboundBaseline(
       plannerPage,
@@ -522,6 +632,9 @@ export async function runPlannerExecutorStep({
   if (!latest) {
     return { phase: "WAIT_PLANNER_DECISION", state };
   }
+
+  assertProjectCorrelation(latest.frame, state);
+  applyPlannerProgress(latest.frame, state, now);
 
   if (latest.frame.a === "blocked") {
     assertMachineFrameCorrelation(latest.frame, {
@@ -609,7 +722,8 @@ export async function runPlannerExecutorStep({
       const correctionMessage = buildExecutorAssignmentMessage({
         taskId: state.result.task_id,
         assignmentId: correctionAssignmentId,
-        body: latest.body
+        body: latest.body,
+        state
       });
       const baseline = await captureOutboundBaseline(
         executorPage,
@@ -701,7 +815,8 @@ export async function runPlannerExecutorStep({
   const nextMessage = buildExecutorAssignmentMessage({
     taskId: latest.frame.n,
     assignmentId: nextAssignmentId,
-    body: latest.body
+    body: latest.body,
+    state
   });
   const baseline = await captureOutboundBaseline(
     executorPage,
