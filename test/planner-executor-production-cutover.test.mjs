@@ -311,6 +311,21 @@ test("Planner bootstrap runs only after execute-mode dry-run exit", async () => 
   assert.match(source.slice(dryRunIndex, bootstrapIndex), /process\.exit\(0\)/);
 });
 
+test("project bootstrap safely migrates an exact legacy raw-@M Robot draft to mention-safe transport", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/planner-executor-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /discardComposerDraftIfDigest/);
+  assert.match(source, /buildLegacyProjectContextBootstrapMessage/);
+  assert.match(source, /migrated-legacy-raw-machine-frame-bootstrap-draft/);
+  assert.match(source, /draft\.digest === legacyDigest/);
+  assert.match(source, /bootstrap\.send_attempted_at = null/);
+  assert.match(source, /draft\.has_text = false/);
+  assert.match(source, /project bootstrap blocked by foreign or Owner draft/);
+});
+
 test("bootstrap recovery survives ChatGPT rerender when baseline user turn proves no submission occurred", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/planner-executor-cli.mjs", import.meta.url),
