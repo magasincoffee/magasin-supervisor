@@ -155,9 +155,18 @@ Saving or editing a **non-active** Project Profile is configuration-only. It MUS
 
 Creating a new Project Profile is an explicit operation. The Control Panel MUST collect and validate a **new project_id** before entering draft mode, MUST visually bind the draft to that new ID, and MUST reject any draft save that would overwrite an existing profile. Merely editing the display name or Source field while the active profile remains selected is never interpreted as "create another project".
 
-For the **active project**, the Source of Truth and project activation boundary remain fail-closed: changing Source of Truth or switching to another project requires Robot STOP and no in-flight assignment/result.
+For the **active project**, Source of Truth mutation remains stricter than project switching: changing Source of Truth requires Robot STOP and no in-flight assignment/result. Switching to another saved project requires Robot STOP, but an unfinished assignment/result may be parked in that project's durable snapshot and resumed later.
 
 Planner and Executor chat URLs are different: they are **mutable role-session targets, not project identity**. Long-running projects are expected to rotate to new ChatGPT conversations when a chat becomes full. While the Robot is stopped, Owner may change the active project's Planner and/or Executor chat URL even when an assignment/result is still open. Supervisor MUST preserve `project_id`, `project_generation`, active task, assignment/result IDs, identity history, and progress.
+
+Owner emergency reset / clean-state escape hatch:
+
+- Control Center exposes an explicit **RESET ROBOT** action for Planner/Executor mode;
+- reset is destructive only to the currently active project's transient orchestration state: active task, assignment/result, decision, last-completed pointer, exact-once identity history, recovery/status cache, and progress cache are cleared;
+- saved Project Profiles, Source of Truth URL, Planner/Executor URLs, Chrome login profile, installed runtime, and GitHub Runner are preserved;
+- reset first performs Owner STOP, then increments `project_generation`, re-arms `MAGASIN_PROJECT_BOOTSTRAP_V1`, and clears last-seen assistant turn IDs so stale output from the old generation cannot be accepted as current work;
+- reset requires explicit double Owner confirmation in the Control Center;
+- after reset, Owner may select another saved profile and START without repairing the discarded active project's unfinished task.
 
 Chat target rollover rules:
 
