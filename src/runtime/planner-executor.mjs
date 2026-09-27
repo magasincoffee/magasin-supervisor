@@ -244,7 +244,7 @@ function machineFrameTransportInstruction() {
   return "QUY ƯỚC TRANSPORT: <AT> đại diện cho ký tự U+0040 (commercial at). Khi TRẢ LỜI machine frame cuối cùng, thay <AT> bằng đúng ký tự U+0040; không xuất chuỗi <AT>.";
 }
 
-function buildExecutorAssignmentMessage({ taskId, assignmentId, body, state }) {
+export function buildExecutorAssignmentMessage({ taskId, assignmentId, body, state }) {
   const details = String(body || "").trim();
   if (!details) throw new Error("Planner assignment body is empty");
   const frame = state?.project_context?.strict_correlation
@@ -262,7 +262,7 @@ function buildExecutorAssignmentMessage({ taskId, assignmentId, body, state }) {
   ].join("\n");
 }
 
-function buildPlannerReviewMessage({ taskId, assignmentId, resultId, body, state }) {
+export function buildPlannerReviewMessage({ taskId, assignmentId, resultId, body, state }) {
   const prefix = state?.project_context?.strict_correlation
     ? `"p":"${state.project_id}","g":${state.project_generation},`
     : "";
