@@ -131,6 +131,42 @@ async function waitForBridgeTurn(pageId, role, token, timeoutMs) {
   });
 }
 
+async function logChatSurfaceDiagnostics(page, label) {
+  const diag = await page.evaluate(() => {
+    const visible = (el) => {
+      if (!el) return false;
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return style.display !== "none" && style.visibility !== "hidden" &&
+        rect.width > 0 && rect.height > 0;
+    };
+    const editors = Array.from(document.querySelectorAll(
+      '#prompt-textarea, div[contenteditable="true"], textarea[name="prompt-textarea"], #prosemirror-editor-container [contenteditable]'
+    )).filter(visible).slice(0, 12).map((el) => ({
+      tag: el.tagName,
+      id: el.id || null,
+      role: el.getAttribute("role"),
+      contenteditable: el.getAttribute("contenteditable"),
+      ariaLabel: el.getAttribute("aria-label"),
+      testId: el.getAttribute("data-testid"),
+      textLength: String(el.innerText || el.value || "").length
+    }));
+    const buttons = Array.from(document.querySelectorAll("button")).filter(visible)
+      .slice(-40).map((el) => ({
+        id: el.id || null,
+        type: el.getAttribute("type"),
+        ariaLabel: el.getAttribute("aria-label"),
+        testId: el.getAttribute("data-testid"),
+        disabled: Boolean(el.disabled) || el.getAttribute("aria-disabled") === "true",
+        text: String(el.innerText || el.textContent || "").trim().slice(0, 80)
+      }));
+    return { editors, buttons };
+  });
+  log(`MBV1_001_${label}_EDITORS`, JSON.stringify(diag.editors));
+  log(`MBV1_001_${label}_BUTTONS`, JSON.stringify(diag.buttons));
+  return diag;
+}
+
 async function installUserscriptTransport(context, page) {
   await context.exposeBinding("__mbv1BridgeRequest", async (_source, request = {}) => {
     const target = new URL(String(request.url || ""));
@@ -285,6 +321,7 @@ try {
   const plannerToken = `MBV1_PLANNER_PASS_${nonce}`;
   const executorToken = `MBV1_EXECUTOR_PASS_${nonce}`;
 
+  await logChatSurfaceDiagnostics(plannerPage, "PLANNER_PRE_SEND");
   const plannerPrompt = `MBV1-001 harmless transport qualification. Reply with exactly this token and nothing else: ${plannerToken}`;
   const plannerDispatch = await bridgeJson("POST", "/send_async", {
     page_id: plannerPageId,
