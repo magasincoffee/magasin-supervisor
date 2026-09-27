@@ -19,7 +19,7 @@ function applyPinnedCompatibilityOverlay(source) {
   }
   let patched = source.replace(needle, replacement);
 
-  const inputPattern = /([ \\t]*editor\\.innerHTML = '';\\r?\\n[ \\t]*document\\.execCommand\\('insertText', false, text\\);)/;
+  const inputPattern = /([ \t]*editor\.innerHTML = '';\r?\n[ \t]*document\.execCommand\('insertText', false, text\);)/;
   if (!inputPattern.test(patched)) {
     throw new Error("pinned upstream ChatGPT contenteditable input block no longer matches expected commit");
   }
