@@ -302,8 +302,23 @@ Regression gates passed: Supervisor Tests `36292966975`, Integrity `36292966966`
 
 **PE-005 is the next execution task.**
 
-### PE-005 — Legacy-state migration adapter
-Map existing Brain/Work state to Planner/Executor state without losing active task, target revisions, assignment/result identity, Owner STOP, or recovery truth.
+### PE-005 — COMPLETE
+**Legacy-state migration adapter**
+
+PR #134 merged at `9c4d8559f64c2b716b5db45ec790593db8afcc8d`.
+
+Implemented a read-only explicit-lane migration candidate builder:
+- active legacy Brain target maps to Planner target; active Work target maps to Executor target;
+- target revisions, project label, active task and bounded assignment/result identity history are preserved;
+- requested/pending target authority, Executor generation, project progress/timing and unresolved legacy latches are preserved as migration metadata;
+- STOP and AUTOSTART_DISABLED are read and preserved as Owner-stop authority;
+- unresolved active task, awaiting result, old assignment/result relay/Planner request latches, pending target revisions, missing targets or Owner STOP all make the candidate `cutover_ready=false`;
+- unresolved old protocol latches are never replayed or converted into new `@M` messages;
+- reader performs no writes, browser actions, process actions or ChatGPT Work mode invocation.
+
+Regression gates passed: Supervisor Tests `36293299858`, Integrity `36293299799`, Lifecycle `36293299850`, Autostart isolated `36293299812`.
+
+**PE-006 is the next execution task.**
 
 ### PE-006 — Automated continuation
 Automate report relay, Planner review, `accept_assign`, bounded reject/correction flow, health recovery, and failure-only diagnostics.
