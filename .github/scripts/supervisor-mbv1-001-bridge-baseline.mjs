@@ -24,31 +24,12 @@ function applyPinnedCompatibilityOverlay(source) {
     throw new Error("pinned upstream ChatGPT contenteditable input block no longer matches expected commit");
   }
   const inputReplacement = [
-    "      editor.innerHTML = '';",
+    "      const selection = window.getSelection();",
     "      const range = document.createRange();",
     "      range.selectNodeContents(editor);",
-    "      range.collapse(true);",
-    "      const selection = window.getSelection();",
     "      selection.removeAllRanges();",
     "      selection.addRange(range);",
-    "      const inserted = document.execCommand('insertText', false, text);",
-    "      if (!inserted || !(editor.innerText || editor.textContent || '').trim()) {",
-    "        editor.textContent = text;",
-    "        const fallbackRange = document.createRange();",
-    "        fallbackRange.selectNodeContents(editor);",
-    "        fallbackRange.collapse(false);",
-    "        selection.removeAllRanges();",
-    "        selection.addRange(fallbackRange);",
-    "      }",
-    "      try {",
-    "        editor.dispatchEvent(new InputEvent('input', {",
-    "          bubbles: true,",
-    "          inputType: 'insertText',",
-    "          data: text",
-    "        }));",
-    "      } catch {",
-    "        editor.dispatchEvent(new Event('input', { bubbles: true }));",
-    "      }"
+    "      document.execCommand('insertText', false, text);"
   ].join("\n");
   patched = patched.replace(inputPattern, inputReplacement);
   return patched;
