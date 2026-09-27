@@ -46,6 +46,22 @@ $candidatePath = Join-Path $env:RUNNER_TEMP 'pe007-production-cutover-candidate.
 $sourceRevision = [string]$env:GITHUB_SHA
 $authorizedAt = [string]$sot.owner_cutover_authorization.authorized_at
 
+if ((Test-Path $cutoverTruthPath -PathType Leaf) -and (Test-Path $statePath -PathType Leaf)) {
+  try {
+    $existingCutover = Get-Content $cutoverTruthPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $existingState = Get-Content $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (
+      [string]$existingCutover.status -eq 'PASS' -and
+      [bool]$existingCutover.production_cutover -and
+      [string]$existingState.mode -eq 'PLANNER_EXECUTOR_V1'
+    ) {
+      Write-Host 'PE007_PRODUCTION_CUTOVER_ALREADY_PASS=True'
+      Write-Host 'PE007_PRODUCTION_MODE=PLANNER_EXECUTOR_V1'
+      exit 0
+    }
+  } catch {}
+}
+
 function Write-Candidate {
   if (Test-Path $candidatePath) {
     Remove-Item $candidatePath -Force -ErrorAction SilentlyContinue
