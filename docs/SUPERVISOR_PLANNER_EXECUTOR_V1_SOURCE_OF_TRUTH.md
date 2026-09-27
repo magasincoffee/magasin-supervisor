@@ -175,6 +175,14 @@ Composer send safety for the `@M` machine frame:
 - if the first Send click is inert and the exact instruction is still present, Supervisor may dismiss the mention popover once more and retry the explicit Send control before bounded Enter recovery;
 - an open mention/file popover is never treated as evidence that the prompt was submitted.
 
+Send-path liveness invariants:
+
+- submit-flight diagnostics are observational only and MUST NEVER block composer actuation; DOM snapshots, screenshots, trace start/stop and diagnostic writes are bounded and failure-tolerant;
+- mention-popover dismissal occurs before diagnostic capture after typing;
+- if ChatGPT changes the Send button metadata, Supervisor may use a bounded geometric fallback restricted to the active composer form: a visible enabled compact action in the lower-right composer band, excluding attachment/file/voice/microphone/model/tool controls;
+- a geometric click is still not submission evidence; matching user-turn confirmation remains mandatory;
+- Planner/Executor status publishes the observed ChatGPT tab count before bootstrap send begins so Control Center cannot display a healthy process with an unexplained tab count of `—`.
+
 Bootstrap liveness across ChatGPT rerenders/reloads:
 
 - light/dark appearance changes, SPA rerenders, and page reloads are **visual/browser state only** and MUST NOT change project identity, task state, or bootstrap authority;
