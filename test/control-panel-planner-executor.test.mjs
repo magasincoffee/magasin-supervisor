@@ -43,8 +43,8 @@ test("project switch/source changes stay fail-closed while active chat targets m
 
   assert.match(panel, /function Assert-SafeProjectMutation/);
   assert.match(panel, /Hãy STOP ROBOT trước khi lưu hoặc chuyển dự án/);
-  assert.match(panel, /Source of Truth không được đổi khi assignment\/result còn mở/);
-  assert.match(panel, /Link Planner\/Executor vẫn có thể đổi sau khi STOP ROBOT/);
+  assert.match(panel, /Bạn đang sửa SOURCE của project ACTIVE/);
+  assert.match(panel, /Nếu đây là dự án khác, bấm TẠO PROFILE MỚI/);
   assert.match(panel, /\$oldPlannerRevision/);
   assert.match(panel, /\$oldExecutorRevision/);
   assert.match(panel, /previous_target/);
@@ -64,7 +64,11 @@ test("profile editor can create and inspect inactive projects without being clob
   assert.match(panel, /TẠO PROFILE MỚI/);
   assert.match(panel, /if \(\$editingActiveProfile -and -not \$profileEditor\.Dirty\) \{/);
   assert.match(panel, /\$editorPlannerReady=Test-ChatConversationUrl \(\$plannerBox\.Text\.Trim\(\)\)/);
-  assert.match(panel, /Chat Planner\/Executor là link phiên làm việc, không phải project ID/);
+  assert.match(panel, /DỰ ÁN KHÁC: bấm TẠO PROFILE MỚI/);
+  assert.match(panel, /function Prompt-NewProjectProfileId/);
+  assert.match(panel, /PROJECT ID MỚI/);
+  assert.match(panel, /\$projectSelector\.SelectedIndex = -1/);
+  assert.match(panel, /Draft mới không được ghi đè profile hiện có/);
 });
 
 test("Source of Truth change and project switch re-arm Planner bootstrap with generation", async () => {
