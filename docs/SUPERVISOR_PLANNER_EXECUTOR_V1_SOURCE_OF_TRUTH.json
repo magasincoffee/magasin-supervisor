@@ -143,7 +143,12 @@
         "current_runtime_identity_may_differ": true,
         "action": "DISMISS_TRANSIENT_UI_GUARDED_CLEAR_AND_RECOMPOSE_CURRENT_LIVE_SESSION",
         "foreign_or_modified_draft": "FAIL_CLOSED_NO_OVERWRITE"
-      }
+      },
+      "historical_bootstrap_templates": [
+        "legacy raw @M",
+        "pre-link-only mention-safe <AT>M",
+        "current link-only mention-safe <AT>M"
+      ]
     },
     "project_authority": "SOURCE_OF_TRUTH",
     "progress_projection": {
