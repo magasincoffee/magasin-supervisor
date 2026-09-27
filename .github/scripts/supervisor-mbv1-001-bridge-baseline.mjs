@@ -20,7 +20,7 @@ function log(key, value) {
 }
 
 async function writeResult(value) {
-  await fs.mkdir(new URL(".", `file:///${resultPath.replace(/\\/g, "/")}`).pathname, { recursive: true }).catch(() => {});
+  await fs.mkdir(path.dirname(resultPath), { recursive: true });
   await fs.writeFile(resultPath, JSON.stringify({
     schema_version: "mbv1-001-live-baseline.v1",
     started_at: startedAt,
