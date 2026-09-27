@@ -320,8 +320,24 @@ Regression gates passed: Supervisor Tests `36293299858`, Integrity `36293299799`
 
 **PE-006 is the next execution task.**
 
-### PE-006 — Automated continuation
-Automate report relay, Planner review, `accept_assign`, bounded reject/correction flow, health recovery, and failure-only diagnostics.
+### PE-006 — COMPLETE
+**Automated continuation**
+
+PR #137 merged at `41baa45fc3e06a691021ca6abfcd63ae351f0b9b`.
+
+Implemented:
+- preserves the existing 3-send happy path and PE-004 exact-once latches;
+- `reject` can carry a fresh assignment id plus a non-empty correction body, allowing one Planner response to reject and dispatch exactly one bounded correction without another Planner round trip;
+- reject without a bounded correction fails closed as BLOCKED instead of looping;
+- `blocked`, `resume`, `stop`, and `done` are persisted automation states;
+- DONE/STOPPED are terminal runtime phases;
+- pre-step warm-tab drift gets only bounded safe reacquisition; unrelated conversations and draft guards still fail closed;
+- failure-only `planner-executor-incidents.ndjson` records privacy-safe metadata only, excluding URLs and message bodies;
+- production wrapper remains unchanged and production cutover remains false.
+
+Regression gates passed: Supervisor Tests `36294115756`, Integrity `36294115776`, Lifecycle `36294115768`, Autostart isolated `36294115779`.
+
+**PE-007 is now READY_TO_EXECUTE.**
 
 ### PE-007 — Qualification and cutover
 Run regression + live qualification, prove 2-tab invariant, no ChatGPT Work mode, no duplicate assignment/result, bounded stalled-draft recovery, then perform Owner-authorized production cutover. Retain an exact released legacy snapshot for rollback.
