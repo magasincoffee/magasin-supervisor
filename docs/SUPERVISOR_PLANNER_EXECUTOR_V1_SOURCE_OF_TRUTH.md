@@ -669,7 +669,7 @@ program = MAGASIN_BRIDGE_V1
 current_task = MBV1-003
 pc = 2
 pt = 8
-status = READY_TO_EXECUTE
+status = IN_PROGRESS
 bridge_cutover = false
 ```
 
@@ -687,3 +687,16 @@ Status: **IN_PROGRESS** (pc remains 2 / pt 8).
 - contract tests: `test/chatgpt-bridge-binding.test.mjs`;
 - production transport unchanged; bridge_cutover remains false;
 - MBV1-004 remains blocked until MBV1-003 is merged with green gates.
+
+
+### 15.12 MBV1-003 implementation evidence
+
+Status: **IN_PROGRESS** (pc remains 2 / pt 8).
+
+- branch: `mbv1-003-bridge-role-binding`;
+- draft PR: #176;
+- candidate head: `e07eb79e71622fd8dee27121fa3fc11dded31deb`;
+- binding module: `src/runtime/chatgpt-bridge-binding.mjs`;
+- tests: `test/chatgpt-bridge-binding.test.mjs`;
+- canonical URL identity is reused from `targetFromUrl()` / `pageMatchesTarget()`;
+- production transport remains pre-Bridge and `bridge_cutover=false`.
