@@ -282,8 +282,25 @@ Regression gates passed: Supervisor Tests `36292664760`, Integrity `36292664717`
 
 **PE-004 is the next execution task.**
 
-### PE-004 — Exact-once and recovery
-Implement assignment/result exact-once latches, restart reconciliation, persisted last-seen turn IDs, and exact-digest orphan-draft recovery.
+### PE-004 — COMPLETE
+**Exact-once and recovery**
+
+PR #131 merged at `f6122c448432b1ee7d3118510c1791e2ffe45105`.
+
+PE-004 deliberately reused the PE-001 durable latches instead of creating a second recovery system. Added hardening:
+- outbound assignment/result intent stores a persisted user-turn baseline before send;
+- identical historical text can no longer falsely confirm a new send; reconciliation requires a newer matching user turn;
+- bounded durable assignment/result identity history rejects ID reuse;
+- pre-PE-004 states seed identity history additively from current/last-completed durable identities;
+- exact-digest Robot-owned composer draft recovery remains the bounded retry path;
+- foreign/Owner drafts remain protected;
+- ambiguous attempted send without exact draft remains no-duplicate fail-closed;
+- crash after result send confirmation but before relay confirmation advances state without resending;
+- focused crash-matrix coverage validates durability boundaries.
+
+Regression gates passed: Supervisor Tests `36292966975`, Integrity `36292966966`, Lifecycle `36292967002`, Autostart isolated `36292966990`.
+
+**PE-005 is the next execution task.**
 
 ### PE-005 — Legacy-state migration adapter
 Map existing Brain/Work state to Planner/Executor state without losing active task, target revisions, assignment/result identity, Owner STOP, or recovery truth.
