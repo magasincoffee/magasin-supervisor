@@ -107,7 +107,10 @@ $configFile = Join-Path $root 'lanes.json'
 $registryFile = Join-Path $root 'lane-registry.json'
 $statusFile = Join-Path $root 'lane-status.json'
 $eventFile = Join-Path $root 'lane-events.ndjson'
+$plannerExecutorStateFile = Join-Path $root 'planner-executor-state.json'
+$plannerExecutorStatusFile = Join-Path $root 'planner-executor-status.json'
 $startScript = Join-Path $runtime 'windows\start-supervisor.ps1'
+$stopScript = Join-Path $runtime 'windows\stop-supervisor.ps1'
 $lifecycleScript = Join-Path $runtime 'windows\lifecycle-truth.ps1'
 $observabilityScript = Join-Path $runtime 'windows\control-panel-observability.ps1'
 $openChatScript = Join-Path $runtime 'windows\open-supervisor-chat.ps1'
@@ -578,6 +581,401 @@ function Save-BrainTarget(
     }
 
     return $false
+}
+
+
+function Show-PlannerExecutorControlPanel {
+    [Windows.Forms.Application]::EnableVisualStyles()
+
+    $form = New-Object Windows.Forms.Form
+    $form.Text = 'MAGASIN SUPERVISOR — CONTROL CENTER'
+    $form.StartPosition = 'CenterScreen'
+    $form.Size = New-Object Drawing.Size(1040, 700)
+    $form.MinimumSize = New-Object Drawing.Size(900, 620)
+    $form.AutoScaleMode = [Windows.Forms.AutoScaleMode]::Dpi
+    $form.AutoScaleDimensions = New-Object Drawing.SizeF(96, 96)
+    $form.BackColor = [Drawing.Color]::FromArgb(241,245,249)
+    $form.Font = New-Object Drawing.Font('Segoe UI', 9)
+
+    $hero = New-Object Windows.Forms.Panel
+    $hero.Location = New-Object Drawing.Point(20, 18)
+    $hero.Size = New-Object Drawing.Size(980, 104)
+    $hero.BackColor = [Drawing.Color]::FromArgb(15,23,42)
+    $form.Controls.Add($hero)
+
+    $title = New-Object Windows.Forms.Label
+    $title.Text = 'MAGASIN SUPERVISOR'
+    $title.Location = New-Object Drawing.Point(22, 14)
+    $title.Size = New-Object Drawing.Size(470, 42)
+    $title.Font = New-Object Drawing.Font('Segoe UI Semibold', 23)
+    $title.ForeColor = [Drawing.Color]::White
+    $hero.Controls.Add($title)
+
+    $subtitle = New-Object Windows.Forms.Label
+    $subtitle.Text = 'PLANNER / EXECUTOR  •  1 DỰ ÁN  •  2 CHATGPT THƯỜNG'
+    $subtitle.Location = New-Object Drawing.Point(25, 61)
+    $subtitle.Size = New-Object Drawing.Size(590, 24)
+    $subtitle.ForeColor = [Drawing.Color]::FromArgb(203,213,225)
+    $hero.Controls.Add($subtitle)
+
+    $modeBadge = New-Object Windows.Forms.Label
+    $modeBadge.Text = 'PLANNER_EXECUTOR_V1'
+    $modeBadge.Location = New-Object Drawing.Point(650, 22)
+    $modeBadge.Size = New-Object Drawing.Size(300, 32)
+    $modeBadge.TextAlign = 'MiddleCenter'
+    $modeBadge.BackColor = [Drawing.Color]::FromArgb(30,41,59)
+    $modeBadge.ForeColor = [Drawing.Color]::FromArgb(226,232,240)
+    $modeBadge.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
+    $hero.Controls.Add($modeBadge)
+
+    $modeNote = New-Object Windows.Forms.Label
+    $modeNote.Text = 'ChatGPT Work mode: 0'
+    $modeNote.Location = New-Object Drawing.Point(650, 61)
+    $modeNote.Size = New-Object Drawing.Size(300, 22)
+    $modeNote.TextAlign = 'MiddleCenter'
+    $modeNote.ForeColor = [Drawing.Color]::FromArgb(134,239,172)
+    $hero.Controls.Add($modeNote)
+
+    $overview = New-Object Windows.Forms.Panel
+    $overview.Location = New-Object Drawing.Point(20, 136)
+    $overview.Size = New-Object Drawing.Size(980, 112)
+    $overview.BackColor = [Drawing.Color]::White
+    $overview.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
+    $form.Controls.Add($overview)
+
+    $runtimeLabel = New-Object Windows.Forms.Label
+    $runtimeLabel.Location = New-Object Drawing.Point(18, 12)
+    $runtimeLabel.Size = New-Object Drawing.Size(540, 28)
+    $runtimeLabel.Font = New-Object Drawing.Font('Segoe UI Semibold', 11)
+    $overview.Controls.Add($runtimeLabel)
+
+    $healthLabel = New-Object Windows.Forms.Label
+    $healthLabel.Location = New-Object Drawing.Point(18, 42)
+    $healthLabel.Size = New-Object Drawing.Size(600, 48)
+    $healthLabel.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
+    $overview.Controls.Add($healthLabel)
+
+    $startButton = New-Object Windows.Forms.Button
+    $startButton.Location = New-Object Drawing.Point(650, 12)
+    $startButton.Size = New-Object Drawing.Size(145, 38)
+    $startButton.Text = '▶  START ROBOT'
+    $startButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+    $startButton.BackColor = [Drawing.Color]::FromArgb(22,163,74)
+    $startButton.ForeColor = [Drawing.Color]::White
+    $startButton.FlatAppearance.BorderSize = 0
+    $overview.Controls.Add($startButton)
+
+    $stopButton = New-Object Windows.Forms.Button
+    $stopButton.Location = New-Object Drawing.Point(807, 12)
+    $stopButton.Size = New-Object Drawing.Size(145, 38)
+    $stopButton.Text = '■  STOP ROBOT'
+    $stopButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+    $stopButton.BackColor = [Drawing.Color]::FromArgb(185,28,28)
+    $stopButton.ForeColor = [Drawing.Color]::White
+    $stopButton.FlatAppearance.BorderSize = 0
+    $overview.Controls.Add($stopButton)
+
+    $runnerButton = New-Object Windows.Forms.Button
+    $runnerButton.Location = New-Object Drawing.Point(650, 61)
+    $runnerButton.Size = New-Object Drawing.Size(145, 32)
+    $runnerButton.Text = 'KẾT NỐI GITHUB'
+    $runnerButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+    $overview.Controls.Add($runnerButton)
+
+    $refreshButton = New-Object Windows.Forms.Button
+    $refreshButton.Location = New-Object Drawing.Point(807, 61)
+    $refreshButton.Size = New-Object Drawing.Size(145, 32)
+    $refreshButton.Text = '⟳  LÀM MỚI'
+    $refreshButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+    $overview.Controls.Add($refreshButton)
+
+    $projectPanel = New-Object Windows.Forms.Panel
+    $projectPanel.Location = New-Object Drawing.Point(20, 264)
+    $projectPanel.Size = New-Object Drawing.Size(980, 250)
+    $projectPanel.BackColor = [Drawing.Color]::White
+    $projectPanel.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
+    $form.Controls.Add($projectPanel)
+
+    $projectTitle = New-Object Windows.Forms.Label
+    $projectTitle.Text = 'DỰ ÁN ĐANG HOẠT ĐỘNG'
+    $projectTitle.Location = New-Object Drawing.Point(18, 14)
+    $projectTitle.Size = New-Object Drawing.Size(300, 28)
+    $projectTitle.Font = New-Object Drawing.Font('Segoe UI Semibold', 13)
+    $projectPanel.Controls.Add($projectTitle)
+
+    $projectValue = New-Object Windows.Forms.Label
+    $projectValue.Location = New-Object Drawing.Point(18, 50)
+    $projectValue.Size = New-Object Drawing.Size(580, 30)
+    $projectValue.Font = New-Object Drawing.Font('Segoe UI Semibold', 11)
+    $projectPanel.Controls.Add($projectValue)
+
+    $taskValue = New-Object Windows.Forms.Label
+    $taskValue.Location = New-Object Drawing.Point(18, 88)
+    $taskValue.Size = New-Object Drawing.Size(580, 24)
+    $taskValue.ForeColor = [Drawing.Color]::FromArgb(51,65,85)
+    $projectPanel.Controls.Add($taskValue)
+
+    $automationValue = New-Object Windows.Forms.Label
+    $automationValue.Location = New-Object Drawing.Point(18, 118)
+    $automationValue.Size = New-Object Drawing.Size(580, 24)
+    $automationValue.ForeColor = [Drawing.Color]::FromArgb(51,65,85)
+    $projectPanel.Controls.Add($automationValue)
+
+    $phaseValue = New-Object Windows.Forms.Label
+    $phaseValue.Location = New-Object Drawing.Point(18, 148)
+    $phaseValue.Size = New-Object Drawing.Size(580, 24)
+    $phaseValue.ForeColor = [Drawing.Color]::FromArgb(51,65,85)
+    $projectPanel.Controls.Add($phaseValue)
+
+    $lastValue = New-Object Windows.Forms.Label
+    $lastValue.Location = New-Object Drawing.Point(18, 178)
+    $lastValue.Size = New-Object Drawing.Size(580, 50)
+    $lastValue.ForeColor = [Drawing.Color]::FromArgb(100,116,139)
+    $projectPanel.Controls.Add($lastValue)
+
+    $plannerButton = New-Object Windows.Forms.Button
+    $plannerButton.Location = New-Object Drawing.Point(650, 52)
+    $plannerButton.Size = New-Object Drawing.Size(300, 52)
+    $plannerButton.Text = 'MỞ PLANNER'
+    $plannerButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+    $plannerButton.Font = New-Object Drawing.Font('Segoe UI Semibold', 10)
+    $projectPanel.Controls.Add($plannerButton)
+
+    $executorButton = New-Object Windows.Forms.Button
+    $executorButton.Location = New-Object Drawing.Point(650, 118)
+    $executorButton.Size = New-Object Drawing.Size(300, 52)
+    $executorButton.Text = 'MỞ EXECUTOR'
+    $executorButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+    $executorButton.Font = New-Object Drawing.Font('Segoe UI Semibold', 10)
+    $projectPanel.Controls.Add($executorButton)
+
+    $targetNote = New-Object Windows.Forms.Label
+    $targetNote.Location = New-Object Drawing.Point(650, 182)
+    $targetNote.Size = New-Object Drawing.Size(300, 48)
+    $targetNote.TextAlign = 'MiddleCenter'
+    $targetNote.ForeColor = [Drawing.Color]::FromArgb(100,116,139)
+    $targetNote.Text = 'Planner và Executor là 2 cuộc trò chuyện ChatGPT thường.'
+    $projectPanel.Controls.Add($targetNote)
+
+    $footer = New-Object Windows.Forms.Panel
+    $footer.Location = New-Object Drawing.Point(20, 530)
+    $footer.Size = New-Object Drawing.Size(980, 104)
+    $footer.BackColor = [Drawing.Color]::FromArgb(248,250,252)
+    $footer.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
+    $form.Controls.Add($footer)
+
+    $diagnosticLabel = New-Object Windows.Forms.Label
+    $diagnosticLabel.Location = New-Object Drawing.Point(18, 12)
+    $diagnosticLabel.Size = New-Object Drawing.Size(940, 52)
+    $diagnosticLabel.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
+    $footer.Controls.Add($diagnosticLabel)
+
+    $updatedLabel = New-Object Windows.Forms.Label
+    $updatedLabel.Location = New-Object Drawing.Point(18, 70)
+    $updatedLabel.Size = New-Object Drawing.Size(940, 22)
+    $updatedLabel.ForeColor = [Drawing.Color]::FromArgb(100,116,139)
+    $footer.Controls.Add($updatedLabel)
+
+    function Refresh-PlannerExecutorUi {
+        $state = Read-JsonFile $plannerExecutorStateFile
+        $status = Read-JsonFile $plannerExecutorStatusFile
+        $ownerStop = Get-LifecycleOwnerStopState -Root $root
+        $truth = Get-LifecycleProcessTruth -Root $root
+
+        $plannerUrl = [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'planner' $null) 'target' '')
+        $executorUrl = [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'executor' $null) 'target' '')
+        $projectName = [string](Get-OptionalPropertyValue $state 'project_name' '')
+        $projectId = [string](Get-OptionalPropertyValue $state 'project_id' '')
+        if ([string]::IsNullOrWhiteSpace($projectName)) { $projectName = $projectId }
+        if ([string]::IsNullOrWhiteSpace($projectName)) { $projectName = '—' }
+
+        $activeTask = [string](Get-OptionalPropertyValue $state 'active_task_id' '')
+        if ([string]::IsNullOrWhiteSpace($activeTask)) { $activeTask = '—' }
+
+        $automation = Get-OptionalPropertyValue $state 'automation' $null
+        $automationStatus = [string](Get-OptionalPropertyValue $automation 'status' 'UNKNOWN')
+        $automationReason = [string](Get-OptionalPropertyValue $automation 'reason' '')
+        $phase = [string](Get-OptionalPropertyValue $status 'phase' '')
+        if ([string]::IsNullOrWhiteSpace($phase)) { $phase = '—' }
+
+        $lastCompleted = Get-OptionalPropertyValue $state 'last_completed' $null
+        $lastTask = [string](Get-OptionalPropertyValue $lastCompleted 'task_id' '')
+        $lastResult = [string](Get-OptionalPropertyValue $lastCompleted 'result_id' '')
+        if ($lastTask -or $lastResult) {
+            $lastValue.Text = "HOÀN TẤT GẦN NHẤT: task=$lastTask  result=$lastResult"
+        } elseif ($automationReason) {
+            $lastValue.Text = "CHI TIẾT: $automationReason"
+        } else {
+            $lastValue.Text = 'HOÀN TẤT GẦN NHẤT: —'
+        }
+
+        $running = [bool](
+            [string]$truth.runtime_mode -eq 'PLANNER_EXECUTOR_V1' -and
+            [bool]$truth.healthy -and
+            [bool]$truth.planner_executor_alive
+        )
+        if ($ownerStop.blocked) {
+            $runtimeLabel.Text = 'ROBOT: ĐÃ DỪNG (OWNER STOP)'
+            $runtimeLabel.ForeColor = [Drawing.Color]::FromArgb(185,28,28)
+        } elseif ($running) {
+            $runtimeLabel.Text = 'ROBOT: ĐANG CHẠY — PLANNER_EXECUTOR_V1'
+            $runtimeLabel.ForeColor = [Drawing.Color]::FromArgb(22,163,74)
+        } elseif ($truth.wrapper_alive) {
+            $runtimeLabel.Text = 'ROBOT: ĐANG KHỞI ĐỘNG / TỰ KHÔI PHỤC'
+            $runtimeLabel.ForeColor = [Drawing.Color]::FromArgb(217,119,6)
+        } else {
+            $runtimeLabel.Text = 'ROBOT: CHƯA CHẠY'
+            $runtimeLabel.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
+        }
+
+        $tabs = Get-OptionalPropertyValue $status 'chatgpt_tabs' $null
+        $workInvocations = Get-OptionalPropertyValue $status 'chatgpt_work_mode_invocations' 0
+        $healthLabel.Text = (
+            "Chrome: " + $(if ($truth.chrome_alive) { 'OK' } else { 'OFF' }) +
+            "  •  CDP: " + $(if ($truth.cdp_healthy) { 'OK' } else { 'OFF' }) +
+            "  •  Planner/Executor process: " + $(if ($truth.planner_executor_alive) { 'OK' } else { 'OFF' }) +
+            "  •  ChatGPT tabs: " + $(if ($null -eq $tabs) { '—' } else { [string]$tabs }) +
+            [Environment]::NewLine +
+            "ChatGPT Work mode invocations: $workInvocations"
+        )
+
+        $projectValue.Text = $projectName
+        $taskValue.Text = "TASK ĐANG HOẠT ĐỘNG: $activeTask"
+        $automationValue.Text = "AUTOMATION: $automationStatus"
+        $phaseValue.Text = "PHA RUNTIME: $phase"
+
+        $plannerReady = Test-ChatConversationUrl $plannerUrl
+        $executorReady = Test-ChatConversationUrl $executorUrl
+        $plannerButton.Enabled = $plannerReady
+        $executorButton.Enabled = $executorReady
+
+        $targetsReady = [bool]($plannerReady -and $executorReady)
+        $startButton.Enabled = [bool]($targetsReady -and -not $running)
+        $stopButton.Enabled = [bool]($truth.wrapper_alive -or -not $ownerStop.blocked)
+
+        $runner = Get-RunnerProcess
+        if ($runner) {
+            $runnerButton.Text = 'GITHUB ĐANG KẾT NỐI'
+            $runnerButton.ForeColor = [Drawing.Color]::FromArgb(22,163,74)
+        } else {
+            [void](Request-RunnerRecovery)
+            $runnerButton.Text = 'GITHUB ĐANG TỰ KẾT NỐI'
+            $runnerButton.ForeColor = [Drawing.Color]::FromArgb(217,119,6)
+        }
+
+        if (
+            $targetsReady -and
+            -not $ownerStop.blocked -and
+            -not $truth.healthy -and
+            $automationStatus -notin @('DONE','STOPPED')
+        ) {
+            Request-LifecycleRecovery
+        }
+
+        $vietnamNow = [TimeZoneInfo]::ConvertTime(
+            [DateTimeOffset]::UtcNow,
+            $vietnamTimeZone
+        )
+        $updatedLabel.Text = (
+            'Đồng bộ: ' + $vietnamNow.ToString('dd/MM/yyyy HH:mm:ss') +
+            ' giờ Việt Nam'
+        )
+        $diagnosticLabel.Text = (
+            'Production topology: 1 dự án • Planner + Executor • local durable state authority.' +
+            [Environment]::NewLine +
+            'Legacy 3-lane UI chỉ xuất hiện khi rollback về THREE_LANE_V1.'
+        )
+    }
+
+    $startButton.Add_Click({
+        $state = Read-JsonFile $plannerExecutorStateFile
+        $planner = Get-OptionalPropertyValue $state 'planner' $null
+        $executor = Get-OptionalPropertyValue $state 'executor' $null
+        if (
+            -not (Test-ChatConversationUrl ([string](Get-OptionalPropertyValue $planner 'target' ''))) -or
+            -not (Test-ChatConversationUrl ([string](Get-OptionalPropertyValue $executor 'target' '')))
+        ) {
+            [Windows.Forms.MessageBox]::Show(
+                'Planner hoặc Executor chưa có ChatGPT target hợp lệ.',
+                'MAGASIN SUPERVISOR',
+                'OK',
+                'Warning'
+            ) | Out-Null
+            return
+        }
+        if (-not (Test-Path $startScript)) {
+            [Windows.Forms.MessageBox]::Show(
+                'Không tìm thấy start-supervisor.ps1 trong runtime.',
+                'MAGASIN SUPERVISOR',
+                'OK',
+                'Error'
+            ) | Out-Null
+            return
+        }
+        Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
+            '-NoLogo','-NoProfile','-ExecutionPolicy','Bypass',
+            '-File',('"' + $startScript + '"'),'-Hidden'
+        )
+    })
+
+    $stopButton.Add_Click({
+        if (-not (Test-Path $stopScript)) {
+            [Windows.Forms.MessageBox]::Show(
+                'Không tìm thấy stop-supervisor.ps1 trong runtime.',
+                'MAGASIN SUPERVISOR',
+                'OK',
+                'Error'
+            ) | Out-Null
+            return
+        }
+        Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
+            '-NoLogo','-NoProfile','-ExecutionPolicy','Bypass',
+            '-File',('"' + $stopScript + '"')
+        )
+    })
+
+    $plannerButton.Add_Click({
+        $state = Read-JsonFile $plannerExecutorStateFile
+        $planner = Get-OptionalPropertyValue $state 'planner' $null
+        Open-RobotUrl ([string](Get-OptionalPropertyValue $planner 'target' ''))
+    })
+
+    $executorButton.Add_Click({
+        $state = Read-JsonFile $plannerExecutorStateFile
+        $executor = Get-OptionalPropertyValue $state 'executor' $null
+        Open-RobotUrl ([string](Get-OptionalPropertyValue $executor 'target' ''))
+    })
+
+    $runnerButton.Add_Click({
+        if (-not (Ensure-Runner)) {
+            [Windows.Forms.MessageBox]::Show(
+                'Không thể khởi động GitHub Runner.',
+                'MAGASIN SUPERVISOR',
+                'OK',
+                'Warning'
+            ) | Out-Null
+        }
+    })
+
+    $refreshButton.Add_Click({ Refresh-PlannerExecutorUi })
+
+    $timer = New-Object Windows.Forms.Timer
+    $timer.Interval = 2000
+    $timer.Add_Tick({ Refresh-PlannerExecutorUi })
+    $form.Add_Shown({ Refresh-PlannerExecutorUi })
+    $form.Add_FormClosed({ $timer.Stop(); $timer.Dispose() })
+    $timer.Start()
+
+    [void]$form.ShowDialog()
+}
+
+$plannerExecutorPanelState = Read-JsonFile $plannerExecutorStateFile
+if (
+    $plannerExecutorPanelState -and
+    [string]$plannerExecutorPanelState.mode -eq 'PLANNER_EXECUTOR_V1'
+) {
+    Show-PlannerExecutorControlPanel
+    exit 0
 }
 
 [Windows.Forms.Application]::EnableVisualStyles()
