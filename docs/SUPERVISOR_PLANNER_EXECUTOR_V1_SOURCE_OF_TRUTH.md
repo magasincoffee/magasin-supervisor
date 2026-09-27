@@ -262,8 +262,25 @@ Regression gates passed: Supervisor Tests `36292309245`, Integrity `36292309225`
 
 **PE-003 is the next execution task.**
 
-### PE-003 — Two warm-tab runtime
-Replace the forward orchestration path with exactly Planner + Executor warm conversations and no normal Three-Lane scheduler dependency.
+### PE-003 — COMPLETE
+**Two warm-tab runtime**
+
+PR #129 merged at `a2f99e5523cf7f2526c6a86f40738a89638b9fac`.
+
+Implemented:
+- one exact warm Planner page + one exact warm Executor page;
+- continuous fail-closed page-count and target-identity guard;
+- only a safe empty landing tab may be closed automatically; unrelated conversations or draft-bearing tabs are preserved and block;
+- local durable Planner/Executor state is target authority;
+- first start requires explicit project/Planner/Executor values; conflicting later target overrides fail closed;
+- assistant parsing is gated while ChatGPT is still busy;
+- forward CLI has no Three-Lane scheduler dependency;
+- ChatGPT Work mode invocation count remains zero;
+- production wrapper is not rewired and production cutover remains false.
+
+Regression gates passed: Supervisor Tests `36292664760`, Integrity `36292664717`, Lifecycle `36292664723`, Autostart isolated `36292664733`.
+
+**PE-004 is the next execution task.**
 
 ### PE-004 — Exact-once and recovery
 Implement assignment/result exact-once latches, restart reconciliation, persisted last-seen turn IDs, and exact-digest orphan-draft recovery.
