@@ -96,6 +96,10 @@ Recommended short field names:
 - `r` — result_id
 - `n` — next_task_id
 - `s` — report status
+- `p` — project_id (project-aware profile mode)
+- `g` — project_generation (project-aware profile mode)
+- `pc` — completed task count from Source of Truth
+- `pt` — total task count from Source of Truth
 
 Examples:
 
@@ -118,6 +122,34 @@ Planner accepts and assigns the next task in one transaction:
 ```
 
 Unknown additive fields may be ignored. Malformed or correlation-mismatched frames fail closed.
+
+## 4A. Multi-project profiles and project Source of Truth
+
+Planner/Executor V1 supports multiple saved **Project Profiles**, while keeping exactly **one active project** and exactly **two active normal ChatGPT conversations** at runtime.
+
+Each profile owns:
+
+- `project_id` and project display name;
+- Owner-configured **Source of Truth URL**;
+- exact Planner chat URL;
+- exact Executor chat URL;
+- monotonically increasing `project_generation`;
+- a per-project durable state snapshot.
+
+Switching project is fail-closed: the Robot must be stopped and there must be no in-flight assignment/result. The current active state is snapshotted before another profile becomes active.
+
+When a project is loaded, or its Source of Truth URL changes, Supervisor re-arms `MAGASIN_PROJECT_BOOTSTRAP_V1`. The first Planner instruction for that project generation requires Planner to read the configured Source of Truth before assigning work. After bootstrap, machine frames are correlated to the exact `project_id` and `project_generation`; stale output from another project/generation is rejected.
+
+Project-aware additive `@M` fields are:
+
+- `p` — project_id;
+- `g` — project_generation;
+- `pc` — completed task count read from project Source of Truth;
+- `pt` — total task count read from project Source of Truth.
+
+The Control Panel progress bar is a projection of durable `pc/pt` state reported by Planner from the configured Source of Truth. Chat conversation memory is never the authority for project completion.
+
+Implementation authority: PR #153, merge `e928bc03980f564c007a97b197f1b8af7c727fde`.
 
 ## 5. Happy-path performance contract
 
