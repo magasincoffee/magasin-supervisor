@@ -339,8 +339,30 @@ Regression gates passed: Supervisor Tests `36294115756`, Integrity `36294115776`
 
 **PE-007 is now READY_TO_EXECUTE.**
 
-### PE-007 — Qualification and cutover
-Run regression + live qualification, prove 2-tab invariant, no ChatGPT Work mode, no duplicate assignment/result, bounded stalled-draft recovery, then perform Owner-authorized production cutover. Retain an exact released legacy snapshot for rollback.
+### PE-007 — LIVE QUALIFIED / AWAITING OWNER CUTOVER
+**Qualification and Owner-authorized cutover**
+
+Authoritative PE-007 live qualification PASSED on workflow run `36295980129` against candidate `561a64bf2cd62503b78219b53fb5e71413dc2056`.
+
+Authority evidence is persisted at:
+
+`.github/qualification/pe007-latest.json`
+
+Live evidence proved:
+- target machine `DESKTOP-4K7IM13`;
+- exactly two normal ChatGPT conversations for Planner + Executor;
+- zero ChatGPT Work mode invocations;
+- initial assignment -> intentional FAIL report -> Planner reject with bounded correction -> correction PASS report -> Planner DONE;
+- exact correlation `A001/R001` then `A002/R002`;
+- four relay/assignment cycle sends, each confirmed by `matching-user-turn-observed`;
+- terminal DONE persisted;
+- production state, production targets, and state-root binding unchanged;
+- qualification-owned Chrome cleaned up after PASS;
+- authority gate accepted only the real target runner; non-target runner could not satisfy qualification.
+
+**Production cutover remains false.** PE-007 qualification is complete, but production must not switch from the released Three-Lane baseline until the Owner explicitly authorizes cutover. The next gate is therefore **EXPLICIT_OWNER_CUTOVER_AUTHORIZATION**.
+
+The exact released legacy runtime snapshot must remain available for rollback through cutover.
 
 ## 11. Non-goals before PE-001 is proven
 
