@@ -11,6 +11,7 @@ import {
 } from "./planner-executor.mjs";
 import {
   acquirePlannerExecutorWarmTabs,
+  assertPlannerExecutorWarmTabs,
   createIdleAwareTurnCapture,
   expectedWaitRole
 } from "./planner-executor-session.mjs";
@@ -115,6 +116,8 @@ try {
   );
 
   while (!stopping) {
+    assertPlannerExecutorWarmTabs(adapter, warm);
+
     const result = await runPlannerExecutorStep({
       statePath,
       projectId,
