@@ -519,7 +519,7 @@ Status: **CANONICAL PLAN / IN PROGRESS / NOT YET CUT OVER**
 
 Owner decision date: **2026-09-27**
 
-Current task: **MBV1-005 — @M Protocol Integration**. Progress: pc=4 / pt=8.
+Current task: **MBV1-006 — Project Bootstrap**. Progress: pc=5 / pt=8.
 
 This program replaces only the Planner/Executor transport layer. It preserves the existing Source-of-Truth authority, Planner/Executor roles, @M v1 protocol, task/assignment/result correlation, pc/pt semantics, STOP/RESET behavior, exact-once principles and Control UI concept.
 
@@ -749,6 +749,35 @@ MBV1-005 is now the current implementation task.
 
 ### 15.15 MBV1-005 implementation evidence
 
-Status: **IN_PROGRESS** (pc remains 4 / pt 8).
+Status: **COMPLETE / MERGED**
 
-MBV1-005 must connect the canonical `@M` v1 parser/correlation guards to the Bridge transport state machine without duplicating protocol semantics. Malformed, stale, duplicate, mismatched, or impossible frames must fail closed before transport mutation. Production cutover remains false.
+Authoritative implementation:
+
+- merged PR: #179;
+- final head: `08bdbb1c576987915eb9a6da7f4b62be61c201ee`;
+- merge commit: `778e8c1abd6420409661ee9f33f6cb446313c9f0`;
+- protocol controller: `src/runtime/planner-executor-bridge-protocol.mjs`;
+- canonical parser/action/correlation guards are reused from `machine-frame.mjs`;
+- malformed, mismatched, duplicate and impossible-phase frames fail closed before Bridge mutation;
+- strict project_id/project_generation correlation is supported;
+- reject without bounded correction becomes BLOCKED;
+- ambiguous Bridge send/relay outcomes are fail-closed BLOCKED with transport evidence, correcting the resendable failure path identified during PR #178 review;
+- production cutover remains false.
+
+Final gate evidence:
+
+```text
+Supervisor Tests                = PASS (run 36332260656)
+Supervisor Integrity            = PASS (run 36332260686)
+Supervisor Lifecycle Acceptance = PASS (run 36332260572)
+Supervisor Autostart Install    = PASS (run 36332260646)
+```
+
+MBV1-006 is now the current implementation task.
+
+
+### 15.16 MBV1-006 implementation evidence
+
+Status: **IN_PROGRESS** (pc remains 5 / pt 8).
+
+MBV1-006 must bind the link-only START inputs (Source of Truth URL, Planner Chat URL, Executor Chat URL) to the merged Bridge role binding, send the canonical Planner bootstrap through the Bridge, require Planner-reported `pc/pt`, and begin the validated protocol loop without creating any local project authority. Production cutover remains false.
