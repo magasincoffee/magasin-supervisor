@@ -1225,6 +1225,12 @@ function Show-PlannerExecutorControlPanel {
     $profileEditor = [pscustomobject]@{
         Draft = $false
         Suppress = $false
+        Dirty = $false
+    }
+    foreach ($profileInput in @($projectNameBox,$sourceBox,$plannerBox,$executorBox)) {
+        $profileInput.Add_TextChanged({
+            if (-not $profileEditor.Suppress) { $profileEditor.Dirty = $true }
+        })
     }
 
     $footer = New-Object Windows.Forms.Panel
@@ -1259,6 +1265,7 @@ function Show-PlannerExecutorControlPanel {
             $plannerBox.Text = [string](Get-OptionalPropertyValue $profile 'planner_url' '')
             $executorBox.Text = [string](Get-OptionalPropertyValue $profile 'executor_url' '')
             $profileEditor.Draft = $false
+            $profileEditor.Dirty = $false
         } finally {
             $profileEditor.Suppress = $false
         }
@@ -1269,6 +1276,7 @@ function Show-PlannerExecutorControlPanel {
         $profileEditor.Suppress = $true
         try {
             $profileEditor.Draft = $true
+            $profileEditor.Dirty = $true
             $projectSelector.Text = [string]$ProjectId
             $projectNameBox.Text = ''
             $sourceBox.Text = ''
@@ -1312,11 +1320,16 @@ function Show-PlannerExecutorControlPanel {
             $editorProjectId = $projectId
         }
         $editingActiveProfile = [bool](-not $profileEditor.Draft -and $editorProjectId -eq $projectId)
-        if ($editingActiveProfile) {
-            if (-not $projectNameBox.Focused) { $projectNameBox.Text = $projectName }
-            if (-not $sourceBox.Focused) { $sourceBox.Text = $sourceUrl }
-            if (-not $plannerBox.Focused) { $plannerBox.Text = $plannerUrl }
-            if (-not $executorBox.Focused) { $executorBox.Text = $executorUrl }
+        if ($editingActiveProfile -and -not $profileEditor.Dirty) {
+            $profileEditor.Suppress = $true
+            try {
+                if (-not $projectNameBox.Focused) { $projectNameBox.Text = $projectName }
+                if (-not $sourceBox.Focused) { $sourceBox.Text = $sourceUrl }
+                if (-not $plannerBox.Focused) { $plannerBox.Text = $plannerUrl }
+                if (-not $executorBox.Focused) { $executorBox.Text = $executorUrl }
+            } finally {
+                $profileEditor.Suppress = $false
+            }
         }
 
         $activeTask = [string](Get-OptionalPropertyValue $state 'active_task_id' '')
