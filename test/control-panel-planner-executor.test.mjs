@@ -35,23 +35,25 @@ test("project profiles keep one active project while preserving per-project stat
   assert.match(panel, /Save-ActiveProjectSnapshot/);
   assert.match(panel, /Switch-PlannerExecutorProject/);
   assert.match(panel, /state_file/);
-  assert.match(panel, /1 active project \/ 2 normal ChatGPT tabs/);
+  assert.match(panel, /1 ACTIVE PROJECT/);
+  assert.match(panel, /ChatGPT tabs:/);
 });
 
-test("project switch/source changes stay fail-closed while active chat targets may rollover with open transfer state", async () => {
+test("stopped projects may be parked with in-flight state while Source changes stay fail-closed", async () => {
   const panel = await read("../windows/control-panel.ps1");
 
   assert.match(panel, /function Assert-SafeProjectMutation/);
-  assert.match(panel, /Hãy STOP ROBOT trước khi lưu hoặc chuyển dự án/);
+  assert.match(panel, /Hãy STOP ROBOT trước khi chuyển project active/);
+  assert.match(panel, /A stopped project may be parked with an in-flight assignment\/result/);
+  assert.match(panel, /Park the current project exactly as-is/);
+  assert.match(panel, /Switching active projects is not a project reset/);
   assert.match(panel, /Bạn đang sửa SOURCE của project ACTIVE/);
   assert.match(panel, /Nếu đây là dự án khác, bấm TẠO PROFILE MỚI/);
   assert.match(panel, /\$oldPlannerRevision/);
   assert.match(panel, /\$oldExecutorRevision/);
   assert.match(panel, /previous_target/);
-  assert.match(panel, /New-ProjectContextBootstrap \(\[int\]\$state\.project_generation\)/);
-  assert.match(panel, /\$activeChatTargetsEditable=\[bool\]\(\$robotStopped\)/);
-  assert.match(panel, /\$sourceInputEditable=\[bool\]\(-not \$editingActiveProfile -or \$safeToSwitch\)/);
-  assert.match(panel, /\$projectSelector\.Enabled=\$true/);
+  assert.match(panel, /\$safeToSwitch=\[bool\]\(\$robotStopped\)/);
+  assert.match(panel, /\$sourceSafeToEdit=\[bool\]\(\$robotStopped -and -not \$hasTransfer\)/);
   assert.match(panel, /\$loadProjectButton\.Enabled=\[bool\]\(\$safeToSwitch/);
 });
 
@@ -71,7 +73,7 @@ test("profile editor can create and inspect inactive projects without being clob
   assert.match(panel, /Draft mới không được ghi đè profile hiện có/);
 });
 
-test("Source of Truth change and project switch re-arm Planner bootstrap with generation", async () => {
+test("Source of Truth change re-arms bootstrap while project switch preserves generation and pending state", async () => {
   const panel = await read("../windows/control-panel.ps1");
 
   assert.match(panel, /project_generation/);
@@ -79,6 +81,13 @@ test("Source of Truth change and project switch re-arm Planner bootstrap with ge
   assert.match(panel, /New-ProjectContextBootstrap/);
   assert.match(panel, /strict_correlation = \$false/);
   assert.match(panel, /Planner sẽ đọc lại Source of Truth ở câu lệnh đầu tiên/);
+
+  const switchStart = panel.indexOf("function Switch-PlannerExecutorProject");
+  const switchEnd = panel.indexOf("function Show-PlannerExecutorControlPanel", switchStart);
+  const switchBody = panel.slice(switchStart, switchEnd);
+  assert.doesNotMatch(switchBody, /project_generation = \[int\]\$state\.project_generation \+ 1/);
+  assert.doesNotMatch(switchBody, /last_seen_assistant_turn_id = \$null/);
+  assert.match(switchBody, /Save-ActiveProjectSnapshot/);
 });
 
 test("project progress is rendered from durable Planner/Executor project_progress", async () => {
@@ -94,17 +103,28 @@ test("project progress is rendered from durable Planner/Executor project_progres
   assert.match(refresh, /\$progressBar\.Value=\$percent/);
 });
 
-test("production START requires Source of Truth plus two valid normal ChatGPT targets", async () => {
+test("production START activates the selected saved profile, then validates Source and Chat targets", async () => {
   const panel = await read("../windows/control-panel.ps1");
   const start = panel.indexOf("$startButton.Add_Click({");
   const end = panel.indexOf("$stopButton.Add_Click", start);
   const handler = panel.slice(start, end);
 
+  assert.match(handler, /Profile đang có thay đổi chưa lưu/);
+  assert.match(handler, /Get-PlannerExecutorProjectProfile/);
+  assert.match(handler, /if \(\$selectedId -ne \$activeId\)/);
+  assert.match(handler, /Switch-PlannerExecutorProject \$selectedId/);
   assert.match(handler, /ConvertTo-CanonicalSourceOfTruthUrl/);
   assert.match(handler, /Test-ChatConversationUrl \$planner/);
   assert.match(handler, /Test-ChatConversationUrl \$executor/);
   assert.match(handler, /'-Hidden'/);
   assert.doesNotMatch(handler, /'-Recovery'/);
+
+  const refreshStart = panel.indexOf("function Refresh-PlannerExecutorUi");
+  const refreshEnd = panel.indexOf("$projectSelector.Add_SelectionChangeCommitted", refreshStart);
+  const refresh = panel.slice(refreshStart, refreshEnd);
+  assert.match(refresh, /\$savedSelectionReady/);
+  assert.match(refresh, /START sẽ tự NẠP profile này/);
+  assert.match(refresh, /\$startButton\.Enabled=\[bool\]\(\$robotStopped -and \$savedSelectionReady/);
 });
 
 test("legacy Three-Lane UI remains rollback-compatible but is bypassed in Planner/Executor mode", async () => {

@@ -136,9 +136,11 @@ Each profile owns:
 - monotonically increasing `project_generation`;
 - a per-project durable state snapshot.
 
-Switching project is fail-closed: the Robot must be stopped and there must be no in-flight assignment/result. The current active state is snapshotted before another profile becomes active.
+Switching the active project is fail-closed on **Robot runtime activity**, not on durable project progress. The Robot must be stopped before switching. A stopped project may be **parked** even when it still has an in-flight assignment/result: Supervisor snapshots the entire per-project durable state, including active task, assignment/result IDs, send-recovery metadata, identity history, progress, bootstrap state, and last-seen turn IDs. Activating another profile MUST NOT discard or complete the parked project's work.
 
-When a project is loaded, or its Source of Truth URL changes, Supervisor re-arms `MAGASIN_PROJECT_BOOTSTRAP_V1`. The first Planner instruction for that project generation requires Planner to read the configured Source of Truth before assigning work. After bootstrap, machine frames are correlated to the exact `project_id` and `project_generation`; stale output from another project/generation is rejected.
+Project switching itself is not a project reset and MUST NOT increment `project_generation`, clear assignment/result, clear last-seen turns, or re-arm bootstrap merely because another profile became active. The target profile resumes its persisted state exactly. A newly-created profile already carries a required `MAGASIN_PROJECT_BOOTSTRAP_V1`; a Source of Truth URL change explicitly re-arms that bootstrap and may advance generation. After bootstrap, machine frames are correlated to the exact `project_id` and `project_generation`; stale output from another project/generation is rejected.
+
+Control Center START acts on the **selected saved profile**. If the selected profile differs from the active project and the Robot is stopped, START first parks the current project, activates the selected profile, validates its Source/Planner/Executor targets, and then starts the Robot. Unsaved drafts/edits must block START.
 
 Project-aware additive `@M` fields are:
 

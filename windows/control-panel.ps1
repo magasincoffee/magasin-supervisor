@@ -776,15 +776,12 @@ function Save-ActiveProjectSnapshot {
 
 function Assert-SafeProjectMutation {
     $truth = Get-LifecycleProcessTruth -Root $root
-    if ([bool]$truth.wrapper_alive) { throw 'Hãy STOP ROBOT trước khi lưu hoặc chuyển dự án.' }
-    $state = Read-JsonFile $plannerExecutorStateFile
-    if ($state) {
-        $assignment = Get-OptionalPropertyValue $state 'assignment' $null
-        $result = Get-OptionalPropertyValue $state 'result' $null
-        if ($null -ne $assignment -or $null -ne $result) {
-            throw 'Dự án hiện tại còn assignment/result đang mở. Hãy hoàn tất hoặc dừng ở safe boundary trước khi chuyển dự án.'
-        }
+    if ([bool]$truth.wrapper_alive) {
+        throw 'Hãy STOP ROBOT trước khi chuyển project active.'
     }
+    # A stopped project may be parked with an in-flight assignment/result.
+    # The full durable state is snapshotted per project and resumed exactly
+    # from that snapshot when the project becomes active again.
 }
 
 function New-ProjectContextBootstrap([int]$Generation) {
@@ -930,6 +927,17 @@ function Save-PlannerExecutorProjectProfile(
 function Switch-PlannerExecutorProject([string]$ProjectId) {
     Assert-SafeProjectMutation
     $id = Assert-ProjectId $ProjectId
+    $registry = Ensure-PlannerExecutorProjectProfiles
+    $currentActiveId = [string](Get-OptionalPropertyValue $registry 'active_project_id' '')
+
+    if ($currentActiveId -eq $id) {
+        $current = Read-JsonFile $plannerExecutorStateFile
+        if (-not $current) { throw "Không tìm thấy active state cho project: $id" }
+        return $current
+    }
+
+    # Park the current project exactly as-is, including any unresolved
+    # assignment/result and send-recovery metadata.
     $registry = Save-ActiveProjectSnapshot
     $profile = Get-PlannerExecutorProjectProfile $registry $id
     if (-not $profile) { throw "Không tìm thấy project profile: $id" }
@@ -938,17 +946,25 @@ function Switch-PlannerExecutorProject([string]$ProjectId) {
     $state = Read-JsonFile $stateFile
     if (-not $state) { throw "Không tìm thấy state snapshot cho project: $id" }
 
-    if (-not $state.PSObject.Properties['project_generation']) { $state | Add-Member -NotePropertyName 'project_generation' -NotePropertyValue 1 }
-    $state.project_generation = [int]$state.project_generation + 1
+    if (-not $state.PSObject.Properties['project_generation']) {
+        $state | Add-Member -NotePropertyName 'project_generation' -NotePropertyValue 1
+    }
     if (-not $state.PSObject.Properties['project_context']) {
-        $state | Add-Member -NotePropertyName 'project_context' -NotePropertyValue ([pscustomobject]@{ source_of_truth_url=[string]$profile.source_of_truth_url; strict_correlation=$false })
+        $state | Add-Member -NotePropertyName 'project_context' -NotePropertyValue ([pscustomobject]@{
+            source_of_truth_url=[string]$profile.source_of_truth_url
+            strict_correlation=$false
+        })
     }
     $state.project_context.source_of_truth_url = [string]$profile.source_of_truth_url
-    $state.project_context.strict_correlation = $false
-    $state.project_context_bootstrap = New-ProjectContextBootstrap ([int]$state.project_generation)
-    $state.planner.last_seen_assistant_turn_id = $null
-    $state.executor.last_seen_assistant_turn_id = $null
-    $state.automation = [pscustomobject]@{ status='RUNNING'; reason=$null; updated_at=[DateTimeOffset]::UtcNow.ToString('o') }
+
+    # Switching active projects is not a project reset. Preserve generation,
+    # bootstrap state, last-seen turn IDs, task, assignment/result, progress,
+    # identity history, and exact-once send metadata.
+    $state.automation = [pscustomobject]@{
+        status='RUNNING'
+        reason=$null
+        updated_at=[DateTimeOffset]::UtcNow.ToString('o')
+    }
 
     Write-JsonAtomic $stateFile $state
     Write-JsonAtomic $plannerExecutorStateFile $state
@@ -1457,19 +1473,33 @@ function Show-PlannerExecutorControlPanel {
 
         $hasTransfer=[bool]($null -ne (Get-OptionalPropertyValue $state 'assignment' $null) -or $null -ne (Get-OptionalPropertyValue $state 'result' $null))
         $robotStopped=[bool](-not $truth.wrapper_alive)
-        $safeToSwitch=[bool]($robotStopped -and -not $hasTransfer)
+        $safeToSwitch=[bool]($robotStopped)
+        $sourceSafeToEdit=[bool]($robotStopped -and -not $hasTransfer)
         $activeChatTargetsEditable=[bool]($robotStopped)
         $profileInputsEditable=[bool](-not $editingActiveProfile -or $activeChatTargetsEditable)
-        $sourceInputEditable=[bool](-not $editingActiveProfile -or $safeToSwitch)
+        $sourceInputEditable=[bool](-not $editingActiveProfile -or $sourceSafeToEdit)
+        $savedSelectionReady=[bool](
+            -not $profileEditor.Draft -and
+            -not $profileEditor.Dirty -and
+            $editorProjectId -and
+            $editorPlannerReady -and
+            $editorExecutorReady -and
+            $editorSourceReady
+        )
         $saveProjectButton.Enabled=$profileInputsEditable
-        $loadProjectButton.Enabled=[bool]($safeToSwitch -and -not $profileEditor.Draft -and $editorProjectId)
+        $loadProjectButton.Enabled=[bool]($safeToSwitch -and -not $profileEditor.Draft -and -not $profileEditor.Dirty -and $editorProjectId)
         $newProjectButton.Enabled=$true
         $projectSelector.Enabled=$true
         $projectNameBox.ReadOnly=-not $profileInputsEditable
         $sourceBox.ReadOnly=-not $sourceInputEditable
         $plannerBox.ReadOnly=-not $profileInputsEditable
         $executorBox.ReadOnly=-not $profileInputsEditable
-        $startButton.Enabled=[bool]($activePlannerReady -and $activeExecutorReady -and $activeSourceReady -and -not $running)
+        $startButton.Enabled=[bool]($robotStopped -and $savedSelectionReady -and -not $running)
+        if ($savedSelectionReady -and $editorProjectId -ne $projectId) {
+            $startButton.Text = '▶  START ' + $editorProjectId
+        } else {
+            $startButton.Text = '▶  START ROBOT'
+        }
         $stopButton.Enabled=[bool]($truth.wrapper_alive -or -not $ownerStop.blocked)
 
         $runner=Get-RunnerProcess
@@ -1478,7 +1508,13 @@ function Show-PlannerExecutorControlPanel {
 
         $vietnamNow=[TimeZoneInfo]::ConvertTime([DateTimeOffset]::UtcNow,$vietnamTimeZone)
         $updatedLabel.Text='Đồng bộ: '+$vietnamNow.ToString('dd/MM/yyyy HH:mm:ss')+' giờ Việt Nam'
-        $diagnosticLabel.Text="Active project: $projectId • generation $generation • Source of Truth anchored." + [Environment]::NewLine + '1 active project / 2 normal ChatGPT tabs; mỗi profile có state snapshot riêng.'
+        $selectionText = if ($editorProjectId -and $editorProjectId -ne $projectId) {
+            "Selected profile: $editorProjectId • START sẽ tự NẠP profile này."
+        } else {
+            'Selected profile = active project.'
+        }
+        $parkText = if ($hasTransfer) { 'Active project có transfer mở; STOP cho phép park state và chuyển profile.' } else { 'Active project không có transfer mở.' }
+        $diagnosticLabel.Text="Active project: $projectId • generation $generation • Source of Truth anchored." + [Environment]::NewLine + "$selectionText  $parkText"
     }
 
     $projectSelector.Add_SelectionChangeCommitted({
@@ -1531,13 +1567,16 @@ function Show-PlannerExecutorControlPanel {
 
     $loadProjectButton.Add_Click({
         try {
+            if ($profileEditor.Draft -or $profileEditor.Dirty) {
+                throw 'Hãy LƯU PROFILE trước khi NẠP DỰ ÁN.'
+            }
             $loadedId = $projectSelector.Text.Trim()
             [void](Switch-PlannerExecutorProject $loadedId)
             $profileEditor.Draft = $false
             Reload-ProjectSelector $loadedId
             [void](Set-ProjectProfileEditor $loadedId)
             Refresh-PlannerExecutorUi
-            [Windows.Forms.MessageBox]::Show('Đã nạp project. Khi START, Planner sẽ đọc lại Source of Truth trước khi giao task.','MAGASIN SUPERVISOR','OK','Information')|Out-Null
+            [Windows.Forms.MessageBox]::Show('Đã nạp project. Project trước đã được park nguyên state; START sẽ chạy project đang active.','MAGASIN SUPERVISOR','OK','Information')|Out-Null
         } catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message,'KHÔNG THỂ NẠP PROJECT','OK','Warning')|Out-Null }
     })
 
@@ -1547,13 +1586,39 @@ function Show-PlannerExecutorControlPanel {
     })
 
     $startButton.Add_Click({
-        $state=Read-JsonFile $plannerExecutorStateFile
-        $source=[string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'project_context' $null) 'source_of_truth_url' '')
-        $planner=[string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'planner' $null) 'target' '')
-        $executor=[string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'executor' $null) 'target' '')
-        try { [void](ConvertTo-CanonicalSourceOfTruthUrl $source) } catch { [Windows.Forms.MessageBox]::Show('Hãy lưu Source of Truth hợp lệ trước khi START.','MAGASIN SUPERVISOR','OK','Warning')|Out-Null; return }
-        if (-not (Test-ChatConversationUrl $planner) -or -not (Test-ChatConversationUrl $executor)) { [Windows.Forms.MessageBox]::Show('Planner hoặc Executor chưa có ChatGPT target hợp lệ.','MAGASIN SUPERVISOR','OK','Warning')|Out-Null; return }
-        Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $startScript + '"'),'-Hidden')
+        try {
+            if ($profileEditor.Draft -or $profileEditor.Dirty) {
+                throw 'Profile đang có thay đổi chưa lưu. Hãy bấm LƯU PROFILE trước khi START.'
+            }
+
+            $selectedId = Assert-ProjectId ($projectSelector.Text.Trim())
+            $registry = Ensure-PlannerExecutorProjectProfiles
+            $selectedProfile = Get-PlannerExecutorProjectProfile $registry $selectedId
+            if (-not $selectedProfile) {
+                throw "Không tìm thấy project profile đã lưu: $selectedId"
+            }
+
+            $activeId = [string](Get-OptionalPropertyValue $registry 'active_project_id' '')
+            if ($selectedId -ne $activeId) {
+                [void](Switch-PlannerExecutorProject $selectedId)
+                Reload-ProjectSelector $selectedId
+                [void](Set-ProjectProfileEditor $selectedId)
+            }
+
+            $state=Read-JsonFile $plannerExecutorStateFile
+            $source=[string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'project_context' $null) 'source_of_truth_url' '')
+            $planner=[string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'planner' $null) 'target' '')
+            $executor=[string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'executor' $null) 'target' '')
+            try { [void](ConvertTo-CanonicalSourceOfTruthUrl $source) } catch { throw 'Hãy lưu Source of Truth hợp lệ trước khi START.' }
+            if (-not (Test-ChatConversationUrl $planner) -or -not (Test-ChatConversationUrl $executor)) {
+                throw 'Planner hoặc Executor chưa có ChatGPT target hợp lệ.'
+            }
+
+            Refresh-PlannerExecutorUi
+            Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $startScript + '"'),'-Hidden')
+        } catch {
+            [Windows.Forms.MessageBox]::Show($_.Exception.Message,'KHÔNG THỂ START ROBOT','OK','Warning')|Out-Null
+        }
     })
 
     $stopButton.Add_Click({ Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $stopScript + '"')) })
