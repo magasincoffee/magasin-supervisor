@@ -194,7 +194,15 @@ test("PE-007 cutover candidate is ready only for an idle qualified legacy lane",
   );
   assert.match(
     candidate.state.cutover_bootstrap.message,
-    /@M \{"v":1,"a":"assign"/
+    /<AT>M \{"v":1,"a":"assign"/
+  );
+  assert.doesNotMatch(
+    candidate.state.cutover_bootstrap.message,
+    /@M \{"v":1/
+  );
+  assert.match(
+    candidate.state.cutover_bootstrap.message,
+    /U\+0040/
   );
 });
 
@@ -318,6 +326,31 @@ test("bootstrap recovery survives ChatGPT rerender when baseline user turn prove
   assert.match(source, /CUTOVER_BOOTSTRAP_RETRY/);
   assert.match(source, /bootstrap_retry_attempt/);
   assert.match(source, /isRecoverableBootstrapError/);
+});
+
+test("all Robot-authored Planner/Executor prompts transport machine-frame examples without literal @M", async () => {
+  const cli = await fs.readFile(
+    new URL("../src/runtime/planner-executor-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const runtime = await fs.readFile(
+    new URL("../src/runtime/planner-executor.mjs", import.meta.url),
+    "utf8"
+  );
+
+  const projectBootstrapStart = cli.indexOf("function buildProjectContextBootstrapMessage");
+  const projectBootstrapEnd = cli.indexOf("async function ensureProjectContextBootstrap", projectBootstrapStart);
+  const projectBootstrap = cli.slice(projectBootstrapStart, projectBootstrapEnd);
+  assert.match(projectBootstrap, /<AT>M/);
+  assert.match(projectBootstrap, /U\+0040/);
+  assert.doesNotMatch(projectBootstrap, /@M \{"v":1/);
+
+  const messageBuildersStart = runtime.indexOf("function machineFrameTransportInstruction");
+  const messageBuildersEnd = runtime.indexOf("function buildExecutorRolloverMessage", messageBuildersStart);
+  const messageBuilders = runtime.slice(messageBuildersStart, messageBuildersEnd);
+  assert.match(messageBuilders, /<AT>M/);
+  assert.match(messageBuilders, /U\+0040/);
+  assert.doesNotMatch(messageBuilders, /@M \{"v":1/);
 });
 
 test("production wrapper routes explicit Planner/Executor state before legacy project-adapter mode", async () => {
