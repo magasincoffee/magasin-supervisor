@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "MAGASIN MBV1-001 Bridge Qualification",
+  "version": "0.1.0",
+  "description": "Qualification-only wrapper for the pinned chatgpt-bridge userscript.",
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
+      "js": [
+        "gm-shim.js",
+        "chatgpt_bridge.user.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
