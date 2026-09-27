@@ -45,5 +45,5 @@ jobs:
         run: |
           @echo off
           echo PE001_QUAL_SLOT=${{ matrix.slot }}
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\pe001-live-qualification.ps1" -TargetComputer "DESKTOP-4K7IM13"
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-pe001-live-qualification.ps1" -TargetComputer "DESKTOP-4K7IM13"
           exit /b %ERRORLEVEL%
