@@ -149,6 +149,8 @@ Project-aware additive `@M` fields are:
 
 The Control Panel progress bar is a projection of durable `pc/pt` state reported by Planner from the configured Source of Truth. Chat conversation memory is never the authority for project completion.
 
+Saving or editing a **non-active** Project Profile is configuration-only. It MUST be allowed without switching the active project, and it MUST NOT mutate the active project's task, assignment/result latches, generation, or runtime state. Safe-boundary requirements apply to **project activation/switching** and to mutation of the **currently active** profile's Source/Planner/Executor targets.
+
 Implementation authority: PR #153, merge `e928bc03980f564c007a97b197f1b8af7c727fde`.
 
 ## 5. Happy-path performance contract
