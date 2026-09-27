@@ -6,6 +6,9 @@ on:
       - main
     paths:
       - .github/workflows/live-brain-submit-diagnostic-20260926.yml
+      - src/ui/actions.mjs
+      - src/ui/submit-flight-recorder.mjs
+      - src/runtime/planner-executor-cli.mjs
   workflow_dispatch:
 
 permissions:
@@ -50,3 +53,5 @@ jobs:
 # diagnostic revision 8 bootstrap send outcome
 
 # diagnostic revision 9 bootstrap target URL evidence
+
+# diagnostic revision 10 Planner/Executor live submit liveness
