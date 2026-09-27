@@ -439,3 +439,21 @@ test("production CLI persists cutover-ready status immediately after bootstrap c
     /chatgpt_work_mode_invocations:\s*0/
   );
 });
+
+
+test("production CLI bootstraps Planner from per-project Source of Truth before run loop", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/planner-executor-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /MAGASIN_PROJECT_BOOTSTRAP_V1/);
+  assert.match(source, /source_of_truth=/);
+  assert.match(source, /Đọc lại dự án từ Source of Truth/);
+  assert.match(source, /"pc":COMPLETED,"pt":TOTAL/);
+  assert.match(source, /ensureProjectContextBootstrap/);
+  const bootstrapCall = source.indexOf("await ensureProjectContextBootstrap({");
+  const runLoop = source.indexOf('startupStage = "RUN_LOOP"');
+  assert.ok(bootstrapCall >= 0);
+  assert.ok(runLoop > bootstrapCall);
+});
