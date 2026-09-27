@@ -1,4 +1,4 @@
-> **Canonical forward architecture:** Planner / Executor V1 is the approved forward Source of Truth. Planner and Executor are two normal ChatGPT conversations; ChatGPT Work mode is not part of the orchestration path. Supervisor local durable state remains authoritative. Implementation starts with **PE-001 — Planner/Executor minimal end-to-end vertical slice**.
+> **Canonical forward architecture:** Planner / Executor V1 is the approved forward Source of Truth. Planner and Executor are two normal ChatGPT conversations; ChatGPT Work mode is not part of the orchestration path. Supervisor local durable state remains authoritative. PE-001 implementation candidate is merged; live Planner/Executor qualification and production cutover are still pending.
 >
 > Canonical authority:
 > - `docs/SUPERVISOR_PLANNER_EXECUTOR_V1_SOURCE_OF_TRUTH.md`
