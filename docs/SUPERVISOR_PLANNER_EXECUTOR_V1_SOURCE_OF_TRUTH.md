@@ -44,21 +44,13 @@ Target steady-state resident ChatGPT page count: **2**.
 
 ## 3. Authority model
 
-ChatGPT conversation text is not the durable orchestration database.
+**Project authority is the Owner-provided Source of Truth URL.**
 
-**Supervisor local durable state is authoritative** for:
+Planner MUST read the Source of Truth at the beginning of every STARTed live session and derive project scope, task status, dependencies, completed task count (`pc`) and total task count (`pt`) from that source. The Control Center progress bar is only a projection of those Planner-reported `pc/pt` values.
 
-- project identity;
-- Planner/Executor exact target identity and revision;
-- active task;
-- assignment identity;
-- result identity;
-- exact-once latches;
-- last-seen turn identity;
-- pending/recovery state;
-- Owner STOP / lifecycle state.
+Supervisor may keep the minimum **ephemeral runtime transaction state** needed while a live session is running (current assignment/result correlation, exact-once latches, latest-turn identity and recovery state). That runtime state is not project authority, is never a saved project profile, and is discarded by RESET. A later START reconstructs project context from the three current links rather than restoring a project snapshot.
 
-Chat content is used for reasoning, execution, and compact machine signaling.
+Chat content is used for reasoning, execution, and compact machine signaling. It is not the project database.
 
 ## 4. Machine protocol
 
@@ -123,50 +115,47 @@ Planner accepts and assigns the next task in one transaction:
 
 Unknown additive fields may be ignored. Malformed or correlation-mismatched frames fail closed.
 
-## 4A. Multi-project profiles and project Source of Truth
+## 4A. Link-only live session and Source of Truth
 
-Planner/Executor V1 supports multiple saved **Project Profiles**, while keeping exactly **one active project** and exactly **two active normal ChatGPT conversations** at runtime.
+Planner/Executor V1 production Control Center is **link-only**. It accepts exactly three runtime inputs:
 
-Each profile owns:
-
-- `project_id` and project display name;
 - Owner-configured **Source of Truth URL**;
-- exact Planner chat URL;
-- exact Executor chat URL;
-- monotonically increasing `project_generation`;
-- a per-project durable state snapshot.
+- exact Planner ChatGPT conversation URL;
+- exact Executor ChatGPT conversation URL.
 
-Switching the active project is fail-closed on **Robot runtime activity**, not on durable project progress. The Robot must be stopped before switching. A stopped project may be **parked** even when it still has an in-flight assignment/result: Supervisor snapshots the entire per-project durable state, including active task, assignment/result IDs, send-recovery metadata, identity history, progress, bootstrap state, and last-seen turn IDs. Activating another profile MUST NOT discard or complete the parked project's work.
+There are no saved Project Profiles, no project switch/park flow, and no per-project state snapshots in the forward production UI.
 
-Project switching itself is not a project reset and MUST NOT increment `project_generation`, clear assignment/result, clear last-seen turns, or re-arm bootstrap merely because another profile became active. The target profile resumes its persisted state exactly. A newly-created profile already carries a required `MAGASIN_PROJECT_BOOTSTRAP_V1`; a Source of Truth URL change explicitly re-arms that bootstrap and may advance generation. After bootstrap, machine frames are correlated to the exact `project_id` and `project_generation`; stale output from another project/generation is rejected.
+START behavior:
 
-Control Center START acts on the **selected saved profile**. If the selected profile differs from the active project and the Robot is stopped, START first parks the current project, activates the selected profile, validates its Source/Planner/Executor targets, and then starts the Robot. Unsaved drafts/edits must block START.
+1. validate the three current links;
+2. discard any old local project-profile/snapshot artifacts;
+3. create a fresh `LIVE` runtime session with generation 1;
+4. open/acquire the exact Planner and Executor conversations;
+5. send `MAGASIN_PROJECT_BOOTSTRAP_V1` to Planner;
+6. Planner reads the Source of Truth from the beginning, determines `pc/pt`, and either assigns exactly one next task or returns `done`;
+7. Control Center updates the progress bar from Planner `pc/pt`;
+8. normal Planner -> Executor -> Planner continuation proceeds automatically.
 
-Project-aware additive `@M` fields are:
+A STOP followed by START is also a fresh Source-of-Truth rehydrate. The Robot does not restore a saved project snapshot.
 
-- `p` — project_id;
-- `g` — project_generation;
-- `pc` — completed task count read from project Source of Truth;
-- `pt` — total task count read from project Source of Truth.
+RESET ROBOT semantics are intentionally destructive for local project/session data:
 
-The Control Panel progress bar is a projection of durable `pc/pt` state reported by Planner from the configured Source of Truth. Chat conversation memory is never the authority for project completion.
+- STOP Robot first;
+- delete local Source/Chat link state, progress, task, assignment/result, decision, last-completed pointer, exact-once/recovery state, profile registry/snapshots, incidents/status cache and submit diagnostics;
+- leave only an empty `PLANNER_EXECUTOR_V1` mode shell so Control Center can reopen;
+- clear the three link inputs in the visible Control Center;
+- preserve only non-project infrastructure: Chrome login profile, installed Supervisor runtime and GitHub Runner.
 
-Saving or editing a **non-active** Project Profile is configuration-only. It MUST be allowed without switching the active project, and it MUST NOT mutate the active project's task, assignment/result latches, generation, or runtime state.
+After RESET, the Owner pastes the Source of Truth, Planner link and Executor link and presses START. Nothing from the prior project/session is reused.
 
-Creating a new Project Profile is an explicit operation. The Control Panel MUST collect and validate a **new project_id** before entering draft mode, MUST visually bind the draft to that new ID, and MUST reject any draft save that would overwrite an existing profile. Merely editing the display name or Source field while the active profile remains selected is never interpreted as "create another project".
+Project-aware additive `@M` fields remain available as runtime correlation fields:
 
-For the **active project**, Source of Truth mutation remains stricter than project switching: changing Source of Truth requires Robot STOP and no in-flight assignment/result. Switching to another saved project requires Robot STOP, but an unfinished assignment/result may be parked in that project's durable snapshot and resumed later.
+- `p` — runtime session project id (`LIVE`);
+- `g` — runtime generation (fresh session starts at 1);
+- `pc` — completed task count read from Source of Truth;
+- `pt` — total task count read from Source of Truth.
 
-Planner and Executor chat URLs are different: they are **mutable role-session targets, not project identity**. Long-running projects are expected to rotate to new ChatGPT conversations when a chat becomes full. While the Robot is stopped, Owner may change the active project's Planner and/or Executor chat URL even when an assignment/result is still open. Supervisor MUST preserve `project_id`, `project_generation`, active task, assignment/result IDs, identity history, and progress.
-
-Owner emergency reset / clean-state escape hatch:
-
-- Control Center exposes an explicit **RESET ROBOT** action for Planner/Executor mode;
-- reset is destructive only to the currently active project's transient orchestration state: active task, assignment/result, decision, last-completed pointer, exact-once identity history, recovery/status cache, and progress cache are cleared;
-- saved Project Profiles, Source of Truth URL, Planner/Executor URLs, Chrome login profile, installed runtime, and GitHub Runner are preserved;
-- reset first performs Owner STOP, then increments `project_generation`, re-arms `MAGASIN_PROJECT_BOOTSTRAP_V1`, and clears last-seen assistant turn IDs so stale output from the old generation cannot be accepted as current work;
-- reset requires explicit double Owner confirmation in the Control Center;
-- after reset, Owner may select another saved profile and START without repairing the discarded active project's unfinished task.
+The Source of Truth remains the authority for project completion. Local `pc/pt` exists only as the current UI/runtime projection.
 
 Composer send safety for the `@M` machine frame:
 
