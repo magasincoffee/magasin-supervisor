@@ -75,7 +75,7 @@ export function normalizeBridgeBaseUrl(value = CHATGPT_BRIDGE_DEFAULT_BASE_URL) 
   return url.origin;
 }
 
-function pageId(value) {
+function requirePageId(value) {
   return requireString(value, "page_id", { maxLength: 512 }).trim();
 }
 
@@ -95,7 +95,7 @@ export function normalizeBridgePage(value) {
   }
 
   return {
-    page_id: pageId(value.page_id),
+    page_id: requirePageId(value.page_id),
     title: String(value.title || ""),
     url: String(value.url || ""),
     alive: Boolean(value.alive),
@@ -317,7 +317,7 @@ export class ChatGptBridgeAdapter {
   }
 
   async getState(pageIdValue) {
-    const target = pageId(pageIdValue);
+    const target = requirePageId(pageIdValue);
     const pages = await this.listPages();
     const page = pages.find((candidate) => candidate.page_id === target);
     if (!page) {
@@ -330,7 +330,7 @@ export class ChatGptBridgeAdapter {
   }
 
   async getSnapshot(pageIdValue) {
-    const target = pageId(pageIdValue);
+    const target = requirePageId(pageIdValue);
     const query = new URLSearchParams({ page_id: target });
     const value = await this.request("/snapshot?" + query.toString());
     return normalizeBridgeSnapshot(value);
@@ -339,13 +339,13 @@ export class ChatGptBridgeAdapter {
   async captureBaseline(pageIdValue) {
     const snapshot = await this.getSnapshot(pageIdValue);
     return {
-      page_id: pageId(pageIdValue),
+      page_id: requirePageId(pageIdValue),
       ...bridgeResponseBaseline(snapshot)
     };
   }
 
   async sendAsync(pageIdValue, message) {
-    const target = pageId(pageIdValue);
+    const target = requirePageId(pageIdValue);
     const text = requireString(message, "message", { maxLength: 100_000 });
 
     const value = await this.request("/send_async", {
@@ -373,14 +373,14 @@ export class ChatGptBridgeAdapter {
     timeoutMs = this.responseTimeoutMs,
     pollIntervalMs = this.pollIntervalMs
   } = {}) {
-    const target = pageId(pageIdValue);
+    const target = requirePageId(pageIdValue);
     if (!baselineValue || typeof baselineValue !== "object") {
       throw new ChatGptBridgeError("waitResponse requires a response baseline", {
         code: "INVALID_BASELINE"
       });
     }
 
-    const baselinePageId = pageId(baselineValue.page_id);
+    const baselinePageId = requirePageId(baselineValue.page_id);
     if (baselinePageId !== target) {
       throw new ChatGptBridgeError("Response baseline belongs to a different Bridge page", {
         code: "BASELINE_PAGE_MISMATCH",
@@ -451,7 +451,7 @@ export class ChatGptBridgeAdapter {
   }
 
   async send(pageIdValue, message, options = {}) {
-    const target = pageId(pageIdValue);
+    const target = requirePageId(pageIdValue);
     const baseline = await this.captureBaseline(target);
     if (baseline.is_generating) {
       throw new ChatGptBridgeError(
