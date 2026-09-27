@@ -175,7 +175,7 @@ function Copy-QualificationProfile([string]$SourceRoot, [string]$DestinationRoot
     'SingletonCookie',
     'SingletonSocket'
   )
-  & robocopy.exe @roboArgs
+  & robocopy.exe @roboArgs | Out-Null
   $rc = $LASTEXITCODE
   if ($rc -ge 8) { throw "Chrome profile clone failed with robocopy exit code $rc" }
 
@@ -228,12 +228,10 @@ try {
   & $venvPython -m pip install --disable-pip-version-check -r (Join-Path $bridgeDir 'requirements.txt')
   if ($LASTEXITCODE -ne 0) { throw 'Failed to install pinned bridge dependencies.' }
 
-  New-Item -ItemType Directory -Force -Path $extensionDir | Out-Null
-  Copy-Item -Recurse -Force -Path (Join-Path $env:GITHUB_WORKSPACE '.github\qualification\mbv1-001-extension\*') -Destination $extensionDir
-  Copy-Item -LiteralPath (Join-Path $bridgeDir 'userscript\chatgpt_bridge.user.js') -Destination (Join-Path $extensionDir 'chatgpt_bridge.user.js') -Force
-  $userscriptHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $extensionDir 'chatgpt_bridge.user.js')).Hash.ToLowerInvariant()
+  $userscriptPath = Join-Path $bridgeDir 'userscript\chatgpt_bridge.user.js'
+  $userscriptHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $userscriptPath).Hash.ToLowerInvariant()
   Write-Kv 'MBV1_001_USERSCRIPT_SHA256' $userscriptHash
-  Write-Kv 'MBV1_001_USERSCRIPT_TRANSPORT' 'PINNED_UPSTREAM_WITH_EXTENSION_GM_SHIM'
+  Write-Kv 'MBV1_001_USERSCRIPT_TRANSPORT' 'PINNED_UPSTREAM_WITH_PLAYWRIGHT_EXPOSED_GM_BRIDGE'
 
   $profileName = Copy-QualificationProfile -SourceRoot $sourceProfileRoot -DestinationRoot $qualProfileRoot
   Write-Kv 'MBV1_001_PROFILE_CLONE' 'PASS'
@@ -261,8 +259,6 @@ try {
     "--remote-debugging-port=$cdpPort",
     ('--user-data-dir="' + $qualProfileRoot + '"'),
     ('--profile-directory="' + $profileName + '"'),
-    ('--disable-extensions-except="' + $extensionDir + '"'),
-    ('--load-extension="' + $extensionDir + '"'),
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-session-crashed-bubble',
@@ -289,7 +285,7 @@ try {
   $bridgeBase = "http://127.0.0.1:$bridgePort"
   $nodeScript = Join-Path $env:GITHUB_WORKSPACE '.github\scripts\supervisor-mbv1-001-bridge-baseline.mjs'
 
-  & node $nodeScript $cdpUrl $bridgeBase $resultPath $BridgeCommit $userscriptHash
+  & node $nodeScript $cdpUrl $bridgeBase $resultPath $BridgeCommit $userscriptHash $userscriptPath
   $nodeExit = $LASTEXITCODE
 
   if (Test-Path $resultPath -PathType Leaf) {
