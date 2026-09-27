@@ -31,6 +31,27 @@ function Test-Bridge([int]$Port) {
   }
 }
 
+function Get-QualificationChromeExecutable {
+  $programFilesX86 = [Environment]::GetFolderPath('ProgramFilesX86')
+  $candidates = @(
+    (Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'),
+    (Join-Path $programFilesX86 'Google\Chrome\Application\chrome.exe'),
+    (Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe')
+  )
+  return $candidates |
+    Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) -and (Test-Path $_ -PathType Leaf) } |
+    Select-Object -First 1
+}
+
+function Get-FreeQualificationCdpPort {
+  foreach ($candidate in 9240..9260) {
+    $listener = Get-NetTCPConnection -State Listen -LocalPort $candidate -ErrorAction SilentlyContinue |
+      Select-Object -First 1
+    if (-not $listener) { return [int]$candidate }
+  }
+  throw 'No free MBV1 qualification CDP port in range 9240-9260.'
+}
+
 Write-Kv 'MBV1_001_MACHINE' $env:COMPUTERNAME
 Write-Kv 'MBV1_001_REVISION' $env:GITHUB_SHA
 Write-Kv 'MBV1_001_BRIDGE_COMMIT_REQUESTED' $BridgeCommit
@@ -46,6 +67,7 @@ Write-Kv 'MBV1_001_TARGET_MATCH' 'True'
 . (Join-Path $env:GITHUB_WORKSPACE 'windows\lifecycle-truth.ps1')
 
 $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
+$sourceProfileRoot = Join-Path $root 'browser_profile'
 $diagDir = Join-Path $root 'diagnostics\mbv1-001'
 $artifactDir = Join-Path $env:GITHUB_WORKSPACE '.github\qualification\mbv1-001-artifact'
 $resultPath = Join-Path $artifactDir 'mbv1-001-result.json'
@@ -92,22 +114,74 @@ $bridgeStderr = Join-Path $artifactDir 'bridge-stderr.log'
 $bridgeProcess = $null
 $bridgePort = 5000
 $nodeExit = 1
+$startedByQualification = $false
+$qualificationBrowserPid = 0
+$cdpPort = 0
 
 try {
   New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
 
   $existingChrome = Get-LifecycleRobotChrome -Root $root
-  if (-not $existingChrome) {
-    throw 'MBV1-001 requires the existing authenticated dedicated Supervisor Chrome to be running.'
+  if ($existingChrome) {
+    if ($existingChrome.CommandLine -notmatch '--remote-debugging-port=(\d+)') {
+      throw 'Dedicated Supervisor Chrome exists without a readable CDP port.'
+    }
+    $cdpPort = [int]$Matches[1]
+    if (-not (Test-Cdp -Port $cdpPort)) {
+      throw "Dedicated Supervisor Chrome CDP port $cdpPort is unhealthy."
+    }
+    Write-Kv 'MBV1_001_DEDICATED_CHROME_REUSED' 'True'
+  } else {
+    $profileUsers = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
+      Where-Object { $_.CommandLine -and $_.CommandLine -like "*$sourceProfileRoot*" })
+    if ($profileUsers.Count -gt 0) {
+      throw 'Supervisor browser profile is already in use without a healthy dedicated CDP endpoint.'
+    }
+
+    $chrome = Get-QualificationChromeExecutable
+    if (-not $chrome) { throw 'Installed Google Chrome not found.' }
+
+    $cdpPort = Get-FreeQualificationCdpPort
+    $chromeArgs = @(
+      '--remote-debugging-address=127.0.0.1',
+      "--remote-debugging-port=$cdpPort",
+      ('--user-data-dir="' + $sourceProfileRoot + '"'),
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-session-crashed-bubble',
+      '--start-minimized',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--disable-features=CalculateNativeWinOcclusion',
+      'https://chatgpt.com/'
+    )
+    $started = Start-Process -FilePath $chrome -WindowStyle Minimized -PassThru -ArgumentList $chromeArgs
+    $startedByQualification = $true
+
+    for ($i = 0; $i -lt 60; $i++) {
+      if (Test-Cdp -Port $cdpPort) { break }
+      Start-Sleep -Milliseconds 500
+    }
+    if (-not (Test-Cdp -Port $cdpPort)) {
+      throw "Qualification-owned Chrome did not expose healthy CDP on port $cdpPort."
+    }
+
+    $browserProcess = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
+      Where-Object {
+        $_.CommandLine -and
+        $_.CommandLine -like "*$sourceProfileRoot*" -and
+        $_.CommandLine -match ("--remote-debugging-port=" + $cdpPort + "(\s|$)")
+      } |
+      Select-Object -First 1
+
+    if ($browserProcess) { $qualificationBrowserPid = [int]$browserProcess.ProcessId }
+    elseif ($started) { $qualificationBrowserPid = [int]$started.Id }
+
+    Write-Kv 'MBV1_001_DEDICATED_CHROME_REUSED' 'False'
   }
-  if ($existingChrome.CommandLine -notmatch '--remote-debugging-port=(\d+)') {
-    throw 'Dedicated Supervisor Chrome exists without a readable CDP port.'
-  }
-  $cdpPort = [int]$Matches[1]
-  if (-not (Test-Cdp -Port $cdpPort)) {
-    throw "Dedicated Supervisor Chrome CDP port $cdpPort is unhealthy."
-  }
-  Write-Kv 'MBV1_001_DEDICATED_CHROME_REUSED' 'True'
+
+  Write-Kv 'MBV1_001_BROWSER_STARTED_BY_QUALIFICATION' $startedByQualification
   Write-Kv 'MBV1_001_CDP_PORT' $cdpPort
   Write-Kv 'MBV1_001_CDP_HEALTHY' 'True'
 
@@ -183,6 +257,22 @@ try {
 
   Write-Kv 'MBV1_001_STATUS' 'PASS'
 } finally {
+  if ($startedByQualification) {
+    $owned = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
+      Where-Object {
+        $_.CommandLine -and
+        $_.CommandLine -like "*$sourceProfileRoot*" -and
+        $_.CommandLine -match ("--remote-debugging-port=" + $cdpPort + "(\s|$)")
+      })
+    foreach ($proc in $owned) {
+      Stop-Process -Id ([int]$proc.ProcessId) -Force -ErrorAction SilentlyContinue
+    }
+    if ($qualificationBrowserPid -gt 0) {
+      Stop-Process -Id $qualificationBrowserPid -Force -ErrorAction SilentlyContinue
+    }
+    Write-Kv 'MBV1_001_QUALIFICATION_CHROME_CLEANUP' 'True'
+  }
+
   if ($bridgeProcess) {
     Stop-Process -Id $bridgeProcess.Id -Force -ErrorAction SilentlyContinue
   }
