@@ -1,5 +1,6 @@
 import process from "node:process";
 import path from "node:path";
+import fs from "node:fs/promises";
 
 import { ChatGptUiAdapter } from "../ui/playwright-adapter.mjs";
 import { captureLatestRoleTurn } from "../ui/latest-turn.mjs";
@@ -59,19 +60,49 @@ const statePath = path.resolve(
 );
 const statusPath = path.join(path.dirname(statePath), "planner-executor-status.json");
 
+const stateExists = await fs.access(statePath).then(() => true).catch(() => false);
+if (
+  !stateExists &&
+  (!args.projectId || !args.plannerUrl || !args.executorUrl)
+) {
+  throw new Error(
+    "--project-id, --planner-url and --executor-url are required on first start"
+  );
+}
+
 const existing = await readPlannerExecutorState(statePath, {
-  projectId: args.projectId || "project",
-  plannerTarget: args.plannerUrl || "",
-  executorTarget: args.executorUrl || ""
+  projectId: args.projectId,
+  plannerTarget: args.plannerUrl,
+  executorTarget: args.executorUrl
 });
 
-const projectId = args.projectId || existing.project_id;
-const plannerUrl = args.plannerUrl || existing.planner?.target;
-const executorUrl = args.executorUrl || existing.executor?.target;
+if (
+  args.projectId &&
+  existing.project_id &&
+  args.projectId !== existing.project_id
+) {
+  throw new Error("project_id override conflicts with durable state");
+}
+if (
+  args.plannerUrl &&
+  existing.planner?.target &&
+  args.plannerUrl !== existing.planner.target
+) {
+  throw new Error("Planner target override conflicts with durable state");
+}
+if (
+  args.executorUrl &&
+  existing.executor?.target &&
+  args.executorUrl !== existing.executor.target
+) {
+  throw new Error("Executor target override conflicts with durable state");
+}
+
+const projectId = existing.project_id;
+const plannerUrl = existing.planner?.target;
+const executorUrl = existing.executor?.target;
 if (!projectId || !plannerUrl || !executorUrl) {
-  throw new Error(
-    "project_id, planner target and executor target are required on first start"
-  );
+  throw new Error("durable Planner/Executor state is missing required targets");
 }
 
 const adapter = new ChatGptUiAdapter({
