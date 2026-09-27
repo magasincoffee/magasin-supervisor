@@ -328,9 +328,11 @@ try {
     }
 
     try {
-      const currentBinding = await bindOrRecover();
-      pageRuntime = currentBinding.runtime;
+      const recovered = await pageRuntime.recover();
       syncVirtualPageIds();
+      if (recovered.reinjected) {
+        safeLog("PLANNER_EXECUTOR_BRIDGE_PAGE_RECOVERY", "REINJECTED");
+      }
     } catch (error) {
       await recordPlannerExecutorIncident(incidentPath, {
         type: "BRIDGE_TOPOLOGY_RECOVERY",
@@ -382,20 +384,6 @@ try {
     await new Promise((resolve) => setTimeout(resolve, args.pollMs));
   }
 
-  async function bindOrRecover() {
-    try {
-      const binding = await bindPlannerExecutorBridgePages(bridge, {
-        plannerUrl: state.planner.target,
-        executorUrl: state.executor.target,
-        requireExactPageSet: true
-      });
-      pageRuntime.binding = binding;
-      return { runtime: pageRuntime, binding };
-    } catch {
-      const recovered = await pageRuntime.recover();
-      return { runtime: pageRuntime, binding: recovered.binding };
-    }
-  }
 } catch (error) {
   await atomicJsonWrite(startupFailurePath, {
     schema_version: "planner-executor-startup-failure.v1",
