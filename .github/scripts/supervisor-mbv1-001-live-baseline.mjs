@@ -122,7 +122,7 @@ async function waitForLoginReady(adapter, page) {
     if (probe.snapshot && (probe.snapshot.loginRequired || probe.snapshot.hasCaptcha)) {
       throw new Error("Authenticated ChatGPT session required for MBV1-001");
     }
-    return probe.snapshot && probe.snapshot.hasComposer ? probe : false;
+    return probe.snapshot && probe.snapshot.composerReady ? probe : false;
   }, { timeoutMs: 45000, label: "authenticated ChatGPT composer" });
 }
 
