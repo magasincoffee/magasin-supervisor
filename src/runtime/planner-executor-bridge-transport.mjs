@@ -93,6 +93,7 @@ export class PlannerExecutorBridgeTransportStateMachine {
     }
     this.phase = phase;
     this.last_transport = null;
+    this.in_flight = null;
   }
 
   snapshot() {
@@ -107,11 +108,27 @@ export class PlannerExecutorBridgeTransportStateMachine {
             action: this.last_transport.action,
             cmd_id: this.last_transport.cmd_id || null
           }
+        : null,
+      in_flight: this.in_flight
+        ? {
+            from_role: this.in_flight.from_role,
+            to_role: this.in_flight.to_role,
+            action: this.in_flight.action,
+            page_id: this.in_flight.page_id,
+            outcome: this.in_flight.outcome,
+            error_code: this.in_flight.error_code || null
+          }
         : null
     };
   }
 
   replaceBinding(binding) {
+    if (this.in_flight) {
+      throw new BridgeTransportStateError(
+        "Ambiguous in-flight transport must be reconciled before rebinding",
+        { code: "AMBIGUOUS_IN_FLIGHT" }
+      );
+    }
     const next = validateBridgeRoleBinding(binding);
     if (
       next.planner.canonical_target !== this.binding.planner.canonical_target ||
@@ -160,23 +177,35 @@ export class PlannerExecutorBridgeTransportStateMachine {
     }
 
     const message = requireText(event.message, "Planner outbound message");
+    const executorPageId = rolePageId(this.binding, "executor");
     this.phase = BRIDGE_TRANSPORT_PHASES.SEND_EXECUTOR;
+    this.in_flight = {
+      from_role: "planner",
+      to_role: "executor",
+      action,
+      page_id: executorPageId,
+      outcome: "PENDING",
+      error_code: null
+    };
 
     let result;
     try {
       result = await this.adapter.send(
-        rolePageId(this.binding, "executor"),
+        executorPageId,
         message,
         event.send_options || {}
       );
     } catch (error) {
-      this.phase = isInitial
-        ? BRIDGE_TRANSPORT_PHASES.WAIT_PLANNER
-        : BRIDGE_TRANSPORT_PHASES.WAIT_PLANNER_DECISION;
+      this.phase = BRIDGE_TRANSPORT_PHASES.BLOCKED;
+      this.in_flight = {
+        ...this.in_flight,
+        outcome: "AMBIGUOUS",
+        error_code: String(error?.code || "TRANSPORT_SEND_FAILED")
+      };
       throw new BridgeTransportStateError(
-        "Planner-to-Executor Bridge transport failed",
+        "Planner-to-Executor Bridge transport outcome is ambiguous",
         {
-          code: "TRANSPORT_SEND_FAILED",
+          code: "AMBIGUOUS_SEND",
           cause: error,
           details: { from_role: "planner", to_role: "executor", action }
         }
@@ -189,6 +218,7 @@ export class PlannerExecutorBridgeTransportStateMachine {
       action,
       cmd_id: result?.cmd_id || null
     };
+    this.in_flight = null;
     this.phase = BRIDGE_TRANSPORT_PHASES.WAIT_EXECUTOR;
     return { ...this.snapshot(), transport_result: result };
   }
@@ -197,21 +227,35 @@ export class PlannerExecutorBridgeTransportStateMachine {
     phaseAllowed(this.phase, [BRIDGE_TRANSPORT_PHASES.WAIT_EXECUTOR]);
     const action = requireAction(event.action, ["report"]);
     const message = requireText(event.message, "Executor outbound message");
+    const plannerPageId = rolePageId(this.binding, "planner");
     this.phase = BRIDGE_TRANSPORT_PHASES.SEND_PLANNER;
+    this.in_flight = {
+      from_role: "executor",
+      to_role: "planner",
+      action,
+      page_id: plannerPageId,
+      outcome: "PENDING",
+      error_code: null
+    };
 
     let result;
     try {
       result = await this.adapter.send(
-        rolePageId(this.binding, "planner"),
+        plannerPageId,
         message,
         event.send_options || {}
       );
     } catch (error) {
-      this.phase = BRIDGE_TRANSPORT_PHASES.WAIT_EXECUTOR;
+      this.phase = BRIDGE_TRANSPORT_PHASES.BLOCKED;
+      this.in_flight = {
+        ...this.in_flight,
+        outcome: "AMBIGUOUS",
+        error_code: String(error?.code || "TRANSPORT_SEND_FAILED")
+      };
       throw new BridgeTransportStateError(
-        "Executor-to-Planner Bridge transport failed",
+        "Executor-to-Planner Bridge transport outcome is ambiguous",
         {
-          code: "TRANSPORT_SEND_FAILED",
+          code: "AMBIGUOUS_SEND",
           cause: error,
           details: { from_role: "executor", to_role: "planner", action }
         }
@@ -224,12 +268,19 @@ export class PlannerExecutorBridgeTransportStateMachine {
       action,
       cmd_id: result?.cmd_id || null
     };
+    this.in_flight = null;
     this.phase = BRIDGE_TRANSPORT_PHASES.WAIT_PLANNER_DECISION;
     return { ...this.snapshot(), transport_result: result };
   }
 
   resumePlanner() {
     phaseAllowed(this.phase, [BRIDGE_TRANSPORT_PHASES.BLOCKED]);
+    if (this.in_flight) {
+      throw new BridgeTransportStateError(
+        "Ambiguous in-flight transport must be reconciled before resume",
+        { code: "AMBIGUOUS_IN_FLIGHT" }
+      );
+    }
     this.phase = BRIDGE_TRANSPORT_PHASES.WAIT_PLANNER;
     return this.snapshot();
   }
