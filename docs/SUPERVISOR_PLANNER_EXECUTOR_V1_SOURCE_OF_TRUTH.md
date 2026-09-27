@@ -519,7 +519,7 @@ Status: **CANONICAL PLAN / IN PROGRESS / NOT YET CUT OVER**
 
 Owner decision date: **2026-09-27**
 
-Current task: **MBV1-002 — Bridge Adapter**. Progress: pc=1 / pt=8.
+Current task: **MBV1-003 — Planner/Executor Binding**. Progress: pc=2 / pt=8.
 
 This program replaces only the Planner/Executor transport layer. It preserves the existing Source-of-Truth authority, Planner/Executor roles, @M v1 protocol, task/assignment/result correlation, pc/pt semantics, STOP/RESET behavior, exact-once principles and Control UI concept.
 
@@ -575,7 +575,7 @@ Until MBV1-008 PASS and explicit cutover: bridge_cutover=false and production co
 
 ### 15.8 Next-task authority
 
-program=MAGASIN_BRIDGE_V1; current_task=MBV1-002; pc=1; pt=8; status=READY_TO_EXECUTE. Planner MUST select MBV1-002 next. MBV1-003 and later tasks remain blocked by dependency order.
+program=MAGASIN_BRIDGE_V1; current_task=MBV1-003; pc=2; pt=8; status=READY_TO_EXECUTE. Planner MUST select MBV1-003 next. MBV1-004 and later tasks remain blocked by dependency order.
 
 
 ### 15.9 MBV1-001 implementation evidence
@@ -637,7 +637,7 @@ MBV1-002 must implement one bounded Bridge adapter around the pinned baseline an
 
 ### 15.11 MBV1-002 implementation evidence
 
-Status: **IN_PROGRESS** (pc remains 1 / pt 8).
+Status: **COMPLETE / MERGED**.
 
 - implementation branch: `mbv1-002-bridge-adapter`;
 - draft PR: #174;
@@ -648,3 +648,23 @@ Status: **IN_PROGRESS** (pc remains 1 / pt 8).
 - canonical response observation remains `GET /snapshot?page_id=...`;
 - production transport and bridge cutover remain unchanged/false;
 - MBV1-003 remains blocked until MBV1-002 is merged with green gates.
+
+
+### 15.12 MBV1-002 completion evidence
+
+Status: **COMPLETE / MERGED**
+
+- PR: #174;
+- merged head: `6cb857656888583af38df9e9b433d577333565e8`;
+- merge commit: `158091cdffa1b08d15ac398e54c18a28b9acee74`;
+- adapter: `src/runtime/chatgpt-bridge-adapter.mjs`;
+- contract tests: `test/chatgpt-bridge-adapter.test.mjs`;
+- Supervisor Tests: PASS;
+- Supervisor Integrity: PASS;
+- Supervisor Lifecycle Acceptance: PASS;
+- Supervisor Autostart Install: PASS;
+- canonical enqueue: `POST /send_async`;
+- canonical observation: `GET /snapshot?page_id=...`;
+- production transport unchanged; bridge_cutover remains false.
+
+MBV1-003 is now the next task.
