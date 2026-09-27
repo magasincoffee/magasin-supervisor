@@ -148,7 +148,7 @@ test("invalid phase transitions fail closed before transport mutation", async ()
   assert.equal(fixture.calls.length, 0);
 });
 
-test("send failure restores stable wait phase and does not manufacture progress", async () => {
+test("ambiguous send failure blocks transport and prevents resendable progress", async () => {
   const adapter = {
     async send() {
       throw new Error("bridge unavailable");
@@ -164,9 +164,13 @@ test("send failure restores stable wait phase and does not manufacture progress"
   await assert.rejects(
     () => machine.plannerEvent({ action: "assign", message: "task" }),
     (error) => error instanceof BridgeTransportStateError &&
-      error.code === "TRANSPORT_SEND_FAILED"
+      error.code === "TRANSPORT_SEND_AMBIGUOUS_BLOCKED"
   );
-  assert.equal(machine.snapshot().phase, BRIDGE_TRANSPORT_PHASES.WAIT_PLANNER);
+  const snapshot = machine.snapshot();
+  assert.equal(snapshot.phase, BRIDGE_TRANSPORT_PHASES.BLOCKED);
+  assert.equal(snapshot.last_transport.status, "AMBIGUOUS_SEND_FAILURE");
+  assert.equal(snapshot.last_transport.from_role, "planner");
+  assert.equal(snapshot.last_transport.to_role, "executor");
 });
 
 test("binding reacquisition may replace page_id only when canonical role identity is unchanged", () => {

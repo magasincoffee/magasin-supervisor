@@ -105,7 +105,9 @@ export class PlannerExecutorBridgeTransportStateMachine {
             from_role: this.last_transport.from_role,
             to_role: this.last_transport.to_role,
             action: this.last_transport.action,
-            cmd_id: this.last_transport.cmd_id || null
+            cmd_id: this.last_transport.cmd_id || null,
+            status: this.last_transport.status || null,
+            error_code: this.last_transport.error_code || null
           }
         : null
     };
@@ -170,13 +172,19 @@ export class PlannerExecutorBridgeTransportStateMachine {
         event.send_options || {}
       );
     } catch (error) {
-      this.phase = isInitial
-        ? BRIDGE_TRANSPORT_PHASES.WAIT_PLANNER
-        : BRIDGE_TRANSPORT_PHASES.WAIT_PLANNER_DECISION;
+      this.last_transport = {
+        from_role: "planner",
+        to_role: "executor",
+        action,
+        cmd_id: null,
+        status: "AMBIGUOUS_SEND_FAILURE",
+        error_code: String(error?.code || error?.name || "Error")
+      };
+      this.phase = BRIDGE_TRANSPORT_PHASES.BLOCKED;
       throw new BridgeTransportStateError(
-        "Planner-to-Executor Bridge transport failed",
+        "Planner-to-Executor Bridge transport outcome is ambiguous; blocked to prevent duplicate send",
         {
-          code: "TRANSPORT_SEND_FAILED",
+          code: "TRANSPORT_SEND_AMBIGUOUS_BLOCKED",
           cause: error,
           details: { from_role: "planner", to_role: "executor", action }
         }
@@ -207,11 +215,19 @@ export class PlannerExecutorBridgeTransportStateMachine {
         event.send_options || {}
       );
     } catch (error) {
-      this.phase = BRIDGE_TRANSPORT_PHASES.WAIT_EXECUTOR;
+      this.last_transport = {
+        from_role: "executor",
+        to_role: "planner",
+        action,
+        cmd_id: null,
+        status: "AMBIGUOUS_SEND_FAILURE",
+        error_code: String(error?.code || error?.name || "Error")
+      };
+      this.phase = BRIDGE_TRANSPORT_PHASES.BLOCKED;
       throw new BridgeTransportStateError(
-        "Executor-to-Planner Bridge transport failed",
+        "Executor-to-Planner Bridge transport outcome is ambiguous; blocked to prevent duplicate relay",
         {
-          code: "TRANSPORT_SEND_FAILED",
+          code: "TRANSPORT_SEND_AMBIGUOUS_BLOCKED",
           cause: error,
           details: { from_role: "executor", to_role: "planner", action }
         }
