@@ -228,6 +228,7 @@ try {
   & $venvPython -m pip install --disable-pip-version-check -r (Join-Path $bridgeDir 'requirements.txt')
   if ($LASTEXITCODE -ne 0) { throw 'Failed to install pinned bridge dependencies.' }
 
+  New-Item -ItemType Directory -Force -Path $extensionDir | Out-Null
   Copy-Item -Recurse -Force -Path (Join-Path $env:GITHUB_WORKSPACE '.github\qualification\mbv1-001-extension\*') -Destination $extensionDir
   Copy-Item -LiteralPath (Join-Path $bridgeDir 'userscript\chatgpt_bridge.user.js') -Destination (Join-Path $extensionDir 'chatgpt_bridge.user.js') -Force
   $userscriptHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $extensionDir 'chatgpt_bridge.user.js')).Hash.ToLowerInvariant()
