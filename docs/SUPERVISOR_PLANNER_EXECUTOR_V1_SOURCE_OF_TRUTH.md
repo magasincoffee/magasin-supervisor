@@ -575,7 +575,7 @@ Until MBV1-008 PASS and explicit cutover: bridge_cutover=false and production co
 
 ### 15.8 Next-task authority
 
-program=MAGASIN_BRIDGE_V1; current_task=MBV1-003; pc=2; pt=8; status=READY_TO_EXECUTE. Planner MUST select MBV1-003 next. MBV1-004 and later tasks remain blocked by dependency order.
+program=MAGASIN_BRIDGE_V1; current_task=MBV1-003; pc=2; pt=8; status=IN_PROGRESS. Planner MUST select MBV1-003 next. MBV1-004 and later tasks remain blocked by dependency order.
 
 
 ### 15.9 MBV1-001 implementation evidence
@@ -674,3 +674,16 @@ bridge_cutover = false
 ```
 
 MBV1-003 must deterministically bind the Owner-provided Planner and Executor Chat URLs to exact, distinct Bridge `page_id` values. Ambiguous matches, missing targets, duplicate role binding, or unrelated-tab adoption MUST fail closed. Page reload/reacquisition may update transport identity only under the bounded same-role rules and MUST NOT create a new project identity.
+
+
+### 15.13 MBV1-003 implementation evidence
+
+Status: **IN_PROGRESS** (pc remains 2 / pt 8).
+
+- implementation branch: `mbv1-003-role-binding`;
+- draft PR: #175;
+- candidate head: `6918d1b2444f8349467d2df0c17044f5b461e417`;
+- binding source: `src/runtime/chatgpt-bridge-binding.mjs`;
+- contract tests: `test/chatgpt-bridge-binding.test.mjs`;
+- production transport unchanged; bridge_cutover remains false;
+- MBV1-004 remains blocked until MBV1-003 is merged with green gates.
