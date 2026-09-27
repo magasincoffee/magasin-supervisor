@@ -130,8 +130,15 @@ try {
   throw error;
 }
 
+const cdpUrl = String(process.env.SUPERVISOR_PE001_CDP_URL || "").trim();
+if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(cdpUrl)) {
+  throw new Error("SUPERVISOR_PE001_CDP_URL must be a local dynamic CDP endpoint");
+}
+const browserStartedByQualification =
+  String(process.env.SUPERVISOR_PE001_BROWSER_STARTED || "").toLowerCase() === "true";
+
 const adapter = new ChatGptUiAdapter({
-  cdpUrl: "http://127.0.0.1:9222",
+  cdpUrl,
   settleMs: 600,
   actionTimeoutMs: 10_000,
   timeoutMs: 45_000
@@ -144,19 +151,47 @@ const startedAt = new Date().toISOString();
 
 try {
   await adapter.open();
-  const preexistingPages = adapter.getChatGptPageCount();
+  const existingPages = adapter.getChatGptPages();
+  const preexistingPages = existingPages.length;
   log("PE001_LIVE_PREEXISTING_CHATGPT_PAGES", preexistingPages);
+  log(
+    "PE001_LIVE_BROWSER_STARTED_BY_QUALIFICATION",
+    browserStartedByQualification
+  );
 
-  // Current released browser scheduler budget is four. Keep this live proof
-  // isolated and fail closed rather than evicting or navigating production tabs.
-  if (preexistingPages > 2) {
-    throw new Error(
-      `live qualification requires <=2 pre-existing ChatGPT pages; found ${preexistingPages}`
-    );
+  if (browserStartedByQualification) {
+    // Qualification-owned Chrome starts with at most one blank landing page.
+    // Reuse it as Planner so the live topology contains exactly two normal
+    // ChatGPT tabs rather than a third unused landing tab.
+    if (preexistingPages > 1) {
+      throw new Error(
+        \`qualification-owned Chrome expected <=1 initial ChatGPT page; found ${preexistingPages}\`
+      );
+    }
+    plannerPage = existingPages[0] || await adapter.newChatPage("https://chatgpt.com/");
+    const plannerUrl = new URL(plannerPage.url());
+    if (
+      plannerUrl.hostname !== "chatgpt.com" ||
+      /^\/(c|g|project)\//.test(plannerUrl.pathname)
+    ) {
+      throw new Error("qualification-owned initial page is not a blank normal ChatGPT surface");
+    }
+    executorPage = await adapter.newChatPage("https://chatgpt.com/");
+    if (adapter.getChatGptPageCount() !== 2) {
+      throw new Error("qualification-owned browser did not reach exact two-tab topology");
+    }
+  } else {
+    // Never navigate, close or reuse a pre-existing production conversation.
+    // The released page budget is four, so at most two existing pages leave
+    // room for two ephemeral qualification chats without eviction.
+    if (preexistingPages > 2) {
+      throw new Error(
+        \`live qualification requires <=2 pre-existing ChatGPT pages; found ${preexistingPages}\`
+      );
+    }
+    plannerPage = await adapter.newChatPage("https://chatgpt.com/");
+    executorPage = await adapter.newChatPage("https://chatgpt.com/");
   }
-
-  plannerPage = await adapter.newChatPage("https://chatgpt.com/");
-  executorPage = await adapter.newChatPage("https://chatgpt.com/");
 
   const plannerProbe = await adapter.probePage(plannerPage);
   const executorProbe = await adapter.probePage(executorPage);
@@ -324,7 +359,9 @@ try {
     next_task_id_digest: sha(finalState.assignment.task_id),
     matching_user_turn_required: true,
     production_state_mutated: false,
-    production_targets_mutated: false
+    production_targets_mutated: false,
+    state_root_binding_mutated: false,
+    dynamic_cdp: true
   };
   await writeResult(result);
 
@@ -333,6 +370,8 @@ try {
   log("PE001_LIVE_MATCHING_USER_TURN_REQUIRED", "True");
   log("PE001_LIVE_PRODUCTION_STATE_MUTATED", "False");
   log("PE001_LIVE_PRODUCTION_TARGETS_MUTATED", "False");
+  log("PE001_LIVE_STATE_ROOT_BINDING_MUTATED", "False");
+  log("PE001_LIVE_DYNAMIC_CDP", "True");
 } catch (error) {
   await writeResult({
     status: "FAIL",
