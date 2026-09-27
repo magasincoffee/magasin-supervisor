@@ -322,7 +322,7 @@
     ],
     "historical_evidence_preserved": true,
     "next_phase_authority": "MAGASIN_BRIDGE_V1_SECTION_15_AND_NEXT_IMPLEMENTATION_PROGRAM",
-    "current_next_phase_task": "MBV1-007"
+    "current_next_phase_task": "MBV1-008"
   },
   "pe001_evidence": {
     "pr": 120,
@@ -643,11 +643,11 @@
     "id": "MAGASIN_BRIDGE_V1",
     "status": "CANONICAL_PLAN_IN_PROGRESS_NOT_CUT_OVER",
     "approved_date": "2026-09-27",
-    "current_task": "MBV1-007",
+    "current_task": "MBV1-008",
     "progress": {
-      "pc": 6,
+      "pc": 7,
       "pt": 8,
-      "percent": 75
+      "percent": 87.5
     },
     "authority_model": {
       "project_truth": "OWNER_CONFIGURED_SOURCE_OF_TRUTH_URL",
@@ -916,20 +916,42 @@
       {
         "id": "MBV1-007",
         "priority": "P2",
-        "state": "IN_PROGRESS",
+        "state": "COMPLETE",
         "name": "Reliability Layer",
         "weight_percent": 15,
         "implementation": {
+          "branch": "mbv1-007-bridge-reliability-layer",
+          "pr": 182,
+          "final_head": "37581ac0b2366a88a649139da5ebbe5a661d9d06",
+          "merge_commit": "e1acb877e031a161b495657604420ab003c679f7",
+          "supervisor_tests": "PASS",
+          "supervisor_integrity": "PASS",
+          "supervisor_lifecycle": "PASS",
+          "supervisor_autostart": "PASS",
           "production_mutated": false,
           "bridge_cutover": false
+        },
+        "dod_result": {
+          "bounded_reacquisition": "PASS",
+          "bridge_restart_observation_only": "PASS",
+          "ambiguous_send_auto_resend": false,
+          "restart_identity_history_restore": "PASS",
+          "bounded_retry_backoff": "PASS",
+          "stale_response_protection": "PASS",
+          "duplicate_assignment_after_recovery": "PASS",
+          "duplicate_result_after_recovery": "PASS"
         }
       },
       {
         "id": "MBV1-008",
         "priority": "P3",
-        "state": "BLOCKED_BY_MBV1_007",
+        "state": "IN_PROGRESS",
         "name": "Qualification and Cutover",
-        "weight_percent": 10
+        "weight_percent": 10,
+        "implementation": {
+          "production_mutated": false,
+          "bridge_cutover": false
+        }
       }
     ],
     "qualification": {
