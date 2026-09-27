@@ -63,8 +63,15 @@ Write-Host "ENABLED_LANES_BEFORE=$enabledBefore"
 $fingerprintBefore=Get-TargetFingerprint $configFile
 $regBefore=Get-Content $registryFile -Raw -Encoding UTF8|ConvertFrom-Json
 
-if($enabledBefore -ne 0){
-  . $lifecycleScript
+. $lifecycleScript
+$truthBefore=Get-LifecycleProcessTruth -Root $canonical
+$plannerExecutorActive=[bool](
+  $truthBefore.wrapper_alive -and
+  [string]$truthBefore.runtime_mode -eq 'PLANNER_EXECUTOR_V1'
+)
+Write-Host "PLANNER_EXECUTOR_ACTIVE_BEFORE=$plannerExecutorActive"
+
+if($enabledBefore -ne 0 -or $plannerExecutorActive){
   $ownerStop=Get-LifecycleOwnerStopState -Root $canonical
   if($ownerStop.blocked){
     Write-Host 'UPDATE_RESULT=DEFERRED_OWNER_STOP'
@@ -125,12 +132,17 @@ if($enabledBefore -ne 0){
     $child=Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
       Where-Object {
         [int]$_.ParentProcessId -eq $wrapperPid -and
-        $_.CommandLine -and $_.CommandLine -like '*three-lane-cli.mjs*'
+        $_.CommandLine -and (
+          $_.CommandLine -like '*three-lane-cli.mjs*' -or
+          $_.CommandLine -like '*planner-executor-cli.mjs*'
+        )
       } |
       Select-Object -First 1
     if($child){
+      $childKind = if($child.CommandLine -like '*planner-executor-cli.mjs*'){'PLANNER_EXECUTOR'}else{'THREE_LANE'}
       Stop-Process -Id ([int]$child.ProcessId) -Force -ErrorAction Stop
-      Write-Host "HOTPATCH_OLD_THREE_LANE_STOPPED=$($child.ProcessId)"
+      Write-Host "HOTPATCH_OLD_CHILD_STOPPED=$($child.ProcessId)"
+      Write-Host "HOTPATCH_OLD_CHILD_KIND=$childKind"
     }else{
       Write-Host 'HOTPATCH_CHILD_ALREADY_ABSENT=True'
     }
@@ -206,10 +218,12 @@ if($enabledBefore -ne 0){
   exit 0
 }
 
-# With all lanes disabled there is no active Brain/Work execution to preserve.
-# Retire only the dedicated Robot Chrome profile so the next Owner START/manual
-# open is guaranteed to launch with the current anti-throttling flags. Never
-# touch the Owner's normal Chrome profile.
+# This branch is reached only when there are no enabled legacy lanes AND
+# no live Planner/Executor runtime. Never classify PLANNER_EXECUTOR_V1 as idle
+# merely because lanes.json has zero enabled lanes; doing so would crash-kill
+# its dedicated Chrome and produce the "Restore pages?" bubble mid-project.
+# When truly idle, retire only the dedicated Robot Chrome profile so the next
+# Owner START/manual open launches with the current browser flags.
 $dedicatedChrome=@(
   Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
     Where-Object {
