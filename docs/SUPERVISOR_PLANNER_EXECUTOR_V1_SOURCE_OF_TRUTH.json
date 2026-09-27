@@ -322,7 +322,7 @@
     ],
     "historical_evidence_preserved": true,
     "next_phase_authority": "MAGASIN_BRIDGE_V1_SECTION_15_AND_NEXT_IMPLEMENTATION_PROGRAM",
-    "current_next_phase_task": "MBV1-003"
+    "current_next_phase_task": "MBV1-004"
   },
   "pe001_evidence": {
     "pr": 120,
@@ -643,11 +643,11 @@
     "id": "MAGASIN_BRIDGE_V1",
     "status": "CANONICAL_PLAN_IN_PROGRESS_NOT_CUT_OVER",
     "approved_date": "2026-09-27",
-    "current_task": "MBV1-003",
+    "current_task": "MBV1-004",
     "progress": {
-      "pc": 2,
+      "pc": 3,
       "pt": 8,
-      "percent": 25
+      "percent": 37.5
     },
     "authority_model": {
       "project_truth": "OWNER_CONFIGURED_SOURCE_OF_TRUTH_URL",
@@ -780,21 +780,43 @@
       {
         "id": "MBV1-003",
         "priority": "P0",
-        "state": "IN_PROGRESS",
+        "state": "COMPLETE",
         "name": "Planner/Executor Binding",
         "weight_percent": 10,
         "implementation": {
           "branch": "mbv1-003-bridge-role-binding",
-          "draft_pr": 176,
-          "candidate_head": "e07eb79e71622fd8dee27121fa3fc11dded31deb",
+          "pr": 176,
+          "merge_commit": "76a0723e77df285acd46f3b25a5be74307d8f9d6",
+          "final_head": "e07eb79e71622fd8dee27121fa3fc11dded31deb",
+          "binding_path": "src/runtime/chatgpt-bridge-binding.mjs",
+          "test_path": "test/chatgpt-bridge-binding.test.mjs",
+          "full_regression": "818/818 PASS",
+          "additional_contract": "50/50 PASS",
+          "platform_core_regression": "192/192 PASS",
+          "static_audit": "PASS",
+          "lifecycle_isolated": "PASS",
+          "installer_isolated": "PASS",
+          "superseded_duplicate_pr": 175,
           "production_mutated": false,
           "bridge_cutover": false
+        },
+        "dod_result": {
+          "exact_planner_url_to_page_id": "PASS",
+          "exact_executor_url_to_page_id": "PASS",
+          "distinct_role_targets": "PASS",
+          "distinct_role_page_ids": "PASS",
+          "missing_target_fail_closed": "PASS",
+          "ambiguous_duplicate_target_fail_closed": "PASS",
+          "unrelated_live_page_fail_closed": "PASS",
+          "unrelated_tab_auto_adoption": false,
+          "same_role_reacquisition_preserves_canonical_identity": "PASS",
+          "canonical_url_identity_reused": "PASS"
         }
       },
       {
         "id": "MBV1-004",
         "priority": "P0",
-        "state": "BLOCKED_BY_MBV1_003",
+        "state": "READY_TO_EXECUTE",
         "name": "Transport State Machine",
         "weight_percent": 20
       },
@@ -877,6 +899,20 @@
       "canonical_observation": "GET /snapshot?page_id=",
       "blocking_upstream_send_used": false,
       "workflow_authority": "MAGASIN_ORCHESTRATOR"
+    },
+    "binding_contract": {
+      "module": "src/runtime/chatgpt-bridge-binding.mjs",
+      "schema": "chatgpt-bridge-binding.v1",
+      "canonical_url_authority": [
+        "targetFromUrl",
+        "pageMatchesTarget"
+      ],
+      "planner_executor_distinct_page_ids_required": true,
+      "exact_live_role_page_set_default": true,
+      "missing_or_ambiguous_target": "FAIL_CLOSED",
+      "unrelated_live_page": "FAIL_CLOSED",
+      "unrelated_tab_auto_adoption": false,
+      "reload_reacquisition": "SAME_CANONICAL_ROLE_IDENTITY_ONLY"
     }
   }
 }
