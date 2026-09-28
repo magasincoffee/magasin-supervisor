@@ -160,6 +160,9 @@ jobs:
               Write-Host "FIXLIVE_FAILURE_STAGE=$([string]$f.stage)"
               Write-Host "FIXLIVE_FAILURE_NAME=$([string]$f.error_name)"
               Write-Host "FIXLIVE_FAILURE_DIGEST=$([string]$f.error_digest)"
+              Write-Host "FIXLIVE_BOOTSTRAP_RECONCILIATION=$([string]$f.bootstrap_reconciliation_state)"
+              Write-Host "FIXLIVE_BOOTSTRAP_GENERATING=$([string]$f.bootstrap_snapshot_generating)"
+              Write-Host "FIXLIVE_BOOTSTRAP_DIGEST_MATCH=$([string]$f.bootstrap_persisted_digest_matches_current)"
             }catch{}
           }
 
