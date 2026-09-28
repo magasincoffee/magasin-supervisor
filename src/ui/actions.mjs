@@ -121,6 +121,48 @@ async function keyboardClearComposer(page, composer) {
 
 async function focusComposerAtEnd(page, composer) {
   await composer.click({ timeout: 1_500 }).catch(() => {});
+
+  // Current ChatGPT uses a ProseMirror/contenteditable composer that may be
+  // replaced after each input event. Ctrl+End is not a reliable caret command
+  // on that surface: depending on focus/selection state it can move the
+  // document viewport instead of the editor caret. Put the DOM selection at
+  // the exact end of the live editor first, then use the keyboard chord only
+  // as a bounded fallback when the surface does not expose a selectable
+  // editable node.
+  let selectionPlaced = false;
+  if (typeof composer.evaluate === "function") {
+    selectionPlaced = await composer.evaluate((el) => {
+      try {
+        el.focus();
+
+        if (
+          el instanceof HTMLInputElement ||
+          el instanceof HTMLTextAreaElement
+        ) {
+          const end = String(el.value || "").length;
+          el.setSelectionRange(end, end);
+          return true;
+        }
+
+        if (
+          el.isContentEditable ||
+          String(el.getAttribute?.("contenteditable") || "").toLowerCase() === "true"
+        ) {
+          const selection = window.getSelection();
+          if (!selection) return false;
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          range.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          return true;
+        }
+      } catch {}
+      return false;
+    }).catch(() => false);
+  }
+  if (selectionPlaced) return;
+
   const endChord = process.platform === "darwin"
     ? "Meta+ArrowDown"
     : "Control+End";
