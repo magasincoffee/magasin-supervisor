@@ -168,14 +168,38 @@ async function ensureBridgeProjectBootstrap({
     projectGeneration: state.project_generation || 1
   });
   const digest = composerInstructionDigest(message);
-  bootstrap.message_digest = digest;
+  const persistedDigest = String(bootstrap.message_digest || "").trim();
+  const hasAmbiguousAttempt = Boolean(
+    bootstrap.send_attempted_at && !bootstrap.send_confirmed_at
+  );
+  const attemptedDigest =
+    hasAmbiguousAttempt && persistedDigest ? persistedDigest : digest;
+  if (!hasAmbiguousAttempt) {
+    bootstrap.message_digest = digest;
+  }
 
-  if (bootstrap.send_attempted_at && !bootstrap.send_confirmed_at) {
+  if (hasAmbiguousAttempt) {
     const snapshot = await bridge.getSnapshot(plannerPage.page_id);
     const evidence = classifyBridgeBootstrapSnapshot(
       snapshot,
-      digest,
+      attemptedDigest,
       composerInstructionDigest
+    );
+    startupDiagnostics = {
+      bootstrap_reconciliation_state: evidence.state,
+      bootstrap_snapshot_generating: evidence.generating === true,
+      bootstrap_persisted_digest_matches_current:
+        Boolean(persistedDigest) && persistedDigest === digest
+    };
+    safeLog(
+      "PLANNER_EXECUTOR_BRIDGE_BOOTSTRAP_RECONCILIATION",
+      [
+        evidence.state,
+        "generating=" + String(evidence.generating === true),
+        "digest_match=" + String(
+          Boolean(persistedDigest) && persistedDigest === digest
+        )
+      ].join(";")
     );
 
     if (
@@ -273,6 +297,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 
 let pageRuntime = null;
 let startupStage = "BRIDGE_HEALTH";
+let startupDiagnostics = {};
 try {
   const health = await bridge.status();
   if (health.supervisor_running) {
@@ -443,6 +468,7 @@ try {
     project_id: state?.project_id || null,
     active_task_id: state?.active_task_id || null,
     bridge_upstream_commit: CHATGPT_BRIDGE_PINNED_UPSTREAM_COMMIT,
+    ...startupDiagnostics,
     recorded_at: new Date().toISOString()
   }).catch(() => {});
   safeLog("PLANNER_EXECUTOR_BRIDGE_FAILURE_STAGE", startupStage);
