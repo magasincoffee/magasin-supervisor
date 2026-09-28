@@ -91,7 +91,7 @@ export function buildSingleConversationBootstrap({
       "Do not use tools, apps, connectors, ChatGPT Work mode, or write to any external system.",
       "After reading the Source of Truth, reply briefly with its current Architecture generation.",
       `End with exactly: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
-    ].join("\n");
+    ].join(" ");
   }
 
   return [
@@ -99,7 +99,7 @@ export function buildSingleConversationBootstrap({
     "Derive the current project state and next approved work directly from the Source of Truth.",
     "Perform or propose only one bounded next unit of work; if blocked, state the blocker.",
     `Keep this correlation in the final response: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
-  ].join("\n");
+  ].join(" ");
 }
 
 async function assertBlankNewChatSurface(adapter, page) {
