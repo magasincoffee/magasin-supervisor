@@ -550,7 +550,7 @@ async function dismissMachineFrameMentionPopover(page, composer, instruction) {
     if (page.keyboard && typeof page.keyboard.press === "function") {
       await page.keyboard.press("Escape");
       if (typeof page.waitForTimeout === "function") {
-        await page.waitForTimeout(60);
+        await page.waitForTimeout(35);
       }
       // A second bounded Escape handles the nested mention/listbox layer used
       // by current ChatGPT without touching the composer text.
@@ -628,7 +628,7 @@ async function setComposerText(
   }
   await focusComposerAtEnd(page, focused);
   if (typeof page.waitForTimeout === "function") {
-    await page.waitForTimeout(80);
+    await page.waitForTimeout(45);
   }
 
   // Prefer the editor's own input pipeline before bulk CDP insertion.
@@ -703,7 +703,7 @@ async function setComposerText(
     typeof page.keyboard.type === "function"
   ) {
     const chars = Array.from(String(instruction || ""));
-    const sequentialChunkSize = 120;
+    const sequentialChunkSize = 16;
     let sequentialPrefix = "";
     let sequentialFailed = false;
 
@@ -722,7 +722,7 @@ async function setComposerText(
       }
       await focusComposerAtEnd(page, liveComposer);
       if (typeof page.waitForTimeout === "function") {
-        await page.waitForTimeout(30);
+        await page.waitForTimeout(15);
       }
       await page.keyboard.type(chunk, { delay: 0 });
       sequentialPrefix += chunk;
@@ -778,7 +778,7 @@ async function setComposerText(
   // Keep the older bulk-chunk path only as a final fallback for non-ASCII
   // content or when sequential key events are unavailable.
   const codePoints = Array.from(String(instruction || ""));
-  const chunkSize = 180;
+  const chunkSize = 24;
   let expectedPrefix = "";
   for (let offset = 0; offset < codePoints.length; offset += chunkSize) {
     const chunk = codePoints.slice(offset, offset + chunkSize).join("");
@@ -791,7 +791,7 @@ async function setComposerText(
     }
     await focusComposerAtEnd(page, chunkComposer);
     if (typeof page.waitForTimeout === "function") {
-      await page.waitForTimeout(40);
+      await page.waitForTimeout(15);
     }
     await page.keyboard.insertText(chunk);
     expectedPrefix += chunk;
@@ -814,7 +814,10 @@ async function setComposerText(
     ) {
       return {
         ready: false,
-        reason: "composer text diverged during bounded chunked keyboard recovery"
+        reason:
+          "composer text diverged during bounded chunked keyboard recovery" +
+          ` expected_len=${normalizeRenderedInstructionText(expectedPrefix).length}` +
+          ` actual_len=${normalizeRenderedInstructionText(visiblePrefix).length}`
       };
     }
   }
