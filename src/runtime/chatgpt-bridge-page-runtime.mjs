@@ -8,7 +8,8 @@ import {
   recoverPlannerExecutorWarmTabs
 } from "./planner-executor-automation.mjs";
 import {
-  bindPlannerExecutorBridgePages
+  bindPlannerExecutorBridgePages,
+  CHATGPT_BRIDGE_MANAGED_PAGE_SUFFIX
 } from "./chatgpt-bridge-binding.mjs";
 
 export const MAGASIN_BRIDGE_USERSCRIPT_PATCH = "MAGASIN_BRIDGE_USERSCRIPT_PATCH_V1";
@@ -32,7 +33,11 @@ export function patchPinnedBridgeUserscript(source) {
   text = text
     .replaceAll(".slice(-600)", ".slice(-12000)")
     .replaceAll(".slice(-1000)", ".slice(-20000)")
-    .replaceAll(".slice(0, 200)", ".slice(0, 12000)");
+    .replaceAll(".slice(0, 200)", ".slice(0, 12000)")
+    .replace(
+      "  const PAGE_ID = genPageId();",
+      "  const PAGE_ID = genPageId() + " + JSON.stringify(CHATGPT_BRIDGE_MANAGED_PAGE_SUFFIX) + ";"
+    );
 
 
   // Current ChatGPT can render conversation turns without data-message-author-role.
