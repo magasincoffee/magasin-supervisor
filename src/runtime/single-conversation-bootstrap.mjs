@@ -290,7 +290,7 @@ export async function sendFreshChatBootstrapInstruction(
 
   try {
     await composer.fill(instruction, { timeout: 5_000 });
-  } catch (error) {
+  } catch {
     return {
       executed: false,
       rejection_class: "COMPOSER_NOT_READY",
@@ -318,75 +318,159 @@ export async function sendFreshChatBootstrapInstruction(
     };
   }
 
-  const scopes = [];
-  if (typeof composer.locator === "function") {
-    const form = composer.locator("xpath=ancestor::form[1]").first();
-    const formVisible = await form.isVisible().catch(() => false);
-    if (formVisible) scopes.push(form);
-  }
-  scopes.push(page);
-
-  const selectors = [
-    'button[data-testid="send-button"]:visible',
-    'button#composer-submit-button:visible',
-    'button[data-testid="composer-submit-button"]:visible',
-    'button[data-testid="composer-send-button"]:visible',
-    'button[type="submit"]:visible',
-    'button[aria-label*="Send" i]:visible',
-    'button[aria-label*="Gửi" i]:visible'
-  ];
-
-  let send = null;
-  let sendSelector = null;
-  for (const scope of scopes) {
-    for (const selector of selectors) {
-      const candidate = scope.locator(selector).first();
-      const visible = await candidate.isVisible().catch(() => false);
-      if (!visible) continue;
-      const enabled = typeof candidate.isEnabled === "function"
-        ? await candidate.isEnabled().catch(() => false)
-        : true;
-      if (!enabled) continue;
-      send = candidate;
-      sendSelector = selector;
-      break;
-    }
-    if (send) break;
-  }
-
-  if (!send) {
+  // A blank New Chat has no mention/file protocol surface and no historical
+  // turns. Submit through the focused composer exactly as a normal user does.
+  // This avoids guessing among changing Send-button DOM implementations.
+  await composer.click({ timeout: 2_000 }).catch(() => {});
+  try {
+    await composer.press("Enter", { timeout: 5_000 });
+  } catch {
     return {
       executed: false,
       rejection_class: "SEND_NOT_ACTUATED",
-      reason: "fresh ChatGPT Send control is unavailable"
+      reason: "fresh ChatGPT composer Enter submit failed",
+      input_method: "fill",
+      send_method: "composer-enter"
     };
   }
 
-  await send.click({ timeout: 5_000 });
-  const proof = await waitForExactFreshUserTurn(page, instruction);
-  if (!proof?.turn_id) {
+  let proof = await waitForExactFreshUserTurn(page, instruction, {
+    timeoutMs: 8_000,
+    pollMs: 250
+  });
+  if (proof?.turn_id) {
     return {
-      executed: false,
-      rejection_class: "SEND_NOT_ACTUATED",
-      reason: "Send clicked but exact fresh user turn was not observed",
+      executed: true,
       input_method: "fill",
-      send_method: "direct-control",
-      send_selector: sendSelector,
-      user_turn_evidence: proof?.evidence || "unreadable",
+      send_method: "composer-enter",
+      send_selector: null,
+      user_turn_evidence: proof.evidence,
+      user_turn_id: proof.turn_id,
       conversation_turn_count:
-        Number(proof?.conversation_turn_count || 0)
+        Number(proof.conversation_turn_count || 0)
+    };
+  }
+
+  // A bounded button retry is allowed only with positive evidence that Enter
+  // did not actuate: we are still on the blank home route, no conversation
+  // turn exists, and the exact Robot-owned bootstrap remains in the composer.
+  // If any of those conditions are absent, delivery is ambiguous and we never
+  // perform a second mutation.
+  let stillHome = false;
+  try {
+    const url = new URL(String(page.url?.() || ""));
+    stillHome = url.origin === "https://chatgpt.com" && url.pathname === "/";
+  } catch {}
+
+  const liveComposer = await findFreshChatComposer(page, 1_500);
+  const afterEnterText = liveComposer
+    ? await readFreshComposerText(liveComposer)
+    : null;
+  const exactStillPresent =
+    afterEnterText !== null &&
+    normalizeBootstrapRenderedText(afterEnterText) ===
+      normalizeBootstrapRenderedText(instruction);
+
+  if (
+    stillHome &&
+    Number(proof?.conversation_turn_count || 0) === 0 &&
+    exactStillPresent
+  ) {
+    const scopes = [];
+    if (typeof liveComposer?.locator === "function") {
+      const form = liveComposer.locator("xpath=ancestor::form[1]").first();
+      if (await form.isVisible().catch(() => false)) scopes.push(form);
+    }
+    scopes.push(page);
+
+    const selectors = [
+      'button[data-testid="send-button"]:visible',
+      'button#composer-submit-button:visible',
+      'button[data-testid="composer-submit-button"]:visible',
+      'button[data-testid="composer-send-button"]:visible',
+      'button[type="submit"]:visible',
+      'button[aria-label*="Send" i]:visible',
+      'button[aria-label*="Gửi" i]:visible'
+    ];
+
+    let send = null;
+    let sendSelector = null;
+    for (const scope of scopes) {
+      for (const selector of selectors) {
+        const candidate = scope.locator(selector).first();
+        if (!(await candidate.isVisible().catch(() => false))) continue;
+        const enabled = typeof candidate.isEnabled === "function"
+          ? await candidate.isEnabled().catch(() => false)
+          : true;
+        if (!enabled) continue;
+        send = candidate;
+        sendSelector = selector;
+        break;
+      }
+      if (send) break;
+    }
+
+    if (send) {
+      await send.click({ timeout: 5_000 });
+      proof = await waitForExactFreshUserTurn(page, instruction, {
+        timeoutMs: 30_000,
+        pollMs: 250
+      });
+      if (proof?.turn_id) {
+        return {
+          executed: true,
+          input_method: "fill",
+          send_method: "composer-enter+safe-direct-control",
+          send_selector: sendSelector,
+          user_turn_evidence: proof.evidence,
+          user_turn_id: proof.turn_id,
+          conversation_turn_count:
+            Number(proof.conversation_turn_count || 0)
+        };
+      }
+
+      return {
+        executed: false,
+        rejection_class: "SEND_NOT_ACTUATED",
+        reason: "safe Send retry did not produce exact fresh user turn",
+        input_method: "fill",
+        send_method: "composer-enter+safe-direct-control",
+        send_selector: sendSelector,
+        user_turn_evidence: proof?.evidence || "unreadable",
+        conversation_turn_count:
+          Number(proof?.conversation_turn_count || 0)
+      };
+    }
+  }
+
+  // Enter may have actuated even if the user-turn DOM has not hydrated yet.
+  // Continue observing without another send mutation.
+  proof = await waitForExactFreshUserTurn(page, instruction, {
+    timeoutMs: 22_000,
+    pollMs: 250
+  });
+  if (proof?.turn_id) {
+    return {
+      executed: true,
+      input_method: "fill",
+      send_method: "composer-enter",
+      send_selector: null,
+      user_turn_evidence: proof.evidence,
+      user_turn_id: proof.turn_id,
+      conversation_turn_count:
+        Number(proof.conversation_turn_count || 0)
     };
   }
 
   return {
-    executed: true,
+    executed: false,
+    rejection_class: "SEND_NOT_ACTUATED",
+    reason: "Enter submit did not yield exact fresh user turn",
     input_method: "fill",
-    send_method: "direct-control",
-    send_selector: sendSelector,
-    user_turn_evidence: proof.evidence,
-    user_turn_id: proof.turn_id,
+    send_method: "composer-enter",
+    user_turn_evidence: proof?.evidence || "unreadable",
     conversation_turn_count:
-      Number(proof.conversation_turn_count || 0)
+      Number(proof?.conversation_turn_count || 0)
   };
 }
 
