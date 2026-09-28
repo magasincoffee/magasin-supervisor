@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 import {
   SINGLE_CONVERSATION_MODE,
@@ -185,7 +186,7 @@ test("SC-002 state CLI starts with Source of Truth and no chat URLs", async () =
   );
   try {
     const result = await runNode([
-      cli.pathname,
+      fileURLToPath(cli),
       "--state", statePath,
       "--source-of-truth", "https://example.com/source"
     ]);
