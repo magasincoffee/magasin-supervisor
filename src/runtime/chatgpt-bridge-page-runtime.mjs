@@ -34,6 +34,105 @@ export function patchPinnedBridgeUserscript(source) {
     .replaceAll(".slice(-1000)", ".slice(-20000)")
     .replaceAll(".slice(0, 200)", ".slice(0, 12000)");
 
+
+  // Current ChatGPT can render conversation turns without data-message-author-role.
+  // Reuse the released Supervisor observation contract: legacy role nodes first,
+  // then bounded modern user/assistant surfaces with DOM-order correlation.
+  const messageHelper = `
+  function chatGptMessageRecords() {
+    const legacySelector = '[data-message-author-role]';
+    const modernUserSelector = 'main .text-size-chat.whitespace-pre-wrap';
+    const modernAssistantSelector = "main [class*='MarkdownRoot-']";
+    const legacy = Array.from(document.querySelectorAll(legacySelector));
+    if (legacy.length) {
+      return legacy.map((node) => {
+        const role = String(node.getAttribute('data-message-author-role') || '');
+        const md = node.querySelector('.markdown');
+        return {
+          role,
+          node,
+          text: String((md ? md.innerText : node.innerText) || '').trim()
+        };
+      }).filter((item) =>
+        (item.role === 'user' || item.role === 'assistant') && item.text
+      );
+    }
+
+    const records = [];
+    const seen = new Set();
+    const push = (node, role) => {
+      if (!node || seen.has(node)) return;
+      const style = getComputedStyle(node);
+      if (style.display === 'none' || style.visibility === 'hidden') return;
+      if (role === 'assistant') {
+        const ancestor = node.parentElement?.closest(modernAssistantSelector);
+        if (ancestor && ancestor !== node) return;
+      }
+      const text = String(node.innerText || node.textContent || '').trim();
+      if (!text) return;
+      seen.add(node);
+      records.push({ role, node, text });
+    };
+    for (const node of document.querySelectorAll(modernUserSelector)) {
+      push(node, 'user');
+    }
+    for (const node of document.querySelectorAll(modernAssistantSelector)) {
+      push(node, 'assistant');
+    }
+    records.sort((a, b) => {
+      if (a.node === b.node) return 0;
+      const relation = a.node.compareDocumentPosition(b.node);
+      if (relation & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+      if (relation & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+      return 0;
+    });
+    return records;
+  }
+`;
+
+  text = text.replace(
+    "  function countAssistant() {",
+    messageHelper + "\n  function countAssistant() {"
+  );
+  text = text.replace(
+    "return document.querySelectorAll('[data-message-author-role=\"assistant\"]').length;",
+    "return chatGptMessageRecords().filter((item) => item.role === 'assistant').length;"
+  );
+
+  const legacySnapshotBlock = `      const turns = document.querySelectorAll('[data-message-author-role]');
+      const total = turns.length;
+      for (let i = Math.max(0, total - 6); i < total; i++) {
+        const t = turns[i];
+        const role = t.getAttribute('data-message-author-role');
+        const md = t.querySelector('.markdown');
+        recent.push({ role, text: (md ? md.innerText : t.innerText).trim().slice(-12000) });
+      }
+      const msgs = document.querySelectorAll('[data-message-author-role="assistant"]');
+      msgCount = msgs.length;
+      if (msgs.length) {
+        lastAssistant = (msgs[msgs.length - 1].querySelector('.markdown') || msgs[msgs.length - 1]).innerText.trim().slice(-20000);
+      }`;
+  const modernSnapshotBlock = `      const turns = chatGptMessageRecords();
+      const total = turns.length;
+      for (let i = Math.max(0, total - 6); i < total; i++) {
+        const t = turns[i];
+        recent.push({ role: t.role, text: t.text.slice(-12000) });
+      }
+      const msgs = turns.filter((item) => item.role === 'assistant');
+      msgCount = msgs.length;
+      if (msgs.length) {
+        lastAssistant = msgs[msgs.length - 1].text.slice(-20000);
+      }`;
+  text = text.replace(legacySnapshotBlock, modernSnapshotBlock);
+
+  const legacyLastReply = `    const msgs = document.querySelectorAll('[data-message-author-role="assistant"]');
+    if (msgs.length) return (msgs[msgs.length - 1].querySelector('.markdown') || msgs[msgs.length - 1]).innerText.trim();
+    return '';`;
+  const modernLastReply = `    const msgs = chatGptMessageRecords().filter((item) => item.role === 'assistant');
+    if (msgs.length) return msgs[msgs.length - 1].text;
+    return '';`;
+  text = text.replace(legacyLastReply, modernLastReply);
+
   // ChatGPT's composer submit control has changed names across UI revisions.
   // Keep upstream Bridge actuation, but widen only its ChatGPT send-control
   // selector set to the same bounded semantic/test-id contract already proven
