@@ -410,8 +410,12 @@ try {
   await plannerPage.reload({ waitUntil: "domcontentloaded" });
   await injectPinnedBridgeUserscript(plannerPage, userscript, { bindingName });
   binding = await waitBinding(bridge, plannerSetup.url, executorSetup.url);
-  await waitBridgeHistoryEvidence(
+  const plannerHistoryRehydrated = await waitBridgeHistoryEvidence(
     bridge, binding.planner.page_id, plannerProbe, "planner reload"
+  ).then(() => true).catch(() => false);
+  log(
+    "MBV1_008_PLANNER_RELOAD_HISTORY_REHYDRATED",
+    plannerHistoryRehydrated ? "PASS" : "NOT_OBSERVED"
   );
   const plannerReloadProbe = await sendToken(
     bridge, binding.planner.page_id, "planner", "RELOAD"
@@ -421,8 +425,12 @@ try {
   await executorPage.reload({ waitUntil: "domcontentloaded" });
   await injectPinnedBridgeUserscript(executorPage, userscript, { bindingName });
   binding = await waitBinding(bridge, plannerSetup.url, executorSetup.url);
-  await waitBridgeHistoryEvidence(
+  const executorHistoryRehydrated = await waitBridgeHistoryEvidence(
     bridge, binding.executor.page_id, executorProbe, "executor reload"
+  ).then(() => true).catch(() => false);
+  log(
+    "MBV1_008_EXECUTOR_RELOAD_HISTORY_REHYDRATED",
+    executorHistoryRehydrated ? "PASS" : "NOT_OBSERVED"
   );
   const executorReloadProbe = await sendToken(
     bridge, binding.executor.page_id, "executor", "RELOAD"
