@@ -43,41 +43,36 @@ export function patchPinnedBridgeUserscript(source) {
     const legacySelector = '[data-message-author-role]';
     const modernUserSelector = 'main .text-size-chat.whitespace-pre-wrap';
     const modernAssistantSelector = "main [class*='MarkdownRoot-']";
-    const legacy = Array.from(document.querySelectorAll(legacySelector));
-    if (legacy.length) {
-      return legacy.map((node) => {
-        const role = String(node.getAttribute('data-message-author-role') || '');
-        const md = node.querySelector('.markdown');
-        return {
-          role,
-          node,
-          text: String((md ? md.innerText : node.innerText) || '').trim()
-        };
-      }).filter((item) =>
-        (item.role === 'user' || item.role === 'assistant') && item.text
-      );
-    }
-
     const records = [];
     const seen = new Set();
-    const push = (node, role) => {
+    const push = (node, role, source) => {
       if (!node || seen.has(node)) return;
+      if (role !== 'user' && role !== 'assistant') return;
       const style = getComputedStyle(node);
       if (style.display === 'none' || style.visibility === 'hidden') return;
-      if (role === 'assistant') {
+      if (source !== 'legacy' && node.closest(legacySelector)) return;
+      if (source === 'modern-assistant') {
         const ancestor = node.parentElement?.closest(modernAssistantSelector);
         if (ancestor && ancestor !== node) return;
       }
-      const text = String(node.innerText || node.textContent || '').trim();
+      const md = source === 'legacy' ? node.querySelector('.markdown') : null;
+      const text = String((md ? md.innerText : (node.innerText || node.textContent)) || '').trim();
       if (!text) return;
       seen.add(node);
       records.push({ role, node, text });
     };
+    for (const node of document.querySelectorAll(legacySelector)) {
+      push(
+        node,
+        String(node.getAttribute('data-message-author-role') || ''),
+        'legacy'
+      );
+    }
     for (const node of document.querySelectorAll(modernUserSelector)) {
-      push(node, 'user');
+      push(node, 'user', 'modern-user');
     }
     for (const node of document.querySelectorAll(modernAssistantSelector)) {
-      push(node, 'assistant');
+      push(node, 'assistant', 'modern-assistant');
     }
     records.sort((a, b) => {
       if (a.node === b.node) return 0;
