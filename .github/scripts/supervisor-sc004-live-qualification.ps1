@@ -18,6 +18,87 @@ function Set-JobOutput([string]$Name, [string]$Value) {
   "$Name=$Value" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 }
 
+function Get-QualificationDedicatedChromeProcesses([string]$Root) {
+  $profile = Join-Path $Root 'browser_profile'
+  return @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine -like "*$profile*" })
+}
+
+function Get-QualificationFreeCdpPort {
+  foreach ($candidate in 9222..9232) {
+    $listener = Get-NetTCPConnection -State Listen -LocalPort $candidate -ErrorAction SilentlyContinue |
+      Select-Object -First 1
+    if (-not $listener) { return [int]$candidate }
+  }
+  throw 'No free Supervisor CDP port is available for qualification recovery.'
+}
+
+function Restart-QualificationDedicatedChrome([string]$Root) {
+  $profile = Join-Path $Root 'browser_profile'
+  $existing = @(Get-QualificationDedicatedChromeProcesses -Root $Root)
+  $chromeExecutable = [string](
+    $existing |
+      Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.ExecutablePath) } |
+      Select-Object -First 1 -ExpandProperty ExecutablePath
+  )
+
+  if ([string]::IsNullOrWhiteSpace($chromeExecutable)) {
+    $chromeCandidates = @(
+      "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+      "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+      "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+    )
+    $chromeExecutable = [string](
+      $chromeCandidates |
+        Where-Object { $_ -and (Test-Path $_ -PathType Leaf) } |
+        Select-Object -First 1
+    )
+  }
+  if ([string]::IsNullOrWhiteSpace($chromeExecutable)) {
+    throw 'Installed Google Chrome was not found for qualification CDP recovery.'
+  }
+
+  foreach ($process in $existing) {
+    Stop-Process -Id ([int]$process.ProcessId) -Force -ErrorAction SilentlyContinue
+  }
+  for ($i = 0; $i -lt 30; $i++) {
+    if (@(Get-QualificationDedicatedChromeProcesses -Root $Root).Count -eq 0) { break }
+    Start-Sleep -Milliseconds 250
+  }
+  if (@(Get-QualificationDedicatedChromeProcesses -Root $Root).Count -gt 0) {
+    throw 'Dedicated Supervisor Chrome did not stop for qualification CDP recovery.'
+  }
+
+  $port = Get-QualificationFreeCdpPort
+  Start-Process -FilePath $chromeExecutable -WindowStyle Minimized -ArgumentList @(
+    '--remote-debugging-address=127.0.0.1',
+    "--remote-debugging-port=$port",
+    ('--user-data-dir="' + $profile + '"'),
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--hide-crash-restore-bubble',
+    '--start-minimized',
+    '--disable-background-timer-throttling',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding',
+    '--disable-features=CalculateNativeWinOcclusion',
+    'https://chatgpt.com/'
+  )
+
+  for ($i = 0; $i -lt 40; $i++) {
+    $candidate = Get-LifecycleRobotChrome -Root $Root
+    if (
+      $candidate -and
+      $candidate.CommandLine -match ("--remote-debugging-port=" + $port + "(\s|$)") -and
+      (Test-LifecycleRobotCdp -ChromeProcess $candidate -Root $Root)
+    ) {
+      return [int]$port
+    }
+    Start-Sleep -Milliseconds 500
+  }
+  throw 'Dedicated Supervisor Chrome did not recover a healthy CDP endpoint.'
+}
+
 if ($env:COMPUTERNAME -ne $TargetComputer) {
   Set-JobOutput -Name 'target_match' -Value 'false'
   Set-JobOutput -Name 'qualified' -Value 'false'
@@ -161,6 +242,23 @@ try {
 
   & node $script $root $env:GITHUB_SHA
   $nodeExit = $LASTEXITCODE
+
+  if ($nodeExit -eq 75) {
+    $currentStop = [string](Get-Content $stopPath -ErrorAction SilentlyContinue | Select-Object -First 1)
+    if ($currentStop -ne $holdToken -or (Test-Path $autostartDisabledPath)) {
+      throw 'Owner lifecycle changed before SC-004 CDP recovery could run.'
+    }
+
+    Write-Host 'SC004_QUAL_CDP_RECOVERY_RESTART=True'
+    $cdpPort = Restart-QualificationDedicatedChrome -Root $root
+    $env:SUPERVISOR_SC004_CDP_URL = "http://127.0.0.1:$cdpPort"
+    Write-Host "SC004_QUAL_CDP_RECOVERY_PORT=$cdpPort"
+    Write-Host 'SC004_QUAL_CDP_RECOVERY_HEALTHY=True'
+
+    & node $script $root $env:GITHUB_SHA
+    $nodeExit = $LASTEXITCODE
+    Write-Host "SC004_QUAL_CDP_RECOVERY_RETRY_EXIT=$nodeExit"
+  }
 } finally {
   $safeToResume = $false
   if ($holdCreated -and (Test-Path $stopPath -PathType Leaf)) {
