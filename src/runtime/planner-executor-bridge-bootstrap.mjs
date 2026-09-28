@@ -60,6 +60,66 @@ function runtimeState(sourceOfTruthUrl, {
   };
 }
 
+export function bridgeBootstrapSnapshotBaseline(snapshot, digestFn) {
+  if (!snapshot || typeof snapshot !== "object") {
+    throw new TypeError("snapshot is required");
+  }
+  if (typeof digestFn !== "function") {
+    throw new TypeError("digestFn is required");
+  }
+  const turns = Array.isArray(snapshot.recent_turns)
+    ? snapshot.recent_turns
+    : Array.isArray(snapshot.recentTurns)
+      ? snapshot.recentTurns
+      : [];
+  return {
+    assistant_count: Number(
+      snapshot.assistant_count ?? snapshot.assistantCount ?? 0
+    ) || 0,
+    is_generating: Boolean(snapshot.is_generating ?? snapshot.isGenerating),
+    recent_turns: turns.map((turn) => ({
+      role: String(turn?.role || "").trim(),
+      digest: String(digestFn(String(turn?.text || "")))
+    }))
+  };
+}
+
+export function bridgeBootstrapBaselineUnchanged(snapshot, baseline, digestFn) {
+  if (!baseline || typeof baseline !== "object") return false;
+  const current = bridgeBootstrapSnapshotBaseline(snapshot, digestFn);
+  return (
+    current.is_generating === false &&
+    Number(current.assistant_count) === Number(baseline.assistant_count) &&
+    JSON.stringify(current.recent_turns) ===
+      JSON.stringify(Array.isArray(baseline.recent_turns) ? baseline.recent_turns : [])
+  );
+}
+
+export function canMigrateLegacyAmbiguousBridgeBootstrap({
+  state,
+  bootstrap,
+  evidence,
+  persistedDigest,
+  currentDigest
+} = {}) {
+  return Boolean(
+    bootstrap?.send_attempted_at &&
+    !bootstrap?.send_confirmed_at &&
+    !bootstrap?.completed_at &&
+    !bootstrap?.baseline_snapshot &&
+    !bootstrap?.legacy_ambiguous_migrated_at &&
+    evidence?.state === "NO_MATCHING_USER_TURN" &&
+    evidence?.generating !== true &&
+    String(persistedDigest || "").trim() &&
+    String(persistedDigest || "").trim() === String(currentDigest || "").trim() &&
+    state?.project_context?.strict_correlation !== true &&
+    !state?.active_task_id &&
+    !state?.assignment &&
+    !state?.result &&
+    !state?.decision
+  );
+}
+
 export function classifyBridgeBootstrapSnapshot(snapshot, expectedMessageDigest, digestFn) {
   if (!snapshot || typeof snapshot !== "object") {
     return { state: "UNAVAILABLE" };
