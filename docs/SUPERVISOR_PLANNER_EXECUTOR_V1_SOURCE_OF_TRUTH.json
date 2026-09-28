@@ -641,13 +641,13 @@
   },
   "next_implementation_program": {
     "id": "MAGASIN_BRIDGE_V1",
-    "status": "CANONICAL_PLAN_READY_TO_EXECUTE_NOT_CUT_OVER",
+    "status": "CANONICAL_PLAN_IN_PROGRESS_NOT_CUT_OVER",
     "approved_date": "2026-09-27",
-    "current_task": "MBV1-002",
+    "current_task": "MBV1-008",
     "progress": {
-      "pc": 1,
+      "pc": 7,
       "pt": 8,
-      "percent": 12.5
+      "percent": 87.5
     },
     "authority_model": {
       "project_truth": "OWNER_CONFIGURED_SOURCE_OF_TRUTH_URL",
@@ -740,22 +740,12 @@
           "executor_send_read": "PASS",
           "role_isolation": "PASS",
           "upstream_commit_pin_recorded": "PASS"
-        },
-        "completion": {
-          "pr": 173,
-          "merge_commit": "8146ca53e99cba08292eac80be4ad6403a875fa4",
-          "workflow_run": 36330634492,
-          "target_machine": "DESKTOP-4K7IM13",
-          "target_job": 108651748072,
-          "authority_job": 108652177893,
-          "upstream_commit": "848efb9e85f52f251c82ab099747833c0693c072",
-          "dod_pass": true
         }
       },
       {
         "id": "MBV1-002",
         "priority": "P0",
-        "state": "READY_TO_EXECUTE",
+        "state": "COMPLETE",
         "name": "Bridge Adapter",
         "weight_percent": 10,
         "implementation": {
@@ -960,7 +950,19 @@
         "weight_percent": 10,
         "implementation": {
           "production_mutated": false,
-          "bridge_cutover": false
+          "bridge_cutover": false,
+          "merged_pr": 183,
+          "merge_commit": "d46ee53312859178e1ee122edd149a90233cec93",
+          "premerge_qualification_run": 36379913184,
+          "premerge_qualification_status": "PASS",
+          "production_cutover_run": 36380242479,
+          "production_cutover_status": "FAIL",
+          "follow_up_branch": "mbv1-008-bridge-qualification-cutover",
+          "latest_follow_up_head": "6abfa5674323c16bd9ec95a7422fb19eb39e35d1",
+          "latest_follow_up_qualification_run": 36383416619,
+          "latest_follow_up_status": "FAIL",
+          "latest_failure_phase": "EXECUTOR_RELOAD_HYDRATION",
+          "latest_failure_code": "RESPONSE_TIMEOUT"
         }
       }
     ],
@@ -1029,5 +1031,6 @@
       "unrelated_tab_auto_adoption": false,
       "reload_reacquisition": "SAME_CANONICAL_ROLE_IDENTITY_ONLY"
     }
-  }
+  },
+  "bridge_transport_cutover": false
 }
