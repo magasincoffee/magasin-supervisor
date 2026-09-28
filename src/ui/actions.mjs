@@ -784,21 +784,17 @@ async function setComposerText(
     return { ready: true, method: "keyboard-refocused", composer: afterInsert };
   }
 
-  // Current ChatGPT ProseMirror can rerender immediately after any key/input
-  // event. Reacquiring every 16 characters is not enough: live qualification
-  // proved that focus/selection can drift inside such a chunk. For printable
-  // ASCII, reacquire the live composer and place the caret before EACH
-  // character. Verify the rendered prefix periodically and fail closed on the
-  // first divergence. Never fall through to bulk insertText after an attempted
-  // ASCII characterwise recovery because that path is known to corrupt text on
-  // the real target.
+  // Current ChatGPT ProseMirror can rerender immediately after any input
+  // event. Live bootstrap text is Unicode (Vietnamese), so an ASCII-only
+  // recovery is insufficient. Reacquire the live composer and place the caret
+  // before EACH Unicode code point, then insert exactly that code point through
+  // insertText. This avoids keyboard-layout dependence while preserving the
+  // fail-closed prefix checks after rerenders.
   await keyboardClearComposer(page, afterInsert);
 
-  const printableAscii = /^[\x20-\x7E]*$/.test(String(instruction || ""));
   if (
-    printableAscii &&
     page.keyboard &&
-    typeof page.keyboard.type === "function"
+    typeof page.keyboard.insertText === "function"
   ) {
     const chars = Array.from(String(instruction || ""));
     let sequentialPrefix = "";
@@ -811,7 +807,7 @@ async function setComposerText(
       if (!liveComposer) {
         return {
           ready: false,
-          reason: "composer disappeared during characterwise ASCII recovery"
+          reason: "composer disappeared during characterwise Unicode recovery"
         };
       }
 
@@ -820,7 +816,7 @@ async function setComposerText(
         await page.waitForTimeout(8);
       }
 
-      await page.keyboard.type(char, { delay: 0 });
+      await page.keyboard.insertText(char);
       sequentialPrefix += char;
 
       if (typeof page.waitForTimeout === "function") {
@@ -838,7 +834,7 @@ async function setComposerText(
       if (!verifyComposer) {
         return {
           ready: false,
-          reason: "composer disappeared while verifying characterwise ASCII recovery"
+          reason: "composer disappeared while verifying characterwise Unicode recovery"
         };
       }
 
@@ -851,7 +847,7 @@ async function setComposerText(
         return {
           ready: false,
           reason:
-            "composer text diverged during characterwise ASCII recovery" +
+            "composer text diverged during characterwise Unicode recovery" +
             ` index=${offset}` +
             ` expected_len=${normalizeRenderedInstructionText(sequentialPrefix).length}` +
             ` actual_len=${normalizeRenderedInstructionText(visible).length}`
@@ -865,7 +861,7 @@ async function setComposerText(
     if (!sequentialComposer) {
       return {
         ready: false,
-        reason: "composer disappeared after characterwise ASCII recovery"
+        reason: "composer disappeared after characterwise Unicode recovery"
       };
     }
 
@@ -876,13 +872,13 @@ async function setComposerText(
     if (exact === false) {
       return {
         ready: false,
-        reason: "composer text did not persist after characterwise ASCII recovery"
+        reason: "composer text did not persist after characterwise Unicode recovery"
       };
     }
 
     return {
       ready: true,
-      method: "keyboard-ascii-charwise",
+      method: "keyboard-unicode-charwise",
       composer: sequentialComposer
     };
   }
