@@ -747,8 +747,8 @@ test("large composer prompt falls back to bounded chunked insertText", async () 
   );
 
   assert.equal(result.executed, true);
-  assert.equal(result.input_method, "keyboard-unicode-charwise");
-  assert.ok(insertCalls > 10); // one dropped whole insert + bounded micro-chunks
+  assert.equal(result.input_method, "keyboard-chunked");
+  assert.ok(insertCalls >= 2);
   assert.equal(sends, 1);
 });
 
@@ -844,12 +844,106 @@ test("chunked recovery places DOM caret at end after every composer refocus", as
   );
 
   assert.equal(result.executed, true);
-  assert.equal(result.input_method, "keyboard-unicode-charwise");
+  assert.equal(result.input_method, "keyboard-chunked");
   assert.equal(sends, 1);
-  assert.ok(selectionPlacements >= 10);
+  assert.ok(selectionPlacements >= 2);
 });
 
-test("Unicode prompt falls back to per-code-point insertion", async () => {
+test("native clipboard paste is one transaction and restores prior clipboard", async () => {
+  const instruction = "SC003 native clipboard bootstrap";
+  let composerText = "";
+  let clipboardText = "OWNER_CLIPBOARD";
+  let sends = 0;
+  let grants = 0;
+  let pastePresses = 0;
+
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async fill() {},
+    async inputValue() { return composerText; },
+    async click() {},
+    async press(key) {
+      if (key === "Backspace") composerText = "";
+    },
+    async evaluate(fn) {
+      const source = String(fn);
+      if (source.includes('new ClipboardEvent("paste"')) return false;
+      if (source.includes('execCommand("insertText"')) return false;
+      if (source.includes("selectNodeContents")) return true;
+      return null;
+    }
+  };
+
+  const send = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() {
+      if (composerText === instruction) sends += 1;
+      composerText = "";
+    }
+  };
+
+  const page = {
+    context() {
+      return {
+        async grantPermissions(perms, options) {
+          grants += 1;
+          assert.deepEqual(perms, ["clipboard-read", "clipboard-write"]);
+          assert.equal(options.origin, "https://chatgpt.com");
+        }
+      };
+    },
+    locator(selector) {
+      if (selector.includes("send-button")) return send;
+      return composer;
+    },
+    async evaluate(fn, value) {
+      const source = String(fn);
+      if (source.includes("navigator.clipboard.readText")) {
+        return { ok: true, text: clipboardText };
+      }
+      if (source.includes("navigator.clipboard.writeText")) {
+        clipboardText = String(value || "");
+        return true;
+      }
+      if (source.includes("data-message-author-role")) {
+        return { readable: true, totalCount: sends, exactMatchCount: sends };
+      }
+      return [];
+    },
+    async waitForTimeout() {},
+    async bringToFront() {},
+    keyboard: {
+      async press(key) {
+        if (key === "Control+V" || key === "Meta+V") {
+          pastePresses += 1;
+          composerText = clipboardText;
+        }
+      },
+      async insertText() {
+        throw new Error("native clipboard path should avoid insertText");
+      }
+    },
+    getByRole() { return send; }
+  };
+
+  const result = await sendComposerInstruction(page, instruction, {
+    dryRun: false
+  });
+
+  assert.equal(result.executed, true);
+  assert.equal(result.input_method, "native-clipboard-paste");
+  assert.equal(pastePresses, 1);
+  assert.equal(grants, 1);
+  assert.equal(clipboardText, "OWNER_CLIPBOARD");
+  assert.equal(sends, 1);
+});
+
+test("Unicode prompt falls back to bounded chunk insertion when clipboard is unavailable", async () => {
   const instruction = "Đọc Source of Truth và tiếp tục SC-003 ✓";
   let composerText = "";
   let insertCalls = 0;
@@ -919,11 +1013,11 @@ test("Unicode prompt falls back to per-code-point insertion", async () => {
   });
 
   assert.equal(result.executed, true);
-  assert.equal(result.input_method, "keyboard-unicode-charwise");
-  assert.ok(insertCalls > instruction.length);
+  assert.equal(result.input_method, "keyboard-chunked");
+  assert.ok(insertCalls >= 2);
   assert.equal(sends, 1);
 });
-test("Unicode characterwise fallback survives composer focus loss after every code point", async () => {
+test("bounded chunk fallback survives composer focus loss between chunks", async () => {
   const instruction = "SC003 tiếng Việt";
   let composerText = "";
   let insertCalls = 0;
@@ -994,8 +1088,8 @@ test("Unicode characterwise fallback survives composer focus loss after every co
   });
 
   assert.equal(result.executed, true);
-  assert.equal(result.input_method, "keyboard-unicode-charwise");
-  assert.ok(focusCount >= Array.from(instruction).length);
+  assert.equal(result.input_method, "keyboard-chunked");
+  assert.ok(focusCount >= 2);
   assert.equal(sends, 1);
 });
 test("composer send recovers an inert Send click with one bounded Enter", async () => {
