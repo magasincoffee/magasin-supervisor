@@ -162,6 +162,13 @@ try {
       if (evidence.rejection_class) {
         log("SC003_LIVE_REJECTION_CLASS", evidence.rejection_class);
       }
+      if (evidence.mismatch) {
+        log("SC003_LIVE_MISMATCH_EXPECTED_LEN", evidence.mismatch.expected_len);
+        log("SC003_LIVE_MISMATCH_ACTUAL_LEN", evidence.mismatch.actual_len);
+        log("SC003_LIVE_MISMATCH_FIRST_DIFF", evidence.mismatch.first_diff);
+        log("SC003_LIVE_MISMATCH_EXPECTED_CP", evidence.mismatch.expected_cp);
+        log("SC003_LIVE_MISMATCH_ACTUAL_CP", evidence.mismatch.actual_cp);
+      }
       if (evidence.status) {
         log("SC003_LIVE_RESPONSE_STATUS", evidence.status);
       }
