@@ -609,8 +609,11 @@ test("keyboard recovery reacquires and refocuses composer after clear rerender",
     async isVisible() { return true; },
     async isEnabled() { return true; },
     async isEditable() { return true; },
-    async fill() {
+    async fill(value) {
       events.push("fill-dropped");
+      if (value) composerText = "stale";
+      // Empty fill is deliberately dropped so verified clear must use
+      // keyboard Backspace, which increments the mock generation.
     },
     async inputValue() { return composerText; },
     async click() {
@@ -914,8 +917,9 @@ test("retry clear is verified before chunk fallback can append", async () => {
       async insertText(value) {
         insertCalls += 1;
         if (insertCalls === 1) {
-          // Simulate the failed whole-prompt insertion remaining in composer.
-          composerText = instruction;
+          // Simulate a corrupted whole-prompt insertion so exact verification
+          // fails and the verified-clear + chunk fallback path is exercised.
+          composerText = "CORRUPTED";
           return;
         }
         composerText += value;
