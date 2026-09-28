@@ -190,6 +190,23 @@ test("composer verification accepts render-equivalent whitespace before clicking
   assert.equal(result.send_method, "direct-control");
 });
 
+test("composer verification ignores directional zero-width marks", async () => {
+  let clicks = 0;
+  const instruction = "MAGASIN_SINGLE_CONVERSATION_NEXT_V1 id=cycle-hidden";
+  const result = await sendComposerInstruction(
+    fakePage({
+      controls: [{ text: "", ariaLabel: "Send prompt", testId: "send-button" }],
+      transformComposerText: (value) => value + "\u200E\u2060",
+      onClick: () => { clicks += 1; }
+    }),
+    instruction,
+    { dryRun: false }
+  );
+
+  assert.equal(result.executed, true);
+  assert.equal(clicks, 1);
+});
+
 test("ASCII composer falls back to native keyboard typing when fill and insertText are inert", async () => {
   let typed = 0;
   let clicks = 0;
