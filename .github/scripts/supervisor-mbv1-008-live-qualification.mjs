@@ -76,15 +76,31 @@ async function waitConversationUrl(page) {
     return /^https:\/\/chatgpt\.com\/c\/[0-9a-f-]{36}/i.test(url) ? url : false;
   }, 30_000, "ChatGPT conversation URL");
 }
-async function waitAssistantIdle(page) {
+async function waitSetupReply(page, token) {
   return waitFor(async () => {
+    const result = await page.evaluate((expected) => {
+      const turns = Array.from(
+        document.querySelectorAll("main [data-testid^='conversation-turn-']")
+      );
+      const legacy = Array.from(
+        document.querySelectorAll('[data-message-author-role="assistant"]')
+      );
+      const modern = Array.from(
+        document.querySelectorAll("main [class*='MarkdownRoot-'], main .markdown")
+      );
+      const nodes = turns.length ? turns : [...legacy, ...modern];
+      return nodes.some((node) =>
+        String(node.innerText || node.textContent || "").includes(expected)
+      );
+    }, token).catch(() => false);
+    if (!result) return false;
     const probe = await browser.probePage(page).catch(() => null);
     return probe &&
       !probe.snapshot?.responseRunning &&
       !probe.snapshot?.assistantBusy
       ? true
       : false;
-  }, 120_000, "ChatGPT setup assistant idle");
+  }, 120_000, "ChatGPT setup token reply");
 }
 
 async function sendSetup(page, role) {
@@ -96,6 +112,8 @@ async function sendSetup(page, role) {
   );
   if (!sent?.executed) throw new Error(role + " setup send failed");
   const url = await waitConversationUrl(page);
+  await waitSetupReply(page, token);
+  log("MBV1_008_SETUP_" + role.toUpperCase(), "PASS");
   return { url, token };
 }
 async function waitBinding(bridge, plannerUrl, executorUrl) {
@@ -288,11 +306,6 @@ try {
     sendSetup(plannerPage, "planner"),
     sendSetup(executorPage, "executor")
   ]);
-  await Promise.all([
-    waitAssistantIdle(plannerPage),
-    waitAssistantIdle(executorPage)
-  ]);
-
   const bindingName = "__mbv1008BridgeHttp_" + crypto.randomBytes(5).toString("hex");
   await injectPinnedBridgeUserscript(plannerPage, userscript, { bindingName });
   await injectPinnedBridgeUserscript(executorPage, userscript, { bindingName });
