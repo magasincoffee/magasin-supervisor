@@ -328,10 +328,13 @@ try {
     }
 
     try {
-      const recovered = await pageRuntime.recover();
+      const refreshed = await pageRuntime.refresh();
       syncVirtualPageIds();
-      if (recovered.reinjected) {
-        safeLog("PLANNER_EXECUTOR_BRIDGE_PAGE_RECOVERY", "REINJECTED");
+      if (refreshed.recovered) {
+        safeLog(
+          "PLANNER_EXECUTOR_BRIDGE_PAGE_RECOVERY",
+          refreshed.reinjected ? "REINJECTED" : "REACQUIRED"
+        );
       }
     } catch (error) {
       await recordPlannerExecutorIncident(incidentPath, {
