@@ -430,6 +430,22 @@ export async function sendFreshChatBootstrapInstruction(
     normalizeBootstrapRenderedText(afterEnterText) ===
       normalizeBootstrapRenderedText(instruction);
 
+  const afterEnterEvidence = {
+    still_home: stillHome,
+    composer_present: Boolean(liveComposer),
+    exact_prompt_present: Boolean(exactStillPresent),
+    conversation_turn_count: Number(proof?.conversation_turn_count || 0),
+    conversation_path: (() => {
+      try {
+        return /^\/(?:c|g|project)\//.test(
+          new URL(String(page.url?.() || "")).pathname
+        );
+      } catch {
+        return false;
+      }
+    })()
+  };
+
   if (
     stillHome &&
     Number(proof?.conversation_turn_count || 0) === 0 &&
@@ -497,7 +513,8 @@ export async function sendFreshChatBootstrapInstruction(
         send_selector: sendSelector,
         user_turn_evidence: proof?.evidence || "unreadable",
         conversation_turn_count:
-          Number(proof?.conversation_turn_count || 0)
+          Number(proof?.conversation_turn_count || 0),
+        after_enter: afterEnterEvidence
       };
     }
   }
@@ -529,7 +546,8 @@ export async function sendFreshChatBootstrapInstruction(
     send_method: "composer-enter",
     user_turn_evidence: proof?.evidence || "unreadable",
     conversation_turn_count:
-      Number(proof?.conversation_turn_count || 0)
+      Number(proof?.conversation_turn_count || 0),
+    after_enter: afterEnterEvidence
   };
 }
 
@@ -822,7 +840,8 @@ export async function createNewChatAndBootstrap({
       user_turn_evidence: sendResult?.user_turn_evidence || null,
       conversation_turn_count:
         Number(sendResult?.conversation_turn_count || 0),
-      mismatch: sendResult?.mismatch || null
+      mismatch: sendResult?.mismatch || null,
+      after_enter: sendResult?.after_enter || null
     });
     if (!sendResult?.executed) {
       throw Object.assign(
