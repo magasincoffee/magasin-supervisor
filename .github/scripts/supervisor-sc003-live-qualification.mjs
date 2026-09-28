@@ -147,6 +147,24 @@ try {
     pollMs: 500,
     onPageAcquired: (page) => {
       qualificationPage = page;
+    },
+    onStage: (stage, evidence = {}) => {
+      log("SC003_LIVE_STAGE", stage);
+      if (evidence.message_length !== undefined) {
+        log("SC003_LIVE_MESSAGE_LENGTH", evidence.message_length);
+      }
+      if (evidence.input_method) {
+        log("SC003_LIVE_INPUT_METHOD", evidence.input_method);
+      }
+      if (evidence.send_method) {
+        log("SC003_LIVE_SEND_METHOD", evidence.send_method);
+      }
+      if (evidence.rejection_class) {
+        log("SC003_LIVE_REJECTION_CLASS", evidence.rejection_class);
+      }
+      if (evidence.status) {
+        log("SC003_LIVE_RESPONSE_STATUS", evidence.status);
+      }
     }
   });
   qualificationPage = result.page;
