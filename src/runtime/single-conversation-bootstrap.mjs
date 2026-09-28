@@ -325,20 +325,32 @@ export async function createNewChatAndBootstrap({
   timeoutMs = 180_000,
   pollMs = 750,
   now = () => new Date().toISOString(),
-  onPageAcquired = null
+  onPageAcquired = null,
+  onStage = null
 } = {}) {
   if (!adapter) throw new Error("adapter is required");
   if (!statePath) throw new Error("statePath is required");
+
+  const stage = async (name, evidence = {}) => {
+    if (typeof onStage !== "function") return;
+    await onStage(String(name), evidence);
+  };
 
   const state = await ensureSingleConversationState(statePath, {
     sourceOfTruthUrl,
     projectId,
     now
   });
+  await stage("STATE_READY");
 
   try {
+    await stage("NEW_CHAT_ACQUIRE_BEGIN");
     const surface = await acquireBlankNewChatSurface(adapter, { forceNewPage });
     const page = surface.page;
+    await stage("NEW_CHAT_ACQUIRED", {
+      created: Boolean(surface.created),
+      reused_home: Boolean(surface.reused_home)
+    });
     if (typeof onPageAcquired === "function") {
       await onPageAcquired(page, surface);
     }
@@ -348,12 +360,14 @@ export async function createNewChatAndBootstrap({
       pageId: null,
       at: now
     });
+    await stage("CONVERSATION_GENERATION_STARTED");
 
     const baselineUser = await captureTurn(page, "user").catch(() => null);
     const baselineAssistant = await captureTurn(page, "assistant").catch(() => null);
     if (baselineUser || baselineAssistant) {
       throw new Error("New Chat acquired with unexpected existing turns");
     }
+    await stage("BLANK_BASELINE_CONFIRMED");
 
     const message = buildSingleConversationBootstrap({
       sourceOfTruthUrl: state.source_of_truth.url,
@@ -366,8 +380,18 @@ export async function createNewChatAndBootstrap({
       baselineUserTurnId: baselineUser?.turn_id || null,
       now
     });
+    await stage("BOOTSTRAP_PREPARED", {
+      message_length: message.length
+    });
 
+    await stage("SEND_BEGIN");
     const sendResult = await sendInstruction(page, message, { dryRun: false });
+    await stage("SEND_RETURNED", {
+      executed: Boolean(sendResult?.executed),
+      input_method: sendResult?.input_method || null,
+      send_method: sendResult?.send_method || null,
+      rejection_class: sendResult?.rejection_class || null
+    });
     if (!sendResult?.executed) {
       throw Object.assign(
         new Error(sendResult?.reason || "bootstrap send was not confirmed"),
@@ -382,13 +406,16 @@ export async function createNewChatAndBootstrap({
         { code: "USER_TURN_NOT_CAPTURED" }
       );
     }
+    await stage("USER_TURN_CONFIRMED");
 
     await persistDelivered(statePath, {
       userTurnId: userTurn.turn_id,
       runtimeId: opaqueRuntimeIdentity(pageUrl(page)),
       now
     });
+    await stage("DELIVERED_PERSISTED");
 
+    await stage("WAIT_RESPONSE_BEGIN");
     const response = await waitForBootstrapResponse({
       adapter,
       page,
@@ -398,6 +425,9 @@ export async function createNewChatAndBootstrap({
       timeoutMs,
       pollMs,
       now
+    });
+    await stage("WAIT_RESPONSE_RETURNED", {
+      status: response?.status || null
     });
 
     return {
@@ -409,6 +439,9 @@ export async function createNewChatAndBootstrap({
       response
     };
   } catch (error) {
+    await stage("FAILED", {
+      code: safeErrorCode(error)
+    }).catch(() => {});
     await persistBootstrapFailure(statePath, error, now).catch(() => {});
     throw error;
   }
