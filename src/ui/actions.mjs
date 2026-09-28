@@ -690,13 +690,93 @@ async function setComposerText(
     return { ready: true, method: "keyboard-refocused", composer: afterInsert };
   }
 
-  // Some ProseMirror/React builds ignore one very large insertText event.
-  // Do not fall back to per-key typing: over remote CDP that can take minutes
-  // for a bootstrap prompt and can hit Playwright's action timeout. Instead,
-  // clear once and append bounded bulk chunks. Reacquire/refocus before each
-  // chunk because ChatGPT may rerender the editor after any input event.
+  // Current ChatGPT ProseMirror can also partially apply bulk insertText
+  // events. For printable ASCII, use actual per-key events in bounded chunks.
+  // This path is intentionally limited to text without newlines/control chars
+  // so typing cannot accidentally submit the composer.
   await keyboardClearComposer(page, afterInsert);
 
+  const printableAscii = /^[\\x20-\\x7E]*$/.test(String(instruction || ""));
+  if (
+    printableAscii &&
+    page.keyboard &&
+    typeof page.keyboard.type === "function"
+  ) {
+    const chars = Array.from(String(instruction || ""));
+    const sequentialChunkSize = 120;
+    let sequentialPrefix = "";
+    let sequentialFailed = false;
+
+    for (
+      let offset = 0;
+      offset < chars.length;
+      offset += sequentialChunkSize
+    ) {
+      const chunk = chars.slice(offset, offset + sequentialChunkSize).join("");
+      const liveComposer = await waitForReadyComposer(page, {
+        timeoutMs: 2_000
+      });
+      if (!liveComposer) {
+        sequentialFailed = true;
+        break;
+      }
+      await focusComposerAtEnd(page, liveComposer);
+      if (typeof page.waitForTimeout === "function") {
+        await page.waitForTimeout(30);
+      }
+      await page.keyboard.type(chunk, { delay: 0 });
+      sequentialPrefix += chunk;
+
+      if (typeof page.waitForTimeout === "function") {
+        await page.waitForTimeout(60);
+      }
+      const verifyComposer = await waitForReadyComposer(page, {
+        timeoutMs: 1_500
+      });
+      if (!verifyComposer) {
+        sequentialFailed = true;
+        break;
+      }
+      const visible = await readComposerText(verifyComposer);
+      if (
+        visible !== null &&
+        normalizeRenderedInstructionText(visible) !==
+          normalizeRenderedInstructionText(sequentialPrefix)
+      ) {
+        sequentialFailed = true;
+        break;
+      }
+    }
+
+    if (!sequentialFailed) {
+      const sequentialComposer = await waitForReadyComposer(page, {
+        timeoutMs: 1_500
+      });
+      if (sequentialComposer) {
+        const exact = await composerContainsExactInstruction(
+          sequentialComposer,
+          instruction
+        );
+        if (exact !== false) {
+          return {
+            ready: true,
+            method: "keyboard-sequential",
+            composer: sequentialComposer
+          };
+        }
+      }
+    }
+
+    const cleanupComposer = await waitForReadyComposer(page, {
+      timeoutMs: 1_500
+    });
+    if (cleanupComposer) {
+      await keyboardClearComposer(page, cleanupComposer).catch(() => {});
+    }
+  }
+
+  // Keep the older bulk-chunk path only as a final fallback for non-ASCII
+  // content or when sequential key events are unavailable.
   const codePoints = Array.from(String(instruction || ""));
   const chunkSize = 180;
   let expectedPrefix = "";
