@@ -66,3 +66,4 @@ for (const [role, url] of [
 }
 await adapter.close();
 console.log("SURFACE_PROBE=PASS");
+process.exit(0);
