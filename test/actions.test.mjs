@@ -304,6 +304,64 @@ test("action surface targets only a visible composer", async () => {
 });
 
 
+test("send confirmation accepts a new modern user turn when legacy turns also exist", async () => {
+  const instruction = "MAGASIN_SINGLE_CONVERSATION_NEXT_V1 id=mixed-dom";
+  let composerText = "";
+  let sent = false;
+
+  const composer = fakeLocator({
+    inputValue: () => composerText,
+    onFill: (value) => { composerText = value; },
+    onPress: (key) => {
+      if (key === "Backspace") composerText = "";
+    }
+  });
+  const send = fakeLocator({
+    onClick: () => {
+      sent = true;
+      composerText = "";
+    }
+  });
+
+  let userProbe = 0;
+  const page = {
+    locator(selector) {
+      if (
+        selector.includes("prompt-textarea") ||
+        selector.includes("contenteditable") ||
+        selector.includes("textarea")
+      ) return composer;
+      if (selector.includes("send-button") || selector.includes("submit")) return send;
+      return fakeLocator({ visible: false, enabled: false, count: 0 });
+    },
+    async evaluate(fn) {
+      if (String(fn).includes("selectors.legacy")) {
+        userProbe += 1;
+        if (!sent) {
+          return { readable: true, totalCount: 1, exactMatchCount: 0 };
+        }
+        return { readable: true, totalCount: 2, exactMatchCount: 1 };
+      }
+      return [{ text: "", ariaLabel: "Send prompt", testId: "send-button", disabled: false }];
+    },
+    async waitForTimeout() {},
+    async bringToFront() {},
+    keyboard: {
+      async press(key) {
+        if (key === "Backspace") composerText = "";
+      },
+      async insertText(value) { composerText = value; },
+      async type(value) { composerText = value; }
+    },
+    getByRole() { return send; }
+  };
+
+  const result = await sendComposerInstruction(page, instruction, { dryRun: false });
+  assert.equal(result.executed, true);
+  assert.equal(result.user_turn_evidence, "matching-user-turn-observed");
+  assert.ok(userProbe >= 2);
+});
+
 test("dynamic composer send never clicks Continue-generating as a substitute", async () => {
   let filled = null;
   let clicks = 0;
