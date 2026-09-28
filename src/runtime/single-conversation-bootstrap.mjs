@@ -315,33 +315,34 @@ export async function createNewChatAndBootstrap({
     projectId,
     now
   });
-  const surface = await acquireBlankNewChatSurface(adapter);
-  const page = surface.page;
-
-  await beginConversationGeneration(statePath, {
-    runtimeId: null,
-    pageId: null,
-    at: now
-  });
-
-  const baselineUser = await captureTurn(page, "user").catch(() => null);
-  const baselineAssistant = await captureTurn(page, "assistant").catch(() => null);
-  if (baselineUser || baselineAssistant) {
-    throw new Error("New Chat acquired with unexpected existing turns");
-  }
-
-  const message = buildSingleConversationBootstrap({
-    sourceOfTruthUrl: state.source_of_truth.url,
-    messageId
-  });
-  await persistPreparedBootstrap(statePath, {
-    messageId,
-    message,
-    baselineUserTurnId: baselineUser?.turn_id || null,
-    now
-  });
 
   try {
+    const surface = await acquireBlankNewChatSurface(adapter);
+    const page = surface.page;
+
+    await beginConversationGeneration(statePath, {
+      runtimeId: null,
+      pageId: null,
+      at: now
+    });
+
+    const baselineUser = await captureTurn(page, "user").catch(() => null);
+    const baselineAssistant = await captureTurn(page, "assistant").catch(() => null);
+    if (baselineUser || baselineAssistant) {
+      throw new Error("New Chat acquired with unexpected existing turns");
+    }
+
+    const message = buildSingleConversationBootstrap({
+      sourceOfTruthUrl: state.source_of_truth.url,
+      messageId
+    });
+    await persistPreparedBootstrap(statePath, {
+      messageId,
+      message,
+      baselineUserTurnId: baselineUser?.turn_id || null,
+      now
+    });
+
     const sendResult = await sendInstruction(page, message, { dryRun: false });
     if (!sendResult?.executed) {
       throw Object.assign(
