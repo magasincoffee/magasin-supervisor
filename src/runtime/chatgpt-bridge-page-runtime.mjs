@@ -232,7 +232,17 @@ export function patchPinnedBridgeUserscript(source) {
       document.execCommand('insertText', false, text);
     }`,
     `    } else {
-      editor.innerHTML = '';
+      editor.focus();
+      // Avoid clearing ProseMirror with innerHTML: after a reload that can
+      // leave visible text in the DOM without updating ChatGPT's controlled
+      // editor state, so the Send control never becomes actionable.
+      const selection = globalThis.getSelection?.();
+      if (selection) {
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
       document.execCommand('insertText', false, text);
       editor.dispatchEvent(new InputEvent('input', {
         bubbles: true,
