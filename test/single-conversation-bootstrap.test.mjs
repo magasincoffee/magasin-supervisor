@@ -623,6 +623,21 @@ test("SC-003 confirmed-send failure is persisted as bounded bootstrap failure", 
   }
 });
 
+test("SC-003 live qualification bounds CDP cleanup and exits explicitly", async () => {
+  const source = await fs.readFile(
+    new URL("../.github/scripts/supervisor-sc003-live-qualification.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /boundedCleanup/);
+  assert.match(source, /SC003_LIVE_CLEANUP_TIMEOUT_/);
+  assert.match(source, /process\.exit\(finalExitCode\)/);
+  assert.doesNotMatch(
+    source,
+    /log\("SC003_LIVE_ERROR_DIGEST"[\s\S]{0,120}throw error/
+  );
+});
+
 test("SC-003 live qualification treats an already-exited paused runtime as success", async () => {
   const source = await fs.readFile(
     new URL("../.github/scripts/supervisor-sc003-live-qualification.ps1", import.meta.url),
