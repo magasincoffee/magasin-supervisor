@@ -94,7 +94,7 @@ export function buildSingleConversationBootstrap({
       "Không thay đổi repo, file, issue, pull request, runtime hoặc bất kỳ hệ thống bên ngoài nào.",
       "Sau khi đọc Source of Truth, trả lời ngắn gọn và ghi đúng Architecture generation hiện tại mà bạn đọc được từ Source of Truth.",
       `Dòng cuối bắt buộc: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
-    ].join("\n");
+    ].join(" ");
   }
 
   return [
@@ -103,7 +103,7 @@ export function buildSingleConversationBootstrap({
     "Chỉ thực hiện hoặc đề xuất đúng một đơn vị công việc bounded tiếp theo mà Source of Truth cho phép; nếu đang bị block thì nêu rõ blocker.",
     "Không tự mở rộng sang task kế tiếp ngoài phạm vi bounded hiện tại.",
     `Giữ nguyên correlation id này trong phản hồi cuối: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
-  ].join("\n");
+  ].join(" ");
 }
 
 async function assertBlankNewChatSurface(adapter, page) {
@@ -255,7 +255,8 @@ export async function waitForBootstrapResponse({
   captureTurn = captureLatestRoleTurn,
   timeoutMs = 180_000,
   pollMs = 750,
-  now = () => new Date().toISOString()
+  now = () => new Date().toISOString(),
+  onPageAcquired = null
 } = {}) {
   const started = Date.now();
   let sawRunning = false;
@@ -339,6 +340,9 @@ export async function createNewChatAndBootstrap({
   try {
     const surface = await acquireBlankNewChatSurface(adapter, { forceNewPage });
     const page = surface.page;
+    if (typeof onPageAcquired === "function") {
+      await onPageAcquired(page, surface);
+    }
 
     await beginConversationGeneration(statePath, {
       runtimeId: null,
