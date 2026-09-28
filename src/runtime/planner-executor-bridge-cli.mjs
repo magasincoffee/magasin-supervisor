@@ -16,7 +16,8 @@ import {
   MAGASIN_BRIDGE_USERSCRIPT_PATCH
 } from "./chatgpt-bridge-page-runtime.mjs";
 import {
-  buildBridgeProjectContextBootstrapMessage
+  buildBridgeProjectContextBootstrapMessage,
+  classifyBridgeBootstrapSnapshot
 } from "./planner-executor-bridge-bootstrap.mjs";
 import {
   readPlannerExecutorState,
@@ -170,6 +171,35 @@ async function ensureBridgeProjectBootstrap({
   bootstrap.message_digest = digest;
 
   if (bootstrap.send_attempted_at && !bootstrap.send_confirmed_at) {
+    const snapshot = await bridge.getSnapshot(plannerPage.page_id);
+    const evidence = classifyBridgeBootstrapSnapshot(
+      snapshot,
+      digest,
+      composerInstructionDigest
+    );
+
+    if (
+      evidence.state === "CONFIRMED_RESPONSE" &&
+      evidence.generating !== true
+    ) {
+      bootstrap.send_confirmed_at = new Date().toISOString();
+      bootstrap.send_evidence = "bridge-bootstrap-reconciled-from-planner-turns";
+      bootstrap.completed_at = bootstrap.send_confirmed_at;
+      bootstrap.last_send_error = null;
+      state.project_context.strict_correlation = true;
+      state.automation = {
+        status: "RUNNING",
+        reason: null,
+        updated_at: bootstrap.completed_at
+      };
+      await writePlannerExecutorState(statePath, state);
+      safeLog(
+        "PLANNER_EXECUTOR_BRIDGE_PROJECT_BOOTSTRAP",
+        "RECONCILED_CONFIRMED"
+      );
+      return state;
+    }
+
     throw new Error(
       "Bridge bootstrap send outcome is ambiguous from prior process; refusing automatic resend"
     );
