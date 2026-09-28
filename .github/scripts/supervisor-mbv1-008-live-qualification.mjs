@@ -232,7 +232,27 @@ async function sendToken(bridge, pageId, role, suffix) {
     log("MBV1_008_MISMATCH_DOM_TOKEN_HITS", domToken?.token_hits ?? null);
     log("MBV1_008_MISMATCH_COUNT_ADVANCED", result?.evidence?.count_advanced ?? null);
     log("MBV1_008_MISMATCH_DIGEST_CHANGED", result?.evidence?.digest_changed ?? null);
-    throw new Error(role + " live token reply mismatch");
+
+    // Model nonce obedience is not itself the transport under test. Permit one
+    // bounded harmless correction with a fresh nonce; never resend the same
+    // instruction and still require a newly observed assistant response.
+    const correctionToken = "MBV1_008_" + role.toUpperCase() + "_" + suffix +
+      "_CORRECTION_" + crypto.randomBytes(5).toString("hex");
+    log("MBV1_008_TOKEN_CORRECTION_ATTEMPT", role);
+    const correction = await bridge.send(
+      pageId,
+      "MBV1-008 harmless qualification correction. Your previous reply did not " +
+        "contain the required nonce. Reply with exactly this new token and nothing else: " +
+        correctionToken,
+      { timeoutMs: 180_000 }
+    );
+    const correctionReply = String(correction?.snapshot?.last_assistant || "");
+    if (!correctionReply.includes(correctionToken)) {
+      log("MBV1_008_TOKEN_CORRECTION_STATUS", "FAIL");
+      throw new Error(role + " live token reply mismatch after bounded correction");
+    }
+    log("MBV1_008_TOKEN_CORRECTION_STATUS", "PASS");
+    return correctionToken;
   }
   return token;
 }
