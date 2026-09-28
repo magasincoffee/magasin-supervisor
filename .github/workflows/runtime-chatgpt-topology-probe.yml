@@ -67,7 +67,10 @@ jobs:
                   $u=[Uri]([string]$t.url)
                   if($u.Host -eq 'chatgpt.com'){
                     $chat++
-                    if($u.AbsolutePath -match '^/c/[^/]+/?
+                    if($u.AbsolutePath.StartsWith('/c/')){$kind='CHATGPT_CONVERSATION';$conv++}
+                    elseif($u.AbsolutePath.StartsWith('/auth/') -or $u.AbsolutePath -eq '/auth' -or $u.AbsolutePath.StartsWith('/login')){$kind='CHATGPT_AUTH'}
+                    elseif($u.AbsolutePath -eq '/' -or [string]::IsNullOrWhiteSpace($u.AbsolutePath)){$kind='CHATGPT_ROOT';$rootCount++}
+                    else{$kind='CHATGPT_OTHER'}
                   }
                 }catch{}
                 Write-Host "TOPOLOGY_CDP_TARGET=TYPE=$([string]$t.type)|CLASS=$kind"
@@ -87,7 +90,9 @@ jobs:
               Write-Host "TOPOLOGY_FAILURE_DIGEST=$([string]$failure.error_digest)"
               Write-Host "TOPOLOGY_FAILURE_RECORDED=$([string]$failure.recorded_at)"
             }catch{Write-Host "TOPOLOGY_FAILURE_READ_ERROR=True"}
-          }else{Write-Host "TOPOLOGY_FAILURE_MISSING=True"}
+          }else{
+            Write-Host "TOPOLOGY_FAILURE_MISSING=True"
+          }
 
           $transportPath=Join-Path $root 'planner-executor-transport.json'
           if(Test-Path $transportPath){
@@ -110,45 +115,8 @@ jobs:
               try{
                 $u=[Uri]([string]$p.url)
                 if($u.Host -eq 'chatgpt.com'){
-                  if($u.AbsolutePath -match '^/c/[^/]+/?$'){$kind='CHATGPT_CONVERSATION'}
-                  elseif($u.AbsolutePath -eq '/' -or [string]::IsNullOrWhiteSpace($u.AbsolutePath)){$kind='CHATGPT_ROOT'}
-                  else{$kind='CHATGPT_OTHER'}
-                }
-              }catch{}
-              Write-Host "TOPOLOGY_BRIDGE_PAGE=ALIVE=$([bool]$p.alive)|CLASS=$kind"
-            }
-          }catch{
-            Write-Host "TOPOLOGY_BRIDGE_STATUS=False"
-          }
-          Write-Host "TOPOLOGY_PROBE=PASS"
-){$kind='CHATGPT_CONVERSATION';$conv++}
-                    elseif($u.AbsolutePath -match '^/(auth|login|logout)(/|$)'){$kind='CHATGPT_AUTH'}
-                    elseif($u.AbsolutePath -eq '/' -or [string]::IsNullOrWhiteSpace($u.AbsolutePath)){$kind='CHATGPT_ROOT';$rootCount++}
-                    else{$kind='CHATGPT_OTHER'}
-                  }
-                }catch{}
-                Write-Host "TOPOLOGY_CDP_TARGET=TYPE=$([string]$t.type)|CLASS=$kind"
-              }
-              Write-Host "TOPOLOGY_CDP_CHATGPT=$chat"
-              Write-Host "TOPOLOGY_CDP_CONVERSATIONS=$conv"
-              Write-Host "TOPOLOGY_CDP_ROOT=$rootCount"
-            }
-          }
-
-          try{
-            $bs=Invoke-RestMethod -Uri 'http://127.0.0.1:5000/status' -TimeoutSec 3
-            Write-Host "TOPOLOGY_BRIDGE_STATUS=True"
-            Write-Host "TOPOLOGY_BRIDGE_CONNECTED=$([string]$bs.pages_connected)"
-            Write-Host "TOPOLOGY_BRIDGE_ALIVE=$([string]$bs.pages_alive)"
-            $bp=Invoke-RestMethod -Uri 'http://127.0.0.1:5000/pages' -TimeoutSec 3
-            $pages=@($bp.pages)
-            Write-Host "TOPOLOGY_BRIDGE_PAGES=$($pages.Count)"
-            foreach($p in $pages){
-              $kind='OTHER'
-              try{
-                $u=[Uri]([string]$p.url)
-                if($u.Host -eq 'chatgpt.com'){
-                  if($u.AbsolutePath -match '^/c/[^/]+/?$'){$kind='CHATGPT_CONVERSATION'}
+                  if($u.AbsolutePath.StartsWith('/c/')){$kind='CHATGPT_CONVERSATION'}
+                  elseif($u.AbsolutePath.StartsWith('/auth/') -or $u.AbsolutePath -eq '/auth' -or $u.AbsolutePath.StartsWith('/login')){$kind='CHATGPT_AUTH'}
                   elseif($u.AbsolutePath -eq '/' -or [string]::IsNullOrWhiteSpace($u.AbsolutePath)){$kind='CHATGPT_ROOT'}
                   else{$kind='CHATGPT_OTHER'}
                 }
