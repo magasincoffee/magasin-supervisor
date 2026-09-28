@@ -1,7 +1,9 @@
 param(
   [string]$TargetComputer = 'DESKTOP-4K7IM13',
   [string]$UpstreamRepo = 'https://github.com/OLmatter/chatgpt-bridge.git',
-  [string]$UpstreamCommit = '848efb9e85f52f251c82ab099747833c0693c072'
+  [string]$UpstreamCommit = '848efb9e85f52f251c82ab099747833c0693c072',
+  [int]$Attempt = 1,
+  [int]$NonTargetHoldSeconds = 120
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,13 +13,27 @@ Write-Host "MBV1_001_MACHINE=$env:COMPUTERNAME"
 Write-Host "MBV1_001_SUPERVISOR_REVISION=$env:GITHUB_SHA"
 Write-Host "MBV1_001_UPSTREAM_REPO=$UpstreamRepo"
 Write-Host "MBV1_001_UPSTREAM_COMMIT=$UpstreamCommit"
+Write-Host "MBV1_001_ATTEMPT=$Attempt"
+
+function Set-GithubOutput([string]$Name, [string]$Value) {
+  if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_OUTPUT)) {
+    Add-Content -Path $env:GITHUB_OUTPUT -Value ($Name + '=' + $Value)
+  }
+}
 
 if ($env:COMPUTERNAME -ne $TargetComputer) {
   Write-Host 'MBV1_001_TARGET_MATCH=False'
+  Set-GithubOutput 'target_match' 'false'
+  Set-GithubOutput 'qualified' 'false'
+  Write-Host "MBV1_001_NON_TARGET_HOLD_SECONDS=$NonTargetHoldSeconds"
+  if ($NonTargetHoldSeconds -gt 0) {
+    Start-Sleep -Seconds $NonTargetHoldSeconds
+  }
   Write-Host 'MBV1_001_SKIP_SAFE=True'
   exit 0
 }
 Write-Host 'MBV1_001_TARGET_MATCH=True'
+Set-GithubOutput 'target_match' 'true'
 
 . (Join-Path $env:GITHUB_WORKSPACE 'windows\state-root.ps1')
 . (Join-Path $env:GITHUB_WORKSPACE 'windows\lifecycle-truth.ps1')
@@ -194,8 +210,10 @@ try {
   $script = Join-Path $env:GITHUB_WORKSPACE '.github\scripts\supervisor-mbv1-001-live-baseline.mjs'
   & node $script
   if ($LASTEXITCODE -ne 0) {
+    Set-GithubOutput 'qualified' 'false'
     throw "MBV1-001 Node qualification failed with exit code $LASTEXITCODE"
   }
+  Set-GithubOutput 'qualified' 'true'
 } finally {
   if ($startedBrowser) {
     $owned = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
