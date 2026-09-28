@@ -5,6 +5,7 @@ import {
 import { ChatGptBridgeError } from "./chatgpt-bridge-adapter.mjs";
 
 export const CHATGPT_BRIDGE_BINDING_SCHEMA = "chatgpt-bridge-binding.v1";
+export const CHATGPT_BRIDGE_MANAGED_PAGE_SUFFIX = "_magasin";
 
 export class ChatGptBridgeBindingError extends Error {
   constructor(message, {
@@ -90,6 +91,23 @@ function exactMatches(pages, target) {
 
 function resolveRole(pages, target, role) {
   const matches = exactMatches(pages, target);
+  const managedMatches = matches.filter((page) =>
+    page.page_id.endsWith(CHATGPT_BRIDGE_MANAGED_PAGE_SUFFIX)
+  );
+  if (managedMatches.length > 1) {
+    throw new ChatGptBridgeBindingError(
+      `${role} target resolves to multiple managed Bridge pages`,
+      {
+        code: "ROLE_TARGET_AMBIGUOUS",
+        details: {
+          role,
+          canonical_target: canonicalTargetUrl(target),
+          page_ids: managedMatches.map((page) => page.page_id)
+        }
+      }
+    );
+  }
+  if (managedMatches.length === 1) return managedMatches[0];
   if (matches.length === 0) {
     throw new ChatGptBridgeBindingError(
       `${role} target is not connected to the Bridge`,
@@ -219,7 +237,16 @@ export async function bindPlannerExecutorBridgePages(
   }
 
   const targetIds = new Set([plannerPage.page_id, executorPage.page_id]);
-  const unrelated = pages.filter((page) => !targetIds.has(page.page_id));
+  const shadowDuplicate = (page, selected, target) =>
+    selected.page_id.endsWith(CHATGPT_BRIDGE_MANAGED_PAGE_SUFFIX) &&
+    !page.page_id.endsWith(CHATGPT_BRIDGE_MANAGED_PAGE_SUFFIX) &&
+    page.page_id !== selected.page_id &&
+    pageMatchesTarget(page.url, target);
+  const unrelated = pages.filter((page) =>
+    !targetIds.has(page.page_id) &&
+    !shadowDuplicate(page, plannerPage, plannerTarget) &&
+    !shadowDuplicate(page, executorPage, executorTarget)
+  );
   if (requireExactPageSet && unrelated.length > 0) {
     throw new ChatGptBridgeBindingError(
       "Unexpected live Bridge pages block exact Planner/Executor topology",
