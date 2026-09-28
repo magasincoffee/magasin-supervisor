@@ -183,7 +183,10 @@ function changedFromBaseline(snapshot, baseline) {
     currentDigest !== baseline.assistant_digest;
 
   return {
-    changed: countAdvanced || digestChanged,
+    // A new outbound turn must produce a new assistant turn. Digest-only
+    // mutation can happen while ChatGPT finalizes/re-renders the previous turn
+    // and is not sufficient exact-new-response evidence.
+    changed: countAdvanced,
     count_advanced: countAdvanced,
     digest_changed: digestChanged,
     assistant_digest: currentDigest

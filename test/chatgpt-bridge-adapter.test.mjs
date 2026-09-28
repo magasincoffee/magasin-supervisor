@@ -204,11 +204,13 @@ test("send establishes a baseline, ignores stale snapshots, and completes only o
   assert.equal(calls.includes("/send"), false);
 });
 
-test("waitResponse can use digest change when upstream count remains stable", async () => {
+test("waitResponse rejects digest-only mutation and requires a new assistant turn", async () => {
   let now = 0;
   const currentSnapshots = [
     snapshot({ count: 2, generating: true, assistant: "replacement partial" }),
-    snapshot({ count: 2, generating: false, assistant: "replacement final" })
+    snapshot({ count: 2, generating: false, assistant: "replacement final" }),
+    snapshot({ count: 3, generating: true, assistant: "new partial" }),
+    snapshot({ count: 3, generating: false, assistant: "new final" })
   ];
   let index = 0;
 
@@ -241,9 +243,9 @@ test("waitResponse can use digest change when upstream count remains stable", as
     timeoutMs: 1000,
     pollIntervalMs: 10
   });
-  assert.equal(result.evidence.count_advanced, false);
+  assert.equal(result.evidence.count_advanced, true);
   assert.equal(result.evidence.digest_changed, true);
-  assert.equal(result.snapshot.last_assistant, "replacement final");
+  assert.equal(result.snapshot.last_assistant, "new final");
 });
 
 test("waitResponse rejects an already-generating baseline as ambiguous", async () => {

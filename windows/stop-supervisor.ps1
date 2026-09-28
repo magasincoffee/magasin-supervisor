@@ -72,7 +72,7 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Silen
     }
 
 Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -and $_.CommandLine -match '(supervisor-loop-cli|brain-worker-cli|three-lane-cli|planner-executor-cli)\.mjs' } |
+    Where-Object { $_.CommandLine -and $_.CommandLine -match '(supervisor-loop-cli|brain-worker-cli|three-lane-cli|planner-executor-cli|planner-executor-bridge-cli)\.mjs' } |
     ForEach-Object {
         Write-Host "Stopping orphaned Supervisor Node PID $($_.ProcessId)."
         Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue

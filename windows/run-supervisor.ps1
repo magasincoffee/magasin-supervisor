@@ -5,6 +5,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'state-root.ps1')
+. (Join-Path $PSScriptRoot 'chatgpt-bridge-runtime.ps1')
 $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
 $runtime = Join-Path $root 'runtime'
 $env:SUPERVISOR_STATE_ROOT = $root
@@ -18,6 +19,7 @@ $runtimeStatusFile = Join-Path $root 'runtime-status.json'
 $laneConfigFile = Join-Path $root 'lanes.json'
 $laneStatusFile = Join-Path $root 'lane-status.json'
 $plannerExecutorStateFile = Join-Path $root 'planner-executor-state.json'
+$plannerExecutorTransportFile = Join-Path $root 'planner-executor-transport.json'
 $projectAdapterPath = [string]$env:SUPERVISOR_PROJECT_ADAPTER_PATH
 $projectAdapterUrl = [string]$env:SUPERVISOR_PROJECT_ADAPTER_URL
 if (-not [string]::IsNullOrWhiteSpace($projectAdapterPath) -and -not [string]::IsNullOrWhiteSpace($projectAdapterUrl)) {
@@ -39,6 +41,31 @@ function Read-ConfiguredProjectAdapterState {
         throw 'Configured project adapter does not satisfy supervisor-project-adapter.v1.'
     }
     return $adapter.project_state
+}
+
+function Get-PlannerExecutorPrimaryTransport {
+    if (-not (Test-Path $plannerExecutorTransportFile -PathType Leaf)) {
+        return 'DIRECT_DOM_V1'
+    }
+    try {
+        $transport = Get-Content $plannerExecutorTransportFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ([string]$transport.schema_version -ne 'planner-executor-transport.v1') {
+            throw 'Unsupported Planner/Executor transport config schema.'
+        }
+        $primary = [string]$transport.primary
+        if ($primary -notin @('DIRECT_DOM_V1','CHATGPT_BRIDGE_V1')) {
+            throw "Unsupported Planner/Executor primary transport: $primary"
+        }
+        if (
+            $primary -eq 'CHATGPT_BRIDGE_V1' -and
+            [string]$transport.bridge_upstream_commit -ne $script:ChatGptBridgePinnedCommit
+        ) {
+            throw 'Planner/Executor Bridge transport pin mismatch.'
+        }
+        return $primary
+    } catch {
+        throw "Planner/Executor transport config is invalid: $($_.Exception.Message)"
+    }
 }
 
 function Resolve-LocalRuntimeMode {
@@ -119,7 +146,7 @@ function Get-ThreeLaneProcesses {
     return @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
         Where-Object {
             $_.CommandLine -and
-            $_.CommandLine -match '(three-lane-cli|planner-executor-cli)\.mjs'
+            $_.CommandLine -match '(three-lane-cli|planner-executor-cli|planner-executor-bridge-cli)\.mjs'
         })
 }
 
@@ -297,8 +324,20 @@ try {
             continue
         }
 
+        $plannerExecutorTransport = if ($runtimeMode -eq 'PLANNER_EXECUTOR_V1') {
+            Get-PlannerExecutorPrimaryTransport
+        } else {
+            $null
+        }
+
         $entryPoint = switch ($runtimeMode) {
-            'PLANNER_EXECUTOR_V1' { 'src/runtime/planner-executor-cli.mjs' }
+            'PLANNER_EXECUTOR_V1' {
+                if ($plannerExecutorTransport -eq 'CHATGPT_BRIDGE_V1') {
+                    'src/runtime/planner-executor-bridge-cli.mjs'
+                } else {
+                    'src/runtime/planner-executor-cli.mjs'
+                }
+            }
             'THREE_LANE_V1' { 'src/runtime/three-lane-cli.mjs' }
             'BRAIN_WORKER_V1' { 'src/runtime/brain-worker-cli.mjs' }
             default { 'src/runtime/supervisor-loop-cli.mjs' }
@@ -311,6 +350,16 @@ try {
         }
 
         Write-Host "Supervisor entry point: $entryPoint"
+        if ($runtimeMode -eq 'PLANNER_EXECUTOR_V1') {
+            Write-Host "Planner/Executor transport: $plannerExecutorTransport"
+        }
+
+        $bridgeBackendProcess = $null
+        if ($entryPoint -eq 'src/runtime/planner-executor-bridge-cli.mjs') {
+            $bridgeInfo = Assert-ChatGptBridgePinnedInstall -Root $root
+            $bridgeBackendProcess = Start-ChatGptBridgeBackend -Root $root
+            $env:SUPERVISOR_CHATGPT_BRIDGE_ROOT = $bridgeInfo.RepoRoot
+        }
 
         Push-Location $runtime
         try {
@@ -326,8 +375,14 @@ try {
             }
 
             $nodeArgs = @($entryPoint, '--cdp-url', $cdpBaseUrl, '--poll-ms', $pollMs)
-            if ($entryPoint -eq 'src/runtime/planner-executor-cli.mjs') {
+            if ($entryPoint -in @('src/runtime/planner-executor-cli.mjs','src/runtime/planner-executor-bridge-cli.mjs')) {
                 $nodeArgs += @('--state', $plannerExecutorStateFile)
+            }
+            if ($entryPoint -eq 'src/runtime/planner-executor-bridge-cli.mjs') {
+                $nodeArgs += @(
+                    '--bridge-url', 'http://127.0.0.1:5000',
+                    '--bridge-root', [string]$env:SUPERVISOR_CHATGPT_BRIDGE_ROOT
+                )
             }
             if ($entryPoint -eq 'src/runtime/three-lane-cli.mjs') {
                 $nodeArgs += @(
@@ -351,6 +406,10 @@ try {
             $nodeExitCode = $LASTEXITCODE
         } finally {
             Pop-Location
+            if ($bridgeBackendProcess) {
+                Stop-ChatGptBridgeBackend -Process $bridgeBackendProcess
+                $bridgeBackendProcess = $null
+            }
         }
 
         if (-not (Test-Path $stop) -and -not (Test-Path $autostartDisabled) -and $nodeExitCode -eq 75) {

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   CHATGPT_BRIDGE_BINDING_SCHEMA,
+  CHATGPT_BRIDGE_MANAGED_PAGE_SUFFIX,
   ChatGptBridgeBindingError,
   bindPlannerExecutorBridgePages,
   reacquirePlannerExecutorBridgePages,
@@ -82,6 +83,52 @@ test("binding reuses canonical conversation identity for Project/GPT presentatio
   assert.equal(binding.planner.chat_url, plannerPresentation);
   assert.equal(binding.planner.canonical_target, PLANNER_URL);
   assert.equal(binding.executor.canonical_target, EXECUTOR_URL);
+});
+
+
+test("managed Bridge page namespace wins over same-target legacy shadow pollers", async () => {
+  const binding = await bindPlannerExecutorBridgePages(
+    adapterWith([
+      page("planner_legacy", PLANNER_URL),
+      page("planner_page" + CHATGPT_BRIDGE_MANAGED_PAGE_SUFFIX, PLANNER_URL),
+      page("executor_legacy", EXECUTOR_URL),
+      page("executor_page" + CHATGPT_BRIDGE_MANAGED_PAGE_SUFFIX, EXECUTOR_URL)
+    ]),
+    {
+      plannerUrl: PLANNER_URL,
+      executorUrl: EXECUTOR_URL
+    }
+  );
+
+  assert.equal(
+    binding.planner.page_id,
+    "planner_page" + CHATGPT_BRIDGE_MANAGED_PAGE_SUFFIX
+  );
+  assert.equal(
+    binding.executor.page_id,
+    "executor_page" + CHATGPT_BRIDGE_MANAGED_PAGE_SUFFIX
+  );
+  assert.equal(binding.exact_page_set, true);
+  assert.deepEqual(binding.unrelated_page_ids, []);
+});
+
+test("unrelated live pages still fail closed when managed role pages exist", async () => {
+  await assert.rejects(
+    () => bindPlannerExecutorBridgePages(
+      adapterWith([
+        page("planner_page" + CHATGPT_BRIDGE_MANAGED_PAGE_SUFFIX, PLANNER_URL),
+        page("executor_page" + CHATGPT_BRIDGE_MANAGED_PAGE_SUFFIX, EXECUTOR_URL),
+        page("other_legacy", `https://chatgpt.com/c/${OTHER_ID}`)
+      ]),
+      {
+        plannerUrl: PLANNER_URL,
+        executorUrl: EXECUTOR_URL
+      }
+    ),
+    (error) =>
+      error instanceof ChatGptBridgeBindingError &&
+      error.code === "UNEXPECTED_BRIDGE_PAGES"
+  );
 });
 
 test("Planner and Executor cannot point to the same canonical conversation", () => {
