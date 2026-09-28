@@ -784,10 +784,14 @@ async function setComposerText(
     return { ready: true, method: "keyboard-refocused", composer: afterInsert };
   }
 
-  // Current ChatGPT ProseMirror can also partially apply bulk insertText
-  // events. For printable ASCII, use actual per-key events in bounded chunks.
-  // This path is intentionally limited to text without newlines/control chars
-  // so typing cannot accidentally submit the composer.
+  // Current ChatGPT ProseMirror can rerender immediately after any key/input
+  // event. Reacquiring every 16 characters is not enough: live qualification
+  // proved that focus/selection can drift inside such a chunk. For printable
+  // ASCII, reacquire the live composer and place the caret before EACH
+  // character. Verify the rendered prefix periodically and fail closed on the
+  // first divergence. Never fall through to bulk insertText after an attempted
+  // ASCII characterwise recovery because that path is known to corrupt text on
+  // the real target.
   await keyboardClearComposer(page, afterInsert);
 
   const printableAscii = /^[\x20-\x7E]*$/.test(String(instruction || ""));
@@ -797,76 +801,90 @@ async function setComposerText(
     typeof page.keyboard.type === "function"
   ) {
     const chars = Array.from(String(instruction || ""));
-    const sequentialChunkSize = 16;
     let sequentialPrefix = "";
-    let sequentialFailed = false;
 
-    for (
-      let offset = 0;
-      offset < chars.length;
-      offset += sequentialChunkSize
-    ) {
-      const chunk = chars.slice(offset, offset + sequentialChunkSize).join("");
+    for (let offset = 0; offset < chars.length; offset += 1) {
+      const char = chars[offset];
       const liveComposer = await waitForReadyComposer(page, {
         timeoutMs: 2_000
       });
       if (!liveComposer) {
-        sequentialFailed = true;
-        break;
+        return {
+          ready: false,
+          reason: "composer disappeared during characterwise ASCII recovery"
+        };
       }
+
       await focusComposerAtEnd(page, liveComposer);
       if (typeof page.waitForTimeout === "function") {
-        await page.waitForTimeout(15);
+        await page.waitForTimeout(8);
       }
-      await page.keyboard.type(chunk, { delay: 0 });
-      sequentialPrefix += chunk;
+
+      await page.keyboard.type(char, { delay: 0 });
+      sequentialPrefix += char;
 
       if (typeof page.waitForTimeout === "function") {
-        await page.waitForTimeout(60);
+        await page.waitForTimeout(18);
       }
+
+      const shouldVerify =
+        (offset + 1) % 8 === 0 ||
+        offset === chars.length - 1;
+      if (!shouldVerify) continue;
+
       const verifyComposer = await waitForReadyComposer(page, {
         timeoutMs: 1_500
       });
       if (!verifyComposer) {
-        sequentialFailed = true;
-        break;
+        return {
+          ready: false,
+          reason: "composer disappeared while verifying characterwise ASCII recovery"
+        };
       }
+
       const visible = await readComposerText(verifyComposer);
       if (
         visible !== null &&
         normalizeRenderedInstructionText(visible) !==
           normalizeRenderedInstructionText(sequentialPrefix)
       ) {
-        sequentialFailed = true;
-        break;
+        return {
+          ready: false,
+          reason:
+            "composer text diverged during characterwise ASCII recovery" +
+            ` index=${offset}` +
+            ` expected_len=${normalizeRenderedInstructionText(sequentialPrefix).length}` +
+            ` actual_len=${normalizeRenderedInstructionText(visible).length}`
+        };
       }
     }
 
-    if (!sequentialFailed) {
-      const sequentialComposer = await waitForReadyComposer(page, {
-        timeoutMs: 1_500
-      });
-      if (sequentialComposer) {
-        const exact = await composerContainsExactInstruction(
-          sequentialComposer,
-          instruction
-        );
-        if (exact !== false) {
-          return {
-            ready: true,
-            method: "keyboard-sequential",
-            composer: sequentialComposer
-          };
-        }
-      }
-    }
-
-    const cleanupComposer = await waitForReadyComposer(page, {
+    const sequentialComposer = await waitForReadyComposer(page, {
       timeoutMs: 1_500
     });
-    if (cleanupComposer) {
-      await keyboardClearComposer(page, cleanupComposer).catch(() => {});
+    if (!sequentialComposer) {
+      return {
+        ready: false,
+        reason: "composer disappeared after characterwise ASCII recovery"
+      };
     }
+
+    const exact = await composerContainsExactInstruction(
+      sequentialComposer,
+      instruction
+    );
+    if (exact === false) {
+      return {
+        ready: false,
+        reason: "composer text did not persist after characterwise ASCII recovery"
+      };
+    }
+
+    return {
+      ready: true,
+      method: "keyboard-ascii-charwise",
+      composer: sequentialComposer
+    };
   }
 
   // Keep the older bulk-chunk path only as a final fallback for non-ASCII
