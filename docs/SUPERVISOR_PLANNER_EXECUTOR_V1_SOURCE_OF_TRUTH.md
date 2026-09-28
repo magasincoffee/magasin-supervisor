@@ -818,22 +818,31 @@ Status: **COMPLETE**.
 Current progress: `pc=7 / pt=8` (87.5%). Next task: **MBV1-008 — Qualification + Cutover**.
 
 
-#### MBV1-001 authoritative completion evidence
+### 15.16 MBV1-008 follow-up qualification status
 
-- merged PR: #173;
-- merge commit: `8146ca53e99cba08292eac80be4ad6403a875fa4`;
-- authoritative live workflow run: `36330634492`;
-- target machine: `DESKTOP-4K7IM13`;
-- target attempt job: `108651748072`;
-- authority job: `108652177893`;
-- pinned upstream: `OLmatter/chatgpt-bridge@848efb9e85f52f251c82ab099747833c0693c072`;
-- Bridge service online: PASS;
-- Planner connected: PASS;
-- Executor connected: PASS;
-- distinct page_id: PASS;
-- Planner send/read: PASS;
-- Executor send/read: PASS;
-- role isolation: PASS;
-- OpenAI API required for Bridge transport: false;
-- production state/targets mutated: false;
-- MBV1-002 is now the canonical next task.
+Status: **IN_PROGRESS / PRODUCTION CUTOVER NOT YET AUTHORIZED BY EVIDENCE**.
+
+Important chronology:
+
+- PR #183 merged MBV1-008 implementation at `d46ee53312859178e1ee122edd149a90233cec93`;
+- pre-merge live qualification run `36379913184` passed on the candidate branch;
+- the authoritative post-merge production cutover workflow run `36380242479` **FAILED** and therefore did not establish Bridge production cutover;
+- target attempt ran on `DESKTOP-4K7IM13`, while the non-target attempt on `DESKTOP-H4A16IL` remained non-authoritative;
+- follow-up fixes continue on branch `mbv1-008-bridge-qualification-cutover`;
+- follow-up head `6abfa5674323c16bd9ec95a7422fb19eb39e35d1` was tested in qualification run `36383416619`;
+- that run passed setup, base transport, role isolation and Planner reload, then failed because the Executor page was Bridge-alive but the ChatGPT conversation/composer DOM had not rehydrated after reload before a new send was attempted;
+- observed failure class: `RESPONSE_TIMEOUT` with Executor Bridge `alive=true`, `assistant_count=0`, no visible composer and no visible conversation turns.
+
+Canonical consequence:
+
+```text
+program = MAGASIN_BRIDGE_V1
+current_task = MBV1-008
+pc = 7
+pt = 8
+status = IN_PROGRESS
+bridge_cutover = false
+current production transport = PRE_BRIDGE_DIRECT_BROWSER_RUNTIME
+```
+
+The next implementation action is to gate post-reload Bridge injection/binding/send on bounded ChatGPT page hydration/readiness for the exact canonical conversation, then re-run the full live qualification and production cutover authority workflow. No completion or cutover may be inferred from PR #183 being merged.
