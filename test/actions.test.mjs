@@ -335,7 +335,7 @@ test("send confirmation accepts a new modern user turn when legacy turns also ex
       return fakeLocator({ visible: false, enabled: false, count: 0 });
     },
     async evaluate(fn) {
-      if (String(fn).includes("selectors.legacy")) {
+      if (String(fn).includes("data-message-author-role")) {
         userProbe += 1;
         if (!sent) {
           return { readable: true, totalCount: 1, exactMatchCount: 0 };
@@ -531,7 +531,7 @@ test("fill success without persisted text falls back to a real keyboard insertio
   );
 
   assert.equal(result.executed, true);
-  assert.equal(result.input_method, "keyboard");
+  assert.equal(result.input_method, "keyboard-insertText");
   assert.equal(composerText, "");
   assert.equal(result.submit_evidence, "composer-changed");
   assert.ok(events.includes("fill"));
