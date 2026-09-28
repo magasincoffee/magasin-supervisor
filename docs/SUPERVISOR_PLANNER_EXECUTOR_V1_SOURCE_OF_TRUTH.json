@@ -322,7 +322,7 @@
     ],
     "historical_evidence_preserved": true,
     "next_phase_authority": "MAGASIN_BRIDGE_V1_SECTION_15_AND_NEXT_IMPLEMENTATION_PROGRAM",
-    "current_next_phase_task": "MBV1-008"
+    "current_next_phase_task": null
   },
   "pe001_evidence": {
     "pr": 120,
@@ -641,13 +641,13 @@
   },
   "next_implementation_program": {
     "id": "MAGASIN_BRIDGE_V1",
-    "status": "CANONICAL_PLAN_IN_PROGRESS_NOT_CUT_OVER",
+    "status": "PRODUCTION_CUTOVER_COMPLETE",
     "approved_date": "2026-09-27",
-    "current_task": "MBV1-008",
+    "current_task": null,
     "progress": {
-      "pc": 7,
+      "pc": 8,
       "pt": 8,
-      "percent": 87.5
+      "percent": 100
     },
     "authority_model": {
       "project_truth": "OWNER_CONFIGURED_SOURCE_OF_TRUTH_URL",
@@ -945,24 +945,41 @@
       {
         "id": "MBV1-008",
         "priority": "P3",
-        "state": "IN_PROGRESS",
+        "state": "PRODUCTION_CUTOVER_COMPLETE",
         "name": "Qualification and Cutover",
         "weight_percent": 10,
         "implementation": {
-          "production_mutated": false,
-          "bridge_cutover": false,
-          "merged_pr": 183,
-          "merge_commit": "d46ee53312859178e1ee122edd149a90233cec93",
-          "premerge_qualification_run": 36379913184,
-          "premerge_qualification_status": "PASS",
-          "production_cutover_run": 36380242479,
-          "production_cutover_status": "FAIL",
-          "follow_up_branch": "mbv1-008-bridge-qualification-cutover",
-          "latest_follow_up_head": "6abfa5674323c16bd9ec95a7422fb19eb39e35d1",
-          "latest_follow_up_qualification_run": 36383416619,
-          "latest_follow_up_status": "FAIL",
-          "latest_failure_phase": "EXECUTOR_RELOAD_HYDRATION",
-          "latest_failure_code": "RESPONSE_TIMEOUT"
+          "production_mutated": true,
+          "bridge_cutover": true,
+          "initial_implementation_pr": 183,
+          "initial_merge_commit": "d46ee53312859178e1ee122edd149a90233cec93",
+          "readiness_hardening_pr": 184,
+          "readiness_hardening_merge_commit": "06443215a0eedb020e33917a1ed69227ce52a119",
+          "final_submit_race_pr": 185,
+          "final_candidate_sha": "9444731cd5a23da291ad9a16d0657b305f7a6bc3",
+          "final_merge_commit": "9444731cd5a23da291ad9a16d0657b305f7a6bc3",
+          "final_qualification_run": 36385211231,
+          "final_qualification_status": "PASS",
+          "production_cutover_run": 36385597155,
+          "production_cutover_status": "PASS",
+          "cutover_evidence_path": ".github/qualification/mbv1-008-cutover-latest.json",
+          "cutover_evidence_commit": "c447e6961a5fd53afb9a070544fb1135812f6534",
+          "target_computer": "DESKTOP-4K7IM13",
+          "primary_transport": "CHATGPT_BRIDGE_V1",
+          "rollback_transport": "DIRECT_DOM_V1",
+          "bridge_upstream_commit": "848efb9e85f52f251c82ab099747833c0693c072",
+          "completed_at_utc": "2026-09-28T06:21:28.4307752Z"
+        },
+        "dod_result": {
+          "canonical_12_scenario_matrix": "PASS",
+          "target_machine_live_qualification": "PASS",
+          "planner_reload": "PASS",
+          "executor_reload": "PASS",
+          "bridge_restart": "PASS",
+          "exact_role_binding": "PASS",
+          "production_cutover_authority": "PASS",
+          "production_transport_selected": "CHATGPT_BRIDGE_V1",
+          "rollback_transport_preserved": "DIRECT_DOM_V1"
         }
       }
     ],
@@ -984,11 +1001,15 @@
       "explicit_cutover_required": true
     },
     "cutover": {
-      "bridge_cutover": false,
-      "current_production_transport": "PRE_BRIDGE_DIRECT_BROWSER_RUNTIME",
-      "target_primary_transport": "CHATGPT_BRIDGE_ADAPTER",
+      "bridge_cutover": true,
+      "current_production_transport": "CHATGPT_BRIDGE_V1",
+      "target_primary_transport": "CHATGPT_BRIDGE_V1",
       "direct_dom_after_cutover": "ROLLBACK_OR_FALLBACK_ONLY",
-      "qualification_task": "MBV1-008"
+      "qualification_task": "MBV1-008",
+      "qualification_run": 36385211231,
+      "production_cutover_run": 36385597155,
+      "evidence_commit": "c447e6961a5fd53afb9a070544fb1135812f6534",
+      "completed_at_utc": "2026-09-28T06:21:28.4307752Z"
     },
     "transport_selection": {
       "canonical_enqueue": "POST /send_async",
@@ -1032,5 +1053,5 @@
       "reload_reacquisition": "SAME_CANONICAL_ROLE_IDENTITY_ONLY"
     }
   },
-  "bridge_transport_cutover": false
+  "bridge_transport_cutover": true
 }
