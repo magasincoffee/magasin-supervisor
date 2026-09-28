@@ -971,6 +971,62 @@ async function setComposerText(
     };
   }
 
+  const asciiOnly = /^[\x00-\x7F]*$/.test(String(instruction || ""));
+  if (
+    asciiOnly &&
+    page.keyboard &&
+    typeof page.keyboard.type === "function"
+  ) {
+    const asciiComposer = await waitForReadyComposer(page, {
+      timeoutMs: 1_500
+    });
+    if (!asciiComposer) {
+      return {
+        ready: false,
+        reason: "composer disappeared before ASCII keyboard typing"
+      };
+    }
+
+    await focusComposerAtEnd(page, asciiComposer);
+    await page.keyboard.type(instruction, { delay: 0 });
+    if (typeof page.waitForTimeout === "function") {
+      await page.waitForTimeout(180);
+    }
+
+    const typedComposer = await waitForReadyComposer(page, {
+      timeoutMs: 1_500
+    });
+    if (!typedComposer) {
+      return {
+        ready: false,
+        reason: "composer disappeared after ASCII keyboard typing"
+      };
+    }
+
+    const exactTyped = await composerContainsExactInstruction(
+      typedComposer,
+      instruction
+    );
+    if (exactTyped !== false) {
+      return {
+        ready: true,
+        method: "keyboard-ascii-type",
+        composer: typedComposer
+      };
+    }
+
+    const clearedAfterType = await clearComposerText(page, {
+      timeoutMs: 3_000
+    });
+    if (!clearedAfterType.ready) {
+      return {
+        ready: false,
+        reason: clearedAfterType.reason ||
+          "ASCII typing recovery clear was not verified"
+      };
+    }
+  }
+
   const codePoints = Array.from(String(instruction || ""));
   const chunkSize = 24;
   let expectedPrefix = "";
