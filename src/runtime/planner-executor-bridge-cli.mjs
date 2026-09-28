@@ -17,6 +17,9 @@ import {
 } from "./chatgpt-bridge-page-runtime.mjs";
 import {
   buildBridgeProjectContextBootstrapMessage,
+  bridgeBootstrapSnapshotBaseline,
+  bridgeBootstrapBaselineUnchanged,
+  canMigrateLegacyAmbiguousBridgeBootstrap,
   classifyBridgeBootstrapSnapshot
 } from "./planner-executor-bridge-bootstrap.mjs";
 import {
@@ -169,14 +172,11 @@ async function ensureBridgeProjectBootstrap({
   });
   const digest = composerInstructionDigest(message);
   const persistedDigest = String(bootstrap.message_digest || "").trim();
-  const hasAmbiguousAttempt = Boolean(
+  let hasAmbiguousAttempt = Boolean(
     bootstrap.send_attempted_at && !bootstrap.send_confirmed_at
   );
   const attemptedDigest =
     hasAmbiguousAttempt && persistedDigest ? persistedDigest : digest;
-  if (!hasAmbiguousAttempt) {
-    bootstrap.message_digest = digest;
-  }
 
   if (hasAmbiguousAttempt) {
     const snapshot = await bridge.getSnapshot(plannerPage.page_id);
@@ -185,20 +185,26 @@ async function ensureBridgeProjectBootstrap({
       attemptedDigest,
       composerInstructionDigest
     );
+    const digestMatches = Boolean(persistedDigest) && persistedDigest === digest;
+    const baselineUnchanged = bridgeBootstrapBaselineUnchanged(
+      snapshot,
+      bootstrap.baseline_snapshot,
+      composerInstructionDigest
+    );
+
     startupDiagnostics = {
       bootstrap_reconciliation_state: evidence.state,
       bootstrap_snapshot_generating: evidence.generating === true,
-      bootstrap_persisted_digest_matches_current:
-        Boolean(persistedDigest) && persistedDigest === digest
+      bootstrap_persisted_digest_matches_current: digestMatches,
+      bootstrap_baseline_unchanged: baselineUnchanged
     };
     safeLog(
       "PLANNER_EXECUTOR_BRIDGE_BOOTSTRAP_RECONCILIATION",
       [
         evidence.state,
         "generating=" + String(evidence.generating === true),
-        "digest_match=" + String(
-          Boolean(persistedDigest) && persistedDigest === digest
-        )
+        "digest_match=" + String(digestMatches),
+        "baseline_unchanged=" + String(baselineUnchanged)
       ].join(";")
     );
 
@@ -224,12 +230,67 @@ async function ensureBridgeProjectBootstrap({
       return state;
     }
 
-    throw new Error(
-      "Bridge bootstrap send outcome is ambiguous from prior process; refusing automatic resend"
-    );
+    if (baselineUnchanged && digestMatches) {
+      bootstrap.send_attempted_at = null;
+      bootstrap.send_confirmed_at = null;
+      bootstrap.send_evidence = null;
+      bootstrap.retry_count = Number(bootstrap.retry_count || 0) + 1;
+      bootstrap.last_send_error =
+        "rearmed-after-bridge-snapshot-baseline-unchanged";
+      await writePlannerExecutorState(statePath, state);
+      hasAmbiguousAttempt = false;
+      safeLog(
+        "PLANNER_EXECUTOR_BRIDGE_PROJECT_BOOTSTRAP",
+        "REARMED_BASELINE_UNCHANGED"
+      );
+    } else if (canMigrateLegacyAmbiguousBridgeBootstrap({
+      state,
+      bootstrap,
+      evidence,
+      persistedDigest,
+      currentDigest: digest
+    })) {
+      // MBV1 Bridge releases before baseline_snapshot could durably latch
+      // send_attempted_at before Bridge enqueue. Migrate that historical state
+      // once, and only before any downstream assignment/result/decision exists.
+      bootstrap.send_attempted_at = null;
+      bootstrap.send_confirmed_at = null;
+      bootstrap.send_evidence = null;
+      bootstrap.retry_count = Number(bootstrap.retry_count || 0) + 1;
+      bootstrap.legacy_ambiguous_migrated_at = new Date().toISOString();
+      bootstrap.last_send_error =
+        "migrated-pre-baseline-bridge-bootstrap-stale-attempt";
+      await writePlannerExecutorState(statePath, state);
+      hasAmbiguousAttempt = false;
+      safeLog(
+        "PLANNER_EXECUTOR_BRIDGE_PROJECT_BOOTSTRAP",
+        "MIGRATED_PRE_BASELINE_STALE_ATTEMPT"
+      );
+    } else {
+      throw new Error(
+        "Bridge bootstrap send outcome is ambiguous from prior process; refusing automatic resend"
+      );
+    }
   }
 
-  bootstrap.send_attempted_at = bootstrap.send_attempted_at || new Date().toISOString();
+  if (!hasAmbiguousAttempt) {
+    bootstrap.message_digest = digest;
+    if (!bootstrap.baseline_snapshot) {
+      const baselineSnapshot = await bridge.getSnapshot(plannerPage.page_id);
+      if (baselineSnapshot.is_generating) {
+        throw new Error("Bridge Planner bootstrap baseline is generating");
+      }
+      bootstrap.baseline_snapshot = bridgeBootstrapSnapshotBaseline(
+        baselineSnapshot,
+        composerInstructionDigest
+      );
+      bootstrap.baseline_captured_at = new Date().toISOString();
+      await writePlannerExecutorState(statePath, state);
+    }
+  }
+
+  bootstrap.send_attempted_at =
+    bootstrap.send_attempted_at || new Date().toISOString();
   await writePlannerExecutorState(statePath, state);
 
   const result = await bridge.send(plannerPage.page_id, message);
