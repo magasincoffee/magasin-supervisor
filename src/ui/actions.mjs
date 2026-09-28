@@ -559,50 +559,74 @@ async function setComposerText(
     return { ready: true, method: "keyboard-refocused", composer: afterInsert };
   }
 
-  // Some ProseMirror/React builds ignore one bulk insertText event even when
-  // the editor is focused. One final bounded, locator-scoped key sequence is
-  // more human-like and keeps every keystroke anchored to the live editor.
-  // Clear first so this fallback can never append a duplicate partial prompt.
+  // Some ProseMirror/React builds ignore one very large insertText event.
+  // Do not fall back to per-key typing: over remote CDP that can take minutes
+  // for a bootstrap prompt and can hit Playwright's action timeout. Instead,
+  // clear once and append bounded bulk chunks. Reacquire/refocus before each
+  // chunk because ChatGPT may rerender the editor after any input event.
   await keyboardClearComposer(page, afterInsert);
-  const sequential = await waitForReadyComposer(page, { timeoutMs: 2_000 });
-  if (!sequential) {
-    return {
-      ready: false,
-      reason: "composer disappeared before sequential keyboard recovery"
-    };
-  }
-  await sequential.click({ timeout: 1_500 }).catch(() => {});
 
-  if (typeof sequential.pressSequentially === "function") {
-    await sequential.pressSequentially(instruction, {
-      delay: 0,
-      timeout: 15_000
-    });
-  } else {
-    // Older/fake Playwright surfaces do not expose pressSequentially().
-    // Keep the fallback bounded and focus-anchored through the page keyboard.
-    await page.keyboard.insertText(instruction);
+  const codePoints = Array.from(String(instruction || ""));
+  const chunkSize = 180;
+  let expectedPrefix = "";
+  for (let offset = 0; offset < codePoints.length; offset += chunkSize) {
+    const chunk = codePoints.slice(offset, offset + chunkSize).join("");
+    const chunkComposer = await waitForReadyComposer(page, { timeoutMs: 2_000 });
+    if (!chunkComposer) {
+      return {
+        ready: false,
+        reason: "composer disappeared before chunked keyboard recovery"
+      };
+    }
+    await chunkComposer.click({ timeout: 1_500 }).catch(() => {});
+    if (typeof page.waitForTimeout === "function") {
+      await page.waitForTimeout(40);
+    }
+    await page.keyboard.insertText(chunk);
+    expectedPrefix += chunk;
+
+    if (typeof page.waitForTimeout === "function") {
+      await page.waitForTimeout(80);
+    }
+    const verifyComposer = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+    if (!verifyComposer) {
+      return {
+        ready: false,
+        reason: "composer disappeared during chunked keyboard recovery"
+      };
+    }
+    const visiblePrefix = await readComposerText(verifyComposer);
+    if (
+      visiblePrefix !== null &&
+      normalizeRenderedInstructionText(visiblePrefix) !==
+        normalizeRenderedInstructionText(expectedPrefix)
+    ) {
+      return {
+        ready: false,
+        reason: "composer text diverged during bounded chunked keyboard recovery"
+      };
+    }
   }
 
   if (typeof page.waitForTimeout === "function") {
-    await page.waitForTimeout(250);
+    await page.waitForTimeout(180);
   }
   afterInsert = await waitForReadyComposer(page, { timeoutMs: 1_500 });
   if (!afterInsert) {
     return {
       ready: false,
-      reason: "composer disappeared after sequential keyboard recovery"
+      reason: "composer disappeared after chunked keyboard recovery"
     };
   }
   persisted = await composerContainsExactInstruction(afterInsert, instruction);
   if (persisted === false) {
     return {
       ready: false,
-      reason: "composer text did not persist after bounded refocused keyboard recovery"
+      reason: "composer text did not persist after bounded chunked keyboard recovery"
     };
   }
 
-  return { ready: true, method: "keyboard-sequential", composer: afterInsert };
+  return { ready: true, method: "keyboard-chunked", composer: afterInsert };
 }
 
 function visibleControlSnapshot(page) {
