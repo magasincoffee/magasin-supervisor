@@ -18,6 +18,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: sc003-live-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   attempt-1:
     runs-on: self-hosted
