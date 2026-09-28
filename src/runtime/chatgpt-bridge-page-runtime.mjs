@@ -2,9 +2,11 @@ import crypto from "node:crypto";
 
 import {
   acquirePlannerExecutorWarmTabs,
-  assertPlannerExecutorWarmTabs,
-  recoverPlannerExecutorWarmTabs
+  assertPlannerExecutorWarmTabs
 } from "./planner-executor-session.mjs";
+import {
+  recoverPlannerExecutorWarmTabs
+} from "./planner-executor-automation.mjs";
 import {
   bindPlannerExecutorBridgePages
 } from "./chatgpt-bridge-binding.mjs";
