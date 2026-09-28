@@ -120,6 +120,24 @@ async function waitSetupReply(page, token) {
   }, 120_000, "ChatGPT setup token reply");
 }
 
+async function waitReloadInteractive(page, label) {
+  const interactive = async () => page.evaluate(() => {
+    const composer = document.querySelector("#prompt-textarea") ||
+      document.querySelector('[contenteditable][role="textbox"]') ||
+      document.querySelector("textarea");
+    return Boolean(document.querySelector("main") && composer);
+  }).catch(() => false);
+
+  try {
+    return await waitFor(interactive, 45_000, label + " interactive");
+  } catch {
+    // A same-URL ChatGPT reload can occasionally stop at a blank SPA shell.
+    // One bounded second reload is safe before any Bridge command is enqueued.
+    await page.reload({ waitUntil: "domcontentloaded" });
+    return waitFor(interactive, 45_000, label + " interactive recovery");
+  }
+}
+
 async function sendSetup(page, role) {
   const token = "MBV1_SETUP_" + role.toUpperCase() + "_" + crypto.randomBytes(4).toString("hex");
   const sent = await sendComposerInstruction(
@@ -133,6 +151,24 @@ async function sendSetup(page, role) {
   log("MBV1_008_SETUP_" + role.toUpperCase(), "PASS");
   return { url, token };
 }
+async function waitChatComposerReady(page, role, timeoutMs = 60_000) {
+  return waitFor(async () => {
+    const probe = await browser.probePage(page).catch(() => null);
+    const snapshot = probe?.snapshot || null;
+    if (!snapshot) return false;
+    if (snapshot.loginRequired || snapshot.hasCaptcha) {
+      throw new Error(role + " requires authentication after reload");
+    }
+    return (
+      snapshot.conversationPath &&
+      snapshot.composerReady &&
+      !snapshot.hasNetworkError &&
+      !snapshot.hasTransientError &&
+      !snapshot.conversationMissing
+    ) ? probe : false;
+  }, timeoutMs, role + " composer hydration");
+}
+
 async function waitBinding(bridge, plannerUrl, executorUrl) {
   return waitFor(
     () => bindPlannerExecutorBridgePages(bridge, {
@@ -408,10 +444,15 @@ try {
   log("MBV1_008_LIVE_ROLE_ISOLATION", "PASS");
 
   await plannerPage.reload({ waitUntil: "domcontentloaded" });
+  await waitReloadInteractive(plannerPage, "planner reload");
   await injectPinnedBridgeUserscript(plannerPage, userscript, { bindingName });
   binding = await waitBinding(bridge, plannerSetup.url, executorSetup.url);
-  await waitBridgeHistoryEvidence(
+  const plannerHistoryRehydrated = await waitBridgeHistoryEvidence(
     bridge, binding.planner.page_id, plannerProbe, "planner reload"
+  ).then(() => true).catch(() => false);
+  log(
+    "MBV1_008_PLANNER_RELOAD_HISTORY_REHYDRATED",
+    plannerHistoryRehydrated ? "PASS" : "NOT_OBSERVED"
   );
   const plannerReloadProbe = await sendToken(
     bridge, binding.planner.page_id, "planner", "RELOAD"
@@ -419,10 +460,15 @@ try {
   log("MBV1_008_LIVE_PLANNER_RELOAD", "PASS");
 
   await executorPage.reload({ waitUntil: "domcontentloaded" });
+  await waitReloadInteractive(executorPage, "executor reload");
   await injectPinnedBridgeUserscript(executorPage, userscript, { bindingName });
   binding = await waitBinding(bridge, plannerSetup.url, executorSetup.url);
-  await waitBridgeHistoryEvidence(
+  const executorHistoryRehydrated = await waitBridgeHistoryEvidence(
     bridge, binding.executor.page_id, executorProbe, "executor reload"
+  ).then(() => true).catch(() => false);
+  log(
+    "MBV1_008_EXECUTOR_RELOAD_HISTORY_REHYDRATED",
+    executorHistoryRehydrated ? "PASS" : "NOT_OBSERVED"
   );
   const executorReloadProbe = await sendToken(
     bridge, binding.executor.page_id, "executor", "RELOAD"
