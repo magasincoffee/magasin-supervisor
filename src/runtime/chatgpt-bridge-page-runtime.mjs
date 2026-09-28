@@ -162,6 +162,21 @@ export async function prepareBridgeBrowserRuntime({
     requireExactPageSet
   });
 
+  async function refresh() {
+    try {
+      assertPlannerExecutorWarmTabs(browserAdapter, warm);
+      binding = await bindPlannerExecutorBridgePages(bridgeAdapter, {
+        plannerUrl,
+        executorUrl,
+        requireExactPageSet
+      });
+      return { warm, binding, recovered: false, reinjected: false };
+    } catch {
+      const recovered = await recover();
+      return { ...recovered, recovered: true };
+    }
+  }
+
   async function recover() {
     warm = await recoverPlannerExecutorWarmTabs(browserAdapter, {
       plannerUrl,
@@ -199,6 +214,7 @@ export async function prepareBridgeBrowserRuntime({
     get binding() { return binding; },
     bindingName,
     injections,
+    refresh,
     recover
   };
 }
