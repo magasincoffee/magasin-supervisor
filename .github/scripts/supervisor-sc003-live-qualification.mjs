@@ -168,6 +168,9 @@ try {
       if (evidence.conversation_turn_count !== undefined) {
         log("SC003_LIVE_CONVERSATION_TURN_COUNT", evidence.conversation_turn_count);
       }
+      if (evidence.direct_user_count !== undefined) {
+        log("SC003_LIVE_DIRECT_USER_COUNT", evidence.direct_user_count);
+      }
       if (evidence.mismatch) {
         log("SC003_LIVE_MISMATCH_EXPECTED_LEN", evidence.mismatch.expected_len);
         log("SC003_LIVE_MISMATCH_ACTUAL_LEN", evidence.mismatch.actual_len);
