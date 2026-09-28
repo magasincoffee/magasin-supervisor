@@ -359,6 +359,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 let pageRuntime = null;
 let startupStage = "BRIDGE_HEALTH";
 let startupDiagnostics = {};
+await fs.rm(startupFailurePath, { force: true }).catch(() => {});
 try {
   const health = await bridge.status();
   if (health.supervisor_running) {
