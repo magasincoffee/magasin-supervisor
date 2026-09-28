@@ -309,7 +309,7 @@ Reuse components, not obsolete orchestration semantics.
 ## 10. Implementation program
 
 ### SC-001 — Authority cleanup and contract lock
-State: **IN PROGRESS**
+State: **COMPLETE**
 
 Deliverables:
 - establish `/SOURCE_OF_TRUTH.md` as the sole authority;
@@ -320,6 +320,14 @@ Deliverables:
 DoD:
 - repository has exactly one forward document declaring project authority;
 - no current README text contradicts this architecture.
+
+Completion evidence:
+- sole authority path: `/SOURCE_OF_TRUTH.md`;
+- former Planner/Executor Source of Truth files are historical tombstones;
+- legacy Brain/Work directive protocol is explicitly historical/non-authoritative;
+- `test/source-of-truth-authority.test.mjs` enforces the authority contract repository-wide;
+- hosted Supervisor Tests and Supervisor Integrity are required for root `SOURCE_OF_TRUTH.md` and `README.md` changes;
+- PR #187 authority/static/full regression gates passed on the SC-001 candidate before completion was recorded.
 
 ### SC-002 — Single-conversation runtime state
 State: **PLANNED**
