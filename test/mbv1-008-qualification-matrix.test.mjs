@@ -355,12 +355,17 @@ test("MBV1-008 cutover wiring is explicit and rollback-safe", async () => {
   assert.match(bridgeCli, /bridge-new-assistant-response-observed/);
 });
 
-test("MBV1-008 userscript patch preserves upstream Bridge and widens evidence windows", () => {
+test("MBV1-008 userscript patch preserves upstream Bridge and widens evidence plus send-control compatibility", () => {
   const patched = patchPinnedBridgeUserscript(
-    "// ChatGPT Bridge\nconst x = a.slice(-600); const y = b.slice(-1000); const z = c.slice(0, 200);"
+    "// ChatGPT Bridge\n" +
+    "const x = a.slice(-600); const y = b.slice(-1000); const z = c.slice(0, 200);\n" +
+    "const sendBtns = ['button[data-testid=\\\"send-button\\\"]', 'button[aria-label=\\\"发送\\\"]', 'button[aria-label=\\\"Send\\\"]', 'form button[type=\\\"submit\\\"]'];"
   );
   assert.match(patched, /MAGASIN_BRIDGE_USERSCRIPT_PATCH_V1/);
   assert.match(patched, /slice\(-12000\)/);
   assert.match(patched, /slice\(-20000\)/);
   assert.match(patched, /slice\(0, 12000\)/);
+  assert.match(patched, /composer-submit-button/);
+  assert.match(patched, /composer-send-button/);
+  assert.match(patched, /aria-label\*=\\\"Send\\\" i/);
 });
