@@ -65,7 +65,7 @@ test("SC-003 bootstrap prompt carries sole Source of Truth and unique correlatio
   assert.match(message, /only project authority/i);
   assert.match(message, /Read the Source of Truth URL above from the beginning/i);
   assert.match(message, /one bounded next unit of work/i);
-  assert.match(message, /^[\\x20-\\x7E]+$/);
+  assert.match(message, /^[\x20-\x7E]+$/);
   assert.match(message, /MAGASIN_BOOTSTRAP_CORRELATION_V1 msg-001/);
   assert.doesNotMatch(message, /Planner|Executor|Brain|Work mode/i);
 });
