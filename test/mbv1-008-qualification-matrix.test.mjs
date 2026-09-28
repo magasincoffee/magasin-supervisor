@@ -385,6 +385,9 @@ test("MBV1-008 userscript patch observes current ChatGPT message DOM", () => {
     patched,
     /chatGptMessageRecords\(\)\.filter\(\(item\) => item\.role === 'assistant'\)\.length/
   );
+  assert.doesNotMatch(patched, /if \(legacy\.length\)/);
+  assert.match(patched, /source !== 'legacy' && node\.closest\(legacySelector\)/);
+  assert.match(patched, /push\(node, 'assistant', 'modern-assistant'\)/);
 });
 
 
