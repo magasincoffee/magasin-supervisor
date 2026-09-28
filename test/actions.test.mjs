@@ -670,7 +670,7 @@ test("large composer prompt falls back to bounded chunked insertText", async () 
 
   assert.equal(result.executed, true);
   assert.equal(result.input_method, "keyboard-chunked");
-  assert.equal(insertCalls, 4); // one dropped whole insert + three chunks
+  assert.ok(insertCalls > 10); // one dropped whole insert + bounded micro-chunks
   assert.equal(sends, 1);
 });
 
@@ -768,7 +768,7 @@ test("chunked recovery places DOM caret at end after every composer refocus", as
   assert.equal(result.executed, true);
   assert.equal(result.input_method, "keyboard-chunked");
   assert.equal(sends, 1);
-  assert.ok(selectionPlacements >= 4);
+  assert.ok(selectionPlacements >= 10);
 });
 
 test("printable ASCII prompt falls back to bounded sequential key events", async () => {
