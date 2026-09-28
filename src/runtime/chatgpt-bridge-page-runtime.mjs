@@ -312,6 +312,40 @@ export function patchPinnedBridgeUserscript(source) {
       }
       await sleep(1500);`
   );
+
+  // Upstream /poll dequeues commands even while the page-side executor is
+  // busy. Preserve such commands locally so a command observed during the
+  // short post-response busy window cannot be silently lost.
+  text = text.replace(
+    `  let busy = false;
+  let busySince = 0;`,
+    `  let busy = false;
+  let busySince = 0;
+  const pendingCommands = [];`
+  );
+
+  text = text.replace(
+    `        if (resp && resp.cmd && !busy) {
+          busy = true;
+          busySince = Date.now();
+          setStatus('执行: ' + (resp.cmd === 'send' ? '发送' : resp.cmd), '#c83');
+          // 关键:命令处理放独立异步函数,不阻塞 poll 循环
+          executeCommand(resp);
+        }`,
+    `        if (resp && resp.cmd) {
+          pendingCommands.push(resp);
+        }
+        if (!busy && pendingCommands.length) {
+          const nextCommand = pendingCommands.shift();
+          busy = true;
+          busySince = Date.now();
+          setStatus('执行: ' + (nextCommand.cmd === 'send' ? '发送' : nextCommand.cmd), '#c83');
+          // Preserve commands dequeued by /poll while a previous command is
+          // still finishing. Execute serially instead of silently dropping.
+          executeCommand(nextCommand);
+        }`
+  );
+
   return [
     "globalThis.__MAGASIN_BRIDGE_PATCH__ = " + JSON.stringify(MAGASIN_BRIDGE_USERSCRIPT_PATCH) + ";",
     text
