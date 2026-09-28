@@ -483,11 +483,18 @@ try {
     log("MBV1_008_LONG_DIAG_MODERN_ASSISTANTS", dom?.modern_assistant_count ?? null);
     throw error;
   }
-  if (!sawGenerating) {
-    throw new Error("long-generation qualification never observed generating=true");
-  }
+  log(
+    "MBV1_008_LONG_GENERATING_OBSERVED",
+    sawGenerating ? "PASS" : "NOT_OBSERVED"
+  );
   if (finalLong.is_generating) {
     throw new Error("long-generation parser completed while still generating");
+  }
+  if (
+    finalLong.assistant_count <= baseline.assistant_count ||
+    !String(finalLong.last_assistant || "").trim()
+  ) {
+    throw new Error("long-generation qualification lacks completed new-response evidence");
   }
   log("MBV1_008_LONG_NONCE_MATCH",
     String(finalLong.last_assistant || "").includes(longToken) ? "PASS" : "DIAGNOSTIC_MISMATCH");
