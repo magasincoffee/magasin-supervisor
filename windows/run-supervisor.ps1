@@ -371,7 +371,7 @@ try {
             $pageBudget = if ($env:SUPERVISOR_CHATGPT_PAGE_BUDGET) {
                 [string]$env:SUPERVISOR_CHATGPT_PAGE_BUDGET
             } else {
-                '4'
+                '3'
             }
 
             $nodeArgs = @($entryPoint, '--cdp-url', $cdpBaseUrl, '--poll-ms', $pollMs)
