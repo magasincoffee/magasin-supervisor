@@ -43,20 +43,34 @@ function assertActiveConversation(state) {
 
 export function buildSingleConversationNextInstruction({
   sourceOfTruthUrl,
-  messageId = randomUUID()
+  messageId = randomUUID(),
+  qualificationOnly = false
 } = {}) {
   const source = String(sourceOfTruthUrl || "").trim();
   const id = String(messageId || "").trim();
   if (!source) throw new Error("sourceOfTruthUrl is required");
   if (!id) throw new Error("messageId is required");
 
-  return [
+  const common = [
     "MAGASIN_SINGLE_CONVERSATION_NEXT_V1",
     `id=${id}`,
     `SOT=${source}`,
     "Re-read SOT from the beginning before selecting the next action.",
     "SOT is the sole project authority; ignore stale chat state when it conflicts.",
-    "Continue only from current authoritative state.",
+    "Continue only from current authoritative state."
+  ];
+
+  if (qualificationOnly) {
+    return [
+      ...common,
+      "QUALIFICATION ONLY: use read-only web access if needed; do not write to external systems.",
+      "Report the Architecture generation read from SOT.",
+      `End exactly: MAGASIN_CYCLE_CORRELATION_V1 ${id}`
+    ].join(" ");
+  }
+
+  return [
+    ...common,
     "Do exactly one bounded next unit allowed by SOT, or state DONE/BLOCKED.",
     `End with: MAGASIN_CYCLE_CORRELATION_V1 ${id}`
   ].join(" ");
@@ -193,6 +207,8 @@ export async function waitForSingleConversationResponse({
   baselineAssistantTurnId = null,
   captureTurn = captureLatestRoleTurn,
   executeUiDecision = executeDecision,
+  expectedAssistantMarker = null,
+  assistantSettleMs = 8_000,
   timeoutMs = 180_000,
   pollMs = 600,
   maxContinueClicks = 8,
@@ -205,6 +221,9 @@ export async function waitForSingleConversationResponse({
   const started = Date.now();
   let continueClicks = 0;
   let sawRunning = false;
+  const expectedMarker = String(expectedAssistantMarker || "").trim();
+  let stableAssistantDigest = null;
+  let stableAssistantSince = 0;
 
   while (Date.now() - started <= timeoutMs) {
     const probe = await adapter.probePage(page);
@@ -246,16 +265,47 @@ export async function waitForSingleConversationResponse({
         assistant?.turn_id &&
         assistant.turn_id !== baselineAssistantTurnId
       ) {
-        await persistCycleComplete(statePath, {
-          assistantTurnId: assistant.turn_id,
-          now
-        });
-        return {
-          status: "RESPONSE_COMPLETE",
-          assistant_turn: assistant,
-          continue_clicks: continueClicks,
-          saw_running: sawRunning
-        };
+        const assistantText = String(assistant.text || "");
+        const markerConfirmed =
+          !expectedMarker || assistantText.includes(expectedMarker);
+
+        if (!markerConfirmed && expectedMarker) {
+          const digest = String(
+            assistant.digest || assistant.turn_id || assistantText
+          );
+          const observedAt = Date.now();
+          if (digest !== stableAssistantDigest) {
+            stableAssistantDigest = digest;
+            stableAssistantSince = observedAt;
+          } else if (
+            Number(assistantSettleMs) <= 0 ||
+            observedAt - stableAssistantSince >= Number(assistantSettleMs)
+          ) {
+            await persistCycleComplete(statePath, {
+              assistantTurnId: assistant.turn_id,
+              now
+            });
+            return {
+              status: "RESPONSE_COMPLETE",
+              assistant_turn: assistant,
+              continue_clicks: continueClicks,
+              saw_running: sawRunning,
+              marker_confirmed: false
+            };
+          }
+        } else {
+          await persistCycleComplete(statePath, {
+            assistantTurnId: assistant.turn_id,
+            now
+          });
+          return {
+            status: "RESPONSE_COMPLETE",
+            assistant_turn: assistant,
+            continue_clicks: continueClicks,
+            saw_running: sawRunning,
+            marker_confirmed: expectedMarker ? true : null
+          };
+        }
       }
     }
 
@@ -276,6 +326,7 @@ export async function runSingleConversationCycle({
   page,
   statePath,
   messageId = randomUUID(),
+  qualificationOnly = false,
   sendInstruction = sendComposerInstruction,
   captureTurn = captureLatestRoleTurn,
   executeUiDecision = executeDecision,
@@ -318,7 +369,8 @@ export async function runSingleConversationCycle({
     const baselineAssistant = await captureTurn(page, "assistant").catch(() => null);
     const message = buildSingleConversationNextInstruction({
       sourceOfTruthUrl: state.source_of_truth.url,
-      messageId
+      messageId,
+      qualificationOnly
     });
 
     await persistCyclePrepared(statePath, {
@@ -355,6 +407,8 @@ export async function runSingleConversationCycle({
       baselineAssistantTurnId: baselineAssistant?.turn_id || null,
       captureTurn,
       executeUiDecision,
+      expectedAssistantMarker:
+        `MAGASIN_CYCLE_CORRELATION_V1 ${messageId}`,
       timeoutMs,
       pollMs,
       maxContinueClicks,
