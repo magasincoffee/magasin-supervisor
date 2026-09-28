@@ -119,7 +119,10 @@ try {
     qualificationOnly: true,
     forceNewPage: true,
     timeoutMs: 180_000,
-    pollMs: 500
+    pollMs: 500,
+    onPageAcquired: (page) => {
+      qualificationPage = page;
+    }
   });
   qualificationPage = result.page;
 
