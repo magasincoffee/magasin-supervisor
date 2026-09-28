@@ -13,6 +13,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: runtime-chatgpt-fix-live-validation
+  cancel-in-progress: false
+
 jobs:
   validate:
     strategy:
@@ -83,8 +87,13 @@ jobs:
           $lastCdpChat=0
           $lastBridgeAlive=0
           $lastBridgeConnected=0
+          $lastBridgeChat=0
+          $lastBridgeConv=0
 
-          for($i=0;$i -lt 70;$i++){
+          # Bridge send may legitimately wait up to 180 seconds for a Planner
+          # response. Keep the live gate beyond that bound so it never declares
+          # failure while the production runtime is still within its own SLA.
+          for($i=0;$i -lt 120;$i++){
             Start-Sleep -Seconds 2
             $lastTruth=Get-LifecycleProcessTruth -Root $root
             $statusPath=Join-Path $root 'planner-executor-status.json'
@@ -114,6 +123,8 @@ jobs:
 
             $lastBridgeAlive=0
             $lastBridgeConnected=0
+            $lastBridgeChat=0
+            $lastBridgeConv=0
             try{
               $bs=Invoke-RestMethod -Uri 'http://127.0.0.1:5000/status' -TimeoutSec 2
               $lastBridgeAlive=if($null -ne $bs.pages_alive){[int]$bs.pages_alive}else{0}
@@ -121,6 +132,15 @@ jobs:
               $bp=Invoke-RestMethod -Uri 'http://127.0.0.1:5000/pages' -TimeoutSec 2
               $alivePages=@($bp.pages | Where-Object { [bool]$_.alive })
               if($alivePages.Count -gt $lastBridgeAlive){$lastBridgeAlive=$alivePages.Count}
+              foreach($p in $alivePages){
+                try{
+                  $u=[Uri]([string]$p.url)
+                  if($u.Host -eq 'chatgpt.com'){
+                    $lastBridgeChat++
+                    if($u.AbsolutePath.StartsWith('/c/')){$lastBridgeConv++}
+                  }
+                }catch{}
+              }
             }catch{}
 
             $tabs=if($lastStatus -and $null -ne $lastStatus.chatgpt_tabs){[int]$lastStatus.chatgpt_tabs}else{0}
@@ -152,6 +172,8 @@ jobs:
           Write-Host "FIXLIVE_CDP_CONVERSATIONS=$lastCdpConv"
           Write-Host "FIXLIVE_BRIDGE_ALIVE=$lastBridgeAlive"
           Write-Host "FIXLIVE_BRIDGE_CONNECTED=$lastBridgeConnected"
+          Write-Host "FIXLIVE_BRIDGE_CHATGPT=$lastBridgeChat"
+          Write-Host "FIXLIVE_BRIDGE_CONVERSATIONS=$lastBridgeConv"
 
           $failurePath=Join-Path $root 'planner-executor-startup-failure.json'
           if(Test-Path $failurePath){
