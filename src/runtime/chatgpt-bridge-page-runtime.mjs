@@ -53,6 +53,40 @@ export function patchPinnedBridgeUserscript(source) {
     const modernAssistantSelector = "main [class*='MarkdownRoot-']";
     const records = [];
     const seen = new Set();
+    const turnSelector = "main [data-testid^='conversation-turn-']";
+    const turnNodes = Array.from(document.querySelectorAll(turnSelector));
+    if (turnNodes.length) {
+      for (const node of turnNodes) {
+        const legacyRoleNode = node.querySelector(legacySelector);
+        const legacyRole = String(
+          legacyRoleNode?.getAttribute('data-message-author-role') || ''
+        );
+        const hasModernUser = Boolean(node.querySelector(modernUserSelector));
+        const modernAssistant = node.querySelector(modernAssistantSelector);
+        const role =
+          legacyRole === 'user' || legacyRole === 'assistant'
+            ? legacyRole
+            : hasModernUser
+              ? 'user'
+              : modernAssistant
+                ? 'assistant'
+                : '';
+        if (!role) continue;
+        const style = getComputedStyle(node);
+        if (style.display === 'none' || style.visibility === 'hidden') continue;
+        const preferred =
+          role === 'assistant'
+            ? (node.querySelector('.markdown') || modernAssistant || node)
+            : (legacyRoleNode || node.querySelector(modernUserSelector) || node);
+        const text = String(
+          preferred.innerText || preferred.textContent || ''
+        ).trim();
+        if (!text) continue;
+        records.push({ role, node, text });
+      }
+      if (records.length) return records;
+    }
+
     const push = (node, role, source) => {
       if (!node || seen.has(node)) return;
       if (role !== 'user' && role !== 'assistant') return;
