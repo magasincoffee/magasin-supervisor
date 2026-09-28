@@ -369,3 +369,20 @@ test("MBV1-008 userscript patch preserves upstream Bridge and widens evidence pl
   assert.match(patched, /composer-send-button/);
   assert.match(patched, /aria-label\*="Send" i/);
 });
+
+
+test("MBV1-008 userscript patch observes current ChatGPT message DOM", () => {
+  const patched = patchPinnedBridgeUserscript(
+    "// ChatGPT Bridge\n" +
+    "  function countAssistant() {\n" +
+    "    return document.querySelectorAll('[data-message-author-role=\\\"assistant\\\"]').length;\n" +
+    "  }\n"
+  );
+  assert.match(patched, /chatGptMessageRecords/);
+  assert.match(patched, /text-size-chat\.whitespace-pre-wrap/);
+  assert.match(patched, /MarkdownRoot-/);
+  assert.match(
+    patched,
+    /chatGptMessageRecords\(\)\.filter\(\(item\) => item\.role === 'assistant'\)\.length/
+  );
+});
