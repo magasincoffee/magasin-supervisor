@@ -135,6 +135,30 @@ async function findFreshChatComposer(page, timeoutMs = 8_000) {
   return null;
 }
 
+
+function bootstrapTextMismatchDiagnostic(expected, actual) {
+  const left = Array.from(normalizeBootstrapRenderedText(expected));
+  const right = Array.from(normalizeBootstrapRenderedText(actual));
+  const limit = Math.min(left.length, right.length);
+  let firstDiff = limit;
+  for (let index = 0; index < limit; index += 1) {
+    if (left[index] !== right[index]) {
+      firstDiff = index;
+      break;
+    }
+  }
+  const cp = (value) => value === undefined
+    ? "END"
+    : "U+" + value.codePointAt(0).toString(16).toUpperCase().padStart(4, "0");
+  return {
+    expected_len: left.length,
+    actual_len: right.length,
+    first_diff: firstDiff,
+    expected_cp: cp(left[firstDiff]),
+    actual_cp: cp(right[firstDiff])
+  };
+}
+
 async function readFreshComposerText(composer) {
   if (!composer) return null;
   if (typeof composer.inputValue === "function") {
@@ -281,10 +305,16 @@ export async function sendFreshChatBootstrapInstruction(
     normalizeBootstrapRenderedText(rendered) !==
       normalizeBootstrapRenderedText(instruction)
   ) {
+    const mismatch = bootstrapTextMismatchDiagnostic(
+      instruction,
+      rendered === null ? "" : rendered
+    );
     return {
       executed: false,
       rejection_class: "COMPOSER_NOT_READY",
-      reason: "fresh ChatGPT composer did not preserve exact bootstrap text"
+      reason: "fresh ChatGPT composer did not preserve exact bootstrap text",
+      input_method: "fill",
+      mismatch
     };
   }
 
@@ -648,7 +678,8 @@ export async function createNewChatAndBootstrap({
       rejection_class: sendResult?.rejection_class || null,
       user_turn_evidence: sendResult?.user_turn_evidence || null,
       conversation_turn_count:
-        Number(sendResult?.conversation_turn_count || 0)
+        Number(sendResult?.conversation_turn_count || 0),
+      mismatch: sendResult?.mismatch || null
     });
     if (!sendResult?.executed) {
       throw Object.assign(
