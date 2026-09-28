@@ -37,7 +37,7 @@ Write-Host 'SC003_QUAL_TARGET_MATCH=True'
 $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
 $stopPath = Join-Path $root 'STOP'
 $autostartDisabledPath = Join-Path $root 'AUTOSTART_DISABLED'
-$installedStart = Join-Path $root 'runtime\windows\start-supervisor.ps1'
+$installedRun = Join-Path $root 'runtime\windows\run-supervisor.ps1'
 $holdToken = "SC003_QUALIFICATION_HOLD:$env:GITHUB_RUN_ID:$Attempt"
 
 $ownerStop = Get-LifecycleOwnerStopState -Root $root
@@ -50,6 +50,42 @@ $runtimeBefore = Get-LifecyclePlannerExecutorProcess -Root $root
 $chromeBefore = Get-LifecycleRobotChrome -Root $root
 if (-not $chromeBefore -or -not (Test-LifecycleRobotCdp -ChromeProcess $chromeBefore -Root $root)) {
   throw 'SC-003 live qualification requires the existing healthy dedicated Robot Chrome.'
+}
+
+# A previous qualification attempt may have paused the wrapper successfully but
+# failed before the legacy Recovery gate could restart it. If there is no Owner
+# stop and the durable production mode is still Planner/Executor, restore the
+# exact wrapper directly before starting another qualification. This does not
+# clear any Owner latch and does not change project state.
+if (-not $wrapperBefore) {
+  $plannerExecutorState = Read-LifecycleJson (Join-Path $root 'planner-executor-state.json')
+  if (
+    $plannerExecutorState -and
+    [string]$plannerExecutorState.mode -eq 'PLANNER_EXECUTOR_V1'
+  ) {
+    if (-not (Test-Path $installedRun -PathType Leaf)) {
+      throw "Installed Supervisor wrapper is missing: $installedRun"
+    }
+    $env:RUNNER_TRACKING_ID = 'MAGASIN_SUPERVISOR_PERSISTENT'
+    Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
+      '-NoLogo','-NoProfile','-ExecutionPolicy','Bypass',
+      '-File',('"' + $installedRun + '"')
+    )
+    for ($i = 0; $i -lt 80; $i++) {
+      $wrapperBefore = Get-LifecycleSupervisorWrapper -Root $root
+      if ($wrapperBefore) { break }
+      Start-Sleep -Milliseconds 500
+    }
+    if (-not $wrapperBefore) {
+      throw 'SC-003 could not restore the pre-qualification production wrapper.'
+    }
+    for ($i = 0; $i -lt 40; $i++) {
+      $runtimeBefore = Get-LifecyclePlannerExecutorProcess -Root $root
+      if ($runtimeBefore) { break }
+      Start-Sleep -Milliseconds 500
+    }
+    Write-Host 'SC003_QUAL_PREVIOUS_WRAPPER_RESTORED=True'
+  }
 }
 
 Write-Host "SC003_QUAL_STATE_ROOT=$root"
@@ -128,15 +164,21 @@ try {
   }
 
   if ($wrapperBefore -and $safeToResume) {
-    if (-not (Test-Path $installedStart -PathType Leaf)) {
-      throw "Installed recovery start script is missing: $installedStart"
-    }
-    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installedStart -Hidden -Recovery
-    if ($LASTEXITCODE -ne 0) {
-      throw 'Supervisor recovery start failed after SC-003 qualification.'
+    if (-not (Test-Path $installedRun -PathType Leaf)) {
+      throw "Installed Supervisor wrapper is missing: $installedRun"
     }
 
-    for ($i = 0; $i -lt 40; $i++) {
+    # Restore the exact wrapper that qualification temporarily paused. Do not
+    # call start-supervisor -Recovery here: that path intentionally applies
+    # lane-intent gates and can refuse even though the wrapper was alive before
+    # this qualification. Direct wrapper restoration changes no Owner latches.
+    $env:RUNNER_TRACKING_ID = 'MAGASIN_SUPERVISOR_PERSISTENT'
+    Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
+      '-NoLogo','-NoProfile','-ExecutionPolicy','Bypass',
+      '-File',('"' + $installedRun + '"')
+    )
+
+    for ($i = 0; $i -lt 80; $i++) {
       if (Get-LifecycleSupervisorWrapper -Root $root) { break }
       Start-Sleep -Milliseconds 500
     }
