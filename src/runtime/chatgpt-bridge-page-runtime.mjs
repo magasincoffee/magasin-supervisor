@@ -319,6 +319,20 @@ export function patchPinnedBridgeUserscript(source) {
           best.btn.click();
           controlClicked = true;
         }
+
+        // If ChatGPT has hydrated the composer but has not materialized an
+        // actionable Send button yet, invoke the native form submission path.
+        // This remains scoped to the exact composer form and only runs after
+        // Enter + semantic/geometric Send controls did not actuate.
+        if (
+          !controlClicked &&
+          form &&
+          typeof form.requestSubmit === 'function' &&
+          String(editor.innerText || editor.value || '').trim().length > 0
+        ) {
+          form.requestSubmit();
+          controlClicked = true;
+        }
       }
       await sleep(1500);`
   );
