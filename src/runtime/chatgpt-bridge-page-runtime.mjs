@@ -142,6 +142,97 @@ export function patchPinnedBridgeUserscript(source) {
     "['button[data-testid=\"send-button\"]', 'button[aria-label=\"发送\"]', 'button[aria-label=\"Send\"]', 'form button[type=\"submit\"]']",
     "['button[data-testid=\"send-button\"]', 'button#composer-submit-button', 'button[data-testid=\"composer-submit-button\"]', 'button[data-testid=\"composer-send-button\"]', 'button[data-testid*=\"send\" i]', 'button[data-testid*=\"submit\" i]', 'button[id*=\"send\" i]', 'button[id*=\"submit\" i]', 'button[aria-label*=\"Send\" i]', 'button[aria-label*=\"Submit\" i]', 'button[aria-label*=\"Gửi\" i]', 'button[title*=\"Send\" i]', 'button[title*=\"Submit\" i]', 'button[title*=\"Gửi\" i]', 'button[aria-label=\"发送\"]', 'form button[type=\"submit\"]']"
   );
+
+  // Keep upstream Bridge as the actuation owner, but make its contenteditable
+  // mutation observable to ChatGPT's controlled composer and mirror the
+  // released bounded composer-form geometric fallback when Send metadata is
+  // absent. This fallback never searches outside the active composer form.
+  text = text.replace(
+    `    } else {
+      editor.innerHTML = '';
+      document.execCommand('insertText', false, text);
+    }`,
+    `    } else {
+      editor.innerHTML = '';
+      document.execCommand('insertText', false, text);
+      editor.dispatchEvent(new InputEvent('input', {
+        bubbles: true,
+        inputType: 'insertText',
+        data: text
+      }));
+    }`
+  );
+
+  text = text.replace(
+    `      for (const sel of sendBtns) {
+        const btn = document.querySelector(sel);
+        if (btn && btn.offsetParent !== null) { btn.click(); break; }
+      }
+      await sleep(1500);`,
+    `      let controlClicked = false;
+      for (const sel of sendBtns) {
+        const btn = document.querySelector(sel);
+        if (
+          btn &&
+          btn.offsetParent !== null &&
+          !btn.disabled &&
+          btn.getAttribute('aria-disabled') !== 'true'
+        ) {
+          btn.click();
+          controlClicked = true;
+          break;
+        }
+      }
+
+      if (!controlClicked && SITE === 'chatgpt') {
+        const form = editor.closest('form');
+        const formBox = form ? form.getBoundingClientRect() : null;
+        const rejectRe = /(attach|attachment|file|upload|plus|add|voice|mic|microphone|dictat|audio|model|tool|stop|retry|continue|tệp|đính kèm|thêm|giọng|âm thanh)/i;
+        let best = null;
+        if (form && formBox && formBox.width > 0 && formBox.height > 0) {
+          for (const btn of Array.from(form.querySelectorAll('button')).slice(0, 40)) {
+            const style = getComputedStyle(btn);
+            const box = btn.getBoundingClientRect();
+            if (
+              style.display === 'none' ||
+              style.visibility === 'hidden' ||
+              btn.disabled ||
+              btn.getAttribute('aria-disabled') === 'true' ||
+              box.width < 22 ||
+              box.height < 22 ||
+              box.width > 96 ||
+              box.height > 96
+            ) continue;
+
+            const attrs = [
+              btn.getAttribute('aria-label'),
+              btn.getAttribute('title'),
+              btn.getAttribute('data-testid'),
+              btn.id,
+              btn.getAttribute('type'),
+              btn.innerText
+            ].filter(Boolean).join(' ');
+            if (rejectRe.test(attrs)) continue;
+
+            const centerX = box.left + box.width / 2;
+            const centerY = box.top + box.height / 2;
+            const rightBand = formBox.left + formBox.width * 0.62;
+            const lowerBand = formBox.top + formBox.height * 0.35;
+            if (centerX < rightBand || centerY < lowerBand) continue;
+
+            let score = centerX - formBox.left;
+            if (String(btn.getAttribute('type') || '').toLowerCase() === 'submit') score += 1000;
+            if (/(send|submit|gửi)/i.test(attrs)) score += 2000;
+            if (!best || score > best.score) best = { btn, score };
+          }
+        }
+        if (best) {
+          best.btn.click();
+          controlClicked = true;
+        }
+      }
+      await sleep(1500);`
+  );
   return [
     "globalThis.__MAGASIN_BRIDGE_PATCH__ = " + JSON.stringify(MAGASIN_BRIDGE_USERSCRIPT_PATCH) + ";",
     text
