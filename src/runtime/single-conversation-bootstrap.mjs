@@ -222,11 +222,13 @@ async function captureExactFreshUserTurn(page, expected) {
       }
 
       const wholeTurn = normalize(turn.textContent || turn.innerText || "");
-      if (wholeTurn === wanted) {
+      if (wholeTurn === wanted || wholeTurn.includes(wanted)) {
         return {
           turn_id: turnId || null,
           conversation_turn_count: turns.length,
-          evidence: "exact-fresh-conversation-turn"
+          evidence: wholeTurn === wanted
+            ? "exact-fresh-conversation-turn"
+            : "exact-bootstrap-contained-in-fresh-turn"
         };
       }
     }
