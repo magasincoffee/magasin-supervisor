@@ -115,6 +115,14 @@ function selectAllChord() {
 
 async function keyboardClearComposer(page, composer) {
   await composer.click({ timeout: 2_000 });
+  // Use the page keyboard after explicitly focusing the live composer. Current
+  // ChatGPT can rerender ProseMirror between locator key events; page-level
+  // native keys match the SC-003 path that is qualified on the real target.
+  if (page.keyboard && typeof page.keyboard.press === "function") {
+    await page.keyboard.press(selectAllChord());
+    await page.keyboard.press("Backspace");
+    return;
+  }
   await composer.press(selectAllChord(), { timeout: 2_000 });
   await composer.press("Backspace", { timeout: 2_000 });
 }
@@ -144,7 +152,7 @@ async function clearComposerText(
 
 function normalizeComposerText(value) {
   return String(value || "")
-    .replace(/\u200B/g, "")
+    .replace(/[\u200B-\u200F\u2060\uFEFF]/g, "")
     .replace(/\r\n/g, "\n")
     .trim();
 }
@@ -178,7 +186,9 @@ async function readComposerText(composer) {
         ) {
           return el.value;
         }
-        return el.innerText || el.textContent || "";
+        // textContent is the stable logical ProseMirror value on the current
+        // ChatGPT composer; innerText can inject layout-derived whitespace.
+        return el.textContent || el.innerText || "";
       });
     } catch {}
   }
