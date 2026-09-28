@@ -67,14 +67,15 @@ function safeErrorCode(error) {
 
 export function buildSingleConversationBootstrap({
   sourceOfTruthUrl,
-  messageId = randomUUID()
+  messageId = randomUUID(),
+  qualificationOnly = false
 } = {}) {
   const source = String(sourceOfTruthUrl || "").trim();
   const id = String(messageId || "").trim();
   if (!source) throw new Error("sourceOfTruthUrl is required");
   if (!id) throw new Error("messageId is required");
 
-  return [
+  const common = [
     "MAGASIN_SINGLE_CONVERSATION_BOOTSTRAP_V1",
     `message_id=${id}`,
     `source_of_truth=${source}`,
@@ -82,7 +83,22 @@ export function buildSingleConversationBootstrap({
     "Đây là một cuộc trò chuyện mới do MAGASIN Supervisor tạo tự động.",
     "Hãy đọc Source of Truth ở link trên từ đầu trước khi quyết định hoặc thực hiện bất kỳ công việc nào.",
     "Source of Truth đó là authority duy nhất cho kiến trúc, trạng thái task, dependency, Definition of Done và thứ tự thực hiện.",
-    "Không dùng trạng thái dự án từ cuộc trò chuyện cũ, memory cũ, README hoặc tài liệu lịch sử nếu mâu thuẫn với Source of Truth.",
+    "Không dùng trạng thái dự án từ cuộc trò chuyện cũ, memory cũ, README hoặc tài liệu lịch sử nếu mâu thuẫn với Source of Truth."
+  ];
+
+  if (qualificationOnly) {
+    return [
+      ...common,
+      "Đây là LIVE QUALIFICATION chỉ để xác nhận Robot có thể tạo New Chat, đọc Source of Truth và nhận phản hồi.",
+      "Không dùng tools, apps, connectors, GitHub write actions hoặc ChatGPT Work mode.",
+      "Không thay đổi repo, file, issue, pull request, runtime hoặc bất kỳ hệ thống bên ngoài nào.",
+      "Sau khi đọc Source of Truth, trả lời ngắn gọn và ghi đúng Architecture generation hiện tại mà bạn đọc được từ Source of Truth.",
+      `Dòng cuối bắt buộc: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
+    ].join("\n");
+  }
+
+  return [
+    ...common,
     "Sau khi đọc xong, xác định trạng thái hiện tại trực tiếp từ Source of Truth.",
     "Chỉ thực hiện hoặc đề xuất đúng một đơn vị công việc bounded tiếp theo mà Source of Truth cho phép; nếu đang bị block thì nêu rõ blocker.",
     "Không tự mở rộng sang task kế tiếp ngoài phạm vi bounded hiện tại.",
@@ -116,12 +132,14 @@ async function assertBlankNewChatSurface(adapter, page) {
   return probe;
 }
 
-export async function acquireBlankNewChatSurface(adapter) {
+export async function acquireBlankNewChatSurface(adapter, {
+  forceNewPage = false
+} = {}) {
   if (!adapter) throw new Error("adapter is required");
   await adapter.open();
 
   let page = adapter.getActivePage?.() || null;
-  if (page && isHomeChatGptPage(page)) {
+  if (!forceNewPage && page && isHomeChatGptPage(page)) {
     try {
       await assertBlankNewChatSurface(adapter, page);
       return { page, created: false, reused_home: true };
@@ -301,6 +319,8 @@ export async function createNewChatAndBootstrap({
   sourceOfTruthUrl,
   projectId = "LIVE",
   messageId = randomUUID(),
+  qualificationOnly = false,
+  forceNewPage = false,
   sendInstruction = sendComposerInstruction,
   captureTurn = captureLatestRoleTurn,
   timeoutMs = 180_000,
@@ -317,7 +337,7 @@ export async function createNewChatAndBootstrap({
   });
 
   try {
-    const surface = await acquireBlankNewChatSurface(adapter);
+    const surface = await acquireBlankNewChatSurface(adapter, { forceNewPage });
     const page = surface.page;
 
     await beginConversationGeneration(statePath, {
@@ -334,7 +354,8 @@ export async function createNewChatAndBootstrap({
 
     const message = buildSingleConversationBootstrap({
       sourceOfTruthUrl: state.source_of_truth.url,
-      messageId
+      messageId,
+      qualificationOnly
     });
     await persistPreparedBootstrap(statePath, {
       messageId,
