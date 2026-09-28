@@ -53,7 +53,8 @@ jobs:
             test/mig-004-isolated-lifecycle-parity.test.mjs \
             test/source-of-truth-authority.test.mjs \
             test/single-conversation-state.test.mjs \
-            test/single-conversation-bootstrap.test.mjs
+            test/single-conversation-bootstrap.test.mjs \
+            test/single-conversation-loop.test.mjs
 
       - name: Validate state-maintenance and Control Panel safety contracts
         shell: bash
