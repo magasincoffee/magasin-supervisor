@@ -104,7 +104,7 @@ function Get-LifecyclePlannerExecutorProcesses {
     return @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
         Where-Object {
             $_.CommandLine -and
-            $_.CommandLine -like '*planner-executor-cli.mjs*'
+            ($_.CommandLine -like '*planner-executor-cli.mjs*' -or $_.CommandLine -like '*planner-executor-bridge-cli.mjs*')
         })
 }
 
