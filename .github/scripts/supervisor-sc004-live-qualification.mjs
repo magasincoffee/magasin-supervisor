@@ -116,7 +116,10 @@ async function openAdapterWithBoundedRetry() {
       }
     }
   }
-  throw lastError || new Error("SC-004 CDP attach failed");
+  const recovery = new Error("SC-004 CDP attach recovery required before UI mutation");
+  recovery.code = "CDP_ATTACH_RECOVERY_REQUIRED";
+  recovery.cause = lastError;
+  throw recovery;
 }
 
 let qualificationPage = null;
@@ -281,19 +284,31 @@ try {
   log("SC004_LIVE_PRODUCTION_STATE_MUTATED", "False");
   log("SC004_LIVE_EXTERNAL_SYSTEM_MUTATION_REQUESTED", "False");
 } catch (error) {
+  const cdpRecoveryRequired =
+    String(error?.code || "") === "CDP_ATTACH_RECOVERY_REQUIRED";
   await writeResult({
-    status: "FAIL",
+    status: cdpRecoveryRequired ? "RETRYABLE_CDP_ATTACH" : "FAIL",
     started_at: startedAt,
     completed_at: new Date().toISOString(),
     error_name: String(error?.name || "Error"),
+    error_code: String(error?.code || ""),
     error_digest: sha(String(error?.message || error)),
     production_state_mutated: false,
     production_targets_mutated: false
   }).catch(() => {});
-  log("SC004_LIVE_STATUS", "FAIL");
-  log("SC004_LIVE_ERROR_NAME", error?.name || "Error");
-  log("SC004_LIVE_ERROR_DIGEST", sha(String(error?.message || error)));
-  finalExitCode = 1;
+  if (cdpRecoveryRequired) {
+    log("SC004_LIVE_CDP_RECOVERY_REQUIRED", "True");
+    log(
+      "SC004_LIVE_CDP_RECOVERY_CAUSE",
+      error?.cause?.name || "Unknown"
+    );
+    finalExitCode = 75;
+  } else {
+    log("SC004_LIVE_STATUS", "FAIL");
+    log("SC004_LIVE_ERROR_NAME", error?.name || "Error");
+    log("SC004_LIVE_ERROR_DIGEST", sha(String(error?.message || error)));
+    finalExitCode = 1;
+  }
 } finally {
   if (qualificationPage && !qualificationPage.isClosed()) {
     await boundedCleanup("PAGE_CLOSE", () => adapter.closePage(qualificationPage));
