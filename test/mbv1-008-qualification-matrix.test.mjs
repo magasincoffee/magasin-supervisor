@@ -473,3 +473,24 @@ test("MBV1-008 userscript patch hardens controlled composer actuation without le
   assert.match(patched, /rejectRe/);
   assert.match(patched, /controlClicked/);
 });
+
+
+test("MBV1-008 userscript patch preserves commands polled while busy", () => {
+  const patched = patchPinnedBridgeUserscript(
+    "// ChatGPT Bridge\n" +
+    "  let busy = false;\n" +
+    "  let busySince = 0;\n" +
+    "        if (resp && resp.cmd && !busy) {\n" +
+    "          busy = true;\n" +
+    "          busySince = Date.now();\n" +
+    "          setStatus('执行: ' + (resp.cmd === 'send' ? '发送' : resp.cmd), '#c83');\n" +
+    "          // 关键:命令处理放独立异步函数,不阻塞 poll 循环\n" +
+    "          executeCommand(resp);\n" +
+    "        }"
+  );
+  assert.match(patched, /const pendingCommands = \[\]/);
+  assert.match(patched, /pendingCommands\.push\(resp\)/);
+  assert.match(patched, /pendingCommands\.shift\(\)/);
+  assert.match(patched, /executeCommand\(nextCommand\)/);
+  assert.doesNotMatch(patched, /resp && resp\.cmd && !busy/);
+});
