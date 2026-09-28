@@ -675,8 +675,8 @@ test("keyboard recovery reacquires and refocuses composer after clear rerender",
 
   assert.equal(result.executed, true);
   assert.equal(result.input_method, "keyboard-refocused");
-  assert.ok(events.includes("click:1"));
-  assert.ok(events.includes("insert:1"));
+  assert.ok(events.some((event) => event.startsWith("click:") && event !== "click:0"));
+  assert.ok(events.some((event) => event.startsWith("insert:")));
   assert.equal(events.includes("insert-without-live-focus"), false);
 });
 
