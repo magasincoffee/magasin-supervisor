@@ -324,6 +324,14 @@ try {
 
   let binding = await waitBinding(bridge, plannerSetup.url, executorSetup.url);
   assertDistinct(binding);
+  await Promise.all([
+    waitBridgeHistoryToken(
+      bridge, binding.planner.page_id, plannerSetup.token, "planner initial"
+    ),
+    waitBridgeHistoryToken(
+      bridge, binding.executor.page_id, executorSetup.token, "executor initial"
+    )
+  ]);
 
   const plannerToken = await sendToken(
     bridge, binding.planner.page_id, "planner", "BASE"
