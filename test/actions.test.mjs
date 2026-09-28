@@ -645,7 +645,11 @@ test("keyboard recovery reacquires and refocuses composer after clear rerender",
       return makeComposer(generation);
     },
     async evaluate(fn) {
-      if (String(fn).includes("data-message-author-role")) {
+      const source = String(fn);
+      if (source.includes("navigator.clipboard")) {
+        return false;
+      }
+      if (source.includes("data-message-author-role")) {
         const sent = events.includes("send") ? 1 : 0;
         return { readable: true, totalCount: sent, exactMatchCount: sent };
       }
