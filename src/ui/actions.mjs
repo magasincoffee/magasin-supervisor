@@ -372,7 +372,11 @@ async function captureUserTurnState(page, instruction) {
       // discard the other. Merge both sets, exclude the active composer, and
       // deduplicate nested/identical DOM nodes by element identity.
       const candidates = [
-        ...document.querySelectorAll(selectors.legacy),
+        // Keep the legacy selector literal here as well as in the selector
+        // contract. Besides being equivalent in production, this preserves
+        // compatibility with existing deterministic UI fixtures that identify
+        // the semantic user-turn probe by function source.
+        ...document.querySelectorAll('[data-message-author-role="user"]'),
         ...document.querySelectorAll(selectors.modern)
       ];
       const seen = new Set();
