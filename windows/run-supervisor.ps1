@@ -146,7 +146,7 @@ function Get-ThreeLaneProcesses {
     return @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
         Where-Object {
             $_.CommandLine -and
-            $_.CommandLine -match '(three-lane-cli|planner-executor-cli)\.mjs'
+            $_.CommandLine -match '(three-lane-cli|planner-executor-cli|planner-executor-bridge-cli)\.mjs'
         })
 }
 
