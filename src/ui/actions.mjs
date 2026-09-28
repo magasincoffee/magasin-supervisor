@@ -406,7 +406,7 @@ async function clearComposerText(
 
 function normalizeComposerText(value) {
   return String(value || "")
-    .replace(/\u200B/g, "")
+    .replace(/[\u200B-\u200F\u2060\uFEFF]/g, "")
     .replace(/\r\n/g, "\n")
     .trim();
 }
@@ -781,37 +781,69 @@ async function setComposerText(
     fillError = error;
   }
 
-  // ChatGPT can replace the ProseMirror composer between readiness probing
-  // and locator.fill(), or accept fill() without updating the live React
-  // editor state. Clear the current surface, then reacquire AND refocus the
-  // replacement editor before inserting text. The reacquire is important:
-  // current ChatGPT can rerender the contenteditable as a side effect of
-  // Backspace, which invalidates browser focus without closing the locator.
-  const fresh = await waitForReadyComposer(page, { timeoutMs: 3_000 });
-  if (!fresh) throw fillError;
-  await keyboardClearComposer(page, fresh);
-
-  const focused = await waitForReadyComposer(page, { timeoutMs: 2_000 });
-  if (!focused) {
-    throw new Error("composer disappeared after bounded clear");
+  // Every fallback starts only from a proven-empty, freshly reacquired editor.
+  let cleared = await clearComposerText(page, { timeoutMs: 3_000 });
+  if (!cleared.ready) {
+    return {
+      ready: false,
+      reason: cleared.reason || "composer could not be verified empty after fill"
+    };
   }
-  await focusComposerAtEnd(page, focused);
-  if (typeof page.waitForTimeout === "function") {
-    await page.waitForTimeout(45);
+  let workingComposer = cleared.composer;
+
+  // Prefer a real browser paste before any synthetic mutation. This is one
+  // ProseMirror transaction and avoids stale-locator/caret drift.
+  const nativePasted = await insertComposerTextWithNativeClipboard(
+    page,
+    workingComposer,
+    instruction
+  );
+  if (nativePasted) {
+    const pastedComposer = await waitForReadyComposer(page, {
+      timeoutMs: 1_500
+    });
+    if (!pastedComposer) {
+      return {
+        ready: false,
+        reason: "composer disappeared after native clipboard paste"
+      };
+    }
+    const exactPaste = await composerContainsExactInstruction(
+      pastedComposer,
+      instruction
+    );
+    if (exactPaste !== false) {
+      return {
+        ready: true,
+        method: "native-clipboard-paste",
+        composer: pastedComposer
+      };
+    }
+
+    cleared = await clearComposerText(page, { timeoutMs: 3_000 });
+    if (!cleared.ready) {
+      return {
+        ready: false,
+        reason: cleared.reason ||
+          "native clipboard recovery clear was not verified"
+      };
+    }
+    workingComposer = cleared.composer;
   }
 
-  // Prefer one coherent paste transaction. ChatGPT's ProseMirror can rerender
-  // between key events and move the caret; a paste event is handled as one
-  // editor transaction and is therefore less vulnerable to that drift.
+  // Synthetic paste is a secondary path only. Never reuse a locator captured
+  // before the previous clear/rerender.
   const pasteInserted = await insertComposerTextWithPasteEvent(
-    focused,
+    workingComposer,
     instruction
   );
   if (pasteInserted) {
     if (typeof page.waitForTimeout === "function") {
-      await page.waitForTimeout(220);
+      await page.waitForTimeout(180);
     }
-    const pasteComposer = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+    const pasteComposer = await waitForReadyComposer(page, {
+      timeoutMs: 1_500
+    });
     if (pasteComposer) {
       const pastePersisted = await composerContainsExactInstruction(
         pasteComposer,
@@ -824,32 +856,30 @@ async function setComposerText(
           composer: pasteComposer
         };
       }
-      const clearedAfterPaste = await clearComposerText(page, {
-        timeoutMs: 2_500
-      });
-      if (!clearedAfterPaste.ready) {
-        return {
-          ready: false,
-          reason: clearedAfterPaste.reason ||
-            "paste-event recovery clear was not verified"
-        };
-      }
-      await focusComposerAtEnd(page, clearedAfterPaste.composer);
     }
+
+    cleared = await clearComposerText(page, { timeoutMs: 3_000 });
+    if (!cleared.ready) {
+      return {
+        ready: false,
+        reason: cleared.reason ||
+          "paste-event recovery clear was not verified"
+      };
+    }
+    workingComposer = cleared.composer;
   }
 
-  // Fallback to Chromium's editable-surface input pipeline before CDP bulk
-  // insertion. This remains useful for editor builds that ignore synthetic
-  // paste events.
   const execInserted = await insertComposerTextWithExecCommand(
-    focused,
+    workingComposer,
     instruction
   );
   if (execInserted) {
     if (typeof page.waitForTimeout === "function") {
-      await page.waitForTimeout(220);
+      await page.waitForTimeout(180);
     }
-    const execComposer = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+    const execComposer = await waitForReadyComposer(page, {
+      timeoutMs: 1_500
+    });
     if (execComposer) {
       const execPersisted = await composerContainsExactInstruction(
         execComposer,
@@ -862,76 +892,37 @@ async function setComposerText(
           composer: execComposer
         };
       }
-      const clearedAfterExec = await clearComposerText(page, {
-        timeoutMs: 2_500
-      });
-      if (!clearedAfterExec.ready) {
-        return {
-          ready: false,
-          reason: clearedAfterExec.reason ||
-            "execCommand recovery clear was not verified"
-        };
-      }
-      await focusComposerAtEnd(page, clearedAfterExec.composer);
     }
-  }
 
-  // A synthetic ClipboardEvent can be ignored by ProseMirror because it is not
-  // trusted. Before falling back to CDP insertText, perform one browser-native
-  // paste (real Ctrl/Cmd+V) through the dedicated Chrome clipboard. This is a
-  // single editor transaction and avoids the rerender/caret drift observed in
-  // live SC-003 qualification.
-  const nativeClipboardComposer = await waitForReadyComposer(page, {
-    timeoutMs: 1_500
-  });
-  if (nativeClipboardComposer) {
-    const nativePasted = await insertComposerTextWithNativeClipboard(
-      page,
-      nativeClipboardComposer,
-      instruction
-    );
-    if (nativePasted) {
-      const pastedComposer = await waitForReadyComposer(page, {
-        timeoutMs: 1_500
-      });
-      if (pastedComposer) {
-        const exactPaste = await composerContainsExactInstruction(
-          pastedComposer,
-          instruction
-        );
-        if (exactPaste !== false) {
-          return {
-            ready: true,
-            method: "native-clipboard-paste",
-            composer: pastedComposer
-          };
-        }
-        const postPasteClear = await clearComposerText(page, {
-          timeoutMs: 2_500
-        });
-        if (!postPasteClear.ready) {
-          return {
-            ready: false,
-            reason: postPasteClear.reason ||
-              "native clipboard recovery clear was not verified"
-          };
-        }
-        await focusComposerAtEnd(page, postPasteClear.composer);
-      }
+    cleared = await clearComposerText(page, { timeoutMs: 3_000 });
+    if (!cleared.ready) {
+      return {
+        ready: false,
+        reason: cleared.reason ||
+          "execCommand recovery clear was not verified"
+      };
     }
+    workingComposer = cleared.composer;
   }
 
   if (!page.keyboard || typeof page.keyboard.insertText !== "function") {
     throw fillError;
   }
+
+  await focusComposerAtEnd(page, workingComposer);
   await page.keyboard.insertText(instruction);
   if (typeof page.waitForTimeout === "function") {
-    await page.waitForTimeout(220);
+    await page.waitForTimeout(180);
   }
 
-  let afterInsert = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+  let afterInsert = await waitForReadyComposer(page, {
+    timeoutMs: 1_500
+  });
   if (!afterInsert) {
-    throw new Error("composer disappeared after keyboard text insertion");
+    return {
+      ready: false,
+      reason: "composer disappeared after keyboard text insertion"
+    };
   }
 
   let persisted = await composerContainsExactInstruction(
@@ -939,48 +930,47 @@ async function setComposerText(
     instruction
   );
   if (persisted !== false) {
-    return { ready: true, method: "keyboard-refocused", composer: afterInsert };
+    return {
+      ready: true,
+      method: "keyboard-refocused",
+      composer: afterInsert
+    };
   }
 
-  const clearedBeforeChunks = await clearComposerText(page, {
-    timeoutMs: 2_500
-  });
-  if (!clearedBeforeChunks.ready) {
+  cleared = await clearComposerText(page, { timeoutMs: 3_000 });
+  if (!cleared.ready) {
     return {
       ready: false,
-      reason: clearedBeforeChunks.reason ||
+      reason: cleared.reason ||
         "composer could not be verified empty before chunk recovery"
     };
   }
-  await focusComposerAtEnd(page, clearedBeforeChunks.composer);
 
-  // Keep bounded chunk insertion only as the final fail-closed fallback. Live
-  // qualification proved per-character reacquisition is too slow for production.
-  // Keep the older bulk-chunk path only as a final fallback for non-ASCII
-  // content or when sequential key events are unavailable.
   const codePoints = Array.from(String(instruction || ""));
   const chunkSize = 24;
   let expectedPrefix = "";
   for (let offset = 0; offset < codePoints.length; offset += chunkSize) {
     const chunk = codePoints.slice(offset, offset + chunkSize).join("");
-    const chunkComposer = await waitForReadyComposer(page, { timeoutMs: 2_000 });
+    const chunkComposer = await waitForReadyComposer(page, {
+      timeoutMs: 2_000
+    });
     if (!chunkComposer) {
       return {
         ready: false,
         reason: "composer disappeared before chunked keyboard recovery"
       };
     }
+
     await focusComposerAtEnd(page, chunkComposer);
-    if (typeof page.waitForTimeout === "function") {
-      await page.waitForTimeout(15);
-    }
     await page.keyboard.insertText(chunk);
     expectedPrefix += chunk;
 
     if (typeof page.waitForTimeout === "function") {
       await page.waitForTimeout(80);
     }
-    const verifyComposer = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+    const verifyComposer = await waitForReadyComposer(page, {
+      timeoutMs: 1_500
+    });
     if (!verifyComposer) {
       return {
         ready: false,
@@ -1003,9 +993,6 @@ async function setComposerText(
     }
   }
 
-  if (typeof page.waitForTimeout === "function") {
-    await page.waitForTimeout(180);
-  }
   afterInsert = await waitForReadyComposer(page, { timeoutMs: 1_500 });
   if (!afterInsert) {
     return {
@@ -1021,7 +1008,11 @@ async function setComposerText(
     };
   }
 
-  return { ready: true, method: "keyboard-chunked", composer: afterInsert };
+  return {
+    ready: true,
+    method: "keyboard-chunked",
+    composer: afterInsert
+  };
 }
 
 function visibleControlSnapshot(page) {
