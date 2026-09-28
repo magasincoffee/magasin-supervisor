@@ -20,6 +20,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: mbv1-008-final-bridge-qualification
+  cancel-in-progress: true
+
 jobs:
   attempt-1:
     runs-on: self-hosted
