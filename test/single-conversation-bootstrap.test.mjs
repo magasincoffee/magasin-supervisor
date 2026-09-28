@@ -57,14 +57,14 @@ test("SC-003 bootstrap prompt carries sole Source of Truth and unique correlatio
   });
 
   assert.match(message, /^MAGASIN_SINGLE_CONVERSATION_BOOTSTRAP_V1/m);
-  assert.match(message, /message_id=msg-001/);
+  assert.match(message, /id=msg-001/);
   assert.match(
     message,
-    /source_of_truth=https:\/\/github\.com\/magasincoffee\/magasin-supervisor\/blob\/main\/SOURCE_OF_TRUTH\.md/
+    /SOT=https:\/\/github\.com\/magasincoffee\/magasin-supervisor\/blob\/main\/SOURCE_OF_TRUTH\.md/
   );
   assert.match(message, /only project authority/i);
-  assert.match(message, /Read the Source of Truth URL above from the beginning/i);
-  assert.match(message, /one bounded next unit of work/i);
+  assert.match(message, /Read SOT from the beginning/i);
+  assert.match(message, /one bounded next unit allowed by SOT/i);
   assert.match(message, /^[\x20-\x7E]+$/);
   assert.match(message, /MAGASIN_BOOTSTRAP_CORRELATION_V1 msg-001/);
   assert.doesNotMatch(message, /Planner|Executor|Brain|Work mode/i);
@@ -77,12 +77,12 @@ test("SC-003 qualification prompt is read-only and correlation-bound", () => {
     qualificationOnly: true
   });
 
-  assert.match(message, /LIVE QUALIFICATION/);
-  assert.match(message, /Do not use tools, apps, connectors/);
+  assert.match(message, /QUALIFICATION ONLY/);
+  assert.match(message, /do not use tools/i);
   assert.match(message, /write to any external system/);
   assert.match(message, /Architecture generation/);
   assert.match(message, /MAGASIN_BOOTSTRAP_CORRELATION_V1 qual-001/);
-  assert.doesNotMatch(message, /one bounded next unit of work/);
+  assert.doesNotMatch(message, /one bounded next unit allowed by SOT/);
 });
 
 test("SC-003 forceNewPage never reuses a pre-existing home page", async () => {
