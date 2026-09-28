@@ -72,7 +72,7 @@ test("former Planner/Executor authorities remain explicit tombstones", () => {
 
   assert.match(legacyMd, /^# SUPERSEDED — Planner \/ Executor V1/m);
   assert.match(legacyMd, /Status:\s*\*\*HISTORICAL \/ NON-AUTHORITATIVE\*\*/);
-  assert.match(legacyMd, /`\\/SOURCE_OF_TRUTH\\.md`/);
+  assert.ok(legacyMd.includes("`/SOURCE_OF_TRUTH.md`"));
   assert.doesNotMatch(legacyMd, /Status:\s*\*\*CANONICAL\b/i);
 
   assert.equal(legacyJson.status, "HISTORICAL_NON_AUTHORITATIVE");
@@ -85,7 +85,7 @@ test("README is navigation only and cannot revive superseded architectures", () 
   const readme = read("README.md");
 
   assert.match(readme, /There is exactly \*\*one\*\* canonical project Source of Truth:/);
-  assert.match(readme, /`\\/SOURCE_OF_TRUTH\\.md`/);
+  assert.ok(readme.includes("`/SOURCE_OF_TRUTH.md`"));
   assert.match(readme, /README is navigation only and is \*\*not\*\* project authority/);
   assert.match(readme, /\*\*Single Conversation \+ Disposable Chat \+ Persistent Source of Truth\*\*/);
 
