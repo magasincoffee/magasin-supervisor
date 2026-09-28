@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   BridgeProjectBootstrapError,
   buildBridgeProjectContextBootstrapMessage,
+  classifyBridgeBootstrapSnapshot,
   startBridgeLinkOnlyProjectSession
 } from "../src/runtime/planner-executor-bridge-bootstrap.mjs";
 import {
@@ -202,4 +203,45 @@ test("ambiguous bootstrap send does not enter WAIT_PLANNER or retry automaticall
       error.code === "BOOTSTRAP_SEND_AMBIGUOUS"
   );
   assert.equal(fixture.calls.length, 1);
+});
+
+
+test("ambiguous bootstrap restart reconciles only exact user turn followed by assistant", () => {
+  const message = buildBridgeProjectContextBootstrapMessage(inputs);
+  const digest = (value) => {
+    let h = 2166136261;
+    for (const ch of String(value || "")) {
+      h ^= ch.charCodeAt(0);
+      h = Math.imul(h, 16777619);
+    }
+    return String(h >>> 0);
+  };
+  const expected = digest(message);
+
+  const confirmed = classifyBridgeBootstrapSnapshot({
+    is_generating: false,
+    recent_turns: [
+      { role: "assistant", text: "older" },
+      { role: "user", text: message },
+      { role: "assistant", text: "new planner response" }
+    ]
+  }, expected, digest);
+  assert.equal(confirmed.state, "CONFIRMED_RESPONSE");
+
+  const noResponse = classifyBridgeBootstrapSnapshot({
+    is_generating: false,
+    recent_turns: [
+      { role: "user", text: message }
+    ]
+  }, expected, digest);
+  assert.equal(noResponse.state, "MATCHING_USER_NO_RESPONSE");
+
+  const missing = classifyBridgeBootstrapSnapshot({
+    is_generating: false,
+    recent_turns: [
+      { role: "user", text: "different message" },
+      { role: "assistant", text: "response" }
+    ]
+  }, expected, digest);
+  assert.equal(missing.state, "NO_MATCHING_USER_TURN");
 });
