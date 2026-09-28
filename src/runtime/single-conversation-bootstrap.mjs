@@ -255,8 +255,7 @@ export async function waitForBootstrapResponse({
   captureTurn = captureLatestRoleTurn,
   timeoutMs = 180_000,
   pollMs = 750,
-  now = () => new Date().toISOString(),
-  onPageAcquired = null
+  now = () => new Date().toISOString()
 } = {}) {
   const started = Date.now();
   let sawRunning = false;
@@ -326,7 +325,8 @@ export async function createNewChatAndBootstrap({
   captureTurn = captureLatestRoleTurn,
   timeoutMs = 180_000,
   pollMs = 750,
-  now = () => new Date().toISOString()
+  now = () => new Date().toISOString(),
+  onPageAcquired = null
 } = {}) {
   if (!adapter) throw new Error("adapter is required");
   if (!statePath) throw new Error("statePath is required");
