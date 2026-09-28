@@ -588,6 +588,103 @@ test("large composer prompt falls back to bounded chunked insertText", async () 
   assert.equal(sends, 1);
 });
 
+test("chunked recovery places DOM caret at end after every composer refocus", async () => {
+  const instruction = "A".repeat(420);
+  let composerText = "";
+  let insertCalls = 0;
+  let sends = 0;
+  let caretAtEnd = false;
+  let selectionPlacements = 0;
+
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async fill() {
+      // Force keyboard recovery.
+    },
+    async inputValue() { return composerText; },
+    async click() {
+      // Simulate a ProseMirror rerender/focus that loses the prior caret.
+      caretAtEnd = false;
+    },
+    async press(key) {
+      if (key === "Backspace") {
+        composerText = "";
+        caretAtEnd = false;
+      }
+    },
+    async evaluate(fn) {
+      if (
+        String(fn).includes("selectNodeContents") &&
+        String(fn).includes("setSelectionRange")
+      ) {
+        caretAtEnd = true;
+        selectionPlacements += 1;
+        return true;
+      }
+      return null;
+    }
+  };
+
+  const send = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() {
+      if (composerText === instruction) sends += 1;
+      composerText = "";
+    }
+  };
+
+  const page = {
+    locator(selector) {
+      if (selector.includes("send-button")) return send;
+      return composer;
+    },
+    async evaluate(fn) {
+      if (String(fn).includes("data-message-author-role")) {
+        return {
+          readable: true,
+          totalCount: sends,
+          exactMatchCount: sends
+        };
+      }
+      return [];
+    },
+    async waitForTimeout() {},
+    async bringToFront() {},
+    keyboard: {
+      async press() {},
+      async insertText(value) {
+        insertCalls += 1;
+        if (insertCalls === 1) {
+          // Drop the first whole-prompt insertion to enter chunked recovery.
+          return;
+        }
+        composerText = caretAtEnd
+          ? composerText + value
+          : value + composerText;
+        // Every input event simulates another editor rerender.
+        caretAtEnd = false;
+      }
+    },
+    getByRole() { return send; }
+  };
+
+  const result = await sendComposerInstruction(
+    page,
+    instruction,
+    { dryRun: false }
+  );
+
+  assert.equal(result.executed, true);
+  assert.equal(result.input_method, "keyboard-chunked");
+  assert.equal(sends, 1);
+  assert.ok(selectionPlacements >= 4);
+});
+
 test("composer send recovers an inert Send click with one bounded Enter", async () => {
   let composerText = "";
   let clicks = 0;
