@@ -1,0 +1,100 @@
+name: Runtime ChatGPT Owner Start Probe
+
+on:
+  push:
+    branches:
+      - rbt-runtime-chatgpt-open-fix-20260928
+    paths:
+      - .github/workflows/runtime-chatgpt-owner-start-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: self-hosted
+    timeout-minutes: 8
+    steps:
+      - name: Checkout diagnostic branch
+        uses: actions/checkout@v4
+      - name: Explicit Owner START and verify production browser
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:COMPUTERNAME -ne 'DESKTOP-4K7IM13'){
+            Write-Host "OWNER_START_TARGET_MATCH=False"
+            exit 0
+          }
+          Write-Host "OWNER_START_TARGET_MATCH=True"
+          . ".\windows\state-root.ps1"
+          $root=Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
+          $life=Join-Path $root 'runtime\windows\lifecycle-truth.ps1'
+          $start=Join-Path $root 'runtime\windows\start-supervisor.ps1'
+          if(-not (Test-Path $life)){throw "Installed lifecycle helper missing"}
+          if(-not (Test-Path $start)){throw "Installed start script missing"}
+          . $life
+
+          $beforeStop=Get-LifecycleOwnerStopState -Root $root
+          $before=Get-LifecycleProcessTruth -Root $root
+          Write-Host "OWNER_START_BEFORE_STOP=$([bool]$beforeStop.blocked)"
+          Write-Host "OWNER_START_BEFORE_MODE=$([string]$before.runtime_mode)"
+          Write-Host "OWNER_START_BEFORE_WRAPPER=$([bool]$before.wrapper_alive)"
+          Write-Host "OWNER_START_BEFORE_RUNTIME=$([bool]$before.runtime_alive)"
+          Write-Host "OWNER_START_BEFORE_CHROME=$([bool]$before.chrome_alive)"
+          Write-Host "OWNER_START_BEFORE_CDP=$([bool]$before.cdp_healthy)"
+
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $start -Hidden
+          if($LASTEXITCODE -ne 0){throw "Explicit Owner START failed with exit code $LASTEXITCODE"}
+
+          $healthy=$false
+          for($i=0;$i -lt 35;$i++){
+            Start-Sleep -Seconds 1
+            $after=Get-LifecycleProcessTruth -Root $root
+            if($after.healthy){$healthy=$true;break}
+          }
+          $afterStop=Get-LifecycleOwnerStopState -Root $root
+          $after=Get-LifecycleProcessTruth -Root $root
+          Write-Host "OWNER_START_AFTER_STOP=$([bool]$afterStop.blocked)"
+          Write-Host "OWNER_START_AFTER_MODE=$([string]$after.runtime_mode)"
+          Write-Host "OWNER_START_AFTER_WRAPPER=$([bool]$after.wrapper_alive)"
+          Write-Host "OWNER_START_AFTER_RUNTIME=$([bool]$after.runtime_alive)"
+          Write-Host "OWNER_START_AFTER_PE=$([bool]$after.planner_executor_alive)"
+          Write-Host "OWNER_START_AFTER_CHROME=$([bool]$after.chrome_alive)"
+          Write-Host "OWNER_START_AFTER_CDP=$([bool]$after.cdp_healthy)"
+          Write-Host "OWNER_START_AFTER_HEALTHY=$([bool]$after.healthy)"
+
+          $statusPath=Join-Path $root 'planner-executor-status.json'
+          if(Test-Path $statusPath){
+            try{
+              $status=Get-Content $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json
+              Write-Host "OWNER_START_STATUS_MODE=$([string]$status.mode)"
+              Write-Host "OWNER_START_STATUS_PHASE=$([string]$status.phase)"
+              Write-Host "OWNER_START_STATUS_TABS=$([string]$status.chatgpt_tabs)"
+              Write-Host "OWNER_START_STATUS_AUTOMATION=$([string]$status.automation_status)"
+            }catch{Write-Host "OWNER_START_STATUS_READ_ERROR=True"}
+          }else{Write-Host "OWNER_START_STATUS_MISSING=True"}
+
+          if($after.chrome_alive -and $after.cdp_healthy){
+            $chrome=Get-LifecycleRobotChrome -Root $root
+            if($chrome.CommandLine -match '--remote-debugging-port=(\d+)'){
+              $port=[int]$Matches[1]
+              $pages=Invoke-RestMethod -Uri "http://127.0.0.1:$port/json/list" -TimeoutSec 3
+              $chat=@($pages | Where-Object { [string]$_.url -like 'https://chatgpt.com/*' })
+              $conv=@($chat | Where-Object { [string]$_.url -match '^https://chatgpt\.com/c/' })
+              Write-Host "OWNER_START_CDP_CHATGPT_PAGES=$($chat.Count)"
+              Write-Host "OWNER_START_CDP_CONVERSATION_PAGES=$($conv.Count)"
+            }
+          }
+
+          $failurePath=Join-Path $root 'planner-executor-startup-failure.json'
+          if(Test-Path $failurePath){
+            try{
+              $f=Get-Content $failurePath -Raw -Encoding UTF8 | ConvertFrom-Json
+              Write-Host "OWNER_START_FAILURE_STAGE=$([string]$f.stage)"
+              Write-Host "OWNER_START_FAILURE_NAME=$([string]$f.error_name)"
+              Write-Host "OWNER_START_FAILURE_DIGEST=$([string]$f.error_digest)"
+            }catch{}
+          }
+
+          if(-not $healthy){throw "Production runtime did not become healthy after explicit Owner START"}
+          Write-Host "OWNER_START_PROBE=PASS"
