@@ -151,6 +151,24 @@ async function sendSetup(page, role) {
   log("MBV1_008_SETUP_" + role.toUpperCase(), "PASS");
   return { url, token };
 }
+async function waitChatComposerReady(page, role, timeoutMs = 60_000) {
+  return waitFor(async () => {
+    const probe = await browser.probePage(page).catch(() => null);
+    const snapshot = probe?.snapshot || null;
+    if (!snapshot) return false;
+    if (snapshot.loginRequired || snapshot.hasCaptcha) {
+      throw new Error(role + " requires authentication after reload");
+    }
+    return (
+      snapshot.conversationPath &&
+      snapshot.composerReady &&
+      !snapshot.hasNetworkError &&
+      !snapshot.hasTransientError &&
+      !snapshot.conversationMissing
+    ) ? probe : false;
+  }, timeoutMs, role + " composer hydration");
+}
+
 async function waitBinding(bridge, plannerUrl, executorUrl) {
   return waitFor(
     () => bindPlannerExecutorBridgePages(bridge, {
