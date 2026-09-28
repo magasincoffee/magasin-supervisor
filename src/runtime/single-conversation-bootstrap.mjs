@@ -75,39 +75,33 @@ export function buildSingleConversationBootstrap({
   if (!source) throw new Error("sourceOfTruthUrl is required");
   if (!id) throw new Error("messageId is required");
 
-  // Keep the machine bootstrap printable ASCII. Current ChatGPT ProseMirror
-  // can split or duplicate Unicode during remote-CDP fallback typing after an
-  // editor rerender. ASCII lets the Supervisor use bounded real key events
-  // (keyboard.type) with exact prefix verification while preserving the same
-  // protocol semantics.
+  // The fresh-chat bootstrap is a compact ASCII machine contract. Durable
+  // project context lives in Source of Truth; repeating that context here only
+  // makes remote composer actuation slower and less reliable.
   const common = [
     "MAGASIN_SINGLE_CONVERSATION_BOOTSTRAP_V1",
-    `message_id=${id}`,
-    `source_of_truth=${source}`,
-    "",
-    "This is a new conversation created automatically by MAGASIN Supervisor.",
-    "Read the Source of Truth at the URL above from the beginning before deciding or performing any project work.",
-    "Treat that Source of Truth as the sole authority for architecture, task status, dependencies, Definition of Done, and execution order.",
-    "Do not use stale project state from prior conversations, memory, README, or historical documents when they conflict with the Source of Truth."
+    `id=${id}`,
+    `SOT=${source}`,
+    "Read SOT from the beginning.",
+    "SOT is the sole project authority.",
+    "Ignore stale chat, memory, README, and historical state.",
+    "Derive current project state only from SOT.",
+    "Continue only from that authoritative state."
   ];
 
   if (qualificationOnly) {
     return [
       ...common,
-      "This is a LIVE QUALIFICATION only to prove that the Robot can create a New Chat, read the Source of Truth, and receive a response.",
-      "Do not use tools, apps, connectors, GitHub write actions, or ChatGPT Work mode.",
-      "Do not modify any repository, file, issue, pull request, runtime, or external system.",
-      "After reading the Source of Truth, reply briefly and state the exact current Architecture generation value that you read there.",
-      `The final line must be exactly: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
+      "QUALIFICATION ONLY: do not use tools or write to external systems.",
+      "Report the Architecture generation read from SOT.",
+      `End exactly: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
     ].join(" ");
   }
 
   return [
     ...common,
-    "After reading it, determine the current project state directly from the Source of Truth.",
-    "Perform or propose exactly one bounded next unit of work permitted by the Source of Truth; if blocked, state the blocker.",
-    "Do not expand into a later task beyond that bounded unit.",
-    `Preserve this correlation id in the final response: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
+    "Do one bounded next unit allowed by SOT, or state the blocker.",
+    `End with: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
   ].join(" ");
 }
 
