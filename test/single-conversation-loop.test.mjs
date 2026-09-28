@@ -138,7 +138,9 @@ test("SC-004 never sends new work while prior response still needs Continue", as
           if (probe >= 4) {
             return {
               turn_id: assistantCaptureCount < 2 ? "prior-final" : "new-final",
-              text: "assistant",
+              text: assistantCaptureCount < 2
+                ? "assistant"
+                : "assistant MAGASIN_CYCLE_CORRELATION_V1 cycle-safe-order",
               digest: "a" + assistantCaptureCount
             };
           }
@@ -196,7 +198,13 @@ test("SC-004 performs multiple sequential cycles in one active conversation", as
         assistantTurn += 1;
       }
       return assistantTurn
-        ? { turn_id: "a-" + assistantTurn, text: "assistant", digest: "a" + assistantTurn }
+        ? {
+            turn_id: "a-" + assistantTurn,
+            text:
+              "assistant MAGASIN_CYCLE_CORRELATION_V1 cycle-" +
+              assistantTurn,
+            digest: "a" + assistantTurn
+          }
         : null;
     };
 
