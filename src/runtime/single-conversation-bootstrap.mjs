@@ -350,12 +350,37 @@ export async function sendFreshChatBootstrapInstruction(
     };
   }
 
+  // Native typing can rerender/replace ProseMirror. Never submit through the
+  // locator captured before typing; reacquire the live editor after exact text
+  // verification and verify the same Robot-owned message is still present.
+  const submitComposer = await findFreshChatComposer(page, 2_000);
+  const submitText = submitComposer
+    ? await readFreshComposerText(submitComposer)
+    : null;
+  if (
+    !submitComposer ||
+    submitText === null ||
+    normalizeBootstrapRenderedText(submitText) !==
+      normalizeBootstrapRenderedText(instruction)
+  ) {
+    return {
+      executed: false,
+      rejection_class: "COMPOSER_NOT_READY",
+      reason: "fresh ChatGPT composer changed before submit",
+      input_method: inputMethod,
+      mismatch: bootstrapTextMismatchDiagnostic(
+        instruction,
+        submitText === null ? "" : submitText
+      )
+    };
+  }
+
   // A blank New Chat has no mention/file protocol surface and no historical
-  // turns. Submit through the focused composer exactly as a normal user does.
-  // This avoids guessing among changing Send-button DOM implementations.
-  await composer.click({ timeout: 2_000 }).catch(() => {});
+  // turns. Submit through the freshly reacquired composer exactly as a normal
+  // user does.
+  await submitComposer.click({ timeout: 2_000 }).catch(() => {});
   try {
-    await composer.press("Enter", { timeout: 5_000 });
+    await submitComposer.press("Enter", { timeout: 5_000 });
   } catch {
     return {
       executed: false,
