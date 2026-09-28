@@ -60,6 +60,62 @@ function runtimeState(sourceOfTruthUrl, {
   };
 }
 
+export function classifyBridgeBootstrapSnapshot(snapshot, expectedMessageDigest, digestFn) {
+  if (!snapshot || typeof snapshot !== "object") {
+    return { state: "UNAVAILABLE" };
+  }
+  if (typeof digestFn !== "function") {
+    throw new TypeError("digestFn is required");
+  }
+
+  const expected = String(expectedMessageDigest || "").trim();
+  const turns = Array.isArray(snapshot.recent_turns)
+    ? snapshot.recent_turns
+    : Array.isArray(snapshot.recentTurns)
+      ? snapshot.recentTurns
+      : [];
+
+  let matchingUserIndex = -1;
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    const turn = turns[i] || {};
+    if (String(turn.role || "").trim() !== "user") continue;
+    const text = String(turn.text || "");
+    if (!text.trim()) continue;
+    if (String(digestFn(text)) === expected) {
+      matchingUserIndex = i;
+      break;
+    }
+  }
+
+  if (matchingUserIndex < 0) {
+    return {
+      state: "NO_MATCHING_USER_TURN",
+      generating: Boolean(snapshot.is_generating ?? snapshot.isGenerating)
+    };
+  }
+
+  for (let i = matchingUserIndex + 1; i < turns.length; i += 1) {
+    const turn = turns[i] || {};
+    if (
+      String(turn.role || "").trim() === "assistant" &&
+      String(turn.text || "").trim()
+    ) {
+      return {
+        state: "CONFIRMED_RESPONSE",
+        matching_user_index: matchingUserIndex,
+        assistant_index: i,
+        generating: Boolean(snapshot.is_generating ?? snapshot.isGenerating)
+      };
+    }
+  }
+
+  return {
+    state: "MATCHING_USER_NO_RESPONSE",
+    matching_user_index: matchingUserIndex,
+    generating: Boolean(snapshot.is_generating ?? snapshot.isGenerating)
+  };
+}
+
 export function buildBridgeProjectContextBootstrapMessage({
   sourceOfTruthUrl,
   projectId = "LIVE",
