@@ -113,14 +113,14 @@ jobs:
             $lastBridgeConnected=0
             try{
               $bs=Invoke-RestMethod -Uri 'http://127.0.0.1:5000/status' -TimeoutSec 2
-              $lastBridgeAlive=[int]($bs.pages_alive ?? 0)
-              $lastBridgeConnected=[int]($bs.pages_connected ?? 0)
+              $lastBridgeAlive=if($null -ne $bs.pages_alive){[int]$bs.pages_alive}else{0}
+              $lastBridgeConnected=if($null -ne $bs.pages_connected){[int]$bs.pages_connected}else{0}
               $bp=Invoke-RestMethod -Uri 'http://127.0.0.1:5000/pages' -TimeoutSec 2
               $alivePages=@($bp.pages | Where-Object { [bool]$_.alive })
               if($alivePages.Count -gt $lastBridgeAlive){$lastBridgeAlive=$alivePages.Count}
             }catch{}
 
-            $tabs=if($lastStatus){[int]($lastStatus.chatgpt_tabs ?? 0)}else{0}
+            $tabs=if($lastStatus -and $null -ne $lastStatus.chatgpt_tabs){[int]$lastStatus.chatgpt_tabs}else{0}
             $phase=if($lastStatus){[string]$lastStatus.phase}else{''}
             if(
               $lastTruth.wrapper_alive -and
