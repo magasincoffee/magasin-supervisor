@@ -626,50 +626,97 @@ export async function discardComposerDraftIfDigest(
 
 const USER_TURN_SELECTORS = Object.freeze({
   legacy: '[data-message-author-role="user"]',
-  modern: "main .text-size-chat.whitespace-pre-wrap"
+  modern: "main .text-size-chat.whitespace-pre-wrap",
+  turns: "main [data-testid^='conversation-turn-']"
 });
 
 async function captureUserTurnState(page, instruction) {
   if (!page || typeof page.evaluate !== "function") {
-    return { readable: false, totalCount: 0, exactMatchCount: 0 };
+    return {
+      readable: false,
+      totalCount: 0,
+      exactMatchCount: 0,
+      latestLength: 0
+    };
   }
   try {
     return await page.evaluate(({ expected, selectors }) => {
       const normalize = (value) => String(value || "")
-        .replace(/\u200B/g, "")
+        .replace(/[\u200B-\u200F\u2060\uFEFF]/g, "")
         .replace(/\r\n/g, "\n")
         .replace(/\u00A0/g, " ")
         .replace(/\s+/gu, " ")
         .trim();
       const wanted = normalize(expected);
 
-      // Prefer semantic role nodes when the UI exposes them. Current ChatGPT
-      // can instead render user turns only through the modern text surface, so
-      // fall back to that selector rather than reporting a false send failure
-      // after the composer has already transitioned.
-      const legacyTurns = Array.from(
-        document.querySelectorAll('[data-message-author-role="user"]')
-      );
-      const turns = legacyTurns.length
-        ? legacyTurns
-        : Array.from(document.querySelectorAll(selectors.modern));
+      const candidates = [];
+      const seen = new Set();
+      const push = (node) => {
+        if (!node || seen.has(node)) return;
+        const text = normalize(node.textContent || node.innerText || "");
+        if (!text) return;
+        seen.add(node);
+        candidates.push({ node, text });
+      };
+
+      for (const node of document.querySelectorAll(selectors.legacy)) {
+        push(node);
+      }
+
+      // ChatGPT currently renders each turn inside conversation-turn-* even
+      // when the older role selector is absent or appears only after hydration.
+      // Search each turn for a semantic user descendant and then the modern
+      // visible user-text surface. This remains fail-closed: a turn with no
+      // user evidence is never inferred to be a user turn.
+      for (const turn of document.querySelectorAll(selectors.turns)) {
+        const semantic = turn.matches?.(selectors.legacy)
+          ? turn
+          : turn.querySelector(selectors.legacy);
+        if (semantic) {
+          push(semantic);
+          continue;
+        }
+
+        const modern = turn.matches?.(selectors.modern)
+          ? turn
+          : turn.querySelector(selectors.modern);
+        if (modern) push(modern);
+      }
+
+      if (!candidates.length) {
+        for (const node of document.querySelectorAll(selectors.modern)) {
+          push(node);
+        }
+      }
 
       let exactMatchCount = 0;
-      for (const node of turns) {
-        const text = normalize(node.innerText || node.textContent || "");
-        if (text === wanted) exactMatchCount += 1;
+      for (const item of candidates) {
+        if (item.text === wanted) exactMatchCount += 1;
       }
+
+      const latest = candidates.at(-1)?.text || "";
       return {
         readable: true,
-        totalCount: turns.length,
-        exactMatchCount
+        totalCount: candidates.length,
+        exactMatchCount,
+        latestLength: Array.from(latest).length,
+        wantedLength: Array.from(wanted).length,
+        conversationTurnCount:
+          document.querySelectorAll(selectors.turns).length,
+        conversationPath:
+          /^\/(?:c|g|project)\//.test(location.pathname || "")
       };
     }, {
       expected: instruction,
       selectors: USER_TURN_SELECTORS
     });
   } catch {
-    return { readable: false, totalCount: 0, exactMatchCount: 0 };
+    return {
+      readable: false,
+      totalCount: 0,
+      exactMatchCount: 0,
+      latestLength: 0
+    };
   }
 }
 
@@ -677,14 +724,16 @@ async function waitForMatchingUserTurn(
   page,
   instruction,
   baseline,
-  { timeoutMs = 8_000, intervalMs = 200 } = {}
+  { timeoutMs = 30_000, intervalMs = 250 } = {}
 ) {
   const attempts = Math.max(1, Math.ceil(timeoutMs / intervalMs));
   let readable = false;
   let sawAdditionalUserTurn = false;
+  let latest = null;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const current = await captureUserTurnState(page, instruction);
+    latest = current;
     if (current.readable) {
       readable = true;
       if (current.totalCount > Number(baseline?.totalCount || 0)) {
@@ -697,7 +746,8 @@ async function waitForMatchingUserTurn(
         return {
           confirmed: true,
           evidence: "matching-user-turn-observed",
-          totalCount: current.totalCount
+          totalCount: current.totalCount,
+          conversationTurnCount: current.conversationTurnCount || 0
         };
       }
     }
@@ -713,7 +763,12 @@ async function waitForMatchingUserTurn(
       ? "user-turn-state-unreadable"
       : sawAdditionalUserTurn
         ? "new-user-turn-text-mismatch"
-        : "matching-user-turn-not-observed"
+        : "matching-user-turn-not-observed",
+    totalCount: Number(latest?.totalCount || 0),
+    conversationTurnCount: Number(latest?.conversationTurnCount || 0),
+    latestLength: Number(latest?.latestLength || 0),
+    wantedLength: Number(latest?.wantedLength || 0),
+    conversationPath: Boolean(latest?.conversationPath)
   };
 }
 
