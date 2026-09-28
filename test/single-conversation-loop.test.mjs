@@ -45,6 +45,20 @@ function baseSnapshot(overrides = {}) {
   };
 }
 
+test("SC-004 qualification instruction is read-only and correlation-bound", () => {
+  const message = buildSingleConversationNextInstruction({
+    sourceOfTruthUrl: "https://example.com/SOURCE_OF_TRUTH.md",
+    messageId: "qual-cycle",
+    qualificationOnly: true
+  });
+  assert.match(message, /QUALIFICATION ONLY/);
+  assert.match(message, /read-only web access/i);
+  assert.match(message, /do not write to external systems/i);
+  assert.match(message, /Architecture generation/);
+  assert.match(message, /End exactly: MAGASIN_CYCLE_CORRELATION_V1 qual-cycle/);
+  assert.doesNotMatch(message, /Do exactly one bounded next unit/);
+});
+
 test("SC-004 next instruction re-syncs Source of Truth before next work", () => {
   const message = buildSingleConversationNextInstruction({
     sourceOfTruthUrl: "https://example.com/SOURCE_OF_TRUTH.md",
@@ -212,6 +226,50 @@ test("SC-004 performs multiple sequential cycles in one active conversation", as
     assert.equal(durable.conversation.status, "ACTIVE");
     assert.equal(durable.outbound.state, "RESPONSE_COMPLETE");
     assert.equal(durable.source_of_truth.sync_status, "VERIFIED");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("SC-004 waits through false-idle partial assistant text until cycle correlation appears", async () => {
+  const { root, statePath } = await tempState();
+  let captures = 0;
+  try {
+    const response = await waitForSingleConversationResponse({
+      adapter: {
+        async probePage() {
+          return { snapshot: baseSnapshot({ responseRunning: false }) };
+        }
+      },
+      page: { async waitForTimeout() {} },
+      statePath,
+      baselineAssistantTurnId: "assistant-old",
+      expectedAssistantMarker: "MAGASIN_CYCLE_CORRELATION_V1 cycle-false-idle",
+      assistantSettleMs: 10_000,
+      captureTurn: async (_page, role) => {
+        assert.equal(role, "assistant");
+        captures += 1;
+        if (captures === 1) {
+          return {
+            turn_id: "assistant-live",
+            text: "Architecture generation: SINGLE_CONVERSATION_V1",
+            digest: "partial"
+          };
+        }
+        return {
+          turn_id: "assistant-live",
+          text:
+            "Architecture generation: SINGLE_CONVERSATION_V1\n" +
+            "MAGASIN_CYCLE_CORRELATION_V1 cycle-false-idle",
+          digest: "complete"
+        };
+      },
+      pollMs: 1,
+      timeoutMs: 1_000
+    });
+    assert.equal(captures, 2);
+    assert.equal(response.status, "RESPONSE_COMPLETE");
+    assert.equal(response.marker_confirmed, true);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
