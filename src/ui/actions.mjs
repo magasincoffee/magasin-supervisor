@@ -542,14 +542,47 @@ async function setComposerText(
     afterInsert,
     instruction
   );
-  if (persisted === false) {
-    return {
-      ready: false,
-      reason: "composer text did not persist after bounded keyboard insertion"
-    };
+  if (persisted !== false) {
+    return { ready: true, method: "keyboard-insertText", composer: afterInsert };
   }
 
-  return { ready: true, method: "keyboard", composer: afterInsert };
+  // Current ChatGPT can accept insertText() at the Playwright layer without
+  // updating the live ProseMirror/React editor. For printable ASCII machine
+  // contracts, fall back once to native key events, which matches the proven
+  // SC-003 bootstrap path. This mutates only the draft; no send occurs here.
+  if (
+    /^[\x20-\x7E]+$/.test(instruction) &&
+    page.keyboard &&
+    typeof page.keyboard.type === "function"
+  ) {
+    const typedComposer = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+    if (typedComposer) {
+      await keyboardClearComposer(page, typedComposer);
+      await page.keyboard.type(instruction, { delay: 0 });
+      if (typeof page.waitForTimeout === "function") {
+        await page.waitForTimeout(180);
+      }
+      const afterType = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+      if (afterType) {
+        const typedPersisted = await composerContainsExactInstruction(
+          afterType,
+          instruction
+        );
+        if (typedPersisted !== false) {
+          return {
+            ready: true,
+            method: "native-keyboard-type",
+            composer: afterType
+          };
+        }
+      }
+    }
+  }
+
+  return {
+    ready: false,
+    reason: "composer text did not persist after bounded keyboard insertion"
+  };
 }
 
 function visibleControlSnapshot(page) {
