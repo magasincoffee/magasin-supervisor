@@ -386,3 +386,25 @@ test("MBV1-008 userscript patch observes current ChatGPT message DOM", () => {
     /chatGptMessageRecords\(\)\.filter\(\(item\) => item\.role === 'assistant'\)\.length/
   );
 });
+
+
+test("MBV1-008 userscript patch hardens controlled composer actuation without legacy send path", () => {
+  const patched = patchPinnedBridgeUserscript(
+    "// ChatGPT Bridge\n" +
+    "    } else {\n" +
+    "      editor.innerHTML = '';\n" +
+    "      document.execCommand('insertText', false, text);\n" +
+    "    }\n" +
+    "      for (const sel of sendBtns) {\n" +
+    "        const btn = document.querySelector(sel);\n" +
+    "        if (btn && btn.offsetParent !== null) { btn.click(); break; }\n" +
+    "      }\n" +
+    "      await sleep(1500);\n"
+  );
+  assert.match(patched, /new InputEvent\('input'/);
+  assert.match(patched, /editor\.closest\('form'\)/);
+  assert.match(patched, /formBox\.width \* 0\.62/);
+  assert.match(patched, /formBox\.height \* 0\.35/);
+  assert.match(patched, /rejectRe/);
+  assert.match(patched, /controlClicked/);
+});
