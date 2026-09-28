@@ -33,6 +33,16 @@ export function patchPinnedBridgeUserscript(source) {
     .replaceAll(".slice(-600)", ".slice(-12000)")
     .replaceAll(".slice(-1000)", ".slice(-20000)")
     .replaceAll(".slice(0, 200)", ".slice(0, 12000)");
+
+  // ChatGPT's composer submit control has changed names across UI revisions.
+  // Keep upstream Bridge actuation, but widen only its ChatGPT send-control
+  // selector set to the same bounded semantic/test-id contract already proven
+  // by Supervisor's released composer layer. This remains Bridge-owned DOM
+  // actuation; the legacy Supervisor send path is not called.
+  text = text.replace(
+    "['button[data-testid=\"send-button\"]', 'button[aria-label=\"发送\"]', 'button[aria-label=\"Send\"]', 'form button[type=\"submit\"]']",
+    "['button[data-testid=\"send-button\"]', 'button#composer-submit-button', 'button[data-testid=\"composer-submit-button\"]', 'button[data-testid=\"composer-send-button\"]', 'button[data-testid*=\"send\" i]', 'button[data-testid*=\"submit\" i]', 'button[id*=\"send\" i]', 'button[id*=\"submit\" i]', 'button[aria-label*=\"Send\" i]', 'button[aria-label*=\"Submit\" i]', 'button[aria-label*=\"Gửi\" i]', 'button[title*=\"Send\" i]', 'button[title*=\"Submit\" i]', 'button[title*=\"Gửi\" i]', 'button[aria-label=\"发送\"]', 'form button[type=\"submit\"]']"
+  );
   return [
     "globalThis.__MAGASIN_BRIDGE_PATCH__ = " + JSON.stringify(MAGASIN_BRIDGE_USERSCRIPT_PATCH) + ";",
     text
