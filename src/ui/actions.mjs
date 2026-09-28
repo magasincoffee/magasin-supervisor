@@ -119,6 +119,18 @@ async function keyboardClearComposer(page, composer) {
   await composer.press("Backspace", { timeout: 2_000 });
 }
 
+async function focusComposerAtEnd(page, composer) {
+  await composer.click({ timeout: 1_500 }).catch(() => {});
+  const endChord = process.platform === "darwin"
+    ? "Meta+ArrowDown"
+    : "Control+End";
+  if (page.keyboard && typeof page.keyboard.press === "function") {
+    await page.keyboard.press(endChord).catch(() => {});
+  } else if (typeof composer.press === "function") {
+    await composer.press(endChord, { timeout: 1_500 }).catch(() => {});
+  }
+}
+
 async function clearComposerText(
   page,
   { timeoutMs = 3_000 } = {}
@@ -533,7 +545,7 @@ async function setComposerText(
   if (!focused) {
     throw new Error("composer disappeared after bounded clear");
   }
-  await focused.click({ timeout: 1_500 }).catch(() => {});
+  await focusComposerAtEnd(page, focused);
   if (typeof page.waitForTimeout === "function") {
     await page.waitForTimeout(80);
   }
@@ -578,7 +590,7 @@ async function setComposerText(
         reason: "composer disappeared before chunked keyboard recovery"
       };
     }
-    await chunkComposer.click({ timeout: 1_500 }).catch(() => {});
+    await focusComposerAtEnd(page, chunkComposer);
     if (typeof page.waitForTimeout === "function") {
       await page.waitForTimeout(40);
     }
