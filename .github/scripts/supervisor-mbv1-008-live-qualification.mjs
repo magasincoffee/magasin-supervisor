@@ -6,7 +6,8 @@ import { spawn } from "node:child_process";
 import { ChatGptUiAdapter } from "../../src/ui/playwright-adapter.mjs";
 import { sendComposerInstruction } from "../../src/ui/actions.mjs";
 import {
-  ChatGptBridgeAdapter
+  ChatGptBridgeAdapter,
+  bridgeAssistantDigest
 } from "../../src/runtime/chatgpt-bridge-adapter.mjs";
 import {
   bindPlannerExecutorBridgePages
@@ -143,15 +144,29 @@ async function waitBridgeHistoryEvidence(bridge, pageId, evidence, label) {
   return waitFor(async () => {
     const snap = await bridge.getSnapshot(pageId).catch(() => null);
     if (!snap || snap.is_generating) return false;
-    if (snap.assistant_count < Number(evidence?.assistant_count || 0)) return false;
     const hasAssistantText = Boolean(
       String(snap.last_assistant || "").trim() ||
       (Array.isArray(snap.recent_turns) && snap.recent_turns.some((turn) =>
         turn?.role === "assistant" && String(turn?.text || "").trim()
       ))
     );
-    return hasAssistantText ? snap : false;
-  }, 45_000, label + " Bridge history hydration");
+    if (!hasAssistantText) return false;
+
+    const expectedCount = Number(evidence?.assistant_count || 0);
+    const expectedDigest = String(evidence?.assistant_digest || "").trim().toLowerCase();
+    const currentDigest = bridgeAssistantDigest(snap).toLowerCase();
+
+    // ChatGPT can virtualize older turns after a hard reload, so the Bridge's
+    // visible assistant_count may temporarily be lower than the pre-reload
+    // count even though the same canonical conversation is reacquired.
+    // Accept hydration when either the count has recovered OR the exact latest
+    // assistant digest from before reload is visible again.
+    const countRecovered = snap.assistant_count >= expectedCount;
+    const exactLatestRecovered =
+      /^[a-f0-9]{64}$/.test(expectedDigest) && currentDigest === expectedDigest;
+
+    return countRecovered || exactLatestRecovered ? snap : false;
+  }, 60_000, label + " Bridge history hydration");
 }
 
 async function sendToken(bridge, pageId, role, suffix) {
