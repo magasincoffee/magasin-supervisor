@@ -173,6 +173,62 @@ async function focusComposerAtEnd(page, composer) {
   }
 }
 
+async function insertComposerTextWithPasteEvent(composer, instruction) {
+  if (!composer || typeof composer.evaluate !== "function") return false;
+
+  return composer.evaluate((el, value) => {
+    try {
+      el.focus();
+      const text = String(value || "");
+
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement
+      ) {
+        const start = Number(el.selectionStart ?? String(el.value || "").length);
+        const end = Number(el.selectionEnd ?? start);
+        el.setRangeText(text, start, end, "end");
+        el.dispatchEvent(new InputEvent("input", {
+          bubbles: true,
+          inputType: "insertFromPaste",
+          data: text
+        }));
+        return true;
+      }
+
+      if (
+        !el.isContentEditable &&
+        String(el.getAttribute?.("contenteditable") || "").toLowerCase() !== "true"
+      ) {
+        return false;
+      }
+
+      const selection = window.getSelection();
+      if (!selection) return false;
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+
+      // ProseMirror owns paste semantics itself. Dispatching one paste payload
+      // lets the editor perform one coherent transaction instead of hundreds
+      // of key/input transactions that can rerender and shift the caret.
+      const transfer = new DataTransfer();
+      transfer.setData("text/plain", text);
+      const paste = new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: transfer
+      });
+      el.dispatchEvent(paste);
+      return true;
+    } catch {
+      return false;
+    }
+  }, instruction).catch(() => false);
+}
+
 async function insertComposerTextWithExecCommand(composer, instruction) {
   if (!composer || typeof composer.evaluate !== "function") return false;
 
@@ -631,9 +687,47 @@ async function setComposerText(
     await page.waitForTimeout(45);
   }
 
-  // Prefer the editor's own input pipeline before bulk CDP insertion.
-  // Current ChatGPT can drop or partially apply a long page.keyboard.insertText
-  // payload even when focus is correct.
+  // Prefer one coherent paste transaction. ChatGPT's ProseMirror can rerender
+  // between key events and move the caret; a paste event is handled as one
+  // editor transaction and is therefore less vulnerable to that drift.
+  const pasteInserted = await insertComposerTextWithPasteEvent(
+    focused,
+    instruction
+  );
+  if (pasteInserted) {
+    if (typeof page.waitForTimeout === "function") {
+      await page.waitForTimeout(220);
+    }
+    const pasteComposer = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+    if (pasteComposer) {
+      const pastePersisted = await composerContainsExactInstruction(
+        pasteComposer,
+        instruction
+      );
+      if (pastePersisted !== false) {
+        return {
+          ready: true,
+          method: "paste-event",
+          composer: pasteComposer
+        };
+      }
+      await keyboardClearComposer(page, pasteComposer);
+      const clearedAfterPaste = await waitForReadyComposer(page, {
+        timeoutMs: 1_500
+      });
+      if (!clearedAfterPaste) {
+        return {
+          ready: false,
+          reason: "composer disappeared after paste-event recovery clear"
+        };
+      }
+      await focusComposerAtEnd(page, clearedAfterPaste);
+    }
+  }
+
+  // Fallback to Chromium's editable-surface input pipeline before CDP bulk
+  // insertion. This remains useful for editor builds that ignore synthetic
+  // paste events.
   const execInserted = await insertComposerTextWithExecCommand(
     focused,
     instruction
