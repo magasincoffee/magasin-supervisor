@@ -747,7 +747,7 @@ test("large composer prompt falls back to bounded chunked insertText", async () 
   );
 
   assert.equal(result.executed, true);
-  assert.equal(result.input_method, "keyboard-chunked");
+  assert.equal(result.input_method, "keyboard-unicode-charwise");
   assert.ok(insertCalls > 10); // one dropped whole insert + bounded micro-chunks
   assert.equal(sends, 1);
 });
@@ -844,17 +844,17 @@ test("chunked recovery places DOM caret at end after every composer refocus", as
   );
 
   assert.equal(result.executed, true);
-  assert.equal(result.input_method, "keyboard-chunked");
+  assert.equal(result.input_method, "keyboard-unicode-charwise");
   assert.equal(sends, 1);
   assert.ok(selectionPlacements >= 10);
 });
 
-test("printable ASCII prompt falls back to bounded sequential key events", async () => {
-  const instruction = "SC003 ".repeat(110).trim();
+test("Unicode prompt falls back to per-code-point insertion", async () => {
+  const instruction = "Đọc Source of Truth và tiếp tục SC-003 ✓";
   let composerText = "";
   let insertCalls = 0;
-  let typeCalls = 0;
   let sends = 0;
+  let focused = false;
 
   const composer = {
     first() { return this; },
@@ -863,14 +863,17 @@ test("printable ASCII prompt falls back to bounded sequential key events", async
     async isEditable() { return true; },
     async fill() {},
     async inputValue() { return composerText; },
-    async click() {},
+    async click() { focused = true; },
     async press(key) {
       if (key === "Backspace") composerText = "";
     },
     async evaluate(fn) {
       const source = String(fn);
       if (source.includes('execCommand("insertText"')) return false;
-      if (source.includes("selectNodeContents")) return true;
+      if (source.includes("selectNodeContents")) {
+        focused = true;
+        return true;
+      }
       return null;
     }
   };
@@ -900,13 +903,12 @@ test("printable ASCII prompt falls back to bounded sequential key events", async
     async bringToFront() {},
     keyboard: {
       async press() {},
-      async insertText() {
+      async insertText(value) {
         insertCalls += 1;
-        // Drop the whole-prompt bulk insert.
-      },
-      async type(value) {
-        typeCalls += 1;
+        if (insertCalls === 1) return; // Drop whole-prompt bulk insert.
+        if (!focused) throw new Error("code point inserted without live composer focus");
         composerText += value;
+        focused = false;
       }
     },
     getByRole() { return send; }
@@ -917,14 +919,12 @@ test("printable ASCII prompt falls back to bounded sequential key events", async
   });
 
   assert.equal(result.executed, true);
-  assert.equal(result.input_method, "keyboard-ascii-charwise");
-  assert.equal(insertCalls, 1);
-  assert.ok(typeCalls > 1);
+  assert.equal(result.input_method, "keyboard-unicode-charwise");
+  assert.ok(insertCalls > instruction.length);
   assert.equal(sends, 1);
 });
-
-test("ASCII characterwise fallback survives composer focus loss after every character", async () => {
-  const instruction = "SC003 ASCII";
+test("Unicode characterwise fallback survives composer focus loss after every code point", async () => {
+  const instruction = "SC003 tiếng Việt";
   let composerText = "";
   let insertCalls = 0;
   let focused = false;
@@ -978,11 +978,10 @@ test("ASCII characterwise fallback survives composer focus loss after every char
     async bringToFront() {},
     keyboard: {
       async press() {},
-      async insertText() {
+      async insertText(value) {
         insertCalls += 1;
-      },
-      async type(value) {
-        if (!focused) throw new Error("character typed without live composer focus");
+        if (insertCalls === 1) return;
+        if (!focused) throw new Error("code point inserted without live composer focus");
         composerText += value;
         focused = false;
       }
@@ -995,12 +994,10 @@ test("ASCII characterwise fallback survives composer focus loss after every char
   });
 
   assert.equal(result.executed, true);
-  assert.equal(result.input_method, "keyboard-ascii-charwise");
-  assert.equal(insertCalls, 1);
-  assert.ok(focusCount >= instruction.length);
+  assert.equal(result.input_method, "keyboard-unicode-charwise");
+  assert.ok(focusCount >= Array.from(instruction).length);
   assert.equal(sends, 1);
 });
-
 test("composer send recovers an inert Send click with one bounded Enter", async () => {
   let composerText = "";
   let clicks = 0;
