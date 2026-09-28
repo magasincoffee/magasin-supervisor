@@ -426,12 +426,94 @@ test("fill success without persisted text falls back to a real keyboard insertio
   );
 
   assert.equal(result.executed, true);
-  assert.equal(result.input_method, "keyboard");
+  assert.equal(result.input_method, "keyboard-refocused");
   assert.equal(composerText, "");
   assert.equal(result.submit_evidence, "composer-changed");
   assert.ok(events.includes("fill"));
   assert.ok(events.includes("insert:must persist before send"));
   assert.equal(events.at(-1), "send");
+});
+
+test("keyboard recovery reacquires and refocuses composer after clear rerender", async () => {
+  const events = [];
+  let composerText = "";
+  let generation = 0;
+  let focusedGeneration = -1;
+
+  const makeComposer = (myGeneration) => ({
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async fill() {
+      events.push("fill-dropped");
+    },
+    async inputValue() { return composerText; },
+    async click() {
+      focusedGeneration = myGeneration;
+      events.push(`click:${myGeneration}`);
+    },
+    async press(key) {
+      events.push(`press:${key}:${myGeneration}`);
+      if (key === "Backspace") {
+        composerText = "";
+        generation += 1;
+        focusedGeneration = -1;
+      }
+    }
+  });
+
+  const send = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() {
+      if (composerText) {
+        composerText = "";
+        events.push("send");
+      }
+    }
+  };
+
+  const page = {
+    locator(selector) {
+      if (selector.includes("send-button")) return send;
+      return makeComposer(generation);
+    },
+    async evaluate(fn) {
+      if (String(fn).includes("data-message-author-role")) {
+        const sent = events.includes("send") ? 1 : 0;
+        return { readable: true, totalCount: sent, exactMatchCount: sent };
+      }
+      return [];
+    },
+    async waitForTimeout() {},
+    async bringToFront() {},
+    keyboard: {
+      async press() {},
+      async insertText(value) {
+        if (focusedGeneration === generation) {
+          composerText = value;
+          events.push(`insert:${generation}`);
+        } else {
+          events.push("insert-without-live-focus");
+        }
+      }
+    },
+    getByRole() { return send; }
+  };
+
+  const result = await sendComposerInstruction(
+    page,
+    "focus must follow rerender",
+    { dryRun: false }
+  );
+
+  assert.equal(result.executed, true);
+  assert.equal(result.input_method, "keyboard-refocused");
+  assert.ok(events.includes("click:1"));
+  assert.ok(events.includes("insert:1"));
+  assert.equal(events.includes("insert-without-live-focus"), false);
 });
 
 test("composer send recovers an inert Send click with one bounded Enter", async () => {
