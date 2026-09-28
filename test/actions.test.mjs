@@ -687,6 +687,81 @@ test("keyboard recovery reacquires and refocuses composer after clear rerender",
   assert.equal(events.includes("insert-without-live-focus"), false);
 });
 
+test("ASCII bootstrap prefers native keyboard type before chunk fallback", async () => {
+  const instruction = "MAGASIN SC003 ASCII BOOTSTRAP / SOURCE_OF_TRUTH.md";
+  let composerText = "";
+  let typeCalls = 0;
+  let insertCalls = 0;
+  let sends = 0;
+
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async fill() {},
+    async inputValue() { return composerText; },
+    async click() {},
+    async press(key) {
+      if (key === "Backspace") composerText = "";
+    },
+    async evaluate(fn) {
+      const source = String(fn);
+      if (source.includes('new ClipboardEvent("paste"')) return false;
+      if (source.includes('execCommand("insertText"')) return false;
+      if (source.includes("selectNodeContents")) return true;
+      return null;
+    }
+  };
+
+  const send = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() {
+      if (composerText === instruction) sends += 1;
+      composerText = "";
+    }
+  };
+
+  const page = {
+    locator(selector) {
+      if (selector.includes("send-button")) return send;
+      return composer;
+    },
+    async evaluate(fn) {
+      if (String(fn).includes("navigator.clipboard")) return false;
+      if (String(fn).includes("data-message-author-role")) {
+        return { readable: true, totalCount: sends, exactMatchCount: sends };
+      }
+      return [];
+    },
+    async waitForTimeout() {},
+    async bringToFront() {},
+    keyboard: {
+      async press() {},
+      async insertText() {
+        insertCalls += 1;
+      },
+      async type(value) {
+        typeCalls += 1;
+        composerText = String(value);
+      }
+    },
+    getByRole() { return send; }
+  };
+
+  const result = await sendComposerInstruction(page, instruction, {
+    dryRun: false
+  });
+
+  assert.equal(result.executed, true);
+  assert.equal(result.input_method, "keyboard-ascii-type");
+  assert.equal(typeCalls, 1);
+  assert.equal(insertCalls, 1); // whole-prompt insertText attempt before typed fallback
+  assert.equal(sends, 1);
+});
+
 test("large composer prompt falls back to bounded chunked insertText", async () => {
   const instruction = "X".repeat(420);
   let composerText = "";
