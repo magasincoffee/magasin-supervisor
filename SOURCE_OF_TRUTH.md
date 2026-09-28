@@ -330,7 +330,7 @@ Completion evidence:
 - PR #187 authority/static/full regression gates passed on the SC-001 candidate before completion was recorded.
 
 ### SC-002 — Single-conversation runtime state
-State: **PLANNED**
+State: **COMPLETE**
 
 Replace Planner/Executor durable runtime shape with one active conversation session.
 
@@ -349,6 +349,19 @@ No saved conversation URL is required for future START.
 
 DoD:
 - runtime can start with Source of Truth only.
+
+Completion evidence:
+- canonical state schema: `single-conversation-state.v1`;
+- canonical mode: `SINGLE_CONVERSATION_V1`;
+- state initialization accepts Source of Truth and does not accept or require Planner/Executor/chat URLs;
+- durable state explicitly rejects `planner`, `executor`, conversation `url`, and conversation `target` fields;
+- conversation state is generation-based and stores only disposable runtime/page identity;
+- outbound transaction slots cover correlation, `cmd_id`, delivery and response verification metadata without making chat content project authority;
+- Source of Truth verification metadata is explicit and contains no local project task/progress authority;
+- `src/runtime/single-conversation-state-cli.mjs` proves state startup from Source of Truth only;
+- `test/single-conversation-state.test.mjs` is included in hosted integrity and the full regression suite;
+- PR #188 candidate passed Supervisor Tests, Supervisor Integrity, Lifecycle Acceptance isolated and Autostart Install isolated before completion was recorded;
+- production browser/New Chat actuation and Control Center cutover remain intentionally unselected until SC-003/SC-007.
 
 ### SC-003 — Robot-created New Chat bootstrap
 State: **PLANNED**
