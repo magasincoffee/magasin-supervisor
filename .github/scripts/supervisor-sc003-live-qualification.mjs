@@ -102,6 +102,31 @@ const startedAt = new Date().toISOString();
 
 try {
   await adapter.open();
+
+  // Failed pre-send qualification attempts remain on the ChatGPT landing
+  // surface because no matching user turn was ever observed. The legacy
+  // production topology owns two conversation pages, so close only surplus
+  // root landing pages before counting the live budget. Never close a
+  // conversation-path page here.
+  let currentPages = adapter.getChatGptPages();
+  if (currentPages.length > 2) {
+    let cleaned = 0;
+    for (const candidate of currentPages) {
+      let isLanding = false;
+      try {
+        const url = new URL(String(candidate.url() || ""));
+        isLanding = url.origin === "https://chatgpt.com" && url.pathname === "/";
+      } catch {}
+      if (!isLanding) continue;
+      await adapter.closePage(candidate).catch(() => {});
+      cleaned += 1;
+      if (adapter.getChatGptPageCount() <= 2) break;
+    }
+    if (cleaned > 0) {
+      log("SC003_LIVE_SURPLUS_LANDING_PAGES_CLEANED", cleaned);
+    }
+  }
+
   const preexistingPages = adapter.getChatGptPageCount();
   log("SC003_LIVE_PREEXISTING_CHATGPT_PAGES", preexistingPages);
   if (preexistingPages > 3) {
