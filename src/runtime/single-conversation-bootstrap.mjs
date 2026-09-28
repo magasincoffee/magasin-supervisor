@@ -75,33 +75,37 @@ export function buildSingleConversationBootstrap({
   if (!source) throw new Error("sourceOfTruthUrl is required");
   if (!id) throw new Error("messageId is required");
 
+  // Keep the first-turn contract intentionally compact. The Source of Truth is
+  // durable project memory; the bootstrap only needs to bind a fresh chat to
+  // that authority and tell it how to resume. A short ASCII prompt is also
+  // materially more reliable on ChatGPT's frequently rerendered ProseMirror
+  // composer than a long prose block.
   const common = [
     "MAGASIN_SINGLE_CONVERSATION_BOOTSTRAP_V1",
-    `message_id=${id}`,
-    `source_of_truth=${source}`,
-    "Read the Source of Truth URL above from the beginning before deciding or doing project work.",
-    "Treat that Source of Truth as the only project authority.",
-    "Ignore stale project state from prior chats, memory, README, or historical documents when they conflict with the Source of Truth."
+    `id=${id}`,
+    `SOT=${source}`,
+    "Read SOT from the beginning.",
+    "SOT is the sole project authority.",
+    "Ignore stale chat, memory, README, and historical state.",
+    "Derive current project state only from SOT.",
+    "Continue only from that authoritative state."
   ];
 
   if (qualificationOnly) {
     return [
       ...common,
-      "LIVE QUALIFICATION ONLY.",
-      "Do not use tools, apps, connectors, ChatGPT Work mode, or write to any external system.",
-      "After reading the Source of Truth, reply briefly with its current Architecture generation.",
-      `End with exactly: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
+      "QUALIFICATION ONLY: do not use tools or write to external systems.",
+      "Report the Architecture generation read from SOT.",
+      `End exactly: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
     ].join(" ");
   }
 
   return [
     ...common,
-    "Derive the current project state and next approved work directly from the Source of Truth.",
-    "Perform or propose only one bounded next unit of work; if blocked, state the blocker.",
-    `Keep this correlation in the final response: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
+    "Do one bounded next unit allowed by SOT, or state the blocker.",
+    `End with: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
   ].join(" ");
 }
-
 async function assertBlankNewChatSurface(adapter, page) {
   const probe = await adapter.probePage(page);
   const snapshot = probe?.snapshot || {};
