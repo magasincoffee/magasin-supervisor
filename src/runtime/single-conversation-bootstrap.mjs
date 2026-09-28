@@ -288,23 +288,55 @@ export async function sendFreshChatBootstrapInstruction(
     };
   }
 
+  let inputMethod = "fill";
+  let rendered = null;
   try {
     await composer.fill(instruction, { timeout: 5_000 });
+    await page.waitForTimeout(150);
+    rendered = await readFreshComposerText(composer);
   } catch {
-    return {
-      executed: false,
-      rejection_class: "COMPOSER_NOT_READY",
-      reason: "fresh ChatGPT composer fill failed"
-    };
+    rendered = null;
   }
 
-  await page.waitForTimeout(150);
-  const rendered = await readFreshComposerText(composer);
+  let exactInput =
+    rendered !== null &&
+    normalizeBootstrapRenderedText(rendered) ===
+      normalizeBootstrapRenderedText(instruction);
+
+  // Current ChatGPT can expose a contenteditable for which Playwright fill()
+  // resolves successfully but the live ProseMirror value remains empty. The
+  // SC-003 bootstrap is intentionally printable ASCII, so a bounded native
+  // keyboard type is the closest equivalent to the Owner typing the message
+  // manually and avoids synthetic InputEvent/clipboard semantics.
   if (
-    rendered === null ||
-    normalizeBootstrapRenderedText(rendered) !==
-      normalizeBootstrapRenderedText(instruction)
+    !exactInput &&
+    /^[\x20-\x7E]+$/.test(instruction) &&
+    page.keyboard &&
+    typeof page.keyboard.type === "function"
   ) {
+    const keyboardComposer = await findFreshChatComposer(page, 2_000);
+    if (keyboardComposer) {
+      await keyboardComposer.click({ timeout: 2_000 }).catch(() => {});
+      if (page.keyboard && typeof page.keyboard.press === "function") {
+        const selectAll = process.platform === "darwin" ? "Meta+A" : "Control+A";
+        await page.keyboard.press(selectAll).catch(() => {});
+        await page.keyboard.press("Backspace").catch(() => {});
+      }
+      await page.keyboard.type(instruction, { delay: 0 });
+      await page.waitForTimeout(250);
+      const typedComposer = await findFreshChatComposer(page, 1_500);
+      rendered = typedComposer
+        ? await readFreshComposerText(typedComposer)
+        : null;
+      exactInput =
+        rendered !== null &&
+        normalizeBootstrapRenderedText(rendered) ===
+          normalizeBootstrapRenderedText(instruction);
+      if (exactInput) inputMethod = "native-keyboard-type";
+    }
+  }
+
+  if (!exactInput) {
     const mismatch = bootstrapTextMismatchDiagnostic(
       instruction,
       rendered === null ? "" : rendered
@@ -313,7 +345,7 @@ export async function sendFreshChatBootstrapInstruction(
       executed: false,
       rejection_class: "COMPOSER_NOT_READY",
       reason: "fresh ChatGPT composer did not preserve exact bootstrap text",
-      input_method: "fill",
+      input_method: inputMethod,
       mismatch
     };
   }
@@ -329,7 +361,7 @@ export async function sendFreshChatBootstrapInstruction(
       executed: false,
       rejection_class: "SEND_NOT_ACTUATED",
       reason: "fresh ChatGPT composer Enter submit failed",
-      input_method: "fill",
+      input_method: inputMethod,
       send_method: "composer-enter"
     };
   }
@@ -341,7 +373,7 @@ export async function sendFreshChatBootstrapInstruction(
   if (proof?.turn_id) {
     return {
       executed: true,
-      input_method: "fill",
+      input_method: inputMethod,
       send_method: "composer-enter",
       send_selector: null,
       user_turn_evidence: proof.evidence,
@@ -419,7 +451,7 @@ export async function sendFreshChatBootstrapInstruction(
       if (proof?.turn_id) {
         return {
           executed: true,
-          input_method: "fill",
+          input_method: inputMethod,
           send_method: "composer-enter+safe-direct-control",
           send_selector: sendSelector,
           user_turn_evidence: proof.evidence,
@@ -433,7 +465,7 @@ export async function sendFreshChatBootstrapInstruction(
         executed: false,
         rejection_class: "SEND_NOT_ACTUATED",
         reason: "safe Send retry did not produce exact fresh user turn",
-        input_method: "fill",
+        input_method: inputMethod,
         send_method: "composer-enter+safe-direct-control",
         send_selector: sendSelector,
         user_turn_evidence: proof?.evidence || "unreadable",
@@ -452,7 +484,7 @@ export async function sendFreshChatBootstrapInstruction(
   if (proof?.turn_id) {
     return {
       executed: true,
-      input_method: "fill",
+      input_method: inputMethod,
       send_method: "composer-enter",
       send_selector: null,
       user_turn_evidence: proof.evidence,
@@ -466,7 +498,7 @@ export async function sendFreshChatBootstrapInstruction(
     executed: false,
     rejection_class: "SEND_NOT_ACTUATED",
     reason: "Enter submit did not yield exact fresh user turn",
-    input_method: "fill",
+    input_method: inputMethod,
     send_method: "composer-enter",
     user_turn_evidence: proof?.evidence || "unreadable",
     conversation_turn_count:
