@@ -68,6 +68,48 @@ test("SC-003 bootstrap prompt carries sole Source of Truth and unique correlatio
   assert.doesNotMatch(message, /Planner|Executor|Brain|Work mode/i);
 });
 
+test("SC-003 qualification prompt is read-only and correlation-bound", () => {
+  const message = buildSingleConversationBootstrap({
+    sourceOfTruthUrl: "https://github.com/magasincoffee/magasin-supervisor/blob/main/SOURCE_OF_TRUTH.md",
+    messageId: "qual-001",
+    qualificationOnly: true
+  });
+
+  assert.match(message, /LIVE QUALIFICATION/);
+  assert.match(message, /Không dùng tools, apps, connectors/);
+  assert.match(message, /Không thay đổi repo/);
+  assert.match(message, /Architecture generation/);
+  assert.match(message, /MAGASIN_BOOTSTRAP_CORRELATION_V1 qual-001/);
+  assert.doesNotMatch(message, /đơn vị công việc bounded tiếp theo/);
+});
+
+test("SC-003 forceNewPage never reuses a pre-existing home page", async () => {
+  const oldHome = fakePage();
+  const fresh = fakePage();
+  let newPages = 0;
+  const adapter = {
+    async open() {},
+    getActivePage() { return oldHome; },
+    async newChatPage(url) {
+      newPages += 1;
+      assert.equal(url, "https://chatgpt.com/");
+      return fresh;
+    },
+    async probePage(candidate) {
+      assert.equal(candidate, fresh);
+      return { snapshot: blankSnapshot() };
+    }
+  };
+
+  const result = await acquireBlankNewChatSurface(adapter, {
+    forceNewPage: true
+  });
+  assert.equal(result.page, fresh);
+  assert.equal(result.created, true);
+  assert.equal(result.reused_home, false);
+  assert.equal(newPages, 1);
+});
+
 test("SC-003 reuses an authenticated blank ChatGPT home as New Chat", async () => {
   const page = fakePage();
   let newPages = 0;
@@ -346,6 +388,8 @@ test("SC-003 CLI requires Source of Truth/CDP but never a chat URL", async () =>
   assert.match(source, /--source-of-truth/);
   assert.match(source, /--cdp-url/);
   assert.match(source, /--execute/);
+  assert.match(source, /--qualification-only/);
+  assert.match(source, /--force-new-page/);
   assert.match(source, /SC003_CHAT_URL_REQUIRED=False/);
   assert.doesNotMatch(source, /--planner-url|--executor-url|--chat-url/);
 });
