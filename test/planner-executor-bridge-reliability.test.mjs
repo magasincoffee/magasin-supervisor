@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 
 import {
   createPlannerExecutorBridgeTransportStateMachine,
@@ -267,4 +268,23 @@ test("identity history input is bounded and fails closed on invalid restore data
     (error) => error instanceof BridgeProtocolIntegrationError &&
       error.code === "INVALID_IDENTITY_HISTORY"
   );
+});
+
+
+test("Bridge runtime status reports measured ChatGPT topology and overwrites stale success on startup failure", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/planner-executor-bridge-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  const statusStart = source.indexOf("async function persistStatus");
+  const statusEnd = source.indexOf("async function ensureBridgeProjectBootstrap", statusStart);
+  assert.ok(statusStart >= 0 && statusEnd > statusStart);
+  const statusBlock = source.slice(statusStart, statusEnd);
+  assert.match(statusBlock, /measuredChatGptTabs/);
+  assert.doesNotMatch(statusBlock, /chatgpt_tabs:\s*2/);
+
+  assert.match(source, /chatgpt_tabs:\s*browser\.getChatGptPageCount\(\)/);
+  assert.match(source, /persistStatus\(statusPath, state, "STARTUP_FAILED"/);
+  assert.match(source, /startup_failure_stage:\s*startupStage/);
 });
