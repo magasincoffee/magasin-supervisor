@@ -76,6 +76,17 @@ async function waitConversationUrl(page) {
     return /^https:\/\/chatgpt\.com\/c\/[0-9a-f-]{36}/i.test(url) ? url : false;
   }, 30_000, "ChatGPT conversation URL");
 }
+async function waitAssistantIdle(page) {
+  return waitFor(async () => {
+    const probe = await browser.probePage(page).catch(() => null);
+    return probe &&
+      !probe.snapshot?.responseRunning &&
+      !probe.snapshot?.assistantBusy
+      ? true
+      : false;
+  }, 120_000, "ChatGPT setup assistant idle");
+}
+
 async function sendSetup(page, role) {
   const token = "MBV1_SETUP_" + role.toUpperCase() + "_" + crypto.randomBytes(4).toString("hex");
   const sent = await sendComposerInstruction(
@@ -142,6 +153,10 @@ try {
   const [plannerSetup, executorSetup] = await Promise.all([
     sendSetup(plannerPage, "planner"),
     sendSetup(executorPage, "executor")
+  ]);
+  await Promise.all([
+    waitAssistantIdle(plannerPage),
+    waitAssistantIdle(executorPage)
   ]);
 
   const bindingName = "__mbv1008BridgeHttp_" + crypto.randomBytes(5).toString("hex");
