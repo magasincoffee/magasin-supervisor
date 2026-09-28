@@ -112,12 +112,74 @@ async function waitBinding(bridge, plannerUrl, executorUrl) {
 async function sendToken(bridge, pageId, role, suffix) {
   const token = "MBV1_008_" + role.toUpperCase() + "_" + suffix + "_" +
     crypto.randomBytes(5).toString("hex");
-  const result = await bridge.send(
-    pageId,
-    "MBV1-008 harmless live transport qualification. Role: " + role +
-      ". Reply with exactly this token and nothing else: " + token,
-    { timeoutMs: 180_000 }
-  );
+  let result;
+  try {
+    result = await bridge.send(
+      pageId,
+      "MBV1-008 harmless live transport qualification. Role: " + role +
+        ". Reply with exactly this token and nothing else: " + token,
+      { timeoutMs: 180_000 }
+    );
+  } catch (error) {
+    const page = role === "planner" ? plannerPage : executorPage;
+    const [bridgeSnapshot, bridgeState, probe, dom] = await Promise.all([
+      bridge.getSnapshot(pageId).catch(() => null),
+      bridge.getState(pageId).catch(() => null),
+      page ? browser.probePage(page).catch(() => null) : null,
+      page ? page.evaluate((expected) => {
+        const normalize = (value) => String(value || "")
+          .replace(/\u200B/g, "")
+          .replace(/\r\n/g, "\n")
+          .replace(/\u00A0/g, " ")
+          .replace(/\s+/gu, " ")
+          .trim();
+        const wanted = normalize(expected);
+        const legacyUsers = Array.from(
+          document.querySelectorAll('[data-message-author-role="user"]')
+        );
+        const modernUsers = legacyUsers.length
+          ? []
+          : Array.from(document.querySelectorAll("main .text-size-chat.whitespace-pre-wrap"));
+        const users = legacyUsers.length ? legacyUsers : modernUsers;
+        const composer = document.querySelector("#prompt-textarea") ||
+          document.querySelector('[contenteditable][role="textbox"]') ||
+          document.querySelector("textarea");
+        const composerText = normalize(
+          composer ? (composer.innerText || composer.value || composer.textContent || "") : ""
+        );
+        return {
+          exact_user_turn_count: users.filter((node) =>
+            normalize(node.innerText || node.textContent || "") === wanted
+          ).length,
+          composer_has_exact_instruction: composerText === wanted,
+          composer_nonempty: Boolean(composerText),
+          composer_present: Boolean(composer),
+          active_element_is_composer: Boolean(composer && document.activeElement === composer)
+        };
+      }, "MBV1-008 harmless live transport qualification. Role: " + role +
+        ". Reply with exactly this token and nothing else: " + token).catch(() => null) : null
+    ]);
+
+    log("MBV1_008_DIAG_ROLE", role);
+    log("MBV1_008_DIAG_ERROR_CODE", error?.code || error?.name || "unknown");
+    log("MBV1_008_DIAG_BRIDGE_ALIVE", bridgeState?.alive ?? null);
+    log("MBV1_008_DIAG_BRIDGE_LAST_POLL_AGO", bridgeState?.last_poll_ago ?? null);
+    log("MBV1_008_DIAG_BRIDGE_ASSISTANT_COUNT", bridgeSnapshot?.assistant_count ?? null);
+    log("MBV1_008_DIAG_BRIDGE_GENERATING", bridgeSnapshot?.is_generating ?? null);
+    log("MBV1_008_DIAG_BRIDGE_EDITOR_NONEMPTY", Boolean(bridgeSnapshot?.editor_text));
+    log("MBV1_008_DIAG_BRIDGE_SNAPSHOT_HAS_TOKEN",
+      Boolean(bridgeSnapshot && JSON.stringify(bridgeSnapshot).includes(token)));
+    log("MBV1_008_DIAG_UI_USER_COUNT", probe?.snapshot?.userMessageCount ?? null);
+    log("MBV1_008_DIAG_UI_ASSISTANT_COUNT", probe?.snapshot?.assistantMessageCount ?? null);
+    log("MBV1_008_DIAG_UI_RESPONSE_RUNNING", probe?.snapshot?.responseRunning ?? null);
+    log("MBV1_008_DIAG_UI_ASSISTANT_BUSY", probe?.snapshot?.assistantBusy ?? null);
+    log("MBV1_008_DIAG_EXACT_USER_TURN_COUNT", dom?.exact_user_turn_count ?? null);
+    log("MBV1_008_DIAG_COMPOSER_HAS_EXACT", dom?.composer_has_exact_instruction ?? null);
+    log("MBV1_008_DIAG_COMPOSER_NONEMPTY", dom?.composer_nonempty ?? null);
+    log("MBV1_008_DIAG_COMPOSER_PRESENT", dom?.composer_present ?? null);
+    log("MBV1_008_DIAG_COMPOSER_FOCUSED", dom?.active_element_is_composer ?? null);
+    throw error;
+  }
   const reply = String(result?.snapshot?.last_assistant || "");
   if (!reply.includes(token)) throw new Error(role + " live token reply mismatch");
   return token;
