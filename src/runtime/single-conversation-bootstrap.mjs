@@ -89,7 +89,7 @@ export function buildSingleConversationBootstrap({
   if (qualificationOnly) {
     return [
       ...common,
-      "QUALIFICATION ONLY: do not use tools or write to external systems.",
+      "QUALIFICATION ONLY: use read-only web access if needed to read SOT; do not write to external systems.",
       "Report the Architecture generation read from SOT.",
       `End exactly: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
     ].join(" ");
