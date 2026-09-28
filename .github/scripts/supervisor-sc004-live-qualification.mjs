@@ -100,6 +100,25 @@ const adapter = new ChatGptUiAdapter({
   timeoutMs: 45_000
 });
 
+async function openAdapterWithBoundedRetry() {
+  let lastError = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      log("SC004_LIVE_CDP_ATTACH_ATTEMPT", attempt);
+      await openAdapterWithBoundedRetry();
+      log("SC004_LIVE_CDP_ATTACH_PASS", attempt);
+      return;
+    } catch (error) {
+      lastError = error;
+      log("SC004_LIVE_CDP_ATTACH_ERROR_NAME", error?.name || "Error");
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+      }
+    }
+  }
+  throw lastError || new Error("SC-004 CDP attach failed");
+}
+
 let qualificationPage = null;
 let finalExitCode = 0;
 const startedAt = new Date().toISOString();
