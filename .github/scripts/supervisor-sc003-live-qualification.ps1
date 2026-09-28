@@ -35,131 +35,115 @@ Write-Host 'SC003_QUAL_TARGET_MATCH=True'
 . (Join-Path $env:GITHUB_WORKSPACE 'windows\lifecycle-truth.ps1')
 
 $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
-$profile = Join-Path $root 'browser_profile'
+$stopPath = Join-Path $root 'STOP'
+$autostartDisabledPath = Join-Path $root 'AUTOSTART_DISABLED'
+$installedStart = Join-Path $root 'runtime\windows\start-supervisor.ps1'
+$holdToken = "SC003_QUALIFICATION_HOLD:$env:GITHUB_RUN_ID:$Attempt"
+
+$ownerStop = Get-LifecycleOwnerStopState -Root $root
+if ($ownerStop.blocked) {
+  throw 'SC-003 live qualification refuses to override an existing Owner STOP/AUTOSTART_DISABLED.'
+}
+
+$wrapperBefore = Get-LifecycleSupervisorWrapper -Root $root
+$runtimeBefore = Get-LifecyclePlannerExecutorProcess -Root $root
+$chromeBefore = Get-LifecycleRobotChrome -Root $root
+if (-not $chromeBefore -or -not (Test-LifecycleRobotCdp -ChromeProcess $chromeBefore -Root $root)) {
+  throw 'SC-003 live qualification requires the existing healthy dedicated Robot Chrome.'
+}
+
 Write-Host "SC003_QUAL_STATE_ROOT=$root"
 Write-Host "SC003_QUAL_REVISION=$env:GITHUB_SHA"
-Write-Host 'SC003_QUAL_STATE_ROOT_BINDING_MUTATED=False'
+Write-Host "SC003_QUAL_WRAPPER_WAS_ALIVE=$([bool]$wrapperBefore)"
+Write-Host "SC003_QUAL_RUNTIME_WAS_ALIVE=$([bool]$runtimeBefore)"
+Write-Host 'SC003_QUAL_PRODUCTION_PROJECT_STATE_MUTATED=False'
 
-function Get-QualificationChromeExecutable {
-  $candidates = @(
-    "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
-    "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
-    "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
-  )
-  return $candidates |
-    Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) -and (Test-Path $_ -PathType Leaf) } |
-    Select-Object -First 1
-}
-
-function Get-FreeQualificationCdpPort {
-  foreach ($candidate in 9222..9232) {
-    $listener = Get-NetTCPConnection -State Listen -LocalPort $candidate -ErrorAction SilentlyContinue |
-      Select-Object -First 1
-    if (-not $listener) { return [int]$candidate }
-  }
-  throw 'No free Supervisor CDP port in range 9222-9232.'
-}
-
-function Test-QualificationCdp([int]$Port) {
-  try {
-    $version = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/json/version" -TimeoutSec 2
-    return [bool]$version.webSocketDebuggerUrl
-  } catch {
-    return $false
-  }
-}
-
-$startedByQualification = $false
-$qualificationBrowserPid = 0
 $cdpPort = 0
-
-$existingChrome = Get-LifecycleRobotChrome -Root $root
-if ($existingChrome) {
-  if ($existingChrome.CommandLine -notmatch '--remote-debugging-port=(\d+)') {
-    throw 'Dedicated Supervisor Chrome exists without a readable CDP port.'
-  }
+if ($chromeBefore.CommandLine -match '--remote-debugging-port=(\d+)') {
   $cdpPort = [int]$Matches[1]
-  if (-not (Test-QualificationCdp -Port $cdpPort)) {
-    throw "Dedicated Supervisor Chrome exists but CDP port $cdpPort is unhealthy."
-  }
-  Write-Host 'SC003_QUAL_EXISTING_DEDICATED_CHROME=True'
-} else {
-  $profileUsers = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -and $_.CommandLine -like "*$profile*" })
-  if ($profileUsers.Count -gt 0) {
-    throw 'Supervisor browser profile is already in use without a healthy dedicated CDP endpoint.'
-  }
-
-  $chrome = Get-QualificationChromeExecutable
-  if (-not $chrome) { throw 'Installed Google Chrome not found.' }
-  $cdpPort = Get-FreeQualificationCdpPort
-
-  $started = Start-Process -FilePath $chrome -WindowStyle Minimized -PassThru -ArgumentList @(
-    '--remote-debugging-address=127.0.0.1',
-    "--remote-debugging-port=$cdpPort",
-    ('--user-data-dir="' + $profile + '"'),
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--hide-crash-restore-bubble',
-    '--start-minimized',
-    '--disable-background-timer-throttling',
-    '--disable-backgrounding-occluded-windows',
-    '--disable-renderer-backgrounding',
-    '--disable-features=CalculateNativeWinOcclusion',
-    'https://chatgpt.com/'
-  )
-  $startedByQualification = $true
-
-  for ($i = 0; $i -lt 60; $i++) {
-    if (Test-QualificationCdp -Port $cdpPort) { break }
-    Start-Sleep -Milliseconds 500
-  }
-  if (-not (Test-QualificationCdp -Port $cdpPort)) {
-    throw "Qualification-owned Chrome did not expose healthy CDP on port $cdpPort."
-  }
-
-  $browserProcess = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
-    Where-Object {
-      $_.CommandLine -and
-      $_.CommandLine -like "*$profile*" -and
-      $_.CommandLine -match ("--remote-debugging-port=" + $cdpPort + "(\s|$)")
-    } |
-    Select-Object -First 1
-  if ($browserProcess) { $qualificationBrowserPid = [int]$browserProcess.ProcessId }
-  elseif ($started) { $qualificationBrowserPid = [int]$started.Id }
-
-  Write-Host 'SC003_QUAL_EXISTING_DEDICATED_CHROME=False'
+}
+if ($cdpPort -le 0) {
+  throw 'Dedicated Robot Chrome has no readable CDP port.'
 }
 
-$env:SUPERVISOR_SC003_CDP_URL = "http://127.0.0.1:$cdpPort"
-Write-Host "SC003_QUAL_CDP_PORT=$cdpPort"
-Write-Host 'SC003_QUAL_CDP_HEALTHY=True'
-Write-Host "SC003_QUAL_BROWSER_STARTED_BY_QUALIFICATION=$startedByQualification"
-
-$script = Join-Path $env:GITHUB_WORKSPACE '.github\scripts\supervisor-sc003-live-qualification.mjs'
-if (-not (Test-Path $script -PathType Leaf)) {
-  throw "Missing SC-003 qualification script: $script"
-}
-
+$holdCreated = $false
 $nodeExit = 1
 try {
+  Set-Content -Path $stopPath -Value $holdToken -Encoding ascii
+  $holdCreated = $true
+  Write-Host 'SC003_QUAL_TEMPORARY_LIFECYCLE_PAUSE=True'
+
+  if ($runtimeBefore) {
+    Stop-Process -Id ([int]$runtimeBefore.ProcessId) -Force -ErrorAction Stop
+    Write-Host "SC003_QUAL_RUNTIME_PAUSED_PID=$($runtimeBefore.ProcessId)"
+  }
+
+  for ($i = 0; $i -lt 30; $i++) {
+    $wrapperNow = Get-LifecycleSupervisorWrapper -Root $root
+    if (-not $wrapperNow) { break }
+    Start-Sleep -Milliseconds 300
+  }
+
+  $wrapperNow = Get-LifecycleSupervisorWrapper -Root $root
+  if ($wrapperNow) {
+    Stop-Process -Id ([int]$wrapperNow.ProcessId) -Force -ErrorAction Stop
+    Write-Host "SC003_QUAL_WRAPPER_FORCE_PAUSED_PID=$($wrapperNow.ProcessId)"
+  }
+
+  for ($i = 0; $i -lt 20; $i++) {
+    if (-not (Get-LifecycleSupervisorWrapper -Root $root)) { break }
+    Start-Sleep -Milliseconds 250
+  }
+  if (Get-LifecycleSupervisorWrapper -Root $root) {
+    throw 'Supervisor wrapper could not be paused for isolated SC-003 qualification.'
+  }
+
+  $chromeDuring = Get-LifecycleRobotChrome -Root $root
+  if (-not $chromeDuring -or -not (Test-LifecycleRobotCdp -ChromeProcess $chromeDuring -Root $root)) {
+    throw 'Dedicated Robot Chrome did not survive the temporary runtime pause.'
+  }
+
+  $env:SUPERVISOR_SC003_CDP_URL = "http://127.0.0.1:$cdpPort"
+  Write-Host "SC003_QUAL_CDP_PORT=$cdpPort"
+  Write-Host 'SC003_QUAL_CDP_HEALTHY_AFTER_PAUSE=True'
+
+  $script = Join-Path $env:GITHUB_WORKSPACE '.github\scripts\supervisor-sc003-live-qualification.mjs'
+  if (-not (Test-Path $script -PathType Leaf)) {
+    throw "Missing SC-003 qualification script: $script"
+  }
+
   & node $script $root $env:GITHUB_SHA
   $nodeExit = $LASTEXITCODE
 } finally {
-  if ($startedByQualification) {
-    $owned = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
-      Where-Object {
-        $_.CommandLine -and
-        $_.CommandLine -like "*$profile*" -and
-        $_.CommandLine -match ("--remote-debugging-port=" + $cdpPort + "(\s|$)")
-      })
-    foreach ($proc in $owned) {
-      Stop-Process -Id ([int]$proc.ProcessId) -Force -ErrorAction SilentlyContinue
+  $safeToResume = $false
+  if ($holdCreated -and (Test-Path $stopPath -PathType Leaf)) {
+    $currentStop = [string](Get-Content $stopPath -ErrorAction SilentlyContinue | Select-Object -First 1)
+    if ($currentStop -eq $holdToken -and -not (Test-Path $autostartDisabledPath)) {
+      Remove-Item $stopPath -Force -ErrorAction Stop
+      $safeToResume = $true
+      Write-Host 'SC003_QUAL_TEMPORARY_LIFECYCLE_PAUSE_CLEARED=True'
+    } else {
+      Write-Host 'SC003_QUAL_OWNER_LIFECYCLE_CHANGED_DURING_TEST=True'
     }
-    if ($qualificationBrowserPid -gt 0) {
-      Stop-Process -Id $qualificationBrowserPid -Force -ErrorAction SilentlyContinue
+  }
+
+  if ($wrapperBefore -and $safeToResume) {
+    if (-not (Test-Path $installedStart -PathType Leaf)) {
+      throw "Installed recovery start script is missing: $installedStart"
     }
-    Write-Host 'SC003_QUAL_OWNED_CHROME_CLEANUP=True'
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installedStart -Hidden -Recovery
+    if ($LASTEXITCODE -ne 0) {
+      throw 'Supervisor recovery start failed after SC-003 qualification.'
+    }
+
+    for ($i = 0; $i -lt 40; $i++) {
+      if (Get-LifecycleSupervisorWrapper -Root $root) { break }
+      Start-Sleep -Milliseconds 500
+    }
+    if (-not (Get-LifecycleSupervisorWrapper -Root $root)) {
+      throw 'Supervisor wrapper did not recover after SC-003 qualification.'
+    }
+    Write-Host 'SC003_QUAL_PRODUCTION_WRAPPER_RECOVERED=True'
   }
 }
 
