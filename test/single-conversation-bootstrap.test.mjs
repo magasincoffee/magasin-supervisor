@@ -1,0 +1,351 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+import {
+  acquireBlankNewChatSurface,
+  buildSingleConversationBootstrap,
+  createNewChatAndBootstrap
+} from "../src/runtime/single-conversation-bootstrap.mjs";
+import {
+  ensureSingleConversationState,
+  readSingleConversationState
+} from "../src/runtime/single-conversation-state.mjs";
+
+async function tempStatePath() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "magasin-sc003-"));
+  return {
+    root,
+    statePath: path.join(root, "single-conversation-state.json")
+  };
+}
+
+function blankSnapshot(overrides = {}) {
+  return {
+    pathKind: "home",
+    conversationPath: false,
+    composerReady: true,
+    userMessageCount: 0,
+    assistantMessageCount: 0,
+    loginRequired: false,
+    hasCaptcha: false,
+    conversationAccessDenied: false,
+    conversationMissing: false,
+    responseRunning: false,
+    hasContinueControl: false,
+    hasNetworkError: false,
+    hasTransientError: false,
+    ...overrides
+  };
+}
+
+function fakePage(initialUrl = "https://chatgpt.com/") {
+  let currentUrl = initialUrl;
+  return {
+    url() { return currentUrl; },
+    setUrl(value) { currentUrl = value; },
+    async waitForTimeout() {}
+  };
+}
+
+test("SC-003 bootstrap prompt carries sole Source of Truth and unique correlation", () => {
+  const message = buildSingleConversationBootstrap({
+    sourceOfTruthUrl: "https://github.com/magasincoffee/magasin-supervisor/blob/main/SOURCE_OF_TRUTH.md",
+    messageId: "msg-001"
+  });
+
+  assert.match(message, /^MAGASIN_SINGLE_CONVERSATION_BOOTSTRAP_V1/m);
+  assert.match(message, /message_id=msg-001/);
+  assert.match(
+    message,
+    /source_of_truth=https:\/\/github\.com\/magasincoffee\/magasin-supervisor\/blob\/main\/SOURCE_OF_TRUTH\.md/
+  );
+  assert.match(message, /authority duy nhất/);
+  assert.match(message, /đọc Source of Truth .* từ đầu/i);
+  assert.match(message, /MAGASIN_BOOTSTRAP_CORRELATION_V1 msg-001/);
+  assert.doesNotMatch(message, /Planner|Executor|Brain|Work mode/i);
+});
+
+test("SC-003 reuses an authenticated blank ChatGPT home as New Chat", async () => {
+  const page = fakePage();
+  let newPages = 0;
+  const adapter = {
+    async open() {},
+    getActivePage() { return page; },
+    async probePage(candidate) {
+      assert.equal(candidate, page);
+      return { snapshot: blankSnapshot() };
+    },
+    async newChatPage() {
+      newPages += 1;
+      return fakePage();
+    }
+  };
+
+  const result = await acquireBlankNewChatSurface(adapter);
+  assert.equal(result.page, page);
+  assert.equal(result.created, false);
+  assert.equal(result.reused_home, true);
+  assert.equal(newPages, 0);
+});
+
+test("SC-003 refuses to reuse an old conversation and opens a blank New Chat", async () => {
+  const oldPage = fakePage("https://chatgpt.com/c/old");
+  const newPage = fakePage();
+  let newPages = 0;
+  const adapter = {
+    async open() {},
+    getActivePage() { return oldPage; },
+    async newChatPage(url) {
+      newPages += 1;
+      assert.equal(url, "https://chatgpt.com/");
+      return newPage;
+    },
+    async probePage(candidate) {
+      assert.equal(candidate, newPage);
+      return { snapshot: blankSnapshot() };
+    }
+  };
+
+  const result = await acquireBlankNewChatSurface(adapter);
+  assert.equal(result.page, newPage);
+  assert.equal(result.created, true);
+  assert.equal(result.reused_home, false);
+  assert.equal(newPages, 1);
+});
+
+test("SC-003 login and CAPTCHA boundaries fail before any send", async () => {
+  for (const snapshot of [
+    blankSnapshot({ composerReady: false, loginRequired: true }),
+    blankSnapshot({ composerReady: false, hasCaptcha: true })
+  ]) {
+    const page = fakePage();
+    const adapter = {
+      async open() {},
+      getActivePage() { return page; },
+      async probePage() { return { snapshot }; },
+      async newChatPage() { return page; }
+    };
+
+    await assert.rejects(
+      acquireBlankNewChatSurface(adapter),
+      /login is required|CAPTCHA/
+    );
+  }
+});
+
+test("SC-003 persists PREPARED before send, confirms user turn, then records response complete", async () => {
+  const { root, statePath } = await tempStatePath();
+  const page = fakePage();
+  let sent = false;
+  let waitProbe = 0;
+
+  const adapter = {
+    async open() {},
+    getActivePage() { return page; },
+    async newChatPage() {
+      throw new Error("blank home should be reused");
+    },
+    async probePage() {
+      if (!sent) return { snapshot: blankSnapshot() };
+      waitProbe += 1;
+      if (waitProbe === 1) {
+        return {
+          snapshot: blankSnapshot({
+            pathKind: "conversation",
+            conversationPath: true,
+            userMessageCount: 1,
+            responseRunning: true
+          })
+        };
+      }
+      return {
+        snapshot: blankSnapshot({
+          pathKind: "conversation",
+          conversationPath: true,
+          userMessageCount: 1,
+          assistantMessageCount: 1,
+          responseRunning: false
+        })
+      };
+    }
+  };
+
+  const captureTurn = async (_page, role) => {
+    if (!sent) return null;
+    if (role === "user") {
+      return {
+        role: "user",
+        turn_id: "conversation-turn-1",
+        text: "bootstrap",
+        digest: "user-digest"
+      };
+    }
+    if (role === "assistant" && waitProbe >= 2) {
+      return {
+        role: "assistant",
+        turn_id: "conversation-turn-2",
+        text: "Bootstrap response",
+        digest: "assistant-digest"
+      };
+    }
+    return null;
+  };
+
+  try {
+    const result = await createNewChatAndBootstrap({
+      adapter,
+      statePath,
+      sourceOfTruthUrl: "https://example.com/SOURCE_OF_TRUTH.md",
+      messageId: "msg-002",
+      captureTurn,
+      sendInstruction: async (_page, message, options) => {
+        assert.equal(options.dryRun, false);
+        const durableBeforeSend = await readSingleConversationState(statePath);
+        assert.equal(durableBeforeSend.outbound.state, "PREPARED");
+        assert.equal(durableBeforeSend.outbound.message_id, "msg-002");
+        assert.equal(durableBeforeSend.source_of_truth.sync_status, "SYNCING");
+        assert.match(message, /MAGASIN_SINGLE_CONVERSATION_BOOTSTRAP_V1/);
+        sent = true;
+        page.setUrl("https://chatgpt.com/c/new-conversation");
+        return {
+          executed: true,
+          user_turn_evidence: "matching-user-turn-observed"
+        };
+      },
+      timeoutMs: 5_000,
+      pollMs: 1,
+      now: () => "2026-09-28T12:00:00.000Z"
+    });
+
+    assert.equal(result.response.status, "RESPONSE_COMPLETE");
+    assert.equal(result.response.assistant_turn.turn_id, "conversation-turn-2");
+
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.conversation.generation, 1);
+    assert.equal(durable.conversation.status, "ACTIVE");
+    assert.match(durable.conversation.runtime_id, /^chat:[0-9a-f]{32}$/);
+    assert.equal(durable.outbound.state, "RESPONSE_COMPLETE");
+    assert.equal(durable.outbound.delivered_user_turn_id, "conversation-turn-1");
+    assert.equal(durable.automation.phase, "BOOTSTRAP_RESPONSE_COMPLETE");
+
+    const raw = await fs.readFile(statePath, "utf8");
+    assert.doesNotMatch(raw, /chatgpt\.com\/c\/new-conversation/);
+    assert.doesNotMatch(raw, /planner_url|executor_url/i);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("SC-003 does not mark a partial response complete when Continue is required", async () => {
+  const { root, statePath } = await tempStatePath();
+  const page = fakePage();
+  let sent = false;
+
+  const adapter = {
+    async open() {},
+    getActivePage() { return page; },
+    async newChatPage() { return page; },
+    async probePage() {
+      if (!sent) return { snapshot: blankSnapshot() };
+      return {
+        snapshot: blankSnapshot({
+          pathKind: "conversation",
+          conversationPath: true,
+          userMessageCount: 1,
+          assistantMessageCount: 1,
+          hasContinueControl: true
+        })
+      };
+    }
+  };
+
+  const captureTurn = async (_page, role) => {
+    if (!sent) return null;
+    if (role === "user") {
+      return { turn_id: "user-1", text: "bootstrap", digest: "u1" };
+    }
+    return {
+      turn_id: "assistant-partial",
+      text: "partial",
+      digest: "a1"
+    };
+  };
+
+  try {
+    const result = await createNewChatAndBootstrap({
+      adapter,
+      statePath,
+      sourceOfTruthUrl: "https://example.com/source",
+      messageId: "msg-continue",
+      captureTurn,
+      sendInstruction: async () => {
+        sent = true;
+        page.setUrl("https://chatgpt.com/c/partial");
+        return { executed: true, user_turn_evidence: "matching-user-turn-observed" };
+      },
+      timeoutMs: 1_000,
+      pollMs: 1
+    });
+
+    assert.equal(result.response.status, "CONTINUE_REQUIRED");
+    const durable = await readSingleConversationState(statePath);
+    assert.notEqual(durable.outbound.state, "RESPONSE_COMPLETE");
+    assert.notEqual(durable.automation.phase, "BOOTSTRAP_RESPONSE_COMPLETE");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("SC-003 confirmed-send failure is persisted as bounded bootstrap failure", async () => {
+  const { root, statePath } = await tempStatePath();
+  const page = fakePage();
+  const adapter = {
+    async open() {},
+    getActivePage() { return page; },
+    async newChatPage() { return page; },
+    async probePage() { return { snapshot: blankSnapshot() }; }
+  };
+
+  try {
+    await assert.rejects(
+      createNewChatAndBootstrap({
+        adapter,
+        statePath,
+        sourceOfTruthUrl: "https://example.com/source",
+        messageId: "msg-fail",
+        captureTurn: async () => null,
+        sendInstruction: async () => ({
+          executed: false,
+          reason: "composer did not send",
+          rejection_class: "SEND_NOT_ACTUATED"
+        }),
+        timeoutMs: 100,
+        pollMs: 1
+      }),
+      /composer did not send/
+    );
+
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.automation.status, "BLOCKED");
+    assert.equal(durable.automation.phase, "BOOTSTRAP_FAILED");
+    assert.equal(durable.outbound.last_error_code, "SEND_NOT_ACTUATED");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("SC-003 CLI requires Source of Truth/CDP but never a chat URL", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-bootstrap-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /--source-of-truth/);
+  assert.match(source, /--cdp-url/);
+  assert.match(source, /--execute/);
+  assert.match(source, /SC003_CHAT_URL_REQUIRED=False/);
+  assert.doesNotMatch(source, /--planner-url|--executor-url|--chat-url/);
+});
