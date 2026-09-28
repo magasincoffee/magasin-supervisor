@@ -199,7 +199,41 @@ async function sendToken(bridge, pageId, role, suffix) {
     throw error;
   }
   const reply = String(result?.snapshot?.last_assistant || "");
-  if (!reply.includes(token)) throw new Error(role + " live token reply mismatch");
+  if (!reply.includes(token)) {
+    const recent = Array.isArray(result?.snapshot?.recent_turns)
+      ? result.snapshot.recent_turns
+      : [];
+    const assistantRecent = recent.filter((turn) => turn?.role === "assistant");
+    const page = role === "planner" ? plannerPage : executorPage;
+    const domToken = page ? await page.evaluate((expected) => {
+      const selectors = [
+        '[data-message-author-role="assistant"]',
+        "main [class*='MarkdownRoot-']",
+        "main .markdown"
+      ];
+      const nodes = Array.from(document.querySelectorAll(selectors.join(",")));
+      const unique = Array.from(new Set(nodes));
+      return {
+        assistant_nodes: unique.length,
+        token_hits: unique.filter((node) =>
+          String(node.innerText || node.textContent || "").includes(expected)
+        ).length
+      };
+    }, token).catch(() => null) : null;
+    log("MBV1_008_MISMATCH_ROLE", role);
+    log("MBV1_008_MISMATCH_ASSISTANT_COUNT", result?.snapshot?.assistant_count ?? null);
+    log("MBV1_008_MISMATCH_GENERATING", result?.snapshot?.is_generating ?? null);
+    log("MBV1_008_MISMATCH_LAST_LENGTH", reply.length);
+    log("MBV1_008_MISMATCH_LAST_DIGEST", sha(reply));
+    log("MBV1_008_MISMATCH_RECENT_ASSISTANTS", assistantRecent.length);
+    log("MBV1_008_MISMATCH_RECENT_TOKEN_HITS",
+      assistantRecent.filter((turn) => String(turn?.text || "").includes(token)).length);
+    log("MBV1_008_MISMATCH_DOM_ASSISTANT_NODES", domToken?.assistant_nodes ?? null);
+    log("MBV1_008_MISMATCH_DOM_TOKEN_HITS", domToken?.token_hits ?? null);
+    log("MBV1_008_MISMATCH_COUNT_ADVANCED", result?.evidence?.count_advanced ?? null);
+    log("MBV1_008_MISMATCH_DIGEST_CHANGED", result?.evidence?.digest_changed ?? null);
+    throw new Error(role + " live token reply mismatch");
+  }
   return token;
 }
 
