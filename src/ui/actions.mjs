@@ -115,6 +115,14 @@ function selectAllChord() {
 
 async function keyboardClearComposer(page, composer) {
   await composer.click({ timeout: 2_000 });
+  // Use the page keyboard after explicitly focusing the live composer. Current
+  // ChatGPT can rerender ProseMirror between locator key events; page-level
+  // native keys match the SC-003 path that is qualified on the real target.
+  if (page.keyboard && typeof page.keyboard.press === "function") {
+    await page.keyboard.press(selectAllChord());
+    await page.keyboard.press("Backspace");
+    return;
+  }
   await composer.press(selectAllChord(), { timeout: 2_000 });
   await composer.press("Backspace", { timeout: 2_000 });
 }
@@ -144,7 +152,7 @@ async function clearComposerText(
 
 function normalizeComposerText(value) {
   return String(value || "")
-    .replace(/\u200B/g, "")
+    .replace(/[\u200B-\u200F\u2060\uFEFF]/g, "")
     .replace(/\r\n/g, "\n")
     .trim();
 }
@@ -178,7 +186,9 @@ async function readComposerText(composer) {
         ) {
           return el.value;
         }
-        return el.innerText || el.textContent || "";
+        // textContent is the stable logical ProseMirror value on the current
+        // ChatGPT composer; innerText can inject layout-derived whitespace.
+        return el.textContent || el.innerText || "";
       });
     } catch {}
   }
@@ -356,20 +366,36 @@ async function captureUserTurnState(page, instruction) {
         .trim();
       const wanted = normalize(expected);
 
-      // Prefer semantic role nodes when the UI exposes them. Current ChatGPT
-      // can instead render user turns only through the modern text surface, so
-      // fall back to that selector rather than reporting a false send failure
-      // after the composer has already transitioned.
-      const legacyTurns = Array.from(
-        document.querySelectorAll('[data-message-author-role="user"]')
-      );
-      const turns = legacyTurns.length
-        ? legacyTurns
-        : Array.from(document.querySelectorAll(selectors.modern));
+      // A live conversation can contain a mixed DOM during hydration: older
+      // turns may expose semantic role nodes while the newest user turn exists
+      // only on the modern text surface. Never choose one representation and
+      // discard the other. Merge both sets, exclude the active composer, and
+      // deduplicate nested/identical DOM nodes by element identity.
+      const candidates = [
+        // Keep the legacy selector literal here as well as in the selector
+        // contract. Besides being equivalent in production, this preserves
+        // compatibility with existing deterministic UI fixtures that identify
+        // the semantic user-turn probe by function source.
+        ...document.querySelectorAll('[data-message-author-role="user"]'),
+        ...document.querySelectorAll(selectors.modern)
+      ];
+      const seen = new Set();
+      const turns = [];
+      for (const node of candidates) {
+        if (!node || seen.has(node)) continue;
+        seen.add(node);
+        if (
+          node.matches?.("#prompt-textarea,textarea,[contenteditable='true'],[contenteditable='plaintext-only']") ||
+          node.closest?.("#prompt-textarea")
+        ) {
+          continue;
+        }
+        turns.push(node);
+      }
 
       let exactMatchCount = 0;
       for (const node of turns) {
-        const text = normalize(node.innerText || node.textContent || "");
+        const text = normalize(node.textContent || node.innerText || "");
         if (text === wanted) exactMatchCount += 1;
       }
       return {
@@ -542,14 +568,47 @@ async function setComposerText(
     afterInsert,
     instruction
   );
-  if (persisted === false) {
-    return {
-      ready: false,
-      reason: "composer text did not persist after bounded keyboard insertion"
-    };
+  if (persisted !== false) {
+    return { ready: true, method: "keyboard-insertText", composer: afterInsert };
   }
 
-  return { ready: true, method: "keyboard", composer: afterInsert };
+  // Current ChatGPT can accept insertText() at the Playwright layer without
+  // updating the live ProseMirror/React editor. For printable ASCII machine
+  // contracts, fall back once to native key events, which matches the proven
+  // SC-003 bootstrap path. This mutates only the draft; no send occurs here.
+  if (
+    /^[\x20-\x7E]+$/.test(instruction) &&
+    page.keyboard &&
+    typeof page.keyboard.type === "function"
+  ) {
+    const typedComposer = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+    if (typedComposer) {
+      await keyboardClearComposer(page, typedComposer);
+      await page.keyboard.type(instruction, { delay: 0 });
+      if (typeof page.waitForTimeout === "function") {
+        await page.waitForTimeout(180);
+      }
+      const afterType = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+      if (afterType) {
+        const typedPersisted = await composerContainsExactInstruction(
+          afterType,
+          instruction
+        );
+        if (typedPersisted !== false) {
+          return {
+            ready: true,
+            method: "native-keyboard-type",
+            composer: afterType
+          };
+        }
+      }
+    }
+  }
+
+  return {
+    ready: false,
+    reason: "composer text did not persist after bounded keyboard insertion"
+  };
 }
 
 function visibleControlSnapshot(page) {

@@ -388,7 +388,7 @@ Completion evidence:
 - hosted Supervisor Tests, Supervisor Integrity, Lifecycle Acceptance, and Autostart Install passed on the SC-003 candidate before completion was recorded.
 
 ### SC-004 — One-chat execution loop
-State: **PLANNED**
+State: **COMPLETE**
 
 Implement:
 - wait for complete assistant response;
@@ -399,6 +399,19 @@ Implement:
 
 DoD:
 - multiple task cycles complete using one conversation and one active mutation at a time.
+
+Completion evidence:
+- canonical implementation: `src/runtime/single-conversation-loop.mjs`;
+- each next-work message re-reads the sole Source of Truth and carries a unique cycle correlation id;
+- response completion is correlation-aware so transient false-idle assistant rendering cannot advance the loop early;
+- explicit Continue generating is actuated only through the safe Continue control with a bounded click budget;
+- durable cycle state advances through PREPARED / DELIVERED / RESPONSE_RUNNING / RESPONSE_COMPLETE and verifies Source of Truth before material next-task selection;
+- shared composer transport includes bounded native-keyboard fallback and mixed legacy/modern user-turn reconciliation required by the current ChatGPT DOM;
+- SC-004 Live One Chat Qualification run #9 passed its target-machine attempt on `DESKTOP-4K7IM13` and the aggregate `qualification-authority` gate passed;
+- live evidence recorded `SC004_LIVE_TWO_CYCLES_COMPLETE=True`, `SC004_LIVE_SINGLE_CONVERSATION_GENERATION=True`, `SC004_LIVE_RUNTIME_IDENTITY_PRESERVED=True`, `SC004_LIVE_SOURCE_OF_TRUTH_VERIFIED=True`, and `SC004_QUAL_QUALIFIED=True`;
+- qualification detected a stale HTTP-only CDP health false-positive, used the existing one-shot dedicated-Chrome recovery semantics before any UI mutation, reattached successfully, and then completed both cycles;
+- production project state was not mutated and qualification requested no external-system mutation;
+- hosted Supervisor Tests, Supervisor Integrity, Lifecycle Acceptance, and Autostart Install passed on the SC-004 candidate before completion was recorded.
 
 ### SC-005 — Disposable-chat rollover
 State: **PLANNED**

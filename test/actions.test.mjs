@@ -48,7 +48,10 @@ function fakePage({
   onFill = () => {},
   onPress = () => {},
   onInsertText = () => {},
+  onType = () => {},
   transformComposerText = (value) => value,
+  transformInsertText = transformComposerText,
+  transformType = transformComposerText,
   fillError = null
 } = {}) {
   let composerText = "";
@@ -107,8 +110,12 @@ function fakePage({
     async bringToFront() {},
     keyboard: {
       async insertText(value) {
-        composerText = transformComposerText(value);
+        composerText = transformInsertText(value);
         onInsertText(value);
+      },
+      async type(value) {
+        composerText = transformType(value);
+        onType(value);
       },
       async press(key) {
         if (key === "Enter" && composerText) {
@@ -181,6 +188,46 @@ test("composer verification accepts render-equivalent whitespace before clicking
   assert.equal(result.executed, true);
   assert.equal(clicks, 1);
   assert.equal(result.send_method, "direct-control");
+});
+
+test("composer verification ignores directional zero-width marks", async () => {
+  let clicks = 0;
+  const instruction = "MAGASIN_SINGLE_CONVERSATION_NEXT_V1 id=cycle-hidden";
+  const result = await sendComposerInstruction(
+    fakePage({
+      controls: [{ text: "", ariaLabel: "Send prompt", testId: "send-button" }],
+      transformComposerText: (value) => value + "\u200E\u2060",
+      onClick: () => { clicks += 1; }
+    }),
+    instruction,
+    { dryRun: false }
+  );
+
+  assert.equal(result.executed, true);
+  assert.equal(clicks, 1);
+});
+
+test("ASCII composer falls back to native keyboard typing when fill and insertText are inert", async () => {
+  let typed = 0;
+  let clicks = 0;
+  const instruction = "MAGASIN_SINGLE_CONVERSATION_NEXT_V1 id=cycle-1";
+  const result = await sendComposerInstruction(
+    fakePage({
+      controls: [{ text: "", ariaLabel: "Send prompt", testId: "send-button" }],
+      transformComposerText: () => "",
+      transformInsertText: () => "",
+      transformType: (value) => value,
+      onType: () => { typed += 1; },
+      onClick: () => { clicks += 1; }
+    }),
+    instruction,
+    { dryRun: false }
+  );
+
+  assert.equal(result.executed, true);
+  assert.equal(result.input_method, "native-keyboard-type");
+  assert.equal(typed, 1);
+  assert.equal(clicks, 1);
 });
 
 test("retry clicks only a recognized retry control", async () => {
@@ -256,6 +303,64 @@ test("action surface targets only a visible composer", async () => {
   assert.match(selectorSeen, /:visible/);
 });
 
+
+test("send confirmation accepts a new modern user turn when legacy turns also exist", async () => {
+  const instruction = "MAGASIN_SINGLE_CONVERSATION_NEXT_V1 id=mixed-dom";
+  let composerText = "";
+  let sent = false;
+
+  const composer = fakeLocator({
+    inputValue: () => composerText,
+    onFill: (value) => { composerText = value; },
+    onPress: (key) => {
+      if (key === "Backspace") composerText = "";
+    }
+  });
+  const send = fakeLocator({
+    onClick: () => {
+      sent = true;
+      composerText = "";
+    }
+  });
+
+  let userProbe = 0;
+  const page = {
+    locator(selector) {
+      if (
+        selector.includes("prompt-textarea") ||
+        selector.includes("contenteditable") ||
+        selector.includes("textarea")
+      ) return composer;
+      if (selector.includes("send-button") || selector.includes("submit")) return send;
+      return fakeLocator({ visible: false, enabled: false, count: 0 });
+    },
+    async evaluate(fn) {
+      if (String(fn).includes("data-message-author-role")) {
+        userProbe += 1;
+        if (!sent) {
+          return { readable: true, totalCount: 1, exactMatchCount: 0 };
+        }
+        return { readable: true, totalCount: 2, exactMatchCount: 1 };
+      }
+      return [{ text: "", ariaLabel: "Send prompt", testId: "send-button", disabled: false }];
+    },
+    async waitForTimeout() {},
+    async bringToFront() {},
+    keyboard: {
+      async press(key) {
+        if (key === "Backspace") composerText = "";
+      },
+      async insertText(value) { composerText = value; },
+      async type(value) { composerText = value; }
+    },
+    getByRole() { return send; }
+  };
+
+  const result = await sendComposerInstruction(page, instruction, { dryRun: false });
+  assert.equal(result.executed, true);
+  assert.equal(result.user_turn_evidence, "matching-user-turn-observed");
+  assert.ok(userProbe >= 2);
+});
 
 test("dynamic composer send never clicks Continue-generating as a substitute", async () => {
   let filled = null;
@@ -426,7 +531,7 @@ test("fill success without persisted text falls back to a real keyboard insertio
   );
 
   assert.equal(result.executed, true);
-  assert.equal(result.input_method, "keyboard");
+  assert.equal(result.input_method, "keyboard-insertText");
   assert.equal(composerText, "");
   assert.equal(result.submit_evidence, "composer-changed");
   assert.ok(events.includes("fill"));
