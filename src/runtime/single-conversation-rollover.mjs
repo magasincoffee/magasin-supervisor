@@ -29,6 +29,19 @@ export function classifyDisposableConversation(snapshot = {}, {
     return { action: "WAIT_OWNER", reason: "CAPTCHA_REQUIRED" };
   }
 
+  if (
+    snapshot.pageClosed ||
+    snapshot.unrecoverableStalePage
+  ) {
+    return { action: "REPLACE_CHAT", reason: "STALE_OR_CLOSED_PAGE" };
+  }
+  if (
+    snapshot.pageIdentityAmbiguous ||
+    snapshot.conversationIdentityAmbiguous
+  ) {
+    return { action: "REPLACE_CHAT", reason: "AMBIGUOUS_PAGE_IDENTITY" };
+  }
+
   if (snapshot.conversationMissing) {
     return { action: "REPLACE_CHAT", reason: "CONVERSATION_MISSING" };
   }
@@ -154,6 +167,8 @@ export async function replaceDisposableConversation({
   messageId = randomUUID(),
   sendInstruction,
   captureTurn,
+  qualificationOnly = false,
+  onPageAcquired = null,
   timeoutMs = 180_000,
   pollMs = 750,
   now = () => new Date().toISOString()
@@ -193,7 +208,9 @@ export async function replaceDisposableConversation({
     sourceOfTruthUrl: source,
     projectId,
     messageId,
+    qualificationOnly,
     forceNewPage: true,
+    onPageAcquired,
     sendInstruction,
     captureTurn,
     timeoutMs,
@@ -227,7 +244,11 @@ export async function recoverDisposableConversationIfNeeded({
   if (!adapter) throw new Error("adapter is required");
   if (!page) throw new Error("page is required");
 
-  const probe = await adapter.probePage(page);
+  const pageClosed =
+    typeof page.isClosed === "function" && page.isClosed();
+  const probe = pageClosed
+    ? { snapshot: { pageClosed: true } }
+    : await adapter.probePage(page);
   const classification = classifyDisposableConversation(
     probe?.snapshot || {},
     { consecutiveTransientFailures, transientFailureThreshold }
