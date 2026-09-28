@@ -120,6 +120,24 @@ async function waitSetupReply(page, token) {
   }, 120_000, "ChatGPT setup token reply");
 }
 
+async function waitReloadInteractive(page, label) {
+  const interactive = async () => page.evaluate(() => {
+    const composer = document.querySelector("#prompt-textarea") ||
+      document.querySelector('[contenteditable][role="textbox"]') ||
+      document.querySelector("textarea");
+    return Boolean(document.querySelector("main") && composer);
+  }).catch(() => false);
+
+  try {
+    return await waitFor(interactive, 45_000, label + " interactive");
+  } catch {
+    // A same-URL ChatGPT reload can occasionally stop at a blank SPA shell.
+    // One bounded second reload is safe before any Bridge command is enqueued.
+    await page.reload({ waitUntil: "domcontentloaded" });
+    return waitFor(interactive, 45_000, label + " interactive recovery");
+  }
+}
+
 async function sendSetup(page, role) {
   const token = "MBV1_SETUP_" + role.toUpperCase() + "_" + crypto.randomBytes(4).toString("hex");
   const sent = await sendComposerInstruction(
@@ -408,6 +426,7 @@ try {
   log("MBV1_008_LIVE_ROLE_ISOLATION", "PASS");
 
   await plannerPage.reload({ waitUntil: "domcontentloaded" });
+  await waitReloadInteractive(plannerPage, "planner reload");
   await injectPinnedBridgeUserscript(plannerPage, userscript, { bindingName });
   binding = await waitBinding(bridge, plannerSetup.url, executorSetup.url);
   const plannerHistoryRehydrated = await waitBridgeHistoryEvidence(
@@ -423,6 +442,7 @@ try {
   log("MBV1_008_LIVE_PLANNER_RELOAD", "PASS");
 
   await executorPage.reload({ waitUntil: "domcontentloaded" });
+  await waitReloadInteractive(executorPage, "executor reload");
   await injectPinnedBridgeUserscript(executorPage, userscript, { bindingName });
   binding = await waitBinding(bridge, plannerSetup.url, executorSetup.url);
   const executorHistoryRehydrated = await waitBridgeHistoryEvidence(
