@@ -816,3 +816,24 @@ Status: **COMPLETE**.
 - production cutover remains false.
 
 Current progress: `pc=7 / pt=8` (87.5%). Next task: **MBV1-008 — Qualification + Cutover**.
+
+
+#### MBV1-001 authoritative completion evidence
+
+- merged PR: #173;
+- merge commit: `8146ca53e99cba08292eac80be4ad6403a875fa4`;
+- authoritative live workflow run: `36330634492`;
+- target machine: `DESKTOP-4K7IM13`;
+- target attempt job: `108651748072`;
+- authority job: `108652177893`;
+- pinned upstream: `OLmatter/chatgpt-bridge@848efb9e85f52f251c82ab099747833c0693c072`;
+- Bridge service online: PASS;
+- Planner connected: PASS;
+- Executor connected: PASS;
+- distinct page_id: PASS;
+- Planner send/read: PASS;
+- Executor send/read: PASS;
+- role isolation: PASS;
+- OpenAI API required for Bridge transport: false;
+- production state/targets mutated: false;
+- MBV1-002 is now the canonical next task.
