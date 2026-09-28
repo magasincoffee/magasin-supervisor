@@ -162,6 +162,12 @@ try {
       if (evidence.rejection_class) {
         log("SC003_LIVE_REJECTION_CLASS", evidence.rejection_class);
       }
+      if (evidence.user_turn_evidence) {
+        log("SC003_LIVE_USER_TURN_EVIDENCE", evidence.user_turn_evidence);
+      }
+      if (evidence.conversation_turn_count !== undefined) {
+        log("SC003_LIVE_CONVERSATION_TURN_COUNT", evidence.conversation_turn_count);
+      }
       if (evidence.mismatch) {
         log("SC003_LIVE_MISMATCH_EXPECTED_LEN", evidence.mismatch.expected_len);
         log("SC003_LIVE_MISMATCH_ACTUAL_LEN", evidence.mismatch.actual_len);
