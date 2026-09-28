@@ -70,6 +70,17 @@ test("SC-003 bootstrap prompt carries sole Source of Truth and unique correlatio
   assert.doesNotMatch(message, /Planner|Executor|Brain|Work mode/i);
 });
 
+test("SC-003 bootstrap prompt remains printable ASCII for reliable remote composer typing", () => {
+  for (const qualificationOnly of [false, true]) {
+    const message = buildSingleConversationBootstrap({
+      sourceOfTruthUrl: "https://github.com/magasincoffee/magasin-supervisor/blob/main/SOURCE_OF_TRUTH.md",
+      messageId: qualificationOnly ? "qual-ascii" : "prod-ascii",
+      qualificationOnly
+    });
+    assert.equal(/^[\x20-\x7E]*$/.test(message), true);
+  }
+});
+
 test("SC-003 qualification prompt is read-only and correlation-bound", () => {
   const message = buildSingleConversationBootstrap({
     sourceOfTruthUrl: "https://github.com/magasincoffee/magasin-supervisor/blob/main/SOURCE_OF_TRUTH.md",
