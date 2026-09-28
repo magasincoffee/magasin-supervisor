@@ -3,9 +3,11 @@
 > MIG-002 platform-oriented mirror. Business OS original remains unchanged and authoritative for project integration during the compatibility window.
 > Protocol semantics and byte-exact markers are unchanged. Deep project-state decoupling is deferred to MIG-003.
 
-# MAGASIN_LANE_DIRECTIVE_V1 — Canonical Brain → Robot Protocol
+# SUPERSEDED — MAGASIN_LANE_DIRECTIVE_V1 Brain → Robot Protocol
 
-Status: **CANONICAL / REQUIRED FOR ALL MAGASIN BRAIN PROJECTS**
+Status: **HISTORICAL / NON-AUTHORITATIVE**
+
+> Current project authority is `/SOURCE_OF_TRUTH.md`. This protocol belongs to the superseded Brain/Work architecture and is retained only as implementation/history reference. Do not use it to select current runtime architecture or project work.
 
 Purpose: define the exact machine-readable response a Brain must return so MAGASIN Supervisor can parse it and dispatch work to the lane's Work conversation.
 
@@ -317,6 +319,6 @@ For decomposable work, Brain targets roughly <=20 minutes of active implementati
 
 To configure another Brain project, tell that Brain:
 
-> Read and permanently follow the canonical MAGASIN Supervisor directive protocol in `01_DOCS/MAGASIN/00_MAGASIN_LANE_DIRECTIVE_V1_PROTOCOL.md`. When the Robot polls you, output only a valid directive according to that file.
+> HISTORICAL EXAMPLE ONLY. This prompt belonged to the superseded Brain/Work architecture and MUST NOT be used as a current Robot instruction. Current authority is `/SOURCE_OF_TRUTH.md`.
 
 The protocol defines serialization only. Project-specific planning, dependency checks, DoD, safety rules, and Work instructions remain the responsibility of each project's Brain architecture.
