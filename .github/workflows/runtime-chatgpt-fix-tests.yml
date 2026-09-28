@@ -1,0 +1,32 @@
+name: Runtime ChatGPT Fix Tests
+
+on:
+  push:
+    branches:
+      - rbt-runtime-chatgpt-open-fix-20260928
+    paths:
+      - src/runtime/chatgpt-bridge-page-runtime.mjs
+      - src/runtime/planner-executor-bridge-cli.mjs
+      - test/chatgpt-bridge-page-runtime.test.mjs
+      - test/planner-executor-bridge-reliability.test.mjs
+      - .github/workflows/runtime-chatgpt-fix-tests.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        shell: powershell
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Run targeted runtime regressions
+        shell: powershell
+        run: |
+          node --test test/chatgpt-bridge-page-runtime.test.mjs test/planner-executor-bridge-reliability.test.mjs
