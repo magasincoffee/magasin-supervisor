@@ -8,7 +8,8 @@ import {
   acquireBlankNewChatSurface,
   buildSingleConversationBootstrap,
   createNewChatAndBootstrap,
-  sendFreshChatBootstrapInstruction
+  sendFreshChatBootstrapInstruction,
+  waitForBootstrapResponse
 } from "../src/runtime/single-conversation-bootstrap.mjs";
 import {
   ensureSingleConversationState,
@@ -514,6 +515,71 @@ test("SC-003 does not mark a partial response complete when Continue is required
     const durable = await readSingleConversationState(statePath);
     assert.notEqual(durable.outbound.state, "RESPONSE_COMPLETE");
     assert.notEqual(durable.automation.phase, "BOOTSTRAP_RESPONSE_COMPLETE");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("SC-003 qualification waits through false-idle partial assistant text until correlation appears", async () => {
+  const { root, statePath } = await tempStatePath();
+  let captureCount = 0;
+  const page = {
+    async waitForTimeout() {}
+  };
+  const adapter = {
+    async probePage() {
+      return {
+        snapshot: blankSnapshot({
+          pathKind: "conversation",
+          conversationPath: true,
+          userMessageCount: 1,
+          assistantMessageCount: 1,
+          responseRunning: false
+        })
+      };
+    }
+  };
+  const marker = "MAGASIN_BOOTSTRAP_CORRELATION_V1 qual-false-idle";
+
+  try {
+    await ensureSingleConversationState(statePath, {
+      sourceOfTruthUrl: "https://example.com/source"
+    });
+
+    const response = await waitForBootstrapResponse({
+      adapter,
+      page,
+      statePath,
+      expectedAssistantMarker: marker,
+      assistantSettleMs: 10_000,
+      captureTurn: async (_page, role) => {
+        assert.equal(role, "assistant");
+        captureCount += 1;
+        if (captureCount === 1) {
+          return {
+            role: "assistant",
+            turn_id: "assistant-live",
+            text: "Architecture generation: SINGLE_CONVERSATION_V1",
+            digest: "partial-digest"
+          };
+        }
+        return {
+          role: "assistant",
+          turn_id: "assistant-live",
+          text:
+            "Architecture generation: SINGLE_CONVERSATION_V1\n" +
+            marker,
+          digest: "complete-digest"
+        };
+      },
+      timeoutMs: 1_000,
+      pollMs: 1
+    });
+
+    assert.equal(captureCount, 2);
+    assert.equal(response.status, "RESPONSE_COMPLETE");
+    assert.equal(response.marker_confirmed, true);
+    assert.match(response.assistant_turn.text, /qual-false-idle/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
