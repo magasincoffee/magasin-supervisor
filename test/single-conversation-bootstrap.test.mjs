@@ -308,6 +308,7 @@ test("SC-003 trusts exact fresh-turn send proof without a second role-selector c
     async probePage() {
       if (waitProbe === 0) return { snapshot: blankSnapshot() };
       if (waitProbe === 1) {
+        waitProbe = 2;
         return {
           snapshot: blankSnapshot({
             pathKind: "conversation",
@@ -363,7 +364,6 @@ test("SC-003 trusts exact fresh-turn send proof without a second role-selector c
       pollMs: 1
     });
 
-    waitProbe = 2;
     assert.equal(result.send.user_turn_id, "conversation-turn-1");
     const durable = await readSingleConversationState(statePath);
     assert.equal(
