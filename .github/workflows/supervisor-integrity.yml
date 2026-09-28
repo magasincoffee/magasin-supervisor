@@ -8,6 +8,8 @@ on:
       - "windows/**"
       - "test/**"
       - "docs/**"
+      - "SOURCE_OF_TRUTH.md"
+      - "README.md"
       - ".github/scripts/supervisor-*"
       - ".github/workflows/supervisor-*.yml"
   push:
@@ -18,6 +20,8 @@ on:
       - "windows/**"
       - "test/**"
       - "docs/**"
+      - "SOURCE_OF_TRUTH.md"
+      - "README.md"
       - ".github/scripts/supervisor-*"
       - ".github/workflows/supervisor-*.yml"
   workflow_dispatch:
@@ -46,7 +50,8 @@ jobs:
             test/browser-scheduler.test.mjs \
             test/work-watchdog.test.mjs \
             test/brain-planning-contract.test.mjs \
-            test/mig-004-isolated-lifecycle-parity.test.mjs
+            test/mig-004-isolated-lifecycle-parity.test.mjs \
+            test/source-of-truth-authority.test.mjs
 
       - name: Validate state-maintenance and Control Panel safety contracts
         shell: bash
