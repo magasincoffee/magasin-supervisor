@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - rbt-runtime-chatgpt-open-fix-20260928
     paths:
       - .github/workflows/supervisor-control-panel-live-target-v2.yml
       - .github/scripts/diag-control-panel-target.ps1
