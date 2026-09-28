@@ -43,6 +43,22 @@ function log(key, value) {
 async function sleep(ms) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
+async function bestEffortWithin(label, operation, timeoutMs = 5_000) {
+  let timer = null;
+  try {
+    await Promise.race([
+      Promise.resolve().then(operation).catch(() => undefined),
+      new Promise((resolve) => {
+        timer = setTimeout(() => {
+          log("MBV1_008_CLEANUP_TIMEOUT", label);
+          resolve();
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 async function waitFor(fn, timeoutMs, label) {
   const deadline = Date.now() + timeoutMs;
   let lastError = null;
@@ -567,13 +583,24 @@ try {
     replacementBackend.kill();
   }
   if (executorPage && !executorPage.isClosed()) {
-    await browser.closePage(executorPage).catch(() => {});
+    await bestEffortWithin(
+      "executor-page",
+      () => browser.closePage(executorPage)
+    );
   }
   if (plannerPage && !plannerPage.isClosed()) {
-    await browser.closePage(plannerPage).catch(() => {});
+    await bestEffortWithin(
+      "planner-page",
+      () => browser.closePage(plannerPage)
+    );
   }
-  await browser.close().catch(() => {});
+  await bestEffortWithin("browser-adapter", () => browser.close());
 }
+
+// A successful qualifier must not remain resident because of CDP/child-process
+// handles after its authoritative result has already been written. The
+// PowerShell wrapper owns process-tree and isolated-Chrome cleanup.
+process.exit(0);
 
 function assertDistinct(binding) {
   if (
