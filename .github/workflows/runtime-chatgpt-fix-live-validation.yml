@@ -5,6 +5,9 @@ on:
     branches:
       - rbt-runtime-chatgpt-open-fix-20260928
     paths:
+      - src/runtime/chatgpt-bridge-page-runtime.mjs
+      - src/runtime/planner-executor-bridge-cli.mjs
+      - src/runtime/planner-executor-bridge-bootstrap.mjs
       - .github/workflows/runtime-chatgpt-fix-live-validation.yml
 
 permissions:
