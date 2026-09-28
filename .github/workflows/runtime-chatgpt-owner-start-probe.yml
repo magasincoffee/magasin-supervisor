@@ -12,6 +12,11 @@ permissions:
 
 jobs:
   probe:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        slot: [1, 2]
     runs-on: self-hosted
     timeout-minutes: 8
     steps:
@@ -21,6 +26,7 @@ jobs:
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           $ErrorActionPreference='Stop'
+          Write-Host "OWNER_START_SLOT=${{ matrix.slot }}"
           if($env:COMPUTERNAME -ne 'DESKTOP-4K7IM13'){
             Write-Host "OWNER_START_TARGET_MATCH=False"
             exit 0
