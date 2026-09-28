@@ -294,6 +294,87 @@ test("SC-003 persists PREPARED before send, confirms user turn, then records res
   }
 });
 
+test("SC-003 trusts exact fresh-turn send proof without a second role-selector capture", async () => {
+  const { root, statePath } = await tempStatePath();
+  const page = fakePage();
+  let waitProbe = 0;
+
+  const adapter = {
+    async open() {},
+    getActivePage() { return page; },
+    async newChatPage() {
+      throw new Error("blank home should be reused");
+    },
+    async probePage() {
+      if (waitProbe === 0) return { snapshot: blankSnapshot() };
+      if (waitProbe === 1) {
+        return {
+          snapshot: blankSnapshot({
+            pathKind: "conversation",
+            conversationPath: true,
+            userMessageCount: 1,
+            responseRunning: true
+          })
+        };
+      }
+      return {
+        snapshot: blankSnapshot({
+          pathKind: "conversation",
+          conversationPath: true,
+          userMessageCount: 1,
+          assistantMessageCount: 1,
+          responseRunning: false
+        })
+      };
+    }
+  };
+
+  const captureTurn = async (_page, role) => {
+    if (role === "user") return null;
+    if (waitProbe >= 2) {
+      return {
+        role: "assistant",
+        turn_id: "conversation-turn-2",
+        text: "done",
+        digest: "assistant-digest"
+      };
+    }
+    return null;
+  };
+
+  try {
+    const result = await createNewChatAndBootstrap({
+      adapter,
+      statePath,
+      sourceOfTruthUrl: "https://example.com/source",
+      messageId: "msg-direct-proof",
+      captureTurn,
+      sendInstruction: async () => {
+        waitProbe = 1;
+        page.setUrl("https://chatgpt.com/c/direct-proof");
+        return {
+          executed: true,
+          user_turn_id: "conversation-turn-1",
+          user_turn_evidence: "exact-fresh-conversation-turn",
+          conversation_turn_count: 1
+        };
+      },
+      timeoutMs: 5_000,
+      pollMs: 1
+    });
+
+    waitProbe = 2;
+    assert.equal(result.send.user_turn_id, "conversation-turn-1");
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(
+      durable.outbound.delivered_user_turn_id,
+      "conversation-turn-1"
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("SC-003 does not mark a partial response complete when Continue is required", async () => {
   const { root, statePath } = await tempStatePath();
   const page = fakePage();
