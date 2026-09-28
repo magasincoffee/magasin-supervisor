@@ -18,10 +18,9 @@ jobs:
       - name: Checkout diagnostic branch
         uses: actions/checkout@v4
       - name: Explicit Owner START and verify production browser
-        shell: cmd
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
-          @echo off
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop';
+          $ErrorActionPreference='Stop'
           if($env:COMPUTERNAME -ne 'DESKTOP-4K7IM13'){
             Write-Host "OWNER_START_TARGET_MATCH=False"
             exit 0
@@ -98,5 +97,4 @@ jobs:
           }
 
           if(-not $healthy){throw 'Production runtime did not become healthy after explicit Owner START'}
-          Write-Host 'OWNER_START_PROBE=PASS'"
-          exit /b %ERRORLEVEL%
+          Write-Host 'OWNER_START_PROBE=PASS'
