@@ -424,6 +424,18 @@ test("MBV1-008 userscript patch observes current ChatGPT message DOM", () => {
 });
 
 
+test("MBV1-008 userscript patch prefers one record per ChatGPT conversation turn", () => {
+  const patched = patchPinnedBridgeUserscript(
+    "// ChatGPT Bridge\n" +
+    "  function countAssistant() {\n" +
+    "    return document.querySelectorAll('[data-message-author-role=\"assistant\"]').length;\n" +
+    "  }\n"
+  );
+  assert.match(patched, /data-testid\^='conversation-turn-'/);
+  assert.match(patched, /if \(records\.length\) return records/);
+  assert.match(patched, /modernAssistant/);
+});
+
 test("MBV1-008 userscript patch hardens ChatGPT generation detection", () => {
   const patched = patchPinnedBridgeUserscript(
     "// ChatGPT Bridge\n" +
