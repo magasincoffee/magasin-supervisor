@@ -424,6 +424,23 @@ test("MBV1-008 userscript patch observes current ChatGPT message DOM", () => {
 });
 
 
+test("MBV1-008 userscript patch hardens ChatGPT generation detection", () => {
+  const patched = patchPinnedBridgeUserscript(
+    "// ChatGPT Bridge\n" +
+    "  function isGenerating() {\n" +
+    "    for (const s of ['button[data-testid=\"stop-button\"]', 'button[aria-label=\"停止\"]', 'button[aria-label=\"Stop\"]']) {\n" +
+    "      const b = document.querySelector(s);\n" +
+    "      if (b && b.offsetParent !== null) return true;\n" +
+    "    }\n" +
+    "    return false;\n" +
+    "  }\n"
+  );
+  assert.match(patched, /aria-busy/);
+  assert.match(patched, /data-testid\*='loading' i/);
+  assert.match(patched, /stop generating/);
+  assert.match(patched, /dừng phản hồi/);
+});
+
 test("MBV1-008 userscript patch hardens controlled composer actuation without legacy send path", () => {
   const patched = patchPinnedBridgeUserscript(
     "// ChatGPT Bridge\n" +
