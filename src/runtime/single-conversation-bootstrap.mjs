@@ -79,31 +79,27 @@ export function buildSingleConversationBootstrap({
     "MAGASIN_SINGLE_CONVERSATION_BOOTSTRAP_V1",
     `message_id=${id}`,
     `source_of_truth=${source}`,
-    "",
-    "Đây là một cuộc trò chuyện mới do MAGASIN Supervisor tạo tự động.",
-    "Hãy đọc Source of Truth ở link trên từ đầu trước khi quyết định hoặc thực hiện bất kỳ công việc nào.",
-    "Source of Truth đó là authority duy nhất cho kiến trúc, trạng thái task, dependency, Definition of Done và thứ tự thực hiện.",
-    "Không dùng trạng thái dự án từ cuộc trò chuyện cũ, memory cũ, README hoặc tài liệu lịch sử nếu mâu thuẫn với Source of Truth."
+    "Read the Source of Truth URL above from the beginning before deciding or doing project work.",
+    "Treat that Source of Truth as the only project authority.",
+    "Ignore stale project state from prior chats, memory, README, or historical documents when they conflict with the Source of Truth."
   ];
 
   if (qualificationOnly) {
     return [
       ...common,
-      "Đây là LIVE QUALIFICATION chỉ để xác nhận Robot có thể tạo New Chat, đọc Source of Truth và nhận phản hồi.",
-      "Không dùng tools, apps, connectors, GitHub write actions hoặc ChatGPT Work mode.",
-      "Không thay đổi repo, file, issue, pull request, runtime hoặc bất kỳ hệ thống bên ngoài nào.",
-      "Sau khi đọc Source of Truth, trả lời ngắn gọn và ghi đúng Architecture generation hiện tại mà bạn đọc được từ Source of Truth.",
-      `Dòng cuối bắt buộc: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
-    ].join(" ");
+      "LIVE QUALIFICATION ONLY.",
+      "Do not use tools, apps, connectors, ChatGPT Work mode, or write to any external system.",
+      "After reading the Source of Truth, reply briefly with its current Architecture generation.",
+      `End with exactly: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
+    ].join("\n");
   }
 
   return [
     ...common,
-    "Sau khi đọc xong, xác định trạng thái hiện tại trực tiếp từ Source of Truth.",
-    "Chỉ thực hiện hoặc đề xuất đúng một đơn vị công việc bounded tiếp theo mà Source of Truth cho phép; nếu đang bị block thì nêu rõ blocker.",
-    "Không tự mở rộng sang task kế tiếp ngoài phạm vi bounded hiện tại.",
-    `Giữ nguyên correlation id này trong phản hồi cuối: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
-  ].join(" ");
+    "Derive the current project state and next approved work directly from the Source of Truth.",
+    "Perform or propose only one bounded next unit of work; if blocked, state the blocker.",
+    `Keep this correlation in the final response: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
+  ].join("\n");
 }
 
 async function assertBlankNewChatSurface(adapter, page) {
