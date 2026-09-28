@@ -7,7 +7,8 @@ import path from "node:path";
 import {
   acquireBlankNewChatSurface,
   buildSingleConversationBootstrap,
-  createNewChatAndBootstrap
+  createNewChatAndBootstrap,
+  sendFreshChatBootstrapInstruction
 } from "../src/runtime/single-conversation-bootstrap.mjs";
 import {
   ensureSingleConversationState,
@@ -94,6 +95,89 @@ test("SC-003 qualification prompt is read-only and correlation-bound", () => {
   assert.match(message, /Architecture generation/);
   assert.match(message, /MAGASIN_BOOTSTRAP_CORRELATION_V1 qual-001/);
   assert.doesNotMatch(message, /one bounded next unit allowed by SOT/i);
+});
+
+test("SC-003 fresh sender falls back to native keyboard when fill is inert", async () => {
+  const instruction = "MAGASIN_SINGLE_CONVERSATION_BOOTSTRAP_V1 id=test SOT=https://example.com/SOURCE_OF_TRUTH.md";
+  let composerText = "";
+  let sent = false;
+  let typed = 0;
+
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async fill() {
+      // Simulate the real ChatGPT failure: fill resolves but editor stays empty.
+    },
+    async inputValue() { return composerText; },
+    async click() {},
+    async press(key) {
+      if (key === "Enter" && composerText === instruction) {
+        sent = true;
+        composerText = "";
+      }
+    },
+    locator() {
+      return {
+        first() { return this; },
+        async isVisible() { return false; }
+      };
+    }
+  };
+
+  const page = {
+    url() { return sent ? "https://chatgpt.com/c/test" : "https://chatgpt.com/"; },
+    locator(selector) {
+      if (selector.includes("send-button") || selector.includes("submit")) {
+        return {
+          first() { return this; },
+          async isVisible() { return false; },
+          async isEnabled() { return false; }
+        };
+      }
+      return composer;
+    },
+    async bringToFront() {},
+    async waitForTimeout() {},
+    async evaluate(fn) {
+      if (String(fn).includes("conversation-turn-")) {
+        return sent
+          ? {
+              turn_id: "conversation-turn-0",
+              conversation_turn_count: 1,
+              evidence: "exact-fresh-conversation-turn"
+            }
+          : {
+              turn_id: null,
+              conversation_turn_count: 0,
+              evidence: "exact-fresh-user-turn-not-observed"
+            };
+      }
+      return null;
+    },
+    keyboard: {
+      async press(key) {
+        if (key === "Backspace") composerText = "";
+      },
+      async type(value) {
+        typed += 1;
+        composerText = value;
+      }
+    }
+  };
+
+  const result = await sendFreshChatBootstrapInstruction(
+    page,
+    instruction,
+    { dryRun: false }
+  );
+
+  assert.equal(result.executed, true);
+  assert.equal(result.input_method, "native-keyboard-type");
+  assert.equal(result.send_method, "composer-enter");
+  assert.equal(result.user_turn_id, "conversation-turn-0");
+  assert.equal(typed, 1);
 });
 
 test("SC-003 forceNewPage never reuses a pre-existing home page", async () => {
