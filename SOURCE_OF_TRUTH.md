@@ -364,7 +364,7 @@ Completion evidence:
 - production browser/New Chat actuation and Control Center cutover remain intentionally unselected until SC-003/SC-007.
 
 ### SC-003 — Robot-created New Chat bootstrap
-State: **PLANNED**
+State: **COMPLETE**
 
 Implement:
 - open ChatGPT landing surface;
@@ -374,6 +374,18 @@ Implement:
 
 DoD:
 - from cold start with no chat URL, Robot creates one usable chat and receives a response.
+
+Completion evidence:
+- canonical implementation: `src/runtime/single-conversation-bootstrap.mjs`;
+- qualification harness creates a true fresh ChatGPT New Chat without any Owner-provided conversation URL;
+- bootstrap includes the sole Source of Truth URL and unique correlation id;
+- durable state records PREPARED before UI mutation, confirms the exact new user turn, and reaches RESPONSE_COMPLETE only after a new assistant response;
+- qualification response completion is correlation-aware so transient false-idle UI state cannot truncate the first assistant response;
+- live qualification cleanup is bounded and exits explicitly so a durable PASS cannot be converted into a runner timeout by an attached CDP transport;
+- SC-003 Live New Chat Qualification run #51 passed its target-machine attempt on `DESKTOP-4K7IM13` and the aggregate `qualification-authority` gate passed;
+- target evidence recorded `SC003_LIVE_FRESH_CHAT_CREATED=True`, `SC003_LIVE_MATCHING_USER_TURN_REQUIRED=True`, `SC003_LIVE_RESPONSE_COMPLETE=True`, `SC003_LIVE_ARCHITECTURE_GENERATION_CONFIRMED=True`, and `SC003_QUAL_QUALIFIED=True`;
+- production project state and production conversation targets were not mutated by qualification;
+- hosted Supervisor Tests, Supervisor Integrity, Lifecycle Acceptance, and Autostart Install passed on the SC-003 candidate before completion was recorded.
 
 ### SC-004 — One-chat execution loop
 State: **PLANNED**
