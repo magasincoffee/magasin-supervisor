@@ -424,6 +424,10 @@ try {
       stdio: "ignore"
     }
   );
+  // This replacement backend is qualification-owned. Do not let its child
+  // process handle keep the Node qualifier alive after LIVE_STATUS=PASS;
+  // the PowerShell wrapper owns bounded process-tree cleanup by workRoot.
+  replacementBackend.unref();
   await waitBridgeHealthy(true);
   binding = await waitBinding(bridge, plannerSetup.url, executorSetup.url);
   await Promise.all([
