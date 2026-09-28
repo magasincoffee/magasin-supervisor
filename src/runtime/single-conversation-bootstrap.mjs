@@ -233,9 +233,59 @@ async function captureExactFreshUserTurn(page, expected) {
       }
     }
 
+    // Current ChatGPT can omit conversation-turn-* wrappers entirely.
+    // SC-003 begins from a proven blank chat, so an exact match on a semantic
+    // user node or the current modern user-text surface is still positive
+    // evidence that THIS one bootstrap became the first user turn.
+    const directCandidates = [
+      ...document.querySelectorAll(
+        'main [data-message-author-role="user"]'
+      ),
+      ...document.querySelectorAll(
+        "main .text-size-chat.whitespace-pre-wrap"
+      )
+    ];
+    const seenDirect = new Set();
+    let directIndex = 0;
+    for (const node of directCandidates) {
+      if (!node || seenDirect.has(node)) continue;
+      seenDirect.add(node);
+
+      // Never treat the live composer itself as a persisted user turn.
+      if (
+        node.matches?.("#prompt-textarea,[contenteditable='true'],textarea") ||
+        node.closest?.("#prompt-textarea")
+      ) {
+        continue;
+      }
+
+      const text = normalize(node.textContent || node.innerText || "");
+      if (text !== wanted) {
+        directIndex += 1;
+        continue;
+      }
+
+      const container = node.closest?.(
+        "[data-testid^='conversation-turn-']"
+      );
+      const turnId = String(
+        container?.getAttribute?.("data-testid") || ""
+      ).trim();
+
+      return {
+        turn_id: turnId || `fresh-user-${directIndex}`,
+        conversation_turn_count: turns.length,
+        direct_user_count: seenDirect.size,
+        evidence: node.matches?.('[data-message-author-role="user"]')
+          ? "exact-semantic-user-node"
+          : "exact-modern-user-node"
+      };
+    }
+
     return {
       turn_id: null,
       conversation_turn_count: turns.length,
+      direct_user_count: seenDirect.size,
       evidence: "exact-fresh-user-turn-not-observed"
     };
   }, expected).catch(() => null);
@@ -514,6 +564,8 @@ export async function sendFreshChatBootstrapInstruction(
         user_turn_evidence: proof?.evidence || "unreadable",
         conversation_turn_count:
           Number(proof?.conversation_turn_count || 0),
+        direct_user_count:
+          Number(proof?.direct_user_count || 0),
         after_enter: afterEnterEvidence
       };
     }
@@ -840,6 +892,8 @@ export async function createNewChatAndBootstrap({
       user_turn_evidence: sendResult?.user_turn_evidence || null,
       conversation_turn_count:
         Number(sendResult?.conversation_turn_count || 0),
+      direct_user_count:
+        Number(sendResult?.direct_user_count || 0),
       mismatch: sendResult?.mismatch || null,
       after_enter: sendResult?.after_enter || null
     });
