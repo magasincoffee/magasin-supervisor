@@ -359,7 +359,7 @@ test("MBV1-008 userscript patch preserves upstream Bridge and widens evidence pl
   const patched = patchPinnedBridgeUserscript(
     "// ChatGPT Bridge\n" +
     "const x = a.slice(-600); const y = b.slice(-1000); const z = c.slice(0, 200);\n" +
-    "const sendBtns = ['button[data-testid=\\\"send-button\\\"]', 'button[aria-label=\\\"发送\\\"]', 'button[aria-label=\\\"Send\\\"]', 'form button[type=\\\"submit\\\"]'];"
+    "const sendBtns = ['button[data-testid=\"send-button\"]', 'button[aria-label=\"发送\"]', 'button[aria-label=\"Send\"]', 'form button[type=\"submit\"]'];"
   );
   assert.match(patched, /MAGASIN_BRIDGE_USERSCRIPT_PATCH_V1/);
   assert.match(patched, /slice\(-12000\)/);
