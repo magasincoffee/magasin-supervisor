@@ -373,6 +373,37 @@ test("MBV1-008 userscript patch preserves upstream Bridge and widens evidence pl
 });
 
 
+test("MBV1-008 userscript patch applies snapshot replacement to CRLF upstream source", () => {
+  const upstream = [
+    "// ChatGPT Bridge",
+    "  function countAssistant() {",
+    "    return document.querySelectorAll('[data-message-author-role=\"assistant\"]').length;",
+    "  }",
+    "      const turns = document.querySelectorAll('[data-message-author-role]');",
+    "      const total = turns.length;",
+    "      for (let i = Math.max(0, total - 6); i < total; i++) {",
+    "        const t = turns[i];",
+    "        const role = t.getAttribute('data-message-author-role');",
+    "        const md = t.querySelector('.markdown');",
+    "        recent.push({ role, text: (md ? md.innerText : t.innerText).trim().slice(-600) });",
+    "      }",
+    "      const msgs = document.querySelectorAll('[data-message-author-role=\"assistant\"]');",
+    "      msgCount = msgs.length;",
+    "      if (msgs.length) {",
+    "        lastAssistant = (msgs[msgs.length - 1].querySelector('.markdown') || msgs[msgs.length - 1]).innerText.trim().slice(-1000);",
+    "      }"
+  ].join("\r\n");
+
+  const patched = patchPinnedBridgeUserscript(upstream);
+  assert.match(patched, /const turns = chatGptMessageRecords\(\)/);
+  assert.match(patched, /const msgs = turns\.filter\(\(item\) => item\.role === 'assistant'\)/);
+  assert.doesNotMatch(
+    patched,
+    /const msgs = document\.querySelectorAll\('\[data-message-author-role="assistant"\]'\);/
+  );
+});
+
+
 test("MBV1-008 userscript patch observes current ChatGPT message DOM", () => {
   const patched = patchPinnedBridgeUserscript(
     "// ChatGPT Bridge\n" +
