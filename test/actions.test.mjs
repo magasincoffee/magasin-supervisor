@@ -771,6 +771,80 @@ test("chunked recovery places DOM caret at end after every composer refocus", as
   assert.ok(selectionPlacements >= 4);
 });
 
+test("printable ASCII prompt falls back to bounded sequential key events", async () => {
+  const instruction = "SC003 ".repeat(110).trim();
+  let composerText = "";
+  let insertCalls = 0;
+  let typeCalls = 0;
+  let sends = 0;
+
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async fill() {},
+    async inputValue() { return composerText; },
+    async click() {},
+    async press(key) {
+      if (key === "Backspace") composerText = "";
+    },
+    async evaluate(fn) {
+      const source = String(fn);
+      if (source.includes('execCommand("insertText"')) return false;
+      if (source.includes("selectNodeContents")) return true;
+      return null;
+    }
+  };
+
+  const send = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() {
+      if (composerText === instruction) sends += 1;
+      composerText = "";
+    }
+  };
+
+  const page = {
+    locator(selector) {
+      if (selector.includes("send-button")) return send;
+      return composer;
+    },
+    async evaluate(fn) {
+      if (String(fn).includes("data-message-author-role")) {
+        return { readable: true, totalCount: sends, exactMatchCount: sends };
+      }
+      return [];
+    },
+    async waitForTimeout() {},
+    async bringToFront() {},
+    keyboard: {
+      async press() {},
+      async insertText() {
+        insertCalls += 1;
+        // Drop the whole-prompt bulk insert.
+      },
+      async type(value) {
+        typeCalls += 1;
+        composerText += value;
+      }
+    },
+    getByRole() { return send; }
+  };
+
+  const result = await sendComposerInstruction(page, instruction, {
+    dryRun: false
+  });
+
+  assert.equal(result.executed, true);
+  assert.equal(result.input_method, "keyboard-sequential");
+  assert.equal(insertCalls, 1);
+  assert.ok(typeCalls > 1);
+  assert.equal(sends, 1);
+});
+
 test("composer send recovers an inert Send click with one bounded Enter", async () => {
   let composerText = "";
   let clicks = 0;
