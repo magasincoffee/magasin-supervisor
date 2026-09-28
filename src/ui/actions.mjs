@@ -366,20 +366,32 @@ async function captureUserTurnState(page, instruction) {
         .trim();
       const wanted = normalize(expected);
 
-      // Prefer semantic role nodes when the UI exposes them. Current ChatGPT
-      // can instead render user turns only through the modern text surface, so
-      // fall back to that selector rather than reporting a false send failure
-      // after the composer has already transitioned.
-      const legacyTurns = Array.from(
-        document.querySelectorAll('[data-message-author-role="user"]')
-      );
-      const turns = legacyTurns.length
-        ? legacyTurns
-        : Array.from(document.querySelectorAll(selectors.modern));
+      // A live conversation can contain a mixed DOM during hydration: older
+      // turns may expose semantic role nodes while the newest user turn exists
+      // only on the modern text surface. Never choose one representation and
+      // discard the other. Merge both sets, exclude the active composer, and
+      // deduplicate nested/identical DOM nodes by element identity.
+      const candidates = [
+        ...document.querySelectorAll(selectors.legacy),
+        ...document.querySelectorAll(selectors.modern)
+      ];
+      const seen = new Set();
+      const turns = [];
+      for (const node of candidates) {
+        if (!node || seen.has(node)) continue;
+        seen.add(node);
+        if (
+          node.matches?.("#prompt-textarea,textarea,[contenteditable='true'],[contenteditable='plaintext-only']") ||
+          node.closest?.("#prompt-textarea")
+        ) {
+          continue;
+        }
+        turns.push(node);
+      }
 
       let exactMatchCount = 0;
       for (const node of turns) {
-        const text = normalize(node.innerText || node.textContent || "");
+        const text = normalize(node.textContent || node.innerText || "");
         if (text === wanted) exactMatchCount += 1;
       }
       return {
