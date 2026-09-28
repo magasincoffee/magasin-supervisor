@@ -2,9 +2,9 @@
 
 Status: **CANONICAL PRODUCTION ARCHITECTURE**
 
-Next implementation program: **MAGASIN BRIDGE V1 — CANONICAL PLAN / NOT YET CUT OVER**
+Next implementation program: **MAGASIN BRIDGE V1 — PRODUCTION CUTOVER COMPLETE**
 
-Current next-phase task: **MBV1-001 — Local Bridge Baseline** (pc=0, pt=8).
+Current next-phase task: **NONE — MAGASIN BRIDGE V1 COMPLETE** (pc=8, pt=8).
 
 This document is the forward architecture authority for MAGASIN Supervisor after Owner approval on 2026-09-27.
 
@@ -235,9 +235,9 @@ A Planner `accept_assign` closes the reviewed task and opens the next assignment
 
 ## 6. Browser/runtime contract
 
-**Transport status:** the direct browser/composer actuation contract below documents the currently deployed pre-Bridge transport. MAGASIN BRIDGE V1 in Section 15 is the canonical forward transport migration plan. Direct-DOM transport remains production authority until MBV1-008 qualification and explicit cutover complete.
+**Transport status:** MAGASIN BRIDGE V1 is the current production transport after MBV1-008 authoritative qualification and cutover. `CHATGPT_BRIDGE_V1` is primary; the direct browser/composer actuation contract below is retained only as rollback/fallback authority.
 
-Normal path for the currently deployed pre-Bridge transport:
+Rollback/fallback path for the retained direct-browser transport:
 
 1. observe only the newest unseen assistant turn;
 2. parse its final `@M` frame;
@@ -513,13 +513,13 @@ Historical release evidence remains historical truth for the runtime version it 
 
 Current production is Planner/Executor V1. PE-007 production cutover completed successfully under explicit Owner authorization; Three-Lane is rollback/historical only.
 
-## 15. MAGASIN BRIDGE V1 — canonical next-phase transport plan
+## 15. MAGASIN BRIDGE V1 — canonical production transport
 
-Status: **CANONICAL PLAN / IN PROGRESS / NOT YET CUT OVER**
+Status: **PRODUCTION CUTOVER COMPLETE**
 
 Owner decision date: **2026-09-27**
 
-Current task: **MBV1-006 — Project Bootstrap**. Progress: pc=5 / pt=8.
+Current task: **NONE — PROGRAM COMPLETE**. Progress: pc=8 / pt=8.
 
 This program replaces only the Planner/Executor transport layer. It preserves the existing Source-of-Truth authority, Planner/Executor roles, @M v1 protocol, task/assignment/result correlation, pc/pt semantics, STOP/RESET behavior, exact-once principles and Control UI concept.
 
@@ -538,7 +538,7 @@ Canonical upstream candidate: https://github.com/OLmatter/chatgpt-bridge . MBV1-
 
 ### 15.2 Migration rule
 
-This is a staged transport replacement, not a rewrite. Keep Source of Truth URL, Planner Chat URL, Executor Chat URL, @M, pc/pt, exact correlations and current Owner controls. Replace direct composer click/DOM actuation as the primary transport only after qualification. The current production transport does not change merely because this plan exists.
+This was executed as a staged transport replacement, not a rewrite. Source of Truth URL, Planner Chat URL, Executor Chat URL, @M, pc/pt, exact correlations and current Owner controls are preserved. After authoritative MBV1-008 qualification and cutover, Bridge is the primary transport and direct composer click/DOM actuation is rollback/fallback only.
 
 ### 15.3 Work breakdown
 
@@ -571,11 +571,11 @@ Every outbound operation is tracked through QUEUED -> SUBMITTING -> SUBMITTED ->
 
 MBV1-008 must cover at least: happy-path DONE; FAIL -> REJECT -> correction -> PASS; BLOCKED; duplicate @M; stale result_id; wrong assignment_id; Planner reload; Executor reload; Bridge restart; RESET ROBOT; new Source of Truth session; long generation without premature parsing.
 
-Until MBV1-008 PASS and explicit cutover: bridge_cutover=false and production continues on the pre-Bridge direct browser/runtime transport. After explicit cutover: chatgpt-bridge adapter becomes primary transport and direct DOM transport becomes rollback/fallback only.
+MBV1-008 authoritative qualification and explicit cutover are complete: `bridge_cutover=true`; `CHATGPT_BRIDGE_V1` is the production primary transport and direct DOM transport is rollback/fallback only.
 
 ### 15.8 Next-task authority
 
-program=MAGASIN_BRIDGE_V1; current_task=MBV1-008; pc=7; pt=8; status=IN_PROGRESS. Planner MUST select MBV1-004 next. MBV1-005 and later tasks remain blocked by dependency order.
+program=MAGASIN_BRIDGE_V1; current_task=NONE; pc=8; pt=8; status=PRODUCTION_CUTOVER_COMPLETE. Planner MUST report the program complete and MUST NOT assign another MBV1 task.
 
 
 ### 15.9 MBV1-001 implementation evidence
@@ -815,34 +815,40 @@ Status: **COMPLETE**.
 - Supervisor Tests, Integrity, Lifecycle and Autostart gates PASS;
 - production cutover remains false.
 
-Current progress: `pc=7 / pt=8` (87.5%). Next task: **MBV1-008 — Qualification + Cutover**.
+Current progress: `pc=8 / pt=8` (100%). **MAGASIN BRIDGE V1 is complete and cut over to production.**
 
 
-### 15.16 MBV1-008 follow-up qualification status
+### 15.16 MBV1-008 final qualification and production cutover
 
-Status: **IN_PROGRESS / PRODUCTION CUTOVER NOT YET AUTHORIZED BY EVIDENCE**.
+Status: **PRODUCTION CUTOVER COMPLETE / AUTHORITATIVE PASS**.
 
-Important chronology:
+Authoritative completion evidence:
 
-- PR #183 merged MBV1-008 implementation at `d46ee53312859178e1ee122edd149a90233cec93`;
-- pre-merge live qualification run `36379913184` passed on the candidate branch;
-- the authoritative post-merge production cutover workflow run `36380242479` **FAILED** and therefore did not establish Bridge production cutover;
-- target attempt ran on `DESKTOP-4K7IM13`, while the non-target attempt on `DESKTOP-H4A16IL` remained non-authoritative;
-- follow-up fixes continue on branch `mbv1-008-bridge-qualification-cutover`;
-- follow-up head `6abfa5674323c16bd9ec95a7422fb19eb39e35d1` was tested in qualification run `36383416619`;
-- that run passed setup, base transport, role isolation and Planner reload, then failed because the Executor page was Bridge-alive but the ChatGPT conversation/composer DOM had not rehydrated after reload before a new send was attempted;
-- observed failure class: `RESPONSE_TIMEOUT` with Executor Bridge `alive=true`, `assistant_count=0`, no visible composer and no visible conversation turns.
+- initial MBV1-008 implementation PR: #183, merged at `d46ee53312859178e1ee122edd149a90233cec93`;
+- post-reload readiness hardening PR: #184, merged at `06443215a0eedb020e33917a1ed69227ce52a119`;
+- final composer-submit race hardening PR: #185, candidate/merge `9444731cd5a23da291ad9a16d0657b305f7a6bc3`;
+- final live qualification run: `36385211231` — **PASS**, including target-machine authority gate;
+- authoritative production cutover run: `36385597155` — **PASS**;
+- target computer: `DESKTOP-4K7IM13`;
+- persisted cutover evidence: `.github/qualification/mbv1-008-cutover-latest.json`;
+- evidence commit: `c447e6961a5fd53afb9a070544fb1135812f6534`;
+- pinned Bridge upstream: `OLmatter/chatgpt-bridge@848efb9e85f52f251c82ab099747833c0693c072`;
+- production primary transport: `CHATGPT_BRIDGE_V1`;
+- rollback/fallback transport: `DIRECT_DOM_V1`;
+- OpenAI API required by Bridge transport: **false**.
 
-Canonical consequence:
+Canonical completion state:
 
 ```text
 program = MAGASIN_BRIDGE_V1
-current_task = MBV1-008
-pc = 7
+current_task = NONE
+pc = 8
 pt = 8
-status = IN_PROGRESS
-bridge_cutover = false
-current production transport = PRE_BRIDGE_DIRECT_BROWSER_RUNTIME
+status = PRODUCTION_CUTOVER_COMPLETE
+bridge_cutover = true
+current production transport = CHATGPT_BRIDGE_V1
+rollback/fallback transport = DIRECT_DOM_V1
 ```
 
-The next implementation action is to gate post-reload Bridge injection/binding/send on bounded ChatGPT page hydration/readiness for the exact canonical conversation, then re-run the full live qualification and production cutover authority workflow. No completion or cutover may be inferred from PR #183 being merged.
+MBV1-001 through MBV1-008 are complete. A fresh Planner START must derive `pc=8`, `pt=8` from this Source of Truth and return terminal completion rather than assigning another MAGASIN BRIDGE V1 task.
+
