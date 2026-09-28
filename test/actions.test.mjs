@@ -434,6 +434,92 @@ test("fill success without persisted text falls back to a real keyboard insertio
   assert.equal(events.at(-1), "send");
 });
 
+test("long composer prompt can use execCommand input pipeline before bulk keyboard fallback", async () => {
+  const instruction = "bootstrap ".repeat(140);
+  let composerText = "";
+  let execCalls = 0;
+  let keyboardInsertCalls = 0;
+  let sends = 0;
+
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async fill() {
+      // Force recovery away from locator.fill().
+    },
+    async inputValue() { return composerText; },
+    async click() {},
+    async press(key) {
+      if (key === "Backspace") composerText = "";
+    },
+    async evaluate(fn, value) {
+      const source = String(fn);
+      if (source.includes('execCommand("insertText"')) {
+        execCalls += 1;
+        composerText += String(value || "");
+        return true;
+      }
+      if (
+        source.includes("selectNodeContents") &&
+        source.includes("setSelectionRange")
+      ) {
+        return true;
+      }
+      return null;
+    }
+  };
+
+  const send = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() {
+      if (composerText === instruction) sends += 1;
+      composerText = "";
+    }
+  };
+
+  const page = {
+    locator(selector) {
+      if (selector.includes("send-button")) return send;
+      return composer;
+    },
+    async evaluate(fn) {
+      if (String(fn).includes("data-message-author-role")) {
+        return {
+          readable: true,
+          totalCount: sends,
+          exactMatchCount: sends
+        };
+      }
+      return [];
+    },
+    async waitForTimeout() {},
+    async bringToFront() {},
+    keyboard: {
+      async press() {},
+      async insertText() {
+        keyboardInsertCalls += 1;
+      }
+    },
+    getByRole() { return send; }
+  };
+
+  const result = await sendComposerInstruction(
+    page,
+    instruction,
+    { dryRun: false }
+  );
+
+  assert.equal(result.executed, true);
+  assert.equal(result.input_method, "exec-command-insertText");
+  assert.equal(execCalls, 1);
+  assert.equal(keyboardInsertCalls, 0);
+  assert.equal(sends, 1);
+});
+
 test("keyboard recovery reacquires and refocuses composer after clear rerender", async () => {
   const events = [];
   let composerText = "";
