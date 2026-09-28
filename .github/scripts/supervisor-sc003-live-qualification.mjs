@@ -175,6 +175,13 @@ try {
         log("SC003_LIVE_MISMATCH_EXPECTED_CP", evidence.mismatch.expected_cp);
         log("SC003_LIVE_MISMATCH_ACTUAL_CP", evidence.mismatch.actual_cp);
       }
+      if (evidence.after_enter) {
+        log("SC003_LIVE_AFTER_ENTER_STILL_HOME", evidence.after_enter.still_home);
+        log("SC003_LIVE_AFTER_ENTER_CONVERSATION_PATH", evidence.after_enter.conversation_path);
+        log("SC003_LIVE_AFTER_ENTER_COMPOSER_PRESENT", evidence.after_enter.composer_present);
+        log("SC003_LIVE_AFTER_ENTER_EXACT_PROMPT", evidence.after_enter.exact_prompt_present);
+        log("SC003_LIVE_AFTER_ENTER_TURN_COUNT", evidence.after_enter.conversation_turn_count);
+      }
       if (evidence.status) {
         log("SC003_LIVE_RESPONSE_STATUS", evidence.status);
       }
