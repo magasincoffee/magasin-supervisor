@@ -623,6 +623,17 @@ test("SC-003 confirmed-send failure is persisted as bounded bootstrap failure", 
   }
 });
 
+test("SC-003 live qualification treats an already-exited paused runtime as success", async () => {
+  const source = await fs.readFile(
+    new URL("../.github/scripts/supervisor-sc003-live-qualification.ps1", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /SC003_QUAL_RUNTIME_ALREADY_PAUSED_PID/);
+  assert.match(source, /Get-Process -Id \$runtimePid -ErrorAction SilentlyContinue/);
+  assert.match(source, /runtime process remained alive after pause request/);
+});
+
 test("SC-003 CLI requires Source of Truth/CDP but never a chat URL", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/single-conversation-bootstrap-cli.mjs", import.meta.url),
