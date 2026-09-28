@@ -148,12 +148,13 @@ test("SC-004 never sends new work while prior response still needs Continue", as
         if (role === "assistant") {
           assistantCaptureCount += 1;
           if (probe >= 4) {
+            const afterSend = sentAtProbe !== null;
             return {
-              turn_id: assistantCaptureCount < 2 ? "prior-final" : "new-final",
-              text: assistantCaptureCount < 2
-                ? "assistant"
-                : "assistant MAGASIN_CYCLE_CORRELATION_V1 cycle-safe-order",
-              digest: "a" + assistantCaptureCount
+              turn_id: afterSend ? "new-final" : "prior-final",
+              text: afterSend
+                ? "assistant MAGASIN_CYCLE_CORRELATION_V1 cycle-safe-order"
+                : "assistant",
+              digest: afterSend ? "a-new" : "a-prior"
             };
           }
           return null;
@@ -174,7 +175,8 @@ test("SC-004 never sends new work while prior response still needs Continue", as
           user_turn_evidence: "matching-user-turn-observed"
         };
       },
-      pollMs: 1
+      pollMs: 1,
+      timeoutMs: 1_000
     });
     assert.ok(sentAtProbe >= 4);
     assert.equal(result.send.executed, true);
@@ -192,9 +194,17 @@ test("SC-004 performs multiple sequential cycles in one active conversation", as
   try {
     const adapter = {
       async probePage() {
+        if (waitingForResponse) {
+          waitingForResponse = false;
+          return {
+            snapshot: baseSnapshot({
+              responseRunning: true
+            })
+          };
+        }
         return {
           snapshot: baseSnapshot({
-            responseRunning: waitingForResponse
+            responseRunning: false
           })
         };
       }
@@ -205,8 +215,7 @@ test("SC-004 performs multiple sequential cycles in one active conversation", as
           ? { turn_id: "u-" + userTurn, text: "user", digest: "u" + userTurn }
           : null;
       }
-      if (waitingForResponse) {
-        waitingForResponse = false;
+      if (!waitingForResponse && userTurn > assistantTurn) {
         assistantTurn += 1;
       }
       return assistantTurn
@@ -236,7 +245,8 @@ test("SC-004 performs multiple sequential cycles in one active conversation", as
           user_turn_evidence: "matching-user-turn-observed"
         };
       },
-      pollMs: 1
+      pollMs: 1,
+      timeoutMs: 1_000
     });
 
     assert.equal(results.length, 3);
