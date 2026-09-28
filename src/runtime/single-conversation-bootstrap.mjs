@@ -744,6 +744,85 @@ async function persistResponseComplete(statePath, {
   return writeSingleConversationState(statePath, state, { now });
 }
 
+
+export async function captureFreshAssistantTurn(page) {
+  if (!page || typeof page.evaluate !== "function") return null;
+
+  const captured = await page.evaluate(() => {
+    const visible = (node) => {
+      if (!node || !(node instanceof Element)) return false;
+      const style = getComputedStyle(node);
+      const box = node.getBoundingClientRect();
+      return style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        box.width > 0 &&
+        box.height > 0;
+    };
+    const clean = (value) => String(value || "")
+      .replace(/[\u200B-\u200F\u2060\uFEFF]/g, "")
+      .trim();
+
+    const semantic = Array.from(
+      document.querySelectorAll('main [data-message-author-role="assistant"]')
+    ).filter(visible);
+    if (semantic.length) {
+      const node = semantic.at(-1);
+      const text = clean(node.textContent || node.innerText || "");
+      if (text) {
+        const container = node.closest?.(
+          "[data-testid^='conversation-turn-']"
+        );
+        return {
+          text,
+          dom_turn_id:
+            String(container?.getAttribute?.("data-testid") || "").trim() ||
+            null,
+          evidence: "semantic-assistant-node"
+        };
+      }
+    }
+
+    // Current ChatGPT can render the assistant without conversation-turn-*
+    // wrappers. SC-003 owns a proven blank chat with exactly one user send, so
+    // every top-level visible MarkdownRoot on this fresh conversation belongs
+    // to the first assistant response. Coalesce those roots in DOM order.
+    const roots = Array.from(
+      document.querySelectorAll("main [class*='MarkdownRoot-']")
+    ).filter(visible).filter((node) => {
+      const parent = node.parentElement?.closest?.("[class*='MarkdownRoot-']");
+      return !parent;
+    });
+
+    const fragments = [];
+    for (const node of roots) {
+      const text = clean(node.textContent || node.innerText || "");
+      if (!text || fragments.at(-1) === text) continue;
+      fragments.push(text);
+    }
+    const text = fragments.join("\n").trim();
+    if (!text) return null;
+    return {
+      text,
+      dom_turn_id: null,
+      evidence: "fresh-markdown-roots"
+    };
+  }).catch(() => null);
+
+  if (!captured?.text) return null;
+  const text = String(captured.text).trim();
+  const digest = crypto
+    .createHash("sha256")
+    .update(text, "utf8")
+    .digest("hex");
+  return {
+    role: "assistant",
+    text,
+    digest,
+    turn_id: captured.dom_turn_id || `fresh-assistant:${digest}`,
+    evidence: captured.evidence || "fresh-assistant"
+  };
+}
+
 export async function waitForBootstrapResponse({
   adapter,
   page,
@@ -774,7 +853,11 @@ export async function waitForBootstrapResponse({
       sawRunning = true;
       await persistResponseRunning(statePath, now);
     } else {
-      const assistant = await captureTurn(page, "assistant").catch(() => null);
+      const assistant = await (
+        captureTurn === captureLatestRoleTurn
+          ? captureFreshAssistantTurn(page)
+          : captureTurn(page, "assistant")
+      ).catch(() => null);
       if (
         assistant?.turn_id &&
         assistant.turn_id !== baselineAssistantTurnId
