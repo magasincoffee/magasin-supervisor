@@ -48,7 +48,10 @@ function fakePage({
   onFill = () => {},
   onPress = () => {},
   onInsertText = () => {},
+  onType = () => {},
   transformComposerText = (value) => value,
+  transformInsertText = transformComposerText,
+  transformType = transformComposerText,
   fillError = null
 } = {}) {
   let composerText = "";
@@ -107,8 +110,12 @@ function fakePage({
     async bringToFront() {},
     keyboard: {
       async insertText(value) {
-        composerText = transformComposerText(value);
+        composerText = transformInsertText(value);
         onInsertText(value);
+      },
+      async type(value) {
+        composerText = transformType(value);
+        onType(value);
       },
       async press(key) {
         if (key === "Enter" && composerText) {
@@ -181,6 +188,29 @@ test("composer verification accepts render-equivalent whitespace before clicking
   assert.equal(result.executed, true);
   assert.equal(clicks, 1);
   assert.equal(result.send_method, "direct-control");
+});
+
+test("ASCII composer falls back to native keyboard typing when fill and insertText are inert", async () => {
+  let typed = 0;
+  let clicks = 0;
+  const instruction = "MAGASIN_SINGLE_CONVERSATION_NEXT_V1 id=cycle-1";
+  const result = await sendComposerInstruction(
+    fakePage({
+      controls: [{ text: "", ariaLabel: "Send prompt", testId: "send-button" }],
+      transformComposerText: () => "",
+      transformInsertText: () => "",
+      transformType: (value) => value,
+      onType: () => { typed += 1; },
+      onClick: () => { clicks += 1; }
+    }),
+    instruction,
+    { dryRun: false }
+  );
+
+  assert.equal(result.executed, true);
+  assert.equal(result.input_method, "native-keyboard-type");
+  assert.equal(typed, 1);
+  assert.equal(clicks, 1);
 });
 
 test("retry clicks only a recognized retry control", async () => {
