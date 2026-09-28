@@ -7,7 +7,9 @@ on:
     paths:
       - src/runtime/chatgpt-bridge-page-runtime.mjs
       - src/runtime/planner-executor-bridge-cli.mjs
+      - src/runtime/planner-executor-bridge-bootstrap.mjs
       - test/chatgpt-bridge-page-runtime.test.mjs
+      - test/planner-executor-bridge-bootstrap.test.mjs
       - test/planner-executor-bridge-reliability.test.mjs
       - .github/workflows/runtime-chatgpt-fix-tests.yml
 
@@ -29,4 +31,4 @@ jobs:
       - name: Run targeted runtime regressions
         shell: powershell
         run: |
-          node --test test/chatgpt-bridge-page-runtime.test.mjs test/planner-executor-bridge-reliability.test.mjs
+          node --test test/chatgpt-bridge-page-runtime.test.mjs test/planner-executor-bridge-bootstrap.test.mjs test/planner-executor-bridge-reliability.test.mjs
