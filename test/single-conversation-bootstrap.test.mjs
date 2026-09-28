@@ -62,7 +62,7 @@ test("SC-003 bootstrap prompt carries sole Source of Truth and unique correlatio
     message,
     /SOT=https:\/\/github\.com\/magasincoffee\/magasin-supervisor\/blob\/main\/SOURCE_OF_TRUTH\.md/
   );
-  assert.match(message, /only project authority/i);
+  assert.match(message, /sole project authority/i);
   assert.match(message, /Read SOT from the beginning/i);
   assert.match(message, /one bounded next unit allowed by SOT/i);
   assert.match(message, /^[\x20-\x7E]+$/);
@@ -79,7 +79,7 @@ test("SC-003 qualification prompt is read-only and correlation-bound", () => {
 
   assert.match(message, /QUALIFICATION ONLY/);
   assert.match(message, /do not use tools/i);
-  assert.match(message, /write to any external system/);
+  assert.match(message, /write to external systems/);
   assert.match(message, /Architecture generation/);
   assert.match(message, /MAGASIN_BOOTSTRAP_CORRELATION_V1 qual-001/);
   assert.doesNotMatch(message, /one bounded next unit allowed by SOT/);
