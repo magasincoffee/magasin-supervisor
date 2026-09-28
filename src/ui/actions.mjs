@@ -440,7 +440,9 @@ async function readComposerText(composer) {
         ) {
           return el.value;
         }
-        return el.innerText || el.textContent || "";
+        // textContent reflects the editor's logical text. innerText can insert
+        // layout/block separators that are not part of the composer value.
+        return el.textContent || el.innerText || "";
       });
     } catch {}
   }
@@ -460,6 +462,29 @@ function normalizedComposerDigest(value) {
     .createHash("sha256")
     .update(normalizeComposerText(value), "utf8")
     .digest("hex");
+}
+
+function renderedTextMismatchDiagnostic(expected, actual) {
+  const left = Array.from(normalizeRenderedInstructionText(expected));
+  const right = Array.from(normalizeRenderedInstructionText(actual));
+  const limit = Math.min(left.length, right.length);
+  let firstDiff = limit;
+  for (let index = 0; index < limit; index += 1) {
+    if (left[index] !== right[index]) {
+      firstDiff = index;
+      break;
+    }
+  }
+  const cp = (value) => value === undefined
+    ? "END"
+    : "U+" + value.codePointAt(0).toString(16).toUpperCase().padStart(4, "0");
+  return {
+    expected_len: left.length,
+    actual_len: right.length,
+    first_diff: firstDiff,
+    expected_cp: cp(left[firstDiff]),
+    actual_cp: cp(right[firstDiff])
+  };
 }
 
 export function composerInstructionDigest(value) {
@@ -985,10 +1010,18 @@ async function setComposerText(
     ) {
       return {
         ready: false,
-        reason:
-          "composer text diverged during bounded chunked keyboard recovery" +
-          ` expected_len=${normalizeRenderedInstructionText(expectedPrefix).length}` +
-          ` actual_len=${normalizeRenderedInstructionText(visiblePrefix).length}`
+        reason: (() => {
+          const mismatch = renderedTextMismatchDiagnostic(
+            expectedPrefix,
+            visiblePrefix
+          );
+          return "composer text diverged during bounded chunked keyboard recovery" +
+            ` expected_len=${mismatch.expected_len}` +
+            ` actual_len=${mismatch.actual_len}` +
+            ` first_diff=${mismatch.first_diff}` +
+            ` expected_cp=${mismatch.expected_cp}` +
+            ` actual_cp=${mismatch.actual_cp}`;
+        })()
       };
     }
   }
