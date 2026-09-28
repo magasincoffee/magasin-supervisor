@@ -10,6 +10,8 @@ function parseArgs(argv) {
     sourceOfTruthUrl: null,
     cdpUrl: null,
     execute: false,
+    qualificationOnly: false,
+    forceNewPage: false,
     timeoutMs: 180_000
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -18,6 +20,8 @@ function parseArgs(argv) {
     else if (arg === "--source-of-truth") out.sourceOfTruthUrl = argv[++i];
     else if (arg === "--cdp-url") out.cdpUrl = argv[++i];
     else if (arg === "--timeout-ms") out.timeoutMs = Number(argv[++i]);
+    else if (arg === "--qualification-only") out.qualificationOnly = true;
+    else if (arg === "--force-new-page") out.forceNewPage = true;
     else if (arg === "--execute") out.execute = true;
     else throw new Error("unknown argument: " + arg);
   }
@@ -46,6 +50,8 @@ try {
     adapter,
     statePath: path.resolve(args.statePath),
     sourceOfTruthUrl: args.sourceOfTruthUrl,
+    qualificationOnly: args.qualificationOnly,
+    forceNewPage: args.forceNewPage,
     timeoutMs: args.timeoutMs
   });
   console.log("SC003_BOOTSTRAP_STATUS=" + result.response.status);
