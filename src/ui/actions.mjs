@@ -173,6 +173,45 @@ async function focusComposerAtEnd(page, composer) {
   }
 }
 
+async function insertComposerTextWithExecCommand(composer, instruction) {
+  if (!composer || typeof composer.evaluate !== "function") return false;
+
+  return composer.evaluate((el, value) => {
+    try {
+      el.focus();
+
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement
+      ) {
+        const end = String(el.value || "").length;
+        el.setSelectionRange(end, end);
+      } else if (
+        el.isContentEditable ||
+        String(el.getAttribute?.("contenteditable") || "").toLowerCase() === "true"
+      ) {
+        const selection = window.getSelection();
+        if (!selection) return false;
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } else {
+        return false;
+      }
+
+      // execCommand('insertText') is deprecated as a general web API, but it
+      // remains useful here because Chromium routes it through the editable
+      // surface's input pipeline. ProseMirror observes this more reliably than
+      // one large synthetic insertText CDP event on current ChatGPT.
+      return document.execCommand("insertText", false, String(value || ""));
+    } catch {
+      return false;
+    }
+  }, instruction).catch(() => false);
+}
+
 async function clearComposerText(
   page,
   { timeoutMs = 3_000 } = {}
@@ -590,6 +629,44 @@ async function setComposerText(
   await focusComposerAtEnd(page, focused);
   if (typeof page.waitForTimeout === "function") {
     await page.waitForTimeout(80);
+  }
+
+  // Prefer the editor's own input pipeline before bulk CDP insertion.
+  // Current ChatGPT can drop or partially apply a long page.keyboard.insertText
+  // payload even when focus is correct.
+  const execInserted = await insertComposerTextWithExecCommand(
+    focused,
+    instruction
+  );
+  if (execInserted) {
+    if (typeof page.waitForTimeout === "function") {
+      await page.waitForTimeout(220);
+    }
+    const execComposer = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+    if (execComposer) {
+      const execPersisted = await composerContainsExactInstruction(
+        execComposer,
+        instruction
+      );
+      if (execPersisted !== false) {
+        return {
+          ready: true,
+          method: "exec-command-insertText",
+          composer: execComposer
+        };
+      }
+      await keyboardClearComposer(page, execComposer);
+      const clearedAfterExec = await waitForReadyComposer(page, {
+        timeoutMs: 1_500
+      });
+      if (!clearedAfterExec) {
+        return {
+          ready: false,
+          reason: "composer disappeared after execCommand recovery clear"
+        };
+      }
+      await focusComposerAtEnd(page, clearedAfterExec);
+    }
   }
 
   if (!page.keyboard || typeof page.keyboard.insertText !== "function") {
