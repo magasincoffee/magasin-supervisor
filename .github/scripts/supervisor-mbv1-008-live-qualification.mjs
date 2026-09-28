@@ -127,6 +127,18 @@ async function waitBinding(bridge, plannerUrl, executorUrl) {
     "exact Bridge role binding"
   );
 }
+
+async function waitBridgeHistoryToken(bridge, pageId, token, label) {
+  return waitFor(async () => {
+    const snap = await bridge.getSnapshot(pageId).catch(() => null);
+    if (!snap || snap.is_generating) return false;
+    const evidence = JSON.stringify({
+      recent_turns: snap.recent_turns,
+      last_assistant: snap.last_assistant
+    });
+    return evidence.includes(token) ? snap : false;
+  }, 45_000, label + " Bridge history hydration");
+}
 async function sendToken(bridge, pageId, role, suffix) {
   const token = "MBV1_008_" + role.toUpperCase() + "_" + suffix + "_" +
     crypto.randomBytes(5).toString("hex");
@@ -333,13 +345,23 @@ try {
   await plannerPage.reload({ waitUntil: "domcontentloaded" });
   await injectPinnedBridgeUserscript(plannerPage, userscript, { bindingName });
   binding = await waitBinding(bridge, plannerSetup.url, executorSetup.url);
-  await sendToken(bridge, binding.planner.page_id, "planner", "RELOAD");
+  await waitBridgeHistoryToken(
+    bridge, binding.planner.page_id, plannerToken, "planner reload"
+  );
+  const plannerReloadToken = await sendToken(
+    bridge, binding.planner.page_id, "planner", "RELOAD"
+  );
   log("MBV1_008_LIVE_PLANNER_RELOAD", "PASS");
 
   await executorPage.reload({ waitUntil: "domcontentloaded" });
   await injectPinnedBridgeUserscript(executorPage, userscript, { bindingName });
   binding = await waitBinding(bridge, plannerSetup.url, executorSetup.url);
-  await sendToken(bridge, binding.executor.page_id, "executor", "RELOAD");
+  await waitBridgeHistoryToken(
+    bridge, binding.executor.page_id, executorToken, "executor reload"
+  );
+  const executorReloadToken = await sendToken(
+    bridge, binding.executor.page_id, "executor", "RELOAD"
+  );
   log("MBV1_008_LIVE_EXECUTOR_RELOAD", "PASS");
 
   process.kill(originalBridgePid);
@@ -355,6 +377,14 @@ try {
   );
   await waitBridgeHealthy(true);
   binding = await waitBinding(bridge, plannerSetup.url, executorSetup.url);
+  await Promise.all([
+    waitBridgeHistoryToken(
+      bridge, binding.planner.page_id, plannerReloadToken, "planner bridge restart"
+    ),
+    waitBridgeHistoryToken(
+      bridge, binding.executor.page_id, executorReloadToken, "executor bridge restart"
+    )
+  ]);
   await sendToken(bridge, binding.planner.page_id, "planner", "BRIDGE_RESTART");
   log("MBV1_008_LIVE_BRIDGE_RESTART", "PASS");
 
