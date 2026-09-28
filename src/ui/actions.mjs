@@ -696,7 +696,7 @@ async function setComposerText(
   // so typing cannot accidentally submit the composer.
   await keyboardClearComposer(page, afterInsert);
 
-  const printableAscii = /^[\\x20-\\x7E]*$/.test(String(instruction || ""));
+  const printableAscii = /^[\x20-\x7E]*$/.test(String(instruction || ""));
   if (
     printableAscii &&
     page.keyboard &&
