@@ -430,14 +430,59 @@ try {
       longToken
   );
   let sawGenerating = false;
-  const finalLong = await waitFor(async () => {
-    const snap = await bridge.getSnapshot(binding.planner.page_id);
-    if (snap.is_generating) sawGenerating = true;
-    const changed = snap.assistant_count > baseline.assistant_count;
-    const complete = changed && !snap.is_generating &&
-      Boolean(String(snap.last_assistant || "").trim());
-    return complete ? snap : false;
-  }, 180_000, "long generation completion");
+  let lastLongSnapshot = null;
+  let finalLong;
+  try {
+    finalLong = await waitFor(async () => {
+      const snap = await bridge.getSnapshot(binding.planner.page_id);
+      lastLongSnapshot = snap;
+      if (snap.is_generating) sawGenerating = true;
+      const changed = snap.assistant_count > baseline.assistant_count;
+      const complete = changed && !snap.is_generating &&
+        Boolean(String(snap.last_assistant || "").trim());
+      return complete ? snap : false;
+    }, 180_000, "long generation completion");
+  } catch (error) {
+    const [bridgeState, probe, dom] = await Promise.all([
+      bridge.getState(binding.planner.page_id).catch(() => null),
+      plannerPage ? browser.probePage(plannerPage).catch(() => null) : null,
+      plannerPage ? plannerPage.evaluate(() => {
+        const composer = document.querySelector("#prompt-textarea") ||
+          document.querySelector('[contenteditable][role="textbox"]') ||
+          document.querySelector("textarea");
+        return {
+          composer_nonempty: Boolean(
+            String(composer?.innerText || composer?.value || composer?.textContent || "").trim()
+          ),
+          conversation_turn_count:
+            document.querySelectorAll("[data-testid^='conversation-turn-']").length,
+          legacy_user_count:
+            document.querySelectorAll('[data-message-author-role="user"]').length,
+          legacy_assistant_count:
+            document.querySelectorAll('[data-message-author-role="assistant"]').length,
+          modern_assistant_count:
+            document.querySelectorAll("main [class*='MarkdownRoot-']").length
+        };
+      }).catch(() => null) : null
+    ]);
+    log("MBV1_008_LONG_DIAG_BASE_COUNT", baseline.assistant_count);
+    log("MBV1_008_LONG_DIAG_LAST_COUNT", lastLongSnapshot?.assistant_count ?? null);
+    log("MBV1_008_LONG_DIAG_GENERATING", lastLongSnapshot?.is_generating ?? null);
+    log("MBV1_008_LONG_DIAG_SAW_GENERATING", sawGenerating);
+    log("MBV1_008_LONG_DIAG_EDITOR_NONEMPTY",
+      Boolean(lastLongSnapshot?.editor_text));
+    log("MBV1_008_LONG_DIAG_PAGE_ALIVE", bridgeState?.alive ?? null);
+    log("MBV1_008_LONG_DIAG_LAST_POLL_AGO", bridgeState?.last_poll_ago ?? null);
+    log("MBV1_008_LONG_DIAG_UI_USER_COUNT", probe?.snapshot?.userMessageCount ?? null);
+    log("MBV1_008_LONG_DIAG_UI_ASSISTANT_COUNT", probe?.snapshot?.assistantMessageCount ?? null);
+    log("MBV1_008_LONG_DIAG_UI_RESPONSE_RUNNING", probe?.snapshot?.responseRunning ?? null);
+    log("MBV1_008_LONG_DIAG_COMPOSER_NONEMPTY", dom?.composer_nonempty ?? null);
+    log("MBV1_008_LONG_DIAG_TURNS", dom?.conversation_turn_count ?? null);
+    log("MBV1_008_LONG_DIAG_LEGACY_USERS", dom?.legacy_user_count ?? null);
+    log("MBV1_008_LONG_DIAG_LEGACY_ASSISTANTS", dom?.legacy_assistant_count ?? null);
+    log("MBV1_008_LONG_DIAG_MODERN_ASSISTANTS", dom?.modern_assistant_count ?? null);
+    throw error;
+  }
   if (!sawGenerating) {
     throw new Error("long-generation qualification never observed generating=true");
   }
