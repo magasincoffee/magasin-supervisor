@@ -105,7 +105,7 @@ async function openAdapterWithBoundedRetry() {
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
       log("SC004_LIVE_CDP_ATTACH_ATTEMPT", attempt);
-      await openAdapterWithBoundedRetry();
+      await adapter.open();
       log("SC004_LIVE_CDP_ATTACH_PASS", attempt);
       return;
     } catch (error) {
@@ -144,7 +144,7 @@ async function boundedCleanup(label, action, timeoutMs = 2_500) {
 }
 
 try {
-  await adapter.open();
+  await openAdapterWithBoundedRetry();
 
   let currentPages = adapter.getChatGptPages();
   if (currentPages.length > 2) {
