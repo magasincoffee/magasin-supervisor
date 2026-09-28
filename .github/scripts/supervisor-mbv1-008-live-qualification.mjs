@@ -139,6 +139,25 @@ async function waitBridgeHistoryToken(bridge, pageId, token, label) {
     return evidence.includes(token) ? snap : false;
   }, 45_000, label + " Bridge history hydration");
 }
+async function waitBridgeHistoryEvidence(bridge, pageId, evidence, label) {
+  return waitFor(async () => {
+    const snap = await bridge.getSnapshot(pageId).catch(() => null);
+    if (!snap || snap.is_generating) return false;
+    if (snap.assistant_count < Number(evidence?.assistant_count || 0)) return false;
+    const texts = [
+      ...(Array.isArray(snap.recent_turns)
+        ? snap.recent_turns
+            .filter((turn) => turn?.role === "assistant")
+            .map((turn) => String(turn?.text || ""))
+        : []),
+      String(snap.last_assistant || "")
+    ].filter(Boolean);
+    return texts.some((text) => sha(text) === evidence?.assistant_digest)
+      ? snap
+      : false;
+  }, 45_000, label + " Bridge history hydration");
+}
+
 async function sendToken(bridge, pageId, role, suffix) {
   const token = "MBV1_008_" + role.toUpperCase() + "_" + suffix + "_" +
     crypto.randomBytes(5).toString("hex");
@@ -229,7 +248,8 @@ async function sendToken(bridge, pageId, role, suffix) {
     throw error;
   }
   const reply = String(result?.snapshot?.last_assistant || "");
-  if (!reply.includes(token)) {
+  const tokenMatch = reply.includes(token);
+  if (!tokenMatch) {
     const recent = Array.isArray(result?.snapshot?.recent_turns)
       ? result.snapshot.recent_turns
       : [];
@@ -262,29 +282,24 @@ async function sendToken(bridge, pageId, role, suffix) {
     log("MBV1_008_MISMATCH_DOM_TOKEN_HITS", domToken?.token_hits ?? null);
     log("MBV1_008_MISMATCH_COUNT_ADVANCED", result?.evidence?.count_advanced ?? null);
     log("MBV1_008_MISMATCH_DIGEST_CHANGED", result?.evidence?.digest_changed ?? null);
-
-    // Model nonce obedience is not itself the transport under test. Permit one
-    // bounded harmless correction with a fresh nonce; never resend the same
-    // instruction and still require a newly observed assistant response.
-    const correctionToken = "MBV1_008_" + role.toUpperCase() + "_" + suffix +
-      "_CORRECTION_" + crypto.randomBytes(5).toString("hex");
-    log("MBV1_008_TOKEN_CORRECTION_ATTEMPT", role);
-    const correction = await bridge.send(
-      pageId,
-      "MBV1-008 harmless qualification correction. Your previous reply did not " +
-        "contain the required nonce. Reply with exactly this new token and nothing else: " +
-        correctionToken,
-      { timeoutMs: 180_000 }
-    );
-    const correctionReply = String(correction?.snapshot?.last_assistant || "");
-    if (!correctionReply.includes(correctionToken)) {
-      log("MBV1_008_TOKEN_CORRECTION_STATUS", "FAIL");
-      throw new Error(role + " live token reply mismatch after bounded correction");
-    }
-    log("MBV1_008_TOKEN_CORRECTION_STATUS", "PASS");
-    return correctionToken;
   }
-  return token;
+
+  // Model nonce obedience is diagnostic only. The transport gate requires
+  // exact page correlation plus a newly observed, completed assistant turn.
+  if (
+    result?.evidence?.count_advanced !== true ||
+    result?.snapshot?.is_generating ||
+    !reply.trim()
+  ) {
+    throw new Error(role + " transport response evidence is incomplete");
+  }
+  log("MBV1_008_NONCE_MATCH_" + role.toUpperCase(), tokenMatch ? "PASS" : "DIAGNOSTIC_MISMATCH");
+  return {
+    token,
+    token_match: tokenMatch,
+    assistant_count: result.snapshot.assistant_count,
+    assistant_digest: sha(reply)
+  };
 }
 
 const browser = new ChatGptUiAdapter({
@@ -333,18 +348,33 @@ try {
     )
   ]);
 
-  const plannerToken = await sendToken(
+  const executorBeforePlanner = await bridge.getSnapshot(binding.executor.page_id);
+  const plannerProbe = await sendToken(
     bridge, binding.planner.page_id, "planner", "BASE"
   );
-  const executorBefore = await bridge.getSnapshot(binding.executor.page_id);
-  if (JSON.stringify(executorBefore).includes(plannerToken)) {
+  const executorAfterPlanner = await bridge.getSnapshot(binding.executor.page_id);
+  if (executorAfterPlanner.assistant_count !== executorBeforePlanner.assistant_count) {
+    throw new Error("Planner send changed Executor assistant count");
+  }
+  if (
+    plannerProbe.token_match &&
+    JSON.stringify(executorAfterPlanner).includes(plannerProbe.token)
+  ) {
     throw new Error("Planner token crossed into Executor snapshot");
   }
-  const executorToken = await sendToken(
+
+  const plannerBeforeExecutor = await bridge.getSnapshot(binding.planner.page_id);
+  const executorProbe = await sendToken(
     bridge, binding.executor.page_id, "executor", "BASE"
   );
-  const plannerAfter = await bridge.getSnapshot(binding.planner.page_id);
-  if (JSON.stringify(plannerAfter).includes(executorToken)) {
+  const plannerAfterExecutor = await bridge.getSnapshot(binding.planner.page_id);
+  if (plannerAfterExecutor.assistant_count !== plannerBeforeExecutor.assistant_count) {
+    throw new Error("Executor send changed Planner assistant count");
+  }
+  if (
+    executorProbe.token_match &&
+    JSON.stringify(plannerAfterExecutor).includes(executorProbe.token)
+  ) {
     throw new Error("Executor token crossed into Planner snapshot");
   }
   log("MBV1_008_LIVE_BASE_TRANSPORT", "PASS");
@@ -353,10 +383,10 @@ try {
   await plannerPage.reload({ waitUntil: "domcontentloaded" });
   await injectPinnedBridgeUserscript(plannerPage, userscript, { bindingName });
   binding = await waitBinding(bridge, plannerSetup.url, executorSetup.url);
-  await waitBridgeHistoryToken(
-    bridge, binding.planner.page_id, plannerToken, "planner reload"
+  await waitBridgeHistoryEvidence(
+    bridge, binding.planner.page_id, plannerProbe, "planner reload"
   );
-  const plannerReloadToken = await sendToken(
+  const plannerReloadProbe = await sendToken(
     bridge, binding.planner.page_id, "planner", "RELOAD"
   );
   log("MBV1_008_LIVE_PLANNER_RELOAD", "PASS");
@@ -364,10 +394,10 @@ try {
   await executorPage.reload({ waitUntil: "domcontentloaded" });
   await injectPinnedBridgeUserscript(executorPage, userscript, { bindingName });
   binding = await waitBinding(bridge, plannerSetup.url, executorSetup.url);
-  await waitBridgeHistoryToken(
-    bridge, binding.executor.page_id, executorToken, "executor reload"
+  await waitBridgeHistoryEvidence(
+    bridge, binding.executor.page_id, executorProbe, "executor reload"
   );
-  const executorReloadToken = await sendToken(
+  const executorReloadProbe = await sendToken(
     bridge, binding.executor.page_id, "executor", "RELOAD"
   );
   log("MBV1_008_LIVE_EXECUTOR_RELOAD", "PASS");
@@ -386,11 +416,11 @@ try {
   await waitBridgeHealthy(true);
   binding = await waitBinding(bridge, plannerSetup.url, executorSetup.url);
   await Promise.all([
-    waitBridgeHistoryToken(
-      bridge, binding.planner.page_id, plannerReloadToken, "planner bridge restart"
+    waitBridgeHistoryEvidence(
+      bridge, binding.planner.page_id, plannerReloadProbe, "planner bridge restart"
     ),
-    waitBridgeHistoryToken(
-      bridge, binding.executor.page_id, executorReloadToken, "executor bridge restart"
+    waitBridgeHistoryEvidence(
+      bridge, binding.executor.page_id, executorReloadProbe, "executor bridge restart"
     )
   ]);
   await sendToken(bridge, binding.planner.page_id, "planner", "BRIDGE_RESTART");
@@ -408,9 +438,9 @@ try {
     const snap = await bridge.getSnapshot(binding.planner.page_id);
     if (snap.is_generating) sawGenerating = true;
     const changed = snap.assistant_count > baseline.assistant_count;
-    const done = changed && !snap.is_generating &&
-      String(snap.last_assistant || "").includes(longToken);
-    return done ? snap : false;
+    const complete = changed && !snap.is_generating &&
+      Boolean(String(snap.last_assistant || "").trim());
+    return complete ? snap : false;
   }, 180_000, "long generation completion");
   if (!sawGenerating) {
     throw new Error("long-generation qualification never observed generating=true");
@@ -418,6 +448,8 @@ try {
   if (finalLong.is_generating) {
     throw new Error("long-generation parser completed while still generating");
   }
+  log("MBV1_008_LONG_NONCE_MATCH",
+    String(finalLong.last_assistant || "").includes(longToken) ? "PASS" : "DIAGNOSTIC_MISMATCH");
   log("MBV1_008_LIVE_LONG_GENERATION", "PASS");
 
   const result = {
