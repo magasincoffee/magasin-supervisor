@@ -494,3 +494,18 @@ test("MBV1-008 userscript patch preserves commands polled while busy", () => {
   assert.match(patched, /executeCommand\(nextCommand\)/);
   assert.doesNotMatch(patched, /resp && resp\.cmd && !busy/);
 });
+
+
+test("MBV1-008 live qualification treats transient generating observation as diagnostic", async () => {
+  const live = await fs.readFile(
+    new URL("../.github/scripts/supervisor-mbv1-008-live-qualification.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.match(live, /MBV1_008_LONG_GENERATING_OBSERVED/);
+  assert.match(live, /finalLong\.is_generating/);
+  assert.match(live, /assistant_count <= baseline\.assistant_count/);
+  assert.doesNotMatch(
+    live,
+    /long-generation qualification never observed generating=true/
+  );
+});
