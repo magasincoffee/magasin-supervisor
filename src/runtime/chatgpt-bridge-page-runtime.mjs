@@ -102,6 +102,48 @@ export function patchPinnedBridgeUserscript(source) {
     "return chatGptMessageRecords().filter((item) => item.role === 'assistant').length;"
   );
 
+  const legacyGenerating = `  function isGenerating() {
+    for (const s of ['button[data-testid="stop-button"]', 'button[aria-label="停止"]', 'button[aria-label="Stop"]']) {
+      const b = document.querySelector(s);
+      if (b && b.offsetParent !== null) return true;
+    }
+    return false;
+  }`;
+  const hardenedGenerating = `  function isGenerating() {
+    const visible = (el) => {
+      if (!el) return false;
+      const style = getComputedStyle(el);
+      return style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        el.getClientRects().length > 0;
+    };
+
+    const main = document.querySelector('main');
+    if (main) {
+      if (main.getAttribute('aria-busy') === 'true') return true;
+      if (Array.from(main.querySelectorAll(
+        "[aria-busy='true'],[data-testid*='loading' i],[data-testid*='spinner' i],[data-testid*='progress' i]"
+      )).some(visible)) return true;
+    }
+
+    for (const button of Array.from(document.querySelectorAll('main button')).slice(-80)) {
+      if (!visible(button)) continue;
+      const testId = String(button.getAttribute('data-testid') || '');
+      const meta = [
+        testId,
+        button.getAttribute('aria-label'),
+        button.getAttribute('title'),
+        button.innerText
+      ].filter(Boolean).join(' ');
+      if (
+        /(?:^|[-_])stop(?:[-_]|$)/i.test(testId) ||
+        /(stop generating|stop response|dừng tạo|dừng phản hồi|停止)/i.test(meta)
+      ) return true;
+    }
+    return false;
+  }`;
+  text = text.replace(legacyGenerating, hardenedGenerating);
+
   const legacySnapshotBlock = `      const turns = document.querySelectorAll('[data-message-author-role]');
       const total = turns.length;
       for (let i = Math.max(0, total - 6); i < total; i++) {
