@@ -126,7 +126,10 @@ function Stop-ChatGptBridgeRuntimeProcesses {
     Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
         Where-Object {
             $_.CommandLine -and
-            $_.CommandLine -like "*$($info.RepoRoot)*" -and
+            (
+                $_.CommandLine -like "*$($info.VenvRoot)*" -or
+                $_.CommandLine -like "*$($info.RepoRoot)*"
+            ) -and
             $_.CommandLine -match 'run\.py'
         } |
         ForEach-Object {
