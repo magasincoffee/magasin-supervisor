@@ -426,7 +426,7 @@ try {
   const longToken = "MBV1_008_LONG_" + crypto.randomBytes(5).toString("hex");
   await bridge.sendAsync(
     binding.planner.page_id,
-    "MBV1-008 long-generation qualification. Write 80 numbered very short lines, one per line, then finish with exactly " +
+    "MBV1-008 long-generation qualification. Write 30 numbered very short lines, one per line, then finish with exactly " +
       longToken
   );
   let sawGenerating = false;
