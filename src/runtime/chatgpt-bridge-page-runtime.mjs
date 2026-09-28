@@ -429,6 +429,27 @@ export async function injectPinnedBridgeUserscript(page, source, {
   };
 }
 
+async function waitForChatSurfaceReady(browserAdapter, page, role, timeoutMs = 60_000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() <= deadline) {
+    last = await browserAdapter.probePage(page).catch(() => null);
+    const snap = last?.snapshot;
+    if (snap?.loginRequired || snap?.hasCaptcha) {
+      throw new Error(role + " ChatGPT surface requires owner intervention");
+    }
+    if (
+      snap?.conversationPath &&
+      snap?.composerReady &&
+      !snap?.hasNetworkError &&
+      !snap?.hasTransientError &&
+      !snap?.conversationMissing
+    ) return last;
+    await sleep(300);
+  }
+  throw new Error(role + " ChatGPT surface did not become ready after reload");
+}
+
 async function waitForBinding(bridgeAdapter, options, timeoutMs = 20_000) {
   const deadline = Date.now() + timeoutMs;
   let lastError = null;
@@ -472,6 +493,10 @@ export async function prepareBridgeBrowserRuntime({
   await Promise.all([
     warm.plannerPage.reload({ waitUntil: "domcontentloaded" }),
     warm.executorPage.reload({ waitUntil: "domcontentloaded" })
+  ]);
+  await Promise.all([
+    waitForChatSurfaceReady(browserAdapter, warm.plannerPage, "Planner"),
+    waitForChatSurfaceReady(browserAdapter, warm.executorPage, "Executor")
   ]);
 
   const injections = await Promise.all([
