@@ -521,35 +521,88 @@ async function setComposerText(
 
   // ChatGPT can replace the ProseMirror composer between readiness probing
   // and locator.fill(), or accept fill() without updating the live React
-  // editor state. Reacquire the editor and perform a real keyboard insertion.
+  // editor state. Clear the current surface, then reacquire AND refocus the
+  // replacement editor before inserting text. The reacquire is important:
+  // current ChatGPT can rerender the contenteditable as a side effect of
+  // Backspace, which invalidates browser focus without closing the locator.
   const fresh = await waitForReadyComposer(page, { timeoutMs: 3_000 });
   if (!fresh) throw fillError;
   await keyboardClearComposer(page, fresh);
+
+  const focused = await waitForReadyComposer(page, { timeoutMs: 2_000 });
+  if (!focused) {
+    throw new Error("composer disappeared after bounded clear");
+  }
+  await focused.click({ timeout: 1_500 }).catch(() => {});
+  if (typeof page.waitForTimeout === "function") {
+    await page.waitForTimeout(80);
+  }
+
   if (!page.keyboard || typeof page.keyboard.insertText !== "function") {
     throw fillError;
   }
   await page.keyboard.insertText(instruction);
   if (typeof page.waitForTimeout === "function") {
-    await page.waitForTimeout(180);
+    await page.waitForTimeout(220);
   }
 
-  const afterInsert = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+  let afterInsert = await waitForReadyComposer(page, { timeoutMs: 1_500 });
   if (!afterInsert) {
     throw new Error("composer disappeared after keyboard text insertion");
   }
 
-  const persisted = await composerContainsExactInstruction(
+  let persisted = await composerContainsExactInstruction(
     afterInsert,
     instruction
   );
+  if (persisted !== false) {
+    return { ready: true, method: "keyboard-refocused", composer: afterInsert };
+  }
+
+  // Some ProseMirror/React builds ignore one bulk insertText event even when
+  // the editor is focused. One final bounded, locator-scoped key sequence is
+  // more human-like and keeps every keystroke anchored to the live editor.
+  // Clear first so this fallback can never append a duplicate partial prompt.
+  await keyboardClearComposer(page, afterInsert);
+  const sequential = await waitForReadyComposer(page, { timeoutMs: 2_000 });
+  if (!sequential) {
+    return {
+      ready: false,
+      reason: "composer disappeared before sequential keyboard recovery"
+    };
+  }
+  await sequential.click({ timeout: 1_500 }).catch(() => {});
+
+  if (typeof sequential.pressSequentially === "function") {
+    await sequential.pressSequentially(instruction, {
+      delay: 0,
+      timeout: 15_000
+    });
+  } else {
+    // Older/fake Playwright surfaces do not expose pressSequentially().
+    // Keep the fallback bounded and focus-anchored through the page keyboard.
+    await page.keyboard.insertText(instruction);
+  }
+
+  if (typeof page.waitForTimeout === "function") {
+    await page.waitForTimeout(250);
+  }
+  afterInsert = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+  if (!afterInsert) {
+    return {
+      ready: false,
+      reason: "composer disappeared after sequential keyboard recovery"
+    };
+  }
+  persisted = await composerContainsExactInstruction(afterInsert, instruction);
   if (persisted === false) {
     return {
       ready: false,
-      reason: "composer text did not persist after bounded keyboard insertion"
+      reason: "composer text did not persist after bounded refocused keyboard recovery"
     };
   }
 
-  return { ready: true, method: "keyboard", composer: afterInsert };
+  return { ready: true, method: "keyboard-sequential", composer: afterInsert };
 }
 
 function visibleControlSnapshot(page) {
