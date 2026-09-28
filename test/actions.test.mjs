@@ -853,6 +853,87 @@ test("chunked recovery places DOM caret at end after every composer refocus", as
   assert.ok(selectionPlacements >= 2);
 });
 
+test("retry clear is verified before chunk fallback can append", async () => {
+  const instruction = "Z".repeat(96);
+  let composerText = "";
+  let insertCalls = 0;
+  let sends = 0;
+  let fillCalls = 0;
+
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async fill(value) {
+      fillCalls += 1;
+      // First non-empty fill and later empty fill are both dropped, matching
+      // the live ProseMirror behavior that triggered actual_len=582.
+      if (value) return;
+    },
+    async inputValue() { return composerText; },
+    async click() {},
+    async press(key) {
+      if (key === "Backspace") composerText = "";
+    },
+    async evaluate(fn) {
+      const source = String(fn);
+      if (source.includes('new ClipboardEvent("paste"')) return false;
+      if (source.includes('execCommand("insertText"')) return false;
+      if (source.includes("selectNodeContents")) return true;
+      return null;
+    }
+  };
+
+  const send = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() {
+      if (composerText === instruction) sends += 1;
+      composerText = "";
+    }
+  };
+
+  const page = {
+    locator(selector) {
+      if (selector.includes("send-button")) return send;
+      return composer;
+    },
+    async evaluate(fn) {
+      if (String(fn).includes("navigator.clipboard")) return false;
+      if (String(fn).includes("data-message-author-role")) {
+        return { readable: true, totalCount: sends, exactMatchCount: sends };
+      }
+      return [];
+    },
+    async waitForTimeout() {},
+    async bringToFront() {},
+    keyboard: {
+      async press() {},
+      async insertText(value) {
+        insertCalls += 1;
+        if (insertCalls === 1) {
+          // Simulate the failed whole-prompt insertion remaining in composer.
+          composerText = instruction;
+          return;
+        }
+        composerText += value;
+      }
+    },
+    getByRole() { return send; }
+  };
+
+  const result = await sendComposerInstruction(page, instruction, {
+    dryRun: false
+  });
+
+  assert.equal(result.executed, true);
+  assert.equal(result.input_method, "keyboard-chunked");
+  assert.ok(fillCalls >= 2);
+  assert.equal(sends, 1);
+});
+
 test("native clipboard paste is one transaction and restores prior clipboard", async () => {
   const instruction = "SC003 native clipboard bootstrap";
   let composerText = "";
