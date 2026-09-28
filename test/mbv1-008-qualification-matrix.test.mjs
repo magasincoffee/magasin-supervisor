@@ -367,5 +367,5 @@ test("MBV1-008 userscript patch preserves upstream Bridge and widens evidence pl
   assert.match(patched, /slice\(0, 12000\)/);
   assert.match(patched, /composer-submit-button/);
   assert.match(patched, /composer-send-button/);
-  assert.match(patched, /aria-label\\*="Send" i/);
+  assert.match(patched, /aria-label\*="Send" i/);
 });
