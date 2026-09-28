@@ -45,6 +45,18 @@ function baseSnapshot(overrides = {}) {
   };
 }
 
+test("SC-004 live qualification retries only pre-mutation CDP attach", async () => {
+  const source = await fs.readFile(
+    new URL("../.github/scripts/supervisor-sc004-live-qualification.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /openAdapterWithBoundedRetry/);
+  assert.match(source, /SC004_LIVE_CDP_ATTACH_ATTEMPT/);
+  assert.match(source, /attempt <= 2/);
+  assert.match(source, /await openAdapterWithBoundedRetry\(\)/);
+});
+
 test("SC-004 qualification instruction is read-only and correlation-bound", () => {
   const message = buildSingleConversationNextInstruction({
     sourceOfTruthUrl: "https://example.com/SOURCE_OF_TRUTH.md",
