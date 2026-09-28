@@ -4,6 +4,9 @@ import assert from "node:assert/strict";
 import {
   BridgeProjectBootstrapError,
   buildBridgeProjectContextBootstrapMessage,
+  bridgeBootstrapSnapshotBaseline,
+  bridgeBootstrapBaselineUnchanged,
+  canMigrateLegacyAmbiguousBridgeBootstrap,
   classifyBridgeBootstrapSnapshot,
   startBridgeLinkOnlyProjectSession
 } from "../src/runtime/planner-executor-bridge-bootstrap.mjs";
@@ -244,4 +247,107 @@ test("ambiguous bootstrap restart reconciles only exact user turn followed by as
     ]
   }, expected, digest);
   assert.equal(missing.state, "NO_MATCHING_USER_TURN");
+});
+
+
+test("Bridge bootstrap snapshot baseline proves unchanged page only on exact bounded evidence", () => {
+  const digest = (value) => "d:" + String(value || "").trim();
+  const before = {
+    assistant_count: 3,
+    is_generating: false,
+    recent_turns: [
+      { role: "user", text: "old request" },
+      { role: "assistant", text: "old response" }
+    ]
+  };
+  const baseline = bridgeBootstrapSnapshotBaseline(before, digest);
+  assert.equal(
+    bridgeBootstrapBaselineUnchanged(before, baseline, digest),
+    true
+  );
+  assert.equal(
+    bridgeBootstrapBaselineUnchanged({
+      ...before,
+      recent_turns: [
+        ...before.recent_turns,
+        { role: "user", text: "new request" }
+      ]
+    }, baseline, digest),
+    false
+  );
+  assert.equal(
+    bridgeBootstrapBaselineUnchanged({
+      ...before,
+      assistant_count: 4
+    }, baseline, digest),
+    false
+  );
+  assert.equal(
+    bridgeBootstrapBaselineUnchanged({
+      ...before,
+      is_generating: true
+    }, baseline, digest),
+    false
+  );
+});
+
+test("legacy ambiguous Bridge bootstrap migration is one-shot and requires zero downstream state", () => {
+  const bootstrap = {
+    required: true,
+    message_digest: "same",
+    send_attempted_at: "2026-09-28T00:00:00.000Z",
+    send_confirmed_at: null,
+    completed_at: null
+  };
+  const state = {
+    project_context: { strict_correlation: false },
+    active_task_id: null,
+    assignment: null,
+    result: null,
+    decision: null
+  };
+  const evidence = {
+    state: "NO_MATCHING_USER_TURN",
+    generating: false
+  };
+
+  assert.equal(canMigrateLegacyAmbiguousBridgeBootstrap({
+    state,
+    bootstrap,
+    evidence,
+    persistedDigest: "same",
+    currentDigest: "same"
+  }), true);
+
+  assert.equal(canMigrateLegacyAmbiguousBridgeBootstrap({
+    state: { ...state, active_task_id: "T1" },
+    bootstrap,
+    evidence,
+    persistedDigest: "same",
+    currentDigest: "same"
+  }), false);
+
+  assert.equal(canMigrateLegacyAmbiguousBridgeBootstrap({
+    state,
+    bootstrap: { ...bootstrap, baseline_snapshot: { assistant_count: 0, recent_turns: [] } },
+    evidence,
+    persistedDigest: "same",
+    currentDigest: "same"
+  }), false);
+
+  assert.equal(canMigrateLegacyAmbiguousBridgeBootstrap({
+    state,
+    bootstrap: { ...bootstrap, legacy_ambiguous_migrated_at: "2026-09-28T01:00:00.000Z" },
+    evidence,
+    persistedDigest: "same",
+    currentDigest: "same"
+  }), false);
+
+  assert.equal(canMigrateLegacyAmbiguousBridgeBootstrap({
+    state,
+    bootstrap,
+    evidence,
+    persistedDigest: "old",
+    currentDigest: "new"
+  }), false);
 });
