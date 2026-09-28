@@ -829,12 +829,17 @@ export async function waitForBootstrapResponse({
   statePath,
   baselineAssistantTurnId = null,
   captureTurn = captureLatestRoleTurn,
+  expectedAssistantMarker = null,
+  assistantSettleMs = 8_000,
   timeoutMs = 180_000,
   pollMs = 750,
   now = () => new Date().toISOString()
 } = {}) {
   const started = Date.now();
   let sawRunning = false;
+  const expectedMarker = String(expectedAssistantMarker || "").trim();
+  let stableAssistantDigest = null;
+  let stableAssistantSince = 0;
 
   while (Date.now() - started <= timeoutMs) {
     const probe = await adapter.probePage(page);
@@ -866,18 +871,56 @@ export async function waitForBootstrapResponse({
           return {
             status: "CONTINUE_REQUIRED",
             assistant_turn: assistant,
-            saw_running: sawRunning
+            saw_running: sawRunning,
+            marker_confirmed: expectedMarker
+              ? String(assistant.text || "").includes(expectedMarker)
+              : null
           };
         }
-        await persistResponseComplete(statePath, {
-          assistantTurnId: assistant.turn_id,
-          now
-        });
-        return {
-          status: "RESPONSE_COMPLETE",
-          assistant_turn: assistant,
-          saw_running: sawRunning
-        };
+
+        const assistantText = String(assistant.text || "");
+        const markerConfirmed =
+          !expectedMarker || assistantText.includes(expectedMarker);
+
+        // ChatGPT UI can briefly report responseRunning=false while a modern
+        // assistant turn is still growing. For qualification, the bootstrap
+        // correlation marker is intentionally at the end of the response, so
+        // do not declare completion on that transient false-idle signal.
+        if (!markerConfirmed && expectedMarker) {
+          const digest = String(
+            assistant.digest || assistant.turn_id || assistantText
+          );
+          const observedAt = Date.now();
+          if (digest !== stableAssistantDigest) {
+            stableAssistantDigest = digest;
+            stableAssistantSince = observedAt;
+          } else if (
+            Number(assistantSettleMs) <= 0 ||
+            observedAt - stableAssistantSince >= Number(assistantSettleMs)
+          ) {
+            await persistResponseComplete(statePath, {
+              assistantTurnId: assistant.turn_id,
+              now
+            });
+            return {
+              status: "RESPONSE_COMPLETE",
+              assistant_turn: assistant,
+              saw_running: sawRunning,
+              marker_confirmed: false
+            };
+          }
+        } else {
+          await persistResponseComplete(statePath, {
+            assistantTurnId: assistant.turn_id,
+            now
+          });
+          return {
+            status: "RESPONSE_COMPLETE",
+            assistant_turn: assistant,
+            saw_running: sawRunning,
+            marker_confirmed: expectedMarker ? true : null
+          };
+        }
       }
     }
 
@@ -1016,6 +1059,9 @@ export async function createNewChatAndBootstrap({
       statePath,
       baselineAssistantTurnId: baselineAssistant?.turn_id || null,
       captureTurn,
+      expectedAssistantMarker: qualificationOnly
+        ? `MAGASIN_BOOTSTRAP_CORRELATION_V1 ${messageId}`
+        : null,
       timeoutMs,
       pollMs,
       now
