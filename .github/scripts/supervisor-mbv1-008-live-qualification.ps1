@@ -142,7 +142,7 @@ try {
   if ($bridgeProcess) {
     Stop-ChatGptBridgeBackend -Process $bridgeProcess
   }
-  Stop-ChatGptBridgeRuntimeProcesses -Root $workRoot -ErrorAction SilentlyContinue
+  try { Stop-ChatGptBridgeRuntimeProcesses -Root $workRoot } catch {}
 
   if ($startedBrowser) {
     $owned = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
