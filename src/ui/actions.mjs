@@ -351,6 +351,28 @@ async function clearComposerText(
   page,
   { timeoutMs = 3_000 } = {}
 ) {
+  const verifyEmpty = async (method) => {
+    if (typeof page.waitForTimeout === "function") {
+      await page.waitForTimeout(100);
+    }
+    const live = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+    if (!live) {
+      return {
+        ready: false,
+        reason: "composer disappeared while verifying clear"
+      };
+    }
+    const current = await readComposerText(live);
+    if (current !== null && !normalizeComposerText(current)) {
+      return { ready: true, method, composer: live };
+    }
+    return {
+      ready: false,
+      reason: "composer remained non-empty after " + method + " clear",
+      composer: live
+    };
+  };
+
   const composer = await waitForReadyComposer(page, { timeoutMs });
   if (!composer) {
     return {
@@ -361,13 +383,25 @@ async function clearComposerText(
 
   try {
     await composer.fill("", { timeout: 1_500 });
-    return { ready: true, method: "fill" };
-  } catch (fillError) {
-    const fresh = await waitForReadyComposer(page, { timeoutMs: 2_000 });
-    if (!fresh) throw fillError;
-    await keyboardClearComposer(page, fresh);
-    return { ready: true, method: "keyboard" };
+    const verified = await verifyEmpty("fill");
+    if (verified.ready) return verified;
+  } catch {}
+
+  const fresh = await waitForReadyComposer(page, { timeoutMs: 2_000 });
+  if (!fresh) {
+    return {
+      ready: false,
+      reason: "composer disappeared before keyboard clear"
+    };
   }
+  await keyboardClearComposer(page, fresh);
+  const verified = await verifyEmpty("keyboard");
+  if (verified.ready) return verified;
+
+  return {
+    ready: false,
+    reason: verified.reason || "composer clear could not be verified"
+  };
 }
 
 function normalizeComposerText(value) {
@@ -790,17 +824,17 @@ async function setComposerText(
           composer: pasteComposer
         };
       }
-      await keyboardClearComposer(page, pasteComposer);
-      const clearedAfterPaste = await waitForReadyComposer(page, {
-        timeoutMs: 1_500
+      const clearedAfterPaste = await clearComposerText(page, {
+        timeoutMs: 2_500
       });
-      if (!clearedAfterPaste) {
+      if (!clearedAfterPaste.ready) {
         return {
           ready: false,
-          reason: "composer disappeared after paste-event recovery clear"
+          reason: clearedAfterPaste.reason ||
+            "paste-event recovery clear was not verified"
         };
       }
-      await focusComposerAtEnd(page, clearedAfterPaste);
+      await focusComposerAtEnd(page, clearedAfterPaste.composer);
     }
   }
 
@@ -828,17 +862,17 @@ async function setComposerText(
           composer: execComposer
         };
       }
-      await keyboardClearComposer(page, execComposer);
-      const clearedAfterExec = await waitForReadyComposer(page, {
-        timeoutMs: 1_500
+      const clearedAfterExec = await clearComposerText(page, {
+        timeoutMs: 2_500
       });
-      if (!clearedAfterExec) {
+      if (!clearedAfterExec.ready) {
         return {
           ready: false,
-          reason: "composer disappeared after execCommand recovery clear"
+          reason: clearedAfterExec.reason ||
+            "execCommand recovery clear was not verified"
         };
       }
-      await focusComposerAtEnd(page, clearedAfterExec);
+      await focusComposerAtEnd(page, clearedAfterExec.composer);
     }
   }
 
@@ -872,17 +906,17 @@ async function setComposerText(
             composer: pastedComposer
           };
         }
-        await keyboardClearComposer(page, pastedComposer);
-        const postPasteClear = await waitForReadyComposer(page, {
-          timeoutMs: 1_500
+        const postPasteClear = await clearComposerText(page, {
+          timeoutMs: 2_500
         });
-        if (!postPasteClear) {
+        if (!postPasteClear.ready) {
           return {
             ready: false,
-            reason: "composer disappeared after native clipboard recovery clear"
+            reason: postPasteClear.reason ||
+              "native clipboard recovery clear was not verified"
           };
         }
-        await focusComposerAtEnd(page, postPasteClear);
+        await focusComposerAtEnd(page, postPasteClear.composer);
       }
     }
   }
@@ -907,6 +941,18 @@ async function setComposerText(
   if (persisted !== false) {
     return { ready: true, method: "keyboard-refocused", composer: afterInsert };
   }
+
+  const clearedBeforeChunks = await clearComposerText(page, {
+    timeoutMs: 2_500
+  });
+  if (!clearedBeforeChunks.ready) {
+    return {
+      ready: false,
+      reason: clearedBeforeChunks.reason ||
+        "composer could not be verified empty before chunk recovery"
+    };
+  }
+  await focusComposerAtEnd(page, clearedBeforeChunks.composer);
 
   // Keep bounded chunk insertion only as the final fail-closed fallback. Live
   // qualification proved per-character reacquisition is too slow for production.
