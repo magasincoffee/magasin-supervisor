@@ -98,7 +98,28 @@ const adapter = new ChatGptUiAdapter({
 });
 
 let qualificationPage = null;
+let finalExitCode = 0;
 const startedAt = new Date().toISOString();
+
+async function boundedCleanup(label, action, timeoutMs = 2_500) {
+  let timer = null;
+  try {
+    await Promise.race([
+      Promise.resolve().then(action),
+      new Promise((resolve) => {
+        timer = setTimeout(() => {
+          log(`SC003_LIVE_CLEANUP_TIMEOUT_${label}`, "True");
+          resolve();
+        }, timeoutMs);
+        timer.unref?.();
+      })
+    ]);
+  } catch (error) {
+    log(`SC003_LIVE_CLEANUP_ERROR_${label}`, error?.name || "Error");
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 try {
   await adapter.open();
@@ -267,12 +288,22 @@ try {
   log("SC003_LIVE_STATUS", "FAIL");
   log("SC003_LIVE_ERROR_NAME", error?.name || "Error");
   log("SC003_LIVE_ERROR_DIGEST", sha(String(error?.message || error)));
-  throw error;
+  finalExitCode = 1;
 } finally {
   if (qualificationPage && !qualificationPage.isClosed()) {
-    await adapter.closePage(qualificationPage).catch(() => {});
+    await boundedCleanup(
+      "PAGE_CLOSE",
+      () => adapter.closePage(qualificationPage)
+    );
   }
-  await adapter.close().catch(() => {});
-  await lock?.close().catch(() => {});
+  await boundedCleanup("ADAPTER_CLOSE", () => adapter.close(), 1_000);
+  await boundedCleanup("LOCK_CLOSE", () => lock?.close(), 1_000);
   await fs.rm(lockPath, { force: true }).catch(() => {});
 }
+
+// This is a dedicated qualification process. A Playwright CDP transport can
+// keep Node's event loop alive even after all acceptance evidence is durable.
+// Exit explicitly so post-PASS transport cleanup cannot turn a valid live
+// qualification into a GitHub Actions timeout/cancellation. Exiting this Node
+// process disconnects the client transport; it does not close dedicated Chrome.
+process.exit(finalExitCode);
