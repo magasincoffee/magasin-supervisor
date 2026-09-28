@@ -147,6 +147,12 @@ async function sendToken(bridge, pageId, role, suffix) {
         const composerText = normalize(
           composer ? (composer.innerText || composer.value || composer.textContent || "") : ""
         );
+        const roleNodes = Array.from(document.querySelectorAll('[data-message-author-role]'));
+        const roleCounts = roleNodes.reduce((acc, node) => {
+          const role = String(node.getAttribute('data-message-author-role') || 'empty');
+          acc[role] = (acc[role] || 0) + 1;
+          return acc;
+        }, {});
         return {
           exact_user_turn_count: users.filter((node) =>
             normalize(node.innerText || node.textContent || "") === wanted
@@ -154,7 +160,13 @@ async function sendToken(bridge, pageId, role, suffix) {
           composer_has_exact_instruction: composerText === wanted,
           composer_nonempty: Boolean(composerText),
           composer_present: Boolean(composer),
-          active_element_is_composer: Boolean(composer && document.activeElement === composer)
+          active_element_is_composer: Boolean(composer && document.activeElement === composer),
+          patch_marker: String(globalThis.__MAGASIN_BRIDGE_PATCH__ || ""),
+          role_counts: roleCounts,
+          modern_user_count: document.querySelectorAll("main .text-size-chat.whitespace-pre-wrap").length,
+          modern_assistant_count: document.querySelectorAll("main [class*='MarkdownRoot-']").length,
+          conversation_turn_count: document.querySelectorAll("[data-testid^='conversation-turn-']").length,
+          markdown_count: document.querySelectorAll("main .markdown").length
         };
       }, "MBV1-008 harmless live transport qualification. Role: " + role +
         ". Reply with exactly this token and nothing else: " + token).catch(() => null) : null
@@ -178,6 +190,12 @@ async function sendToken(bridge, pageId, role, suffix) {
     log("MBV1_008_DIAG_COMPOSER_NONEMPTY", dom?.composer_nonempty ?? null);
     log("MBV1_008_DIAG_COMPOSER_PRESENT", dom?.composer_present ?? null);
     log("MBV1_008_DIAG_COMPOSER_FOCUSED", dom?.active_element_is_composer ?? null);
+    log("MBV1_008_DIAG_PATCH_MARKER", dom?.patch_marker ?? null);
+    log("MBV1_008_DIAG_ROLE_COUNTS", dom?.role_counts ? JSON.stringify(dom.role_counts) : null);
+    log("MBV1_008_DIAG_MODERN_USER_COUNT", dom?.modern_user_count ?? null);
+    log("MBV1_008_DIAG_MODERN_ASSISTANT_COUNT", dom?.modern_assistant_count ?? null);
+    log("MBV1_008_DIAG_CONVERSATION_TURN_COUNT", dom?.conversation_turn_count ?? null);
+    log("MBV1_008_DIAG_MARKDOWN_COUNT", dom?.markdown_count ?? null);
     throw error;
   }
   const reply = String(result?.snapshot?.last_assistant || "");
