@@ -54,7 +54,18 @@ test("SC-004 live qualification retries only pre-mutation CDP attach", async () 
   assert.match(source, /openAdapterWithBoundedRetry/);
   assert.match(source, /SC004_LIVE_CDP_ATTACH_ATTEMPT/);
   assert.match(source, /attempt <= 2/);
-  assert.match(source, /await openAdapterWithBoundedRetry\(\)/);
+  assert.match(
+    source,
+    /async function openAdapterWithBoundedRetry\(\)[\s\S]*?await adapter\.open\(\)/
+  );
+  assert.match(
+    source,
+    /try \{\s*await openAdapterWithBoundedRetry\(\);\s*let currentPages/
+  );
+  assert.doesNotMatch(
+    source,
+    /async function openAdapterWithBoundedRetry\(\)[\s\S]{0,500}await openAdapterWithBoundedRetry\(\)/
+  );
 });
 
 test("SC-004 qualification instruction is read-only and correlation-bound", () => {
