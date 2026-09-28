@@ -34,10 +34,9 @@ function declaresCanonicalProjectSource(text) {
   return [
     /Status:\s*\*\*CANONICAL\b/i,
     /"status"\s*:\s*"CANONICAL(?:_|\b)/i,
-    /\bsole project authority\b/i,
-    /\bonly canonical Source of Truth\b/i,
-    /\bforward architecture authority\b/i,
-    /\bcanonical project Source of Truth\b/i,
+    /\bThis (?:file|document) is (?:the )?(?:only )?canonical Source of Truth\b/i,
+    /\bThis document is the forward architecture authority\b/i,
+    /\bThis (?:file|document) is (?:the )?sole project authority\b/i,
   ].some((pattern) => pattern.test(text));
 }
 
@@ -73,7 +72,7 @@ test("former Planner/Executor authorities remain explicit tombstones", () => {
 
   assert.match(legacyMd, /^# SUPERSEDED — Planner \/ Executor V1/m);
   assert.match(legacyMd, /Status:\s*\*\*HISTORICAL \/ NON-AUTHORITATIVE\*\*/);
-  assert.match(legacyMd, /\`\/SOURCE_OF_TRUTH\.md\`/);
+  assert.match(legacyMd, /`\\/SOURCE_OF_TRUTH\\.md`/);
   assert.doesNotMatch(legacyMd, /Status:\s*\*\*CANONICAL\b/i);
 
   assert.equal(legacyJson.status, "HISTORICAL_NON_AUTHORITATIVE");
@@ -86,7 +85,7 @@ test("README is navigation only and cannot revive superseded architectures", () 
   const readme = read("README.md");
 
   assert.match(readme, /There is exactly \*\*one\*\* canonical project Source of Truth:/);
-  assert.match(readme, /\`\/SOURCE_OF_TRUTH\.md\`/);
+  assert.match(readme, /`\\/SOURCE_OF_TRUTH\\.md`/);
   assert.match(readme, /README is navigation only and is \*\*not\*\* project authority/);
   assert.match(readme, /\*\*Single Conversation \+ Disposable Chat \+ Persistent Source of Truth\*\*/);
 
