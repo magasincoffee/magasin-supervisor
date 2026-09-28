@@ -75,6 +75,21 @@ test("SC-005 classifies conversation-specific failures for replacement", () => {
   );
 });
 
+test("SC-005 classifies stale and ambiguous page identity for replacement", () => {
+  assert.deepEqual(
+    classifyDisposableConversation(snapshot({ pageClosed: true })),
+    { action: "REPLACE_CHAT", reason: "STALE_OR_CLOSED_PAGE" }
+  );
+  assert.deepEqual(
+    classifyDisposableConversation(snapshot({ unrecoverableStalePage: true })),
+    { action: "REPLACE_CHAT", reason: "STALE_OR_CLOSED_PAGE" }
+  );
+  assert.deepEqual(
+    classifyDisposableConversation(snapshot({ pageIdentityAmbiguous: true })),
+    { action: "REPLACE_CHAT", reason: "AMBIGUOUS_PAGE_IDENTITY" }
+  );
+});
+
 test("SC-005 auth and CAPTCHA do not cause disposable-chat churn", () => {
   assert.deepEqual(
     classifyDisposableConversation(snapshot({ loginRequired: true })),
@@ -222,6 +237,80 @@ test("SC-005 preserves prior transaction evidence across replacement", async () 
     assert.equal(durable.recovery.prior_outbound.cmd_id, "ui:prior-msg");
     assert.equal(durable.recovery.rehydrated_generation, 2);
     assert.equal(durable.outbound.state, "RESPONSE_COMPLETE");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("SC-005 recovery helper replaces an already-closed page without probing it", async () => {
+  const { root, statePath } = await tempState();
+  const oldPage = {
+    isClosed() { return true; }
+  };
+  const newPage = {
+    isClosed() { return false; },
+    url() { return "https://chatgpt.com/c/recovered-closed"; },
+    async waitForTimeout() {}
+  };
+  let sent = false;
+  let phase = 0;
+  let oldProbed = 0;
+  try {
+    const adapter = {
+      async open() {},
+      getActivePage() { return oldPage; },
+      async closePage() { throw new Error("closed page must not be closed again"); },
+      async newChatPage() { return newPage; },
+      async probePage(candidate) {
+        if (candidate === oldPage) {
+          oldProbed += 1;
+          throw new Error("closed page must not be probed");
+        }
+        if (!sent) {
+          return { snapshot: snapshot({
+            conversationPath: false,
+            composerReady: true
+          }) };
+        }
+        phase += 1;
+        return { snapshot: snapshot({
+          responseRunning: phase === 1,
+          userMessageCount: 1,
+          assistantMessageCount: phase > 1 ? 1 : 0
+        }) };
+      }
+    };
+
+    const result = await recoverDisposableConversationIfNeeded({
+      adapter,
+      page: oldPage,
+      statePath,
+      messageId: "recover-closed",
+      qualificationOnly: true,
+      sendInstruction: async () => {
+        sent = true;
+        return { executed: true };
+      },
+      captureTurn: async (_page, role) => {
+        if (!sent) return null;
+        if (role === "user") return { turn_id: "u-closed", text: "b", digest: "u-closed" };
+        if (phase > 1) {
+          return {
+            turn_id: "a-closed",
+            text:
+              "SINGLE_CONVERSATION_V1 MAGASIN_BOOTSTRAP_CORRELATION_V1 recover-closed",
+            digest: "a-closed"
+          };
+        }
+        return null;
+      },
+      pollMs: 1
+    });
+
+    assert.equal(oldProbed, 0);
+    assert.equal(result.recovered, true);
+    assert.equal(result.classification.reason, "STALE_OR_CLOSED_PAGE");
+    assert.equal(result.result.active_generation, 2);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
