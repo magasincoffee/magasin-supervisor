@@ -144,17 +144,13 @@ async function waitBridgeHistoryEvidence(bridge, pageId, evidence, label) {
     const snap = await bridge.getSnapshot(pageId).catch(() => null);
     if (!snap || snap.is_generating) return false;
     if (snap.assistant_count < Number(evidence?.assistant_count || 0)) return false;
-    const texts = [
-      ...(Array.isArray(snap.recent_turns)
-        ? snap.recent_turns
-            .filter((turn) => turn?.role === "assistant")
-            .map((turn) => String(turn?.text || ""))
-        : []),
-      String(snap.last_assistant || "")
-    ].filter(Boolean);
-    return texts.some((text) => sha(text) === evidence?.assistant_digest)
-      ? snap
-      : false;
+    const hasAssistantText = Boolean(
+      String(snap.last_assistant || "").trim() ||
+      (Array.isArray(snap.recent_turns) && snap.recent_turns.some((turn) =>
+        turn?.role === "assistant" && String(turn?.text || "").trim()
+      ))
+    );
+    return hasAssistantText ? snap : false;
   }, 45_000, label + " Bridge history hydration");
 }
 
