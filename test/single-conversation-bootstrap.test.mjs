@@ -90,8 +90,8 @@ test("SC-003 qualification prompt is read-only and correlation-bound", () => {
   });
 
   assert.match(message, /QUALIFICATION ONLY/);
-  assert.match(message, /do not use tools/i);
-  assert.match(message, /write to external systems/);
+  assert.match(message, /read-only web access/i);
+  assert.match(message, /do not write to external systems/i);
   assert.match(message, /Architecture generation/);
   assert.match(message, /MAGASIN_BOOTSTRAP_CORRELATION_V1 qual-001/);
   assert.doesNotMatch(message, /one bounded next unit allowed by SOT/i);
