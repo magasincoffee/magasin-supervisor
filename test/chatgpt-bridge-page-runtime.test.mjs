@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 
 import { waitForChatSurfaceReady } from "../src/runtime/chatgpt-bridge-page-runtime.mjs";
 
@@ -76,4 +77,27 @@ test("Bridge chat readiness rejects missing conversation until timeout", async (
     ),
     /did not become ready/
   );
+});
+
+
+test("Bridge startup reloads Planner and Executor sequentially", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/chatgpt-bridge-page-runtime.mjs", import.meta.url),
+    "utf8"
+  );
+  const start = source.indexOf("// Reload once at process startup");
+  const end = source.indexOf("const injections = await Promise.all", start);
+  assert.ok(start >= 0 && end > start);
+  const block = source.slice(start, end);
+
+  const plannerReload = block.indexOf("warm.plannerPage.reload");
+  const plannerReady = block.indexOf('waitForChatSurfaceReady(browserAdapter, warm.plannerPage, "Planner")');
+  const executorReload = block.indexOf("warm.executorPage.reload");
+  const executorReady = block.indexOf('waitForChatSurfaceReady(browserAdapter, warm.executorPage, "Executor")');
+
+  assert.ok(plannerReload >= 0);
+  assert.ok(plannerReady > plannerReload);
+  assert.ok(executorReload > plannerReady);
+  assert.ok(executorReady > executorReload);
+  assert.doesNotMatch(block, /Promise\.all\(\[\s*warm\.plannerPage\.reload/);
 });
