@@ -359,7 +359,10 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 let pageRuntime = null;
 let startupStage = "BRIDGE_HEALTH";
 let startupDiagnostics = {};
-await fs.rm(startupFailurePath, { force: true }).catch(() => {});
+// Preserve the most recent startup failure across wrapper restarts. The live
+// wrapper may immediately relaunch this CLI after a failure; deleting the file
+// here erases the only durable stage evidence before diagnostics can observe it.
+// Clear it only after the full Bridge bootstrap has completed successfully.
 try {
   const health = await bridge.status();
   if (health.supervisor_running) {
@@ -407,6 +410,9 @@ try {
     plannerPage,
     sourceUrl: state.project_context.source_of_truth_url
   });
+  // A prior failure is stale only once page topology, Bridge binding, and the
+  // project bootstrap have all converged in the current process.
+  await fs.rm(startupFailurePath, { force: true }).catch(() => {});
 
   const captureTurn = createBridgeTurnCapture(bridge);
   const inspectDraft = createBridgeDraftInspector(bridge);
