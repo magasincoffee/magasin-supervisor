@@ -21,7 +21,11 @@ jobs:
   validate:
     strategy:
       fail-fast: false
-      max-parallel: 2
+      # Both matrix slots can be scheduled onto the same physical self-hosted
+      # Windows host. They mutate the same installed Supervisor state/profile,
+      # so concurrent validation can stop/reinstall/restart underneath the other
+      # job and create false runtime failures.
+      max-parallel: 1
       matrix:
         slot: [1, 2]
     runs-on: self-hosted
