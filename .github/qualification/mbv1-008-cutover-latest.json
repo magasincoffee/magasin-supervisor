@@ -1,0 +1,23 @@
+{
+    "schema":  "mbv1-008-production-cutover.v1",
+    "status":  "PASS",
+    "candidate_sha":  "9444731cd5a23da291ad9a16d0657b305f7a6bc3",
+    "workflow_run_id":  36385597155,
+    "workflow_run_number":  3,
+    "target_computer":  "DESKTOP-4K7IM13",
+    "primary_transport":  "CHATGPT_BRIDGE_V1",
+    "rollback_transport":  "DIRECT_DOM_V1",
+    "bridge_upstream_commit":  "848efb9e85f52f251c82ab099747833c0693c072",
+    "openai_api_required":  false,
+    "attempt_1":  {
+                      "target_match":  false,
+                      "qualified":  false,
+                      "cutover":  false
+                  },
+    "attempt_2":  {
+                      "target_match":  true,
+                      "qualified":  true,
+                      "cutover":  true
+                  },
+    "recorded_at_utc":  "2026-09-28T06:21:28.4307752Z"
+}
