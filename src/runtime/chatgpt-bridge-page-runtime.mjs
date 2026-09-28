@@ -23,7 +23,10 @@ function hash(value) {
 }
 
 export function patchPinnedBridgeUserscript(source) {
-  let text = String(source || "");
+  // Git for Windows may materialize the pinned upstream userscript with CRLF.
+  // Normalize before applying exact multi-line patches so snapshot/last-reply
+  // replacements cannot silently miss while single-line patches still apply.
+  let text = String(source || "").replace(/\r\n?/g, "\n");
   if (!text.includes("ChatGPT Bridge") && !text.includes("AI WebUI Bridge")) {
     throw new Error("Pinned Bridge userscript source is invalid");
   }
