@@ -641,13 +641,13 @@
   },
   "next_implementation_program": {
     "id": "MAGASIN_BRIDGE_V1",
-    "status": "CANONICAL_PLAN_IN_PROGRESS_NOT_CUT_OVER",
+    "status": "CANONICAL_PLAN_READY_TO_EXECUTE_NOT_CUT_OVER",
     "approved_date": "2026-09-27",
-    "current_task": "MBV1-008",
+    "current_task": "MBV1-002",
     "progress": {
-      "pc": 7,
+      "pc": 1,
       "pt": 8,
-      "percent": 87.5
+      "percent": 12.5
     },
     "authority_model": {
       "project_truth": "OWNER_CONFIGURED_SOURCE_OF_TRUTH_URL",
@@ -740,12 +740,22 @@
           "executor_send_read": "PASS",
           "role_isolation": "PASS",
           "upstream_commit_pin_recorded": "PASS"
+        },
+        "completion": {
+          "pr": 173,
+          "merge_commit": "8146ca53e99cba08292eac80be4ad6403a875fa4",
+          "workflow_run": 36330634492,
+          "target_machine": "DESKTOP-4K7IM13",
+          "target_job": 108651748072,
+          "authority_job": 108652177893,
+          "upstream_commit": "848efb9e85f52f251c82ab099747833c0693c072",
+          "dod_pass": true
         }
       },
       {
         "id": "MBV1-002",
         "priority": "P0",
-        "state": "COMPLETE",
+        "state": "READY_TO_EXECUTE",
         "name": "Bridge Adapter",
         "weight_percent": 10,
         "implementation": {
