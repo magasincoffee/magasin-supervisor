@@ -511,15 +511,15 @@ export async function prepareBridgeBrowserRuntime({
     crypto.randomBytes(6).toString("hex");
 
   // Reload once at process startup to remove any orphaned polling loop/binding
-  // left by a previous Bridge CLI process. Conversation identity is preserved.
-  await Promise.all([
-    warm.plannerPage.reload({ waitUntil: "domcontentloaded" }),
-    warm.executorPage.reload({ waitUntil: "domcontentloaded" })
-  ]);
-  await Promise.all([
-    waitForChatSurfaceReady(browserAdapter, warm.plannerPage, "Planner"),
-    waitForChatSurfaceReady(browserAdapter, warm.executorPage, "Executor")
-  ]);
+  // left by a previous Bridge CLI process. Refresh role pages sequentially:
+  // concurrent ChatGPT conversation reloads can leave the background role
+  // without a hydrated composer even though both targets were healthy before
+  // reload. Conversation identity is preserved and each role must become ready
+  // before the next role is refreshed.
+  await warm.plannerPage.reload({ waitUntil: "domcontentloaded" });
+  await waitForChatSurfaceReady(browserAdapter, warm.plannerPage, "Planner");
+  await warm.executorPage.reload({ waitUntil: "domcontentloaded" });
+  await waitForChatSurfaceReady(browserAdapter, warm.executorPage, "Executor");
 
   const injections = await Promise.all([
     injectPinnedBridgeUserscript(warm.plannerPage, userscriptSource, { bindingName }),
