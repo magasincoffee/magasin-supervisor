@@ -429,8 +429,16 @@ export async function injectPinnedBridgeUserscript(page, source, {
   };
 }
 
-async function waitForChatSurfaceReady(browserAdapter, page, role, timeoutMs = 60_000) {
-  const deadline = Date.now() + timeoutMs;
+export async function waitForChatSurfaceReady(
+  browserAdapter,
+  page,
+  role,
+  {
+    timeoutMs = 60_000,
+    pollIntervalMs = 300
+  } = {}
+) {
+  const deadline = Date.now() + Math.max(1, Number(timeoutMs) || 60_000);
   let last = null;
   while (Date.now() <= deadline) {
     last = await browserAdapter.probePage(page).catch(() => null);
@@ -445,7 +453,7 @@ async function waitForChatSurfaceReady(browserAdapter, page, role, timeoutMs = 6
       !snap?.hasTransientError &&
       !snap?.conversationMissing
     ) return last;
-    await sleep(300);
+    await sleep(Math.max(1, Number(pollIntervalMs) || 300));
   }
   throw new Error(role + " ChatGPT surface did not become ready after reload");
 }
