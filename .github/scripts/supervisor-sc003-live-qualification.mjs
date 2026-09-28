@@ -14,7 +14,7 @@ const safeRevision = revision.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 96);
 const diagDir = path.join(stateRoot, "diagnostics", "sc003-live");
 const statePath = path.join(diagDir, `${safeRevision}.state.json`);
 const resultPath = path.join(diagDir, `${safeRevision}.result.json`);
-const lockPath = path.join(diagDir, "machine.lock");
+const lockPath = path.join(diagDir, `${safeRevision}.lock`);
 const sourceOfTruthUrl =
   "https://github.com/magasincoffee/magasin-supervisor/blob/main/SOURCE_OF_TRUTH.md";
 const messageId = `SC003-LIVE-${safeRevision.slice(0, 16)}`;
