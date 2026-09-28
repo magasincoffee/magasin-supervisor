@@ -1,9 +1,6 @@
 import crypto, { randomUUID } from "node:crypto";
 
-import {
-  composerInstructionDigest,
-  sendComposerInstruction
-} from "../ui/actions.mjs";
+import { composerInstructionDigest } from "../ui/actions.mjs";
 import { captureLatestRoleTurn } from "../ui/latest-turn.mjs";
 import { isChatGptUrl } from "../ui/playwright-adapter.mjs";
 import {
@@ -103,6 +100,264 @@ export function buildSingleConversationBootstrap({
     "Do one bounded next unit allowed by SOT, or state the blocker.",
     `End with: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
   ].join(" ");
+}
+
+
+function normalizeBootstrapRenderedText(value) {
+  return String(value || "")
+    .replace(/[\u200B-\u200F\u2060\uFEFF]/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\u00A0/g, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+async function findFreshChatComposer(page, timeoutMs = 8_000) {
+  const selectors = [
+    "#prompt-textarea:visible",
+    "[contenteditable][role='textbox']:visible",
+    "textarea:visible",
+    "[contenteditable]:visible"
+  ];
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    for (const selector of selectors) {
+      const locator = page.locator(selector).first();
+      const visible = await locator.isVisible().catch(() => false);
+      if (!visible) continue;
+      const enabled = typeof locator.isEnabled === "function"
+        ? await locator.isEnabled().catch(() => false)
+        : true;
+      if (enabled) return locator;
+    }
+    await page.waitForTimeout(150);
+  }
+  return null;
+}
+
+async function readFreshComposerText(composer) {
+  if (!composer) return null;
+  if (typeof composer.inputValue === "function") {
+    try {
+      return await composer.inputValue({ timeout: 800 });
+    } catch {}
+  }
+  if (typeof composer.evaluate === "function") {
+    return composer.evaluate((el) => {
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement
+      ) {
+        return el.value;
+      }
+      return el.textContent || el.innerText || "";
+    }).catch(() => null);
+  }
+  return null;
+}
+
+async function captureExactFreshUserTurn(page, expected) {
+  if (!page || typeof page.evaluate !== "function") return null;
+  return page.evaluate((wantedRaw) => {
+    const normalize = (value) => String(value || "")
+      .replace(/[\u200B-\u200F\u2060\uFEFF]/g, "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\u00A0/g, " ")
+      .replace(/\s+/gu, " ")
+      .trim();
+    const wanted = normalize(wantedRaw);
+    const turns = Array.from(
+      document.querySelectorAll("main [data-testid^='conversation-turn-']")
+    );
+
+    // SC-003 starts from a proven blank chat and performs exactly one send.
+    // Therefore the first new conversation-turn containing the exact bootstrap
+    // text is positive delivery evidence even if ChatGPT has not hydrated the
+    // legacy role attribute yet.
+    for (const turn of turns) {
+      const turnId = String(turn.getAttribute("data-testid") || "").trim();
+      const semanticUser = turn.querySelector('[data-message-author-role="user"]');
+      const candidates = [
+        semanticUser,
+        ...turn.querySelectorAll(
+          ".text-size-chat.whitespace-pre-wrap,p,div,span"
+        )
+      ].filter(Boolean);
+
+      for (const node of candidates) {
+        const text = normalize(node.textContent || node.innerText || "");
+        if (text === wanted) {
+          return {
+            turn_id: turnId || null,
+            conversation_turn_count: turns.length,
+            evidence: semanticUser
+              ? "exact-semantic-user-turn"
+              : "exact-fresh-conversation-turn"
+          };
+        }
+      }
+
+      const wholeTurn = normalize(turn.textContent || turn.innerText || "");
+      if (wholeTurn === wanted) {
+        return {
+          turn_id: turnId || null,
+          conversation_turn_count: turns.length,
+          evidence: "exact-fresh-conversation-turn"
+        };
+      }
+    }
+
+    return {
+      turn_id: null,
+      conversation_turn_count: turns.length,
+      evidence: "exact-fresh-user-turn-not-observed"
+    };
+  }, expected).catch(() => null);
+}
+
+async function waitForExactFreshUserTurn(
+  page,
+  expected,
+  { timeoutMs = 30_000, pollMs = 250 } = {}
+) {
+  const deadline = Date.now() + timeoutMs;
+  let latest = null;
+  while (Date.now() <= deadline) {
+    latest = await captureExactFreshUserTurn(page, expected);
+    if (latest?.turn_id) return latest;
+    await page.waitForTimeout(pollMs);
+  }
+  return latest || {
+    turn_id: null,
+    conversation_turn_count: 0,
+    evidence: "exact-fresh-user-turn-unreadable"
+  };
+}
+
+export async function sendFreshChatBootstrapInstruction(
+  page,
+  instruction,
+  { dryRun = true } = {}
+) {
+  if (!page) throw new TypeError("page is required");
+  if (typeof instruction !== "string" || !instruction.trim()) {
+    throw new Error("bootstrap instruction is required");
+  }
+  if (dryRun) {
+    return {
+      executed: false,
+      dryRun: true,
+      target: "FRESH_CHAT_BOOTSTRAP"
+    };
+  }
+
+  if (typeof page.bringToFront === "function") {
+    await page.bringToFront().catch(() => {});
+  }
+
+  const composer = await findFreshChatComposer(page);
+  if (!composer) {
+    return {
+      executed: false,
+      rejection_class: "COMPOSER_NOT_READY",
+      reason: "fresh ChatGPT composer is not ready"
+    };
+  }
+
+  try {
+    await composer.fill(instruction, { timeout: 5_000 });
+  } catch (error) {
+    return {
+      executed: false,
+      rejection_class: "COMPOSER_NOT_READY",
+      reason: "fresh ChatGPT composer fill failed"
+    };
+  }
+
+  await page.waitForTimeout(150);
+  const rendered = await readFreshComposerText(composer);
+  if (
+    rendered === null ||
+    normalizeBootstrapRenderedText(rendered) !==
+      normalizeBootstrapRenderedText(instruction)
+  ) {
+    return {
+      executed: false,
+      rejection_class: "COMPOSER_NOT_READY",
+      reason: "fresh ChatGPT composer did not preserve exact bootstrap text"
+    };
+  }
+
+  const scopes = [];
+  if (typeof composer.locator === "function") {
+    const form = composer.locator("xpath=ancestor::form[1]").first();
+    const formVisible = await form.isVisible().catch(() => false);
+    if (formVisible) scopes.push(form);
+  }
+  scopes.push(page);
+
+  const selectors = [
+    'button[data-testid="send-button"]:visible',
+    'button#composer-submit-button:visible',
+    'button[data-testid="composer-submit-button"]:visible',
+    'button[data-testid="composer-send-button"]:visible',
+    'button[type="submit"]:visible',
+    'button[aria-label*="Send" i]:visible',
+    'button[aria-label*="Gửi" i]:visible'
+  ];
+
+  let send = null;
+  let sendSelector = null;
+  for (const scope of scopes) {
+    for (const selector of selectors) {
+      const candidate = scope.locator(selector).first();
+      const visible = await candidate.isVisible().catch(() => false);
+      if (!visible) continue;
+      const enabled = typeof candidate.isEnabled === "function"
+        ? await candidate.isEnabled().catch(() => false)
+        : true;
+      if (!enabled) continue;
+      send = candidate;
+      sendSelector = selector;
+      break;
+    }
+    if (send) break;
+  }
+
+  if (!send) {
+    return {
+      executed: false,
+      rejection_class: "SEND_NOT_ACTUATED",
+      reason: "fresh ChatGPT Send control is unavailable"
+    };
+  }
+
+  await send.click({ timeout: 5_000 });
+  const proof = await waitForExactFreshUserTurn(page, instruction);
+  if (!proof?.turn_id) {
+    return {
+      executed: false,
+      rejection_class: "SEND_NOT_ACTUATED",
+      reason: "Send clicked but exact fresh user turn was not observed",
+      input_method: "fill",
+      send_method: "direct-control",
+      send_selector: sendSelector,
+      user_turn_evidence: proof?.evidence || "unreadable",
+      conversation_turn_count:
+        Number(proof?.conversation_turn_count || 0)
+    };
+  }
+
+  return {
+    executed: true,
+    input_method: "fill",
+    send_method: "direct-control",
+    send_selector: sendSelector,
+    user_turn_evidence: proof.evidence,
+    user_turn_id: proof.turn_id,
+    conversation_turn_count:
+      Number(proof.conversation_turn_count || 0)
+  };
 }
 
 async function assertBlankNewChatSurface(adapter, page) {
@@ -320,7 +575,7 @@ export async function createNewChatAndBootstrap({
   messageId = randomUUID(),
   qualificationOnly = false,
   forceNewPage = false,
-  sendInstruction = sendComposerInstruction,
+  sendInstruction = sendFreshChatBootstrapInstruction,
   captureTurn = captureLatestRoleTurn,
   timeoutMs = 180_000,
   pollMs = 750,
@@ -390,7 +645,10 @@ export async function createNewChatAndBootstrap({
       executed: Boolean(sendResult?.executed),
       input_method: sendResult?.input_method || null,
       send_method: sendResult?.send_method || null,
-      rejection_class: sendResult?.rejection_class || null
+      rejection_class: sendResult?.rejection_class || null,
+      user_turn_evidence: sendResult?.user_turn_evidence || null,
+      conversation_turn_count:
+        Number(sendResult?.conversation_turn_count || 0)
     });
     if (!sendResult?.executed) {
       throw Object.assign(
@@ -399,7 +657,13 @@ export async function createNewChatAndBootstrap({
       );
     }
 
-    const userTurn = await captureTurn(page, "user").catch(() => null);
+    const userTurn = sendResult?.user_turn_id
+      ? {
+          turn_id: String(sendResult.user_turn_id),
+          role: "user",
+          text: message
+        }
+      : await captureTurn(page, "user").catch(() => null);
     if (!userTurn?.turn_id) {
       throw Object.assign(
         new Error("bootstrap matching user turn could not be captured after confirmed send"),
