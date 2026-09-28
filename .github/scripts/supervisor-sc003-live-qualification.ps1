@@ -110,8 +110,18 @@ try {
   Write-Host 'SC003_QUAL_TEMPORARY_LIFECYCLE_PAUSE=True'
 
   if ($runtimeBefore) {
-    Stop-Process -Id ([int]$runtimeBefore.ProcessId) -Force -ErrorAction Stop
-    Write-Host "SC003_QUAL_RUNTIME_PAUSED_PID=$($runtimeBefore.ProcessId)"
+    $runtimePid = [int]$runtimeBefore.ProcessId
+    Stop-Process -Id $runtimePid -Force -ErrorAction SilentlyContinue
+    for ($i = 0; $i -lt 20; $i++) {
+      if (-not (Get-Process -Id $runtimePid -ErrorAction SilentlyContinue)) { break }
+      Start-Sleep -Milliseconds 150
+    }
+    if (Get-Process -Id $runtimePid -ErrorAction SilentlyContinue) {
+      throw 'SC-003 runtime process remained alive after pause request.'
+    }
+    if ($runtimeBefore.ProcessId) {
+      Write-Host "SC003_QUAL_RUNTIME_ALREADY_PAUSED_PID=$runtimePid"
+    }
   }
 
   for ($i = 0; $i -lt 30; $i++) {
@@ -122,8 +132,9 @@ try {
 
   $wrapperNow = Get-LifecycleSupervisorWrapper -Root $root
   if ($wrapperNow) {
-    Stop-Process -Id ([int]$wrapperNow.ProcessId) -Force -ErrorAction Stop
-    Write-Host "SC003_QUAL_WRAPPER_FORCE_PAUSED_PID=$($wrapperNow.ProcessId)"
+    $wrapperPid = [int]$wrapperNow.ProcessId
+    Stop-Process -Id $wrapperPid -Force -ErrorAction SilentlyContinue
+    Write-Host "SC003_QUAL_WRAPPER_FORCE_PAUSE_REQUESTED_PID=$wrapperPid"
   }
 
   for ($i = 0; $i -lt 20; $i++) {
