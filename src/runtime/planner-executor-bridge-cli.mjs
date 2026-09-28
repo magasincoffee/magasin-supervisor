@@ -124,6 +124,12 @@ async function loadPinnedUserscript(bridgeRoot) {
 }
 
 async function persistStatus(statusPath, state, phase, extra = {}) {
+  const measuredChatGptTabs = Math.max(
+    0,
+    Number(extra?.chatgpt_tabs ?? 0) || 0
+  );
+  const statusExtra = { ...extra };
+  delete statusExtra.chatgpt_tabs;
   await atomicJsonWrite(statusPath, {
     schema_version: "planner-executor-status.v1",
     mode: "PLANNER_EXECUTOR_V1",
@@ -137,10 +143,10 @@ async function persistStatus(statusPath, state, phase, extra = {}) {
     automation_status: state.automation?.status || "RUNNING",
     automation_reason: state.automation?.reason || null,
     project_progress: state.project_progress || null,
-    chatgpt_tabs: 2,
+    chatgpt_tabs: measuredChatGptTabs,
     chatgpt_work_mode_invocations: 0,
     production_cutover: true,
-    ...extra,
+    ...statusExtra,
     updated_at: new Date().toISOString()
   });
 }
@@ -266,13 +272,17 @@ try {
 
   if (!args.execute) {
     await persistStatus(statusPath, state, "BRIDGE_READY_DRY_RUN", {
+      chatgpt_tabs: browser.getChatGptPageCount(),
       bridge_pages_alive: 2
     });
     process.exit(0);
   }
 
   startupStage = "BRIDGE_PROJECT_BOOTSTRAP";
-  await persistStatus(statusPath, state, "BRIDGE_PROJECT_BOOTSTRAP");
+  await persistStatus(statusPath, state, "BRIDGE_PROJECT_BOOTSTRAP", {
+    chatgpt_tabs: browser.getChatGptPageCount(),
+    bridge_pages_alive: 2
+  });
   await ensureBridgeProjectBootstrap({
     statePath,
     state,
@@ -377,6 +387,7 @@ try {
       await recordPlannerExecutorIncident(incidentPath, incident).catch(() => {});
     }
     await persistStatus(statusPath, result.state || state, result.phase, {
+      chatgpt_tabs: browser.getChatGptPageCount(),
       bridge_pages_alive: 2
     });
 
@@ -388,6 +399,11 @@ try {
   }
 
 } catch (error) {
+  await persistStatus(statusPath, state, "STARTUP_FAILED", {
+    chatgpt_tabs: browser.getChatGptPageCount(),
+    bridge_pages_alive: 0,
+    startup_failure_stage: startupStage
+  }).catch(() => {});
   await atomicJsonWrite(startupFailurePath, {
     schema_version: "planner-executor-startup-failure.v1",
     transport: "CHATGPT_BRIDGE_V1",
