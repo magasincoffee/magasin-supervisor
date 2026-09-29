@@ -1,4 +1,5 @@
 import {
+  captureMatchingUserTurnEvidence,
   composerInstructionDigest,
   inspectComposerDraftDigest,
   sendComposerInstruction
@@ -233,6 +234,7 @@ export async function reconcileExactOnceOutbound({
   message,
   sendInstruction = sendComposerInstruction,
   captureTurn = captureLatestRoleTurn,
+  captureMatchingTurn = captureMatchingUserTurnEvidence,
   inspectDraft = inspectComposerDraftDigest,
   maxSafeRetries = 1,
   reconciliationProbes = 5,
@@ -269,8 +271,12 @@ export async function reconcileExactOnceOutbound({
 
     const probes = Math.max(1, Number(reconciliationProbes) || 1);
     for (let index = 0; index < probes; index += 1) {
+      const matching = await captureMatchingTurn(page, text).catch(() => null);
       latestUser = await captureTurn(page, "user").catch(() => null);
-      if (latestTurnMatchesMessage(latestUser, digest)) {
+      if (
+        matching?.confirmed ||
+        latestTurnMatchesMessage(latestUser, digest)
+      ) {
         if (current === "PREPARED") {
           await markExactOnceEnqueued(statePath, {
             messageId: id,
@@ -281,7 +287,7 @@ export async function reconcileExactOnceOutbound({
         await markExactOnceDelivered(statePath, {
           messageId: id,
           message: text,
-          userTurnId: latestUser.turn_id,
+          userTurnId: matching?.turn_id || latestUser?.turn_id || null,
           now
         });
         const delivered = await readSingleConversationState(statePath);
@@ -365,13 +371,18 @@ export async function reconcileExactOnceOutbound({
     }
 
     let deliveredTurn = null;
+    let matchingDelivery = null;
     const deliveryProbes = Math.max(
       5,
       Number(reconciliationProbes) || 1
     );
     for (let index = 0; index < deliveryProbes; index += 1) {
+      matchingDelivery = await captureMatchingTurn(page, text).catch(() => null);
       deliveredTurn = await captureTurn(page, "user").catch(() => null);
-      if (latestTurnMatchesMessage(deliveredTurn, digest)) break;
+      if (
+        matchingDelivery?.confirmed ||
+        latestTurnMatchesMessage(deliveredTurn, digest)
+      ) break;
       if (
         index < deliveryProbes - 1 &&
         typeof page.waitForTimeout === "function"
@@ -380,7 +391,10 @@ export async function reconcileExactOnceOutbound({
       }
     }
 
-    if (!latestTurnMatchesMessage(deliveredTurn, digest)) {
+    if (
+      !matchingDelivery?.confirmed &&
+      !latestTurnMatchesMessage(deliveredTurn, digest)
+    ) {
       throw Object.assign(
         new Error("send succeeded but durable delivery evidence remains ambiguous"),
         { code: "AMBIGUOUS_POST_SEND_DELIVERY" }
@@ -390,7 +404,7 @@ export async function reconcileExactOnceOutbound({
     await markExactOnceDelivered(statePath, {
       messageId: id,
       message: text,
-      userTurnId: deliveredTurn.turn_id,
+      userTurnId: matchingDelivery?.turn_id || deliveredTurn?.turn_id || null,
       now
     });
 
