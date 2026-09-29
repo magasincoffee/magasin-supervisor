@@ -1,0 +1,35 @@
+name: SC-011 Sidebar Recovery Fix
+
+on:
+  push:
+    branches:
+      - sc011-production-runtime-diagnostic-20260929
+    paths:
+      - 'src/runtime/single-conversation-cli.mjs'
+      - 'test/single-conversation-cli.test.mjs'
+      - 'test/single-conversation-task-protocol.test.mjs'
+      - '.github/workflows/supervisor-sc011-sidebar-recovery-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-tests:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies without lifecycle side effects
+        shell: cmd
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Run focused SC-011 tests
+        shell: cmd
+        run: |
+          node --test test\single-conversation-task-protocol.test.mjs test\single-conversation-cli.test.mjs
+      - name: Syntax check runtime
+        shell: cmd
+        run: node --check src\runtime\single-conversation-cli.mjs
