@@ -434,13 +434,52 @@ export async function sendFreshChatBootstrapInstruction(
   try {
     await submitComposer.press("Enter", { timeout: 5_000 });
   } catch {
-    return {
-      executed: false,
-      rejection_class: "SEND_NOT_ACTUATED",
-      reason: "fresh ChatGPT composer Enter submit failed",
-      input_method: inputMethod,
-      send_method: "composer-enter"
-    };
+    // Cold-start ChatGPT can rerender ProseMirror between exact-text
+    // verification and locator.press(). Reacquire the live composer, restore
+    // focus, and issue one page-level Enter. This is still the same bounded
+    // submit attempt; no delivery evidence has been observed yet.
+    const retryComposer = await findFreshChatComposer(page, 1_500);
+    if (
+      !retryComposer ||
+      !page.keyboard ||
+      typeof page.keyboard.press !== "function"
+    ) {
+      return {
+        executed: false,
+        rejection_class: "SEND_NOT_ACTUATED",
+        reason: "fresh ChatGPT composer Enter submit failed",
+        input_method: inputMethod,
+        send_method: "composer-enter"
+      };
+    }
+
+    const retryText = await readFreshComposerText(retryComposer);
+    if (
+      retryText === null ||
+      normalizeBootstrapRenderedText(retryText) !==
+        normalizeBootstrapRenderedText(instruction)
+    ) {
+      return {
+        executed: false,
+        rejection_class: "COMPOSER_NOT_READY",
+        reason: "fresh ChatGPT composer changed before Enter recovery",
+        input_method: inputMethod,
+        send_method: "composer-enter"
+      };
+    }
+
+    await retryComposer.click({ timeout: 2_000 }).catch(() => {});
+    try {
+      await page.keyboard.press("Enter");
+    } catch {
+      return {
+        executed: false,
+        rejection_class: "SEND_NOT_ACTUATED",
+        reason: "fresh ChatGPT composer Enter recovery failed",
+        input_method: inputMethod,
+        send_method: "composer-enter"
+      };
+    }
   }
 
   let proof = await waitForExactFreshUserTurn(page, instruction, {
