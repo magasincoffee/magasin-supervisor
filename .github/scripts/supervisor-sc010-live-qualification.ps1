@@ -10,6 +10,70 @@ Set-StrictMode -Version 2.0
 function Set-JobOutput([string]$Name, [string]$Value) {
   "$Name=$Value" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 }
+function Get-FreeQualificationCdpPort {
+  foreach ($candidate in 9222..9232) {
+    $listener = Get-NetTCPConnection -State Listen -LocalPort $candidate -ErrorAction SilentlyContinue |
+      Select-Object -First 1
+    if (-not $listener) { return [int]$candidate }
+  }
+  throw 'No free Supervisor CDP port is available.'
+}
+
+function Ensure-QualificationChrome([string]$Root) {
+  $profile = Join-Path $Root 'browser_profile'
+  $existing = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine -like "*$profile*" })
+
+  foreach ($proc in $existing) {
+    if ($proc.CommandLine -match '--remote-debugging-port=(\d+)') {
+      $port = [int]$Matches[1]
+      try {
+        $version = Invoke-RestMethod -Uri "http://127.0.0.1:$port/json/version" -TimeoutSec 2
+        if ($version.webSocketDebuggerUrl) { return $port }
+      } catch {}
+    }
+  }
+
+  foreach ($proc in $existing) {
+    Stop-Process -Id ([int]$proc.ProcessId) -Force -ErrorAction SilentlyContinue
+  }
+  Start-Sleep -Milliseconds 500
+
+  $chromeCandidates = @(
+    "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+    "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+    "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+  )
+  $chrome = $chromeCandidates |
+    Where-Object { $_ -and (Test-Path $_ -PathType Leaf) } |
+    Select-Object -First 1
+  if (-not $chrome) { throw 'Installed Google Chrome not found.' }
+
+  $port = Get-FreeQualificationCdpPort
+  Start-Process -FilePath $chrome -WindowStyle Minimized -ArgumentList @(
+    '--remote-debugging-address=127.0.0.1',
+    "--remote-debugging-port=$port",
+    ('--user-data-dir="' + $profile + '"'),
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--hide-crash-restore-bubble',
+    '--start-minimized',
+    '--disable-background-timer-throttling',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding',
+    '--disable-features=CalculateNativeWinOcclusion',
+    'about:blank'
+  )
+
+  for ($i = 0; $i -lt 40; $i++) {
+    try {
+      $version = Invoke-RestMethod -Uri "http://127.0.0.1:$port/json/version" -TimeoutSec 2
+      if ($version.webSocketDebuggerUrl) { return $port }
+    } catch {}
+    Start-Sleep -Milliseconds 500
+  }
+  throw 'Dedicated Supervisor Chrome did not expose a healthy CDP endpoint.'
+}
 
 Write-Host "SC010_QUAL_ATTEMPT=$Attempt"
 Write-Host "SC010_QUAL_MACHINE=$env:COMPUTERNAME"
@@ -74,29 +138,10 @@ try {
   }
   Write-Host 'SC010_QUAL_CANDIDATE_INSTALLED=True'
 
-  $profile = Join-Path $root 'browser_profile'
-  $cdpPort = $null
-  $chromeProcesses = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -and $_.CommandLine -like "*$profile*" })
-  foreach ($proc in $chromeProcesses) {
-    if ($proc.CommandLine -match '--remote-debugging-port=(\d+)') {
-      $candidatePort = [int]$Matches[1]
-      try {
-        $v = Invoke-RestMethod -Uri "http://127.0.0.1:$candidatePort/json/version" -TimeoutSec 2
-        if ($v.webSocketDebuggerUrl) {
-          $cdpPort = $candidatePort
-          break
-        }
-      } catch {}
-    }
-  }
-
-  if (-not $cdpPort) {
-    throw 'SC-010 qualification could not find healthy dedicated Chrome CDP.'
-  }
-
+  $cdpPort = Ensure-QualificationChrome -Root $root
   $env:SUPERVISOR_SC010_CDP_URL = "http://127.0.0.1:$cdpPort"
   Write-Host "SC010_QUAL_CDP_PORT=$cdpPort"
+  Write-Host 'SC010_QUAL_CDP_HEALTHY=True'
 
   $script = Join-Path $env:GITHUB_WORKSPACE '.github\scripts\supervisor-sc010-live-qualification.mjs'
   & node $script $root $env:GITHUB_SHA
