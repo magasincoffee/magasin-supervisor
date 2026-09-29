@@ -239,6 +239,33 @@ export async function waitForSingleConversationResponse({
       !snapshot.responseRunning &&
       (snapshot.hasTransientError || snapshot.hasNetworkError);
     if (retryableTransient) {
+      // ChatGPT can leave a transient/network banner rendered after the actual
+      // assistant turn has completed. Exact cycle correlation is stronger
+      // completion evidence than that stale banner, so reconcile it before
+      // counting the transient toward the unrecoverable threshold.
+      if (expectedMarker) {
+        const assistant = await captureTurn(page, "assistant").catch(() => null);
+        const assistantText = String(assistant?.text || "");
+        if (
+          assistant?.turn_id &&
+          assistant.turn_id !== baselineAssistantTurnId &&
+          assistantText.includes(expectedMarker)
+        ) {
+          await persistCycleComplete(statePath, {
+            assistantTurnId: assistant.turn_id,
+            now
+          });
+          return {
+            status: "RESPONSE_COMPLETE",
+            assistant_turn: assistant,
+            continue_clicks: continueClicks,
+            saw_running: sawRunning,
+            marker_confirmed: true,
+            stale_transient_banner_ignored: true
+          };
+        }
+      }
+
       consecutiveTransientFailures += 1;
       if (consecutiveTransientFailures >= transientLimit) {
         assertSafeSnapshot(snapshot);
