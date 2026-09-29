@@ -1,4 +1,5 @@
 name: SC-010 NEXT_WORK Stall Qualification
+# Target fanout retry after DESKTOP-4K7IM13 listener returned online.
 
 on:
   push:
