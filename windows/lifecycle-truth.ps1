@@ -15,6 +15,15 @@ function Read-LifecycleJson([string]$Path) {
 }
 
 function Get-EnabledLaneCount([string]$Root = (Get-MagasinSupervisorRoot)) {
+    $singleControl = Read-LifecycleJson (Join-Path $Root 'single-conversation-control.json')
+    if (
+        $singleControl -and
+        [string]$singleControl.mode -eq 'SINGLE_CONVERSATION_V1' -and
+        -not [string]::IsNullOrWhiteSpace([string]$singleControl.source_of_truth_url)
+    ) {
+        return 1
+    }
+
     # Preserve this historical function name as a lifecycle "active unit"
     # compatibility surface. After Planner/Executor cutover, one configured
     # Planner+Executor pair is the single active automation unit.
@@ -100,6 +109,23 @@ function Get-LifecycleThreeLaneProcess([string]$Root = (Get-MagasinSupervisorRoo
         Select-Object -First 1
 }
 
+function Get-LifecycleSingleConversationProcesses {
+    return @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.CommandLine -and
+            $_.CommandLine -like '*single-conversation-cli.mjs*'
+        })
+}
+
+function Get-LifecycleSingleConversationProcess([string]$Root = (Get-MagasinSupervisorRoot)) {
+    $wrapper = Get-LifecycleSupervisorWrapper -Root $Root
+    if (-not $wrapper) { return $null }
+    $wrapperPid = [int]$wrapper.ProcessId
+    return Get-LifecycleSingleConversationProcesses |
+        Where-Object { [int]$_.ParentProcessId -eq $wrapperPid } |
+        Select-Object -First 1
+}
+
 function Get-LifecyclePlannerExecutorProcesses {
     return @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
         Where-Object {
@@ -119,6 +145,15 @@ function Get-LifecyclePlannerExecutorProcess([string]$Root = (Get-MagasinSupervi
 }
 
 function Get-LifecycleRuntimeMode([string]$Root = (Get-MagasinSupervisorRoot)) {
+    $singleControl = Read-LifecycleJson (Join-Path $Root 'single-conversation-control.json')
+    if (
+        $singleControl -and
+        [string]$singleControl.mode -eq 'SINGLE_CONVERSATION_V1' -and
+        -not [string]::IsNullOrWhiteSpace([string]$singleControl.source_of_truth_url)
+    ) {
+        return 'SINGLE_CONVERSATION_V1'
+    }
+
     $plannerExecutor = Read-LifecycleJson (Join-Path $Root 'planner-executor-state.json')
     if ($plannerExecutor -and [string]$plannerExecutor.mode -eq 'PLANNER_EXECUTOR_V1') {
         return 'PLANNER_EXECUTOR_V1'
@@ -176,7 +211,10 @@ function Get-LifecycleProcessTruth([string]$Root = (Get-MagasinSupervisorRoot)) 
     $runtimeMode = Get-LifecycleRuntimeMode -Root $Root
     $threeLane = Get-LifecycleThreeLaneProcess -Root $Root
     $plannerExecutor = Get-LifecyclePlannerExecutorProcess -Root $Root
-    $runtimeProcess = if ($runtimeMode -eq 'PLANNER_EXECUTOR_V1') {
+    $singleConversation = Get-LifecycleSingleConversationProcess -Root $Root
+    $runtimeProcess = if ($runtimeMode -eq 'SINGLE_CONVERSATION_V1') {
+        $singleConversation
+    } elseif ($runtimeMode -eq 'PLANNER_EXECUTOR_V1') {
         $plannerExecutor
     } else {
         $threeLane
@@ -188,6 +226,7 @@ function Get-LifecycleProcessTruth([string]$Root = (Get-MagasinSupervisorRoot)) 
         runtime_mode = [string]$runtimeMode
         wrapper_alive = [bool]$wrapper
         runtime_alive = [bool]$runtimeProcess
+        single_conversation_alive = [bool]$singleConversation
         planner_executor_alive = [bool]$plannerExecutor
         three_lane_alive = [bool]$threeLane
         chrome_alive = [bool]$chrome
