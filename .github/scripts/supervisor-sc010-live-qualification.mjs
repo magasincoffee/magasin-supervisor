@@ -54,6 +54,34 @@ const adapter = new ChatGptUiAdapter({
 
 let finalExitCode = 0;
 try {
+  // Warm the authenticated ChatGPT surface before the five-cycle runtime
+  // starts. SC-010 qualifies NEXT_WORK continuity, not cold-browser startup
+  // (already covered by SC-008); a cold about:blank CDP attach can expose the
+  // page before ChatGPT has hydrated its composer.
+  await adapter.open();
+  const warmPage = adapter.getActivePage();
+  if (!warmPage) throw new Error("SC-010 warm page is unavailable");
+  if (!String(warmPage.url?.() || "").startsWith("https://chatgpt.com/")) {
+    await warmPage.goto("https://chatgpt.com/", {
+      waitUntil: "domcontentloaded",
+      timeout: 45_000
+    });
+  }
+  let warmReady = false;
+  for (let i = 0; i < 40; i += 1) {
+    const probe = await adapter.probePage(warmPage).catch(() => null);
+    if (probe?.snapshot?.composerReady && !probe?.snapshot?.loginRequired) {
+      warmReady = true;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  if (!warmReady) throw Object.assign(
+    new Error("SC-010 warm ChatGPT composer did not become ready"),
+    { code: "WARM_COMPOSER_NOT_READY" }
+  );
+  log("SC010_LIVE_WARM_COMPOSER_READY", "True");
+
   const result = await runSingleConversationRuntime({
     adapter,
     statePath,
