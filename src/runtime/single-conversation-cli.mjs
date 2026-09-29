@@ -167,6 +167,82 @@ function safeRebindOutboundState(state) {
   );
 }
 
+async function probeReusableConversationPage(adapter, page) {
+  if (!page) return null;
+  const probe = await adapter.probePage(page).catch(() => null);
+  const snapshot = probe?.snapshot || {};
+  if (
+    !probe ||
+    snapshot.loginRequired ||
+    snapshot.hasCaptcha ||
+    snapshot.conversationMissing ||
+    snapshot.conversationAccessDenied ||
+    snapshot.pageClosed
+  ) {
+    return null;
+  }
+  return probe;
+}
+
+function runtimeIdMatchesPage(page, expected) {
+  try {
+    return opaqueRuntimeIdentity(page?.url?.()) === expected;
+  } catch {
+    return false;
+  }
+}
+
+function isBlankHomePage(page) {
+  try {
+    const url = new URL(String(page?.url?.() || ""));
+    return url.origin === "https://chatgpt.com" && url.pathname === "/";
+  } catch {
+    return false;
+  }
+}
+
+async function recoverConversationFromRecentSidebar({
+  adapter,
+  expected,
+  discoveryPage,
+  retries = 6,
+  pollMs = 500
+} = {}) {
+  if (
+    !discoveryPage ||
+    typeof adapter?.listRecentConversationUrls !== "function" ||
+    typeof adapter?.reopenTargetPage !== "function"
+  ) {
+    return null;
+  }
+
+  for (let attempt = 0; attempt < Math.max(1, Number(retries) || 1); attempt += 1) {
+    const urls = await adapter
+      .listRecentConversationUrls(discoveryPage, { limit: 50 })
+      .catch(() => []);
+    const matches = [...new Set(
+      (Array.isArray(urls) ? urls : []).filter(
+        (url) => opaqueRuntimeIdentity(url) === expected
+      )
+    )];
+
+    if (matches.length > 1) return null;
+    if (matches.length === 1) {
+      const recovered = await adapter.reopenTargetPage(matches[0]).catch(() => null);
+      if (!recovered || !runtimeIdMatchesPage(recovered, expected)) return null;
+      return recovered;
+    }
+
+    if (attempt + 1 < Math.max(1, Number(retries) || 1)) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.max(50, Number(pollMs) || 500))
+      );
+    }
+  }
+
+  return null;
+}
+
 export async function resumeExistingConversationPage({
   adapter,
   state
@@ -183,35 +259,52 @@ export async function resumeExistingConversationPage({
   const pages = typeof adapter.getChatGptPages === "function"
     ? adapter.getChatGptPages()
     : [];
-  const matches = pages.filter((candidate) => {
-    try {
-      return opaqueRuntimeIdentity(candidate?.url?.()) === expected;
-    } catch {
-      return false;
-    }
-  });
-  if (matches.length !== 1) return null;
+  const matches = pages.filter((candidate) =>
+    runtimeIdMatchesPage(candidate, expected)
+  );
 
-  const page = typeof adapter.setActivePage === "function"
-    ? adapter.setActivePage(matches[0])
-    : matches[0];
-  const probe = await adapter.probePage(page).catch(() => null);
-  const snapshot = probe?.snapshot || {};
-  if (
-    !probe ||
-    snapshot.loginRequired ||
-    snapshot.hasCaptcha ||
-    snapshot.conversationMissing ||
-    snapshot.conversationAccessDenied ||
-    snapshot.pageClosed
-  ) {
+  let page = null;
+  let recoveredFrom = null;
+  let discoveryPage = null;
+
+  if (matches.length === 1) {
+    page = matches[0];
+    recoveredFrom = "OPEN_PAGE";
+  } else if (matches.length > 1) {
     return null;
+  } else {
+    discoveryPage = typeof adapter.getActivePage === "function"
+      ? adapter.getActivePage()
+      : pages.at(-1) || null;
+    page = await recoverConversationFromRecentSidebar({
+      adapter,
+      expected,
+      discoveryPage
+    });
+    if (!page) return null;
+    recoveredFrom = "RECENT_SIDEBAR";
+  }
+
+  const selected = typeof adapter.setActivePage === "function"
+    ? adapter.setActivePage(page)
+    : page;
+  if (!(await probeReusableConversationPage(adapter, selected))) return null;
+
+  if (
+    recoveredFrom === "RECENT_SIDEBAR" &&
+    discoveryPage &&
+    discoveryPage !== selected &&
+    isBlankHomePage(discoveryPage) &&
+    typeof adapter.closePage === "function"
+  ) {
+    await adapter.closePage(discoveryPage).catch(() => {});
   }
 
   return {
-    page,
+    page: selected,
     runtime_id: expected,
-    generation: Number(state.conversation?.generation || 0)
+    generation: Number(state.conversation?.generation || 0),
+    recovered_from: recoveredFrom
   };
 }
 
