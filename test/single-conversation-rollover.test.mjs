@@ -387,3 +387,34 @@ test("SC-005 recovery helper replaces a missing conversation automatically", asy
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+
+test("SC-010 recovery probe is bounded when Playwright never resolves", async () => {
+  const { root, statePath } = await tempState();
+  try {
+    const page = {
+      isClosed() { return false; }
+    };
+    const adapter = {
+      probePage() {
+        return new Promise(() => {});
+      }
+    };
+
+    await assert.rejects(
+      recoverDisposableConversationIfNeeded({
+        adapter,
+        page,
+        statePath,
+        probeTimeoutMs: 15
+      }),
+      (error) => error?.code === "DISPOSABLE_CONVERSATION_PROBE_TIMEOUT"
+    );
+
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "NONE");
+    assert.equal(durable.conversation.status, "ACTIVE");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
