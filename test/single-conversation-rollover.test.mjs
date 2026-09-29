@@ -387,3 +387,36 @@ test("SC-005 recovery helper replaces a missing conversation automatically", asy
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+
+test("SC-010 converts probe-close race into disposable rollover", async () => {
+  const statePath = await createActiveState();
+  let closed = false;
+  const oldPage = {
+    isClosed() { return closed; }
+  };
+  const replacementPage = {
+    isClosed() { return false; }
+  };
+  const adapter = {
+    async probePage() {
+      closed = true;
+      throw new Error("page is required");
+    },
+    async closePage() { return true; }
+  };
+
+  const result = await recoverDisposableConversationIfNeeded({
+    adapter,
+    page: oldPage,
+    statePath,
+    sourceOfTruthUrl: SOURCE,
+    replaceConversation: async () => ({ page: replacementPage })
+  }).catch((error) => ({ error }));
+
+  // The production implementation must not leak the probe race as
+  // "page is required"; it must classify the page as closed. This source-level
+  // assertion complements integration coverage where replacement is exercised
+  // with the real bootstrap path.
+  assert.equal(result?.error?.message, undefined);
+});
