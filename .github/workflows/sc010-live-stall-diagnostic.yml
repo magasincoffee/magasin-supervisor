@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/sc010-live-stall-diagnostic.yml'
       - '.github/scripts/sc010-live-stall-diagnostic.ps1'
+      - '.github/scripts/sc010-live-cdp-probe.mjs'
   workflow_dispatch:
 
 permissions:
@@ -25,12 +26,20 @@ jobs:
       diagnosed: ${{ steps.diag.outputs.diagnosed }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies without lifecycle side effects
+        shell: cmd
+        run: npm install --ignore-scripts --no-audit --no-fund
       - name: Read-only runtime diagnostic attempt 1
         id: diag
         shell: cmd
         run: |
           @echo off
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\sc010-live-stall-diagnostic.ps1" -Attempt 1 -TargetComputer "DESKTOP-4K7IM13" -NonTargetHoldSeconds 75
+          if errorlevel 1 exit /b %ERRORLEVEL%
+          node ".github\scripts\sc010-live-cdp-probe.mjs"
           exit /b %ERRORLEVEL%
 
   attempt-2:
@@ -41,12 +50,20 @@ jobs:
       diagnosed: ${{ steps.diag.outputs.diagnosed }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies without lifecycle side effects
+        shell: cmd
+        run: npm install --ignore-scripts --no-audit --no-fund
       - name: Read-only runtime diagnostic attempt 2
         id: diag
         shell: cmd
         run: |
           @echo off
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\sc010-live-stall-diagnostic.ps1" -Attempt 2 -TargetComputer "DESKTOP-4K7IM13" -NonTargetHoldSeconds 75
+          if errorlevel 1 exit /b %ERRORLEVEL%
+          node ".github\scripts\sc010-live-cdp-probe.mjs"
           exit /b %ERRORLEVEL%
 
   diagnostic-authority:
