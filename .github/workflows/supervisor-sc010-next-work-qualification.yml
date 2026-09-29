@@ -9,6 +9,7 @@ on:
       - '.github/scripts/supervisor-sc010-live-qualification.ps1'
       - '.github/scripts/supervisor-sc010-live-qualification.mjs'
       - 'src/runtime/single-conversation-cli.mjs'
+      - 'src/runtime/single-conversation-bootstrap.mjs'
       - 'test/single-conversation-cli.test.mjs'
       - 'SOURCE_OF_TRUTH.md'
   workflow_dispatch:
