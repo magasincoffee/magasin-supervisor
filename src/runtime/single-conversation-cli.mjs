@@ -58,6 +58,69 @@ function terminalAnswer(text) {
   return null;
 }
 
+export async function waitForNextCycleDelay(
+  delayMs,
+  { sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}
+) {
+  const ms = Math.max(0, Number(delayMs) || 0);
+  if (ms <= 0) return;
+  await sleep(ms);
+}
+
+export async function boundedRuntimeStep(
+  label,
+  operation,
+  {
+    timeoutMs = 15_000,
+    setTimer = setTimeout,
+    clearTimer = clearTimeout
+  } = {}
+) {
+  if (typeof operation !== "function") {
+    throw new TypeError("operation is required");
+  }
+  const stage = String(label || "RUNTIME_UI_STEP").trim() || "RUNTIME_UI_STEP";
+  const budget = Math.max(1, Number(timeoutMs) || 15_000);
+  let timer = null;
+
+  try {
+    return await Promise.race([
+      Promise.resolve().then(operation),
+      new Promise((_, reject) => {
+        timer = setTimer(() => {
+          const error = Object.assign(
+            new Error(`runtime UI/CDP step timed out: ${stage}`),
+            {
+              code: "CDP_RECOVERY_REQUIRED",
+              runtime_stage: stage
+            }
+          );
+          reject(error);
+        }, budget);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimer(timer);
+  }
+}
+
+async function boundedRuntimeCleanup(action, timeoutMs = 1_500) {
+  let timer = null;
+  try {
+    await Promise.race([
+      Promise.resolve().then(action),
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, Math.max(1, Number(timeoutMs) || 1_500));
+        timer.unref?.();
+      })
+    ]);
+  } catch {
+    // Cleanup must never prevent deterministic wrapper recovery.
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function settleTransactionResponse({
   adapter,
   page,
@@ -152,15 +215,19 @@ export async function runSingleConversationRuntime({
 
   let cycles = 0;
   while (maxCycles <= 0 || cycles < maxCycles) {
-    const recovery = await recoverDisposableConversationIfNeeded({
-      adapter,
-      page,
-      statePath,
-      sourceOfTruthUrl,
-      projectId: "LIVE",
-      timeoutMs: responseTimeoutMs,
-      pollMs: Math.min(750, Math.max(100, pollMs))
-    });
+    const recovery = await boundedRuntimeStep(
+      "NEXT_WORK_RECOVERY_PROBE",
+      () => recoverDisposableConversationIfNeeded({
+        adapter,
+        page,
+        statePath,
+        sourceOfTruthUrl,
+        projectId: "LIVE",
+        timeoutMs: responseTimeoutMs,
+        pollMs: Math.min(750, Math.max(100, pollMs))
+      }),
+      { timeoutMs: 15_000 }
+    );
     page = recovery.page;
 
     const before = await readSingleConversationState(statePath);
@@ -170,8 +237,22 @@ export async function runSingleConversationRuntime({
       messageId,
       qualificationOnly
     });
-    const baselineUser = await captureLatestRoleTurn(page, "user").catch(() => null);
-    const baselineAssistant = await captureLatestRoleTurn(page, "assistant").catch(() => null);
+    const baselineUser = await boundedRuntimeStep(
+      "NEXT_WORK_CAPTURE_USER",
+      () => captureLatestRoleTurn(page, "user"),
+      { timeoutMs: 10_000 }
+    ).catch((error) => {
+      if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+      return null;
+    });
+    const baselineAssistant = await boundedRuntimeStep(
+      "NEXT_WORK_CAPTURE_ASSISTANT",
+      () => captureLatestRoleTurn(page, "assistant"),
+      { timeoutMs: 10_000 }
+    ).catch((error) => {
+      if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+      return null;
+    });
 
     await prepareExactOnceOutbound(statePath, {
       messageId,
@@ -206,7 +287,13 @@ export async function runSingleConversationRuntime({
     });
     cycles += 1;
 
-    const terminal = terminalAnswer(response.assistant_turn?.text);
+    // Qualification-only runs exercise transport/continuity, not project
+    // completion semantics. A read-only assistant response may legitimately
+    // mention DONE/BLOCKED while describing SOT state; that must not stop a
+    // fixed-cycle qualification before maxCycles is reached.
+    const terminal = qualificationOnly
+      ? null
+      : terminalAnswer(response.assistant_turn?.text);
     if (terminal) {
       return {
         status: terminal,
@@ -215,9 +302,10 @@ export async function runSingleConversationRuntime({
       };
     }
 
-    if (pollMs > 0 && typeof page.waitForTimeout === "function") {
-      await page.waitForTimeout(pollMs);
-    }
+    // Never use a long-lived Playwright page RPC merely to delay the next
+    // cycle. A stale CDP session can leave page.waitForTimeout() pending
+    // forever after the prior outbound transaction is already VERIFIED.
+    await waitForNextCycleDelay(pollMs);
   }
 
   const finalState = await readSingleConversationState(statePath);
@@ -245,6 +333,7 @@ if (isMain) {
     timeoutMs: 45_000
   });
 
+  let finalExitCode = 0;
   try {
     const result = await runSingleConversationRuntime({
       adapter,
@@ -261,7 +350,16 @@ if (isMain) {
     if (result.generation !== undefined) {
       console.log("SINGLE_CONVERSATION_GENERATION=" + result.generation);
     }
+  } catch (error) {
+    const code = String(error?.code || "");
+    const stage = String(error?.runtime_stage || "");
+    console.error("SINGLE_CONVERSATION_RUNTIME_ERROR=" + (code || error?.name || "Error"));
+    if (stage) {
+      console.error("SINGLE_CONVERSATION_RUNTIME_ERROR_STAGE=" + stage);
+    }
+    finalExitCode = code === "CDP_RECOVERY_REQUIRED" ? 75 : 1;
   } finally {
-    await adapter.close().catch(() => {});
+    await boundedRuntimeCleanup(() => adapter.close(), 1_500);
   }
+  process.exit(finalExitCode);
 }

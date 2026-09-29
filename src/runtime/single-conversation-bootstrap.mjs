@@ -112,7 +112,7 @@ function normalizeBootstrapRenderedText(value) {
     .trim();
 }
 
-async function findFreshChatComposer(page, timeoutMs = 8_000) {
+async function findFreshChatComposer(page, timeoutMs = 30_000) {
   const selectors = [
     "#prompt-textarea:visible",
     "[contenteditable][role='textbox']:visible",
@@ -130,7 +130,10 @@ async function findFreshChatComposer(page, timeoutMs = 8_000) {
         : true;
       if (enabled) return locator;
     }
-    await page.waitForTimeout(150);
+    // Composer hydration is a UI condition; the retry delay must not itself
+    // depend on the long-lived Playwright/CDP page RPC that SC-010 is designed
+    // to recover from.
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
   return null;
 }
@@ -331,7 +334,7 @@ export async function sendFreshChatBootstrapInstruction(
     await page.bringToFront().catch(() => {});
   }
 
-  const composer = await findFreshChatComposer(page);
+  const composer = await findFreshChatComposer(page, 30_000);
   if (!composer) {
     return {
       executed: false,
@@ -366,7 +369,7 @@ export async function sendFreshChatBootstrapInstruction(
     page.keyboard &&
     typeof page.keyboard.type === "function"
   ) {
-    const keyboardComposer = await findFreshChatComposer(page, 2_000);
+    const keyboardComposer = await findFreshChatComposer(page, 5_000);
     if (keyboardComposer) {
       await keyboardComposer.click({ timeout: 2_000 }).catch(() => {});
       if (page.keyboard && typeof page.keyboard.press === "function") {
@@ -376,7 +379,7 @@ export async function sendFreshChatBootstrapInstruction(
       }
       await page.keyboard.type(instruction, { delay: 0 });
       await page.waitForTimeout(250);
-      const typedComposer = await findFreshChatComposer(page, 1_500);
+      const typedComposer = await findFreshChatComposer(page, 5_000);
       rendered = typedComposer
         ? await readFreshComposerText(typedComposer)
         : null;
@@ -405,7 +408,7 @@ export async function sendFreshChatBootstrapInstruction(
   // Native typing can rerender/replace ProseMirror. Never submit through the
   // locator captured before typing; reacquire the live editor after exact text
   // verification and verify the same Robot-owned message is still present.
-  const submitComposer = await findFreshChatComposer(page, 2_000);
+  const submitComposer = await findFreshChatComposer(page, 5_000);
   const submitText = submitComposer
     ? await readFreshComposerText(submitComposer)
     : null;
@@ -434,51 +437,33 @@ export async function sendFreshChatBootstrapInstruction(
   try {
     await submitComposer.press("Enter", { timeout: 5_000 });
   } catch {
-    // Cold-start ChatGPT can rerender ProseMirror between exact-text
-    // verification and locator.press(). Reacquire the live composer, restore
-    // focus, and issue one page-level Enter. This is still the same bounded
-    // submit attempt; no delivery evidence has been observed yet.
-    const retryComposer = await findFreshChatComposer(page, 1_500);
-    if (
-      !retryComposer ||
-      !page.keyboard ||
-      typeof page.keyboard.press !== "function"
-    ) {
-      return {
-        executed: false,
-        rejection_class: "SEND_NOT_ACTUATED",
-        reason: "fresh ChatGPT composer Enter submit failed",
-        input_method: inputMethod,
-        send_method: "composer-enter"
-      };
-    }
+    // locator.press() can throw while the browser has already consumed Enter
+    // and rerendered/cleared ProseMirror. In that ambiguous state, do NOT issue
+    // a second mutation immediately. Reacquire only to determine whether the
+    // exact Robot-owned text is still present. If it is, one page-level Enter
+    // is still the same bounded submit attempt. Otherwise fall through to
+    // delivery observation; a later retry is permitted only after positive
+    // blank-home + zero-turn non-delivery evidence.
+    const retryComposer = await findFreshChatComposer(page, 5_000);
+    const canPageEnter =
+      page.keyboard &&
+      typeof page.keyboard.press === "function";
+    if (retryComposer && canPageEnter) {
+      const retryText = await readFreshComposerText(retryComposer);
+      const retryStillExact =
+        retryText !== null &&
+        normalizeBootstrapRenderedText(retryText) ===
+          normalizeBootstrapRenderedText(instruction);
 
-    const retryText = await readFreshComposerText(retryComposer);
-    if (
-      retryText === null ||
-      normalizeBootstrapRenderedText(retryText) !==
-        normalizeBootstrapRenderedText(instruction)
-    ) {
-      return {
-        executed: false,
-        rejection_class: "COMPOSER_NOT_READY",
-        reason: "fresh ChatGPT composer changed before Enter recovery",
-        input_method: inputMethod,
-        send_method: "composer-enter"
-      };
-    }
-
-    await retryComposer.click({ timeout: 2_000 }).catch(() => {});
-    try {
-      await page.keyboard.press("Enter");
-    } catch {
-      return {
-        executed: false,
-        rejection_class: "SEND_NOT_ACTUATED",
-        reason: "fresh ChatGPT composer Enter recovery failed",
-        input_method: inputMethod,
-        send_method: "composer-enter"
-      };
+      if (retryStillExact) {
+        await retryComposer.click({ timeout: 2_000 }).catch(() => {});
+        try {
+          await page.keyboard.press("Enter");
+        } catch {
+          // Do not classify this as non-delivery yet. Observe the blank fresh
+          // chat for exact user-turn evidence before any safe retry.
+        }
+      }
     }
   }
 
@@ -629,6 +614,125 @@ export async function sendFreshChatBootstrapInstruction(
     };
   }
 
+  // After the full bounded observation window, a blank home route with zero
+  // conversation turns is positive non-delivery evidence. Current ChatGPT can
+  // consume Enter (clearing ProseMirror) without submitting. In that exact
+  // state only, restore the same Robot-owned bootstrap and actuate one explicit
+  // Send control. Never perform this retry if any user turn or conversation
+  // navigation exists.
+  let finalStillHome = false;
+  try {
+    const url = new URL(String(page.url?.() || ""));
+    finalStillHome = url.origin === "https://chatgpt.com" && url.pathname === "/";
+  } catch {}
+
+  const finalTurnCount = Number(proof?.conversation_turn_count || 0);
+  const finalDirectUserCount = Number(proof?.direct_user_count || 0);
+  if (
+    finalStillHome &&
+    finalTurnCount === 0 &&
+    finalDirectUserCount === 0
+  ) {
+    const restoreComposer = await findFreshChatComposer(page, 5_000);
+    if (restoreComposer) {
+      let restoredText = null;
+      try {
+        await restoreComposer.fill(instruction, { timeout: 5_000 });
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        restoredText = await readFreshComposerText(restoreComposer);
+      } catch {}
+
+      let restoredExact =
+        restoredText !== null &&
+        normalizeBootstrapRenderedText(restoredText) ===
+          normalizeBootstrapRenderedText(instruction);
+
+      if (
+        !restoredExact &&
+        /^[\x20-\x7E]+$/.test(instruction) &&
+        page.keyboard &&
+        typeof page.keyboard.type === "function"
+      ) {
+        const liveRestore = await findFreshChatComposer(page, 3_000);
+        if (liveRestore) {
+          await liveRestore.click({ timeout: 2_000 }).catch(() => {});
+          if (typeof page.keyboard.press === "function") {
+            const selectAll = process.platform === "darwin" ? "Meta+A" : "Control+A";
+            await page.keyboard.press(selectAll).catch(() => {});
+            await page.keyboard.press("Backspace").catch(() => {});
+          }
+          await page.keyboard.type(instruction, { delay: 0 });
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          const verifiedRestore = await findFreshChatComposer(page, 3_000);
+          restoredText = verifiedRestore
+            ? await readFreshComposerText(verifiedRestore)
+            : null;
+          restoredExact =
+            restoredText !== null &&
+            normalizeBootstrapRenderedText(restoredText) ===
+              normalizeBootstrapRenderedText(instruction);
+        }
+      }
+
+      if (restoredExact) {
+        const liveRestore = await findFreshChatComposer(page, 3_000);
+        const scopes = [];
+        if (typeof liveRestore?.locator === "function") {
+          const form = liveRestore.locator("xpath=ancestor::form[1]").first();
+          if (await form.isVisible().catch(() => false)) scopes.push(form);
+        }
+        scopes.push(page);
+
+        const selectors = [
+          'button[data-testid="send-button"]:visible',
+          'button#composer-submit-button:visible',
+          'button[data-testid="composer-submit-button"]:visible',
+          'button[data-testid="composer-send-button"]:visible',
+          'button[type="submit"]:visible',
+          'button[aria-label*="Send" i]:visible',
+          'button[aria-label*="Gửi" i]:visible'
+        ];
+
+        let send = null;
+        let sendSelector = null;
+        for (const scope of scopes) {
+          for (const selector of selectors) {
+            const candidate = scope.locator(selector).first();
+            if (!(await candidate.isVisible().catch(() => false))) continue;
+            const enabled = typeof candidate.isEnabled === "function"
+              ? await candidate.isEnabled().catch(() => false)
+              : true;
+            if (!enabled) continue;
+            send = candidate;
+            sendSelector = selector;
+            break;
+          }
+          if (send) break;
+        }
+
+        if (send) {
+          await send.click({ timeout: 5_000 });
+          const retryProof = await waitForExactFreshUserTurn(page, instruction, {
+            timeoutMs: 30_000,
+            pollMs: 250
+          });
+          if (retryProof?.turn_id) {
+            return {
+              executed: true,
+              input_method: inputMethod,
+              send_method: "composer-enter+restored-safe-direct-control",
+              send_selector: sendSelector,
+              user_turn_evidence: retryProof.evidence,
+              user_turn_id: retryProof.turn_id,
+              conversation_turn_count:
+                Number(retryProof.conversation_turn_count || 0)
+            };
+          }
+        }
+      }
+    }
+  }
+
   return {
     executed: false,
     rejection_class: "SEND_NOT_ACTUATED",
@@ -655,7 +759,10 @@ async function assertBlankNewChatSurface(adapter, page) {
     throw new Error("ChatGPT conversation surface is missing");
   }
   if (!snapshot.composerReady) {
-    throw new Error("ChatGPT New Chat composer is not ready");
+    throw Object.assign(
+      new Error("ChatGPT New Chat composer is not ready"),
+      { code: "COMPOSER_NOT_READY" }
+    );
   }
   if (snapshot.responseRunning) {
     throw new Error("ChatGPT New Chat surface is unexpectedly generating");
@@ -668,6 +775,46 @@ async function assertBlankNewChatSurface(adapter, page) {
   return probe;
 }
 
+async function waitForBlankNewChatSurface(
+  adapter,
+  page,
+  { timeoutMs = 30_000, pollMs = 500 } = {}
+) {
+  const deadline = Date.now() + Math.max(1, Number(timeoutMs) || 30_000);
+  let lastError = null;
+
+  while (Date.now() <= deadline) {
+    try {
+      return await Promise.race([
+        assertBlankNewChatSurface(adapter, page),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(Object.assign(
+            new Error("blank New Chat probe timed out"),
+            { code: "CDP_RECOVERY_REQUIRED" }
+          )), 10_000);
+        })
+      ]);
+    } catch (error) {
+      const code = String(error?.code || "");
+      const message = String(error?.message || "");
+      if (
+        code !== "COMPOSER_NOT_READY" ||
+        /login|required|CAPTCHA|access is denied|surface is missing/i.test(message)
+      ) {
+        throw error;
+      }
+      lastError = error;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, Math.max(50, Number(pollMs) || 500)));
+  }
+
+  throw Object.assign(
+    lastError || new Error("ChatGPT New Chat composer did not become ready"),
+    { code: "COMPOSER_NOT_READY" }
+  );
+}
+
 export async function acquireBlankNewChatSurface(adapter, {
   forceNewPage = false
 } = {}) {
@@ -677,7 +824,10 @@ export async function acquireBlankNewChatSurface(adapter, {
   let page = adapter.getActivePage?.() || null;
   if (!forceNewPage && page && isHomeChatGptPage(page)) {
     try {
-      await assertBlankNewChatSurface(adapter, page);
+      await waitForBlankNewChatSurface(adapter, page, {
+        timeoutMs: 15_000,
+        pollMs: 300
+      });
       return { page, created: false, reused_home: true };
     } catch (error) {
       if (/login|required|CAPTCHA|access is denied/i.test(String(error?.message || ""))) {
@@ -687,7 +837,10 @@ export async function acquireBlankNewChatSurface(adapter, {
   }
 
   page = await adapter.newChatPage(HOME_URL);
-  await assertBlankNewChatSurface(adapter, page);
+  await waitForBlankNewChatSurface(adapter, page, {
+    timeoutMs: 30_000,
+    pollMs: 300
+  });
   return { page, created: true, reused_home: false };
 }
 
@@ -1065,7 +1218,19 @@ export async function createNewChatAndBootstrap({
     if (!sendResult?.executed) {
       throw Object.assign(
         new Error(sendResult?.reason || "bootstrap send was not confirmed"),
-        { code: sendResult?.rejection_class || "SEND_NOT_CONFIRMED" }
+        {
+          code: sendResult?.rejection_class || "SEND_NOT_CONFIRMED",
+          bootstrap_send_evidence: {
+            input_method: sendResult?.input_method || null,
+            send_method: sendResult?.send_method || null,
+            rejection_class: sendResult?.rejection_class || null,
+            mismatch: sendResult?.mismatch || null,
+            after_enter: sendResult?.after_enter || null,
+            user_turn_evidence: sendResult?.user_turn_evidence || null,
+            conversation_turn_count: Number(sendResult?.conversation_turn_count || 0),
+            direct_user_count: Number(sendResult?.direct_user_count || 0)
+          }
+        }
       );
     }
 

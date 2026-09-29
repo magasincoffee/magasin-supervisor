@@ -181,6 +181,55 @@ test("SC-003 fresh sender falls back to native keyboard when fill is inert", asy
   assert.equal(typed, 1);
 });
 
+test("SC-010 fresh bootstrap tolerates delayed composer hydration", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-bootstrap.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.match(
+    source,
+    /findFreshChatComposer\(page, timeoutMs = 30_000\)/
+  );
+  assert.match(
+    source,
+    /const composer = await findFreshChatComposer\(page, 30_000\)/
+  );
+  assert.match(
+    source,
+    /await new Promise\(\(resolve\) => setTimeout\(resolve, 150\)\)/
+  );
+  assert.doesNotMatch(
+    source.match(/async function findFreshChatComposer[\s\S]*?return null;\n}/)?.[0] || "",
+    /page\.waitForTimeout/
+  );
+});
+
+test("SC-010 observes delivery when Enter throws after composer rerender", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-bootstrap.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /locator\.press\(\) can throw while the browser has already consumed Enter/);
+  assert.match(source, /Otherwise fall through to\s*\/\/ delivery observation/);
+  assert.doesNotMatch(
+    source,
+    /reason: "fresh ChatGPT composer changed before Enter recovery"/
+  );
+});
+
+test("SC-010 retries explicit Send only after positive blank-home non-delivery evidence", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-bootstrap.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /positive non-delivery evidence/);
+  assert.match(source, /finalStillHome &&/);
+  assert.match(source, /finalTurnCount === 0/);
+  assert.match(source, /finalDirectUserCount === 0/);
+  assert.match(source, /composer-enter\+restored-safe-direct-control/);
+  assert.match(source, /waitForExactFreshUserTurn\(page, instruction, \{\s*timeoutMs: 30_000/);
+});
+
 test("SC-008 fresh bootstrap reacquires composer when locator Enter detaches", async () => {
   const instruction = "MAGASIN_SINGLE_CONVERSATION_BOOTSTRAP_V1 id=cold-enter SOT=https://example.com/SOURCE_OF_TRUTH.md";
   let composerText = instruction;

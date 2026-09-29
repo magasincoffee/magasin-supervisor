@@ -538,21 +538,48 @@ Completion evidence:
 
 The production START wiring regression is closed.
 
+### SC-010 — NEXT_WORK stall recovery
+State: **COMPLETE**
+
+Incident evidence:
+- on 2026-09-29, an actual Owner production run on `DESKTOP-4K7IM13` completed bootstrap plus one bounded work cycle, then stopped issuing new work while Control Center still reported `AUTOMATION: RUNNING • phase=NEXT_WORK`;
+- read-only live diagnostic at 2026-09-29T04:47:17Z confirmed exactly one Supervisor wrapper, exactly one `single-conversation-cli.mjs` process, healthy dedicated Chrome/CDP on port 9222, and exactly one active ChatGPT conversation;
+- durable state had been unchanged since 2026-09-29T04:38:39Z with `conversation.status=ACTIVE`, `outbound.state=VERIFIED`, `automation.status=RUNNING`, and `automation.phase=NEXT_WORK`;
+- the completed outbound transaction had no error code and had reached PREPARED -> ENQUEUED -> DELIVERED -> RESPONSE_RUNNING -> RESPONSE_COMPLETE -> VERIFIED.
+
+Completion evidence:
+- inter-cycle delay now uses a native runtime timer rather than a long-lived Playwright page RPC;
+- NEXT_WORK recovery probe and baseline user/assistant capture are bounded by native deadlines; a hung UI/CDP step maps to deterministic wrapper recovery instead of remaining indefinitely in `RUNNING/NEXT_WORK`;
+- runtime cleanup is bounded and the forward wrapper preserves exit-code-75 dedicated-Chrome recovery without replaying an already VERIFIED transaction;
+- disposable recovery handles the page-close/probe race as a stale-page rollover;
+- New Chat/bootstrap handling tolerates delayed composer hydration and preserves exact delivery evidence;
+- newly created ChatGPT pages become the adapter's sticky active page so multi-cycle qualification cannot retain a stale warm-up tab as runtime identity;
+- qualification-only continuity ignores descriptive DONE/BLOCKED text and runs to its fixed `maxCycles`, while normal production execution retains terminal-answer semantics;
+- regression tests cover bounded NEXT_WORK recovery, native inter-cycle delay, deterministic recovery exit, page-close race, delayed composer hydration, and sticky active-page tracking;
+- SC-010 NEXT_WORK Stall Qualification run #25 passed on the real target `DESKTOP-4K7IM13`;
+- target evidence recorded `SC010_LIVE_FIVE_SEQUENTIAL_CYCLES=PASS`, `SC010_LIVE_FINAL_OUTBOUND_VERIFIED=True`, `SC010_LIVE_FINAL_PHASE_NEXT_WORK=True`, `SC010_LIVE_SOT_VERIFIED=True`, `SC010_LIVE_ACTIVE_CONVERSATION_COUNT=1`, `SC010_LIVE_GENERATION=1`, `SC010_LIVE_DUPLICATE_SEND_ATTEMPTS=0`, and `SC010_LIVE_STATUS=PASS`;
+- target qualification recorded no production project-state mutation and no external-system mutation request, then restored the production Supervisor wrapper;
+- aggregate `qualification-authority` passed with `DESKTOP-4K7IM13` as the qualified target;
+- final runtime candidate `eac8091674f521835ab53b285e6e45d219c97264` passed Supervisor Tests #1059, Supervisor Integrity #1073, Supervisor Lifecycle Acceptance #884, and Supervisor Autostart Install #914 before completion was recorded.
+
+The production NEXT_WORK stall is closed.
+
 ---
 
 ## 11. Current implementation status
 
 As of 2026-09-29:
 
-- SC-001 through SC-009 are complete;
+- SC-001 through SC-010 are complete;
 - the canonical forward runtime is **SINGLE_CONVERSATION_V1**;
 - the Owner supplies the Source of Truth URL only; no historical ChatGPT conversation URL is required;
 - the forward Control Center and runtime use one disposable Robot-created ChatGPT conversation at a time;
-- the actual production START wiring has been requalified on `DESKTOP-4K7IM13` after fixing the legacy `target.json` gate regression;
-- automatic replacement, exact-once reconciliation, Continue handling, cold-start recovery, and the real Owner START path have passed their required live qualifications;
+- the actual production START wiring has been requalified on `DESKTOP-4K7IM13`;
+- automatic replacement, exact-once reconciliation, Continue handling, cold-start recovery, bounded NEXT_WORK recovery, and continuous multi-cycle execution have passed their required live qualifications;
+- the real target completed five sequential qualified work cycles in one active Robot conversation with zero duplicate send attempts and Source of Truth verification preserved;
 - persistent Planner/Executor orchestration remains superseded and is legacy/rollback-only, not a forward production dependency.
 
-Under the acceptance rule below, **SINGLE_CONVERSATION_V1 is production-qualified**.
+Under the acceptance rule below, **SINGLE_CONVERSATION_V1 is production-qualified for continuous unattended multi-cycle operation**.
 
 ---
 

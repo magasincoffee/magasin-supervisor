@@ -357,6 +357,13 @@ export class ChatGptUiAdapter {
     }
 
     await page.waitForTimeout(this.settleMs);
+
+    // A newly created ChatGPT page becomes the runtime's sticky active page.
+    // Without this assignment, getActivePage() can keep returning the warm-up
+    // or previously active tab even after the runtime has moved to a fresh
+    // conversation. That stale identity can make cleanup close the real active
+    // conversation after multi-cycle execution.
+    this.page = page;
     return page;
   }
 

@@ -246,9 +246,29 @@ export async function recoverDisposableConversationIfNeeded({
 
   const pageClosed =
     typeof page.isClosed === "function" && page.isClosed();
-  const probe = pageClosed
-    ? { snapshot: { pageClosed: true } }
-    : await adapter.probePage(page);
+  let probe = null;
+  if (pageClosed) {
+    probe = { snapshot: { pageClosed: true } };
+  } else {
+    try {
+      probe = await adapter.probePage(page);
+    } catch (error) {
+      // The page can close after the isClosed() check but before Playwright
+      // evaluates the probe. Treat that narrow race exactly like a page that
+      // was already closed so disposable-chat recovery can replace it.
+      const closedNow =
+        typeof page.isClosed === "function" && page.isClosed();
+      const message = String(error?.message || error || "");
+      if (
+        closedNow ||
+        /page is required|target page.*(?:closed|context)|browser has been closed/i.test(message)
+      ) {
+        probe = { snapshot: { pageClosed: true } };
+      } else {
+        throw error;
+      }
+    }
+  }
   const classification = classifyDisposableConversation(
     probe?.snapshot || {},
     { consecutiveTransientFailures, transientFailureThreshold }
