@@ -394,14 +394,27 @@ async function captureUserTurnState(page, instruction) {
       }
 
       let exactMatchCount = 0;
-      for (const node of turns) {
+      let matchingTurnId = null;
+      let matchingEvidence = null;
+      for (let index = 0; index < turns.length; index += 1) {
+        const node = turns[index];
         const text = normalize(node.textContent || node.innerText || "");
-        if (text === wanted) exactMatchCount += 1;
+        if (text !== wanted) continue;
+        exactMatchCount += 1;
+        const container = node.closest?.("[data-testid^='conversation-turn-']");
+        matchingTurnId =
+          String(container?.getAttribute?.("data-testid") || "").trim() ||
+          `user-turn-${index}`;
+        matchingEvidence = node.matches?.('[data-message-author-role="user"]')
+          ? "exact-semantic-user-turn"
+          : "exact-modern-user-turn";
       }
       return {
         readable: true,
         totalCount: turns.length,
-        exactMatchCount
+        exactMatchCount,
+        matchingTurnId,
+        matchingEvidence
       };
     }, {
       expected: instruction,
@@ -410,6 +423,29 @@ async function captureUserTurnState(page, instruction) {
   } catch {
     return { readable: false, totalCount: 0, exactMatchCount: 0 };
   }
+}
+
+export async function captureMatchingUserTurnEvidence(page, instruction) {
+  const state = await captureUserTurnState(page, instruction);
+  if (
+    state?.readable &&
+    Number(state.exactMatchCount || 0) > 0
+  ) {
+    return {
+      confirmed: true,
+      turn_id: state.matchingTurnId || null,
+      evidence: state.matchingEvidence || "matching-user-turn-observed",
+      totalCount: Number(state.totalCount || 0)
+    };
+  }
+  return {
+    confirmed: false,
+    turn_id: null,
+    evidence: state?.readable
+      ? "matching-user-turn-not-observed"
+      : "user-turn-state-unreadable",
+    totalCount: Number(state?.totalCount || 0)
+  };
 }
 
 async function waitForMatchingUserTurn(
