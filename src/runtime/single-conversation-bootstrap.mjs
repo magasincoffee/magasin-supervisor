@@ -655,7 +655,10 @@ async function assertBlankNewChatSurface(adapter, page) {
     throw new Error("ChatGPT conversation surface is missing");
   }
   if (!snapshot.composerReady) {
-    throw new Error("ChatGPT New Chat composer is not ready");
+    throw Object.assign(
+      new Error("ChatGPT New Chat composer is not ready"),
+      { code: "COMPOSER_NOT_READY" }
+    );
   }
   if (snapshot.responseRunning) {
     throw new Error("ChatGPT New Chat surface is unexpectedly generating");
@@ -668,6 +671,46 @@ async function assertBlankNewChatSurface(adapter, page) {
   return probe;
 }
 
+async function waitForBlankNewChatSurface(
+  adapter,
+  page,
+  { timeoutMs = 30_000, pollMs = 500 } = {}
+) {
+  const deadline = Date.now() + Math.max(1, Number(timeoutMs) || 30_000);
+  let lastError = null;
+
+  while (Date.now() <= deadline) {
+    try {
+      return await Promise.race([
+        assertBlankNewChatSurface(adapter, page),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(Object.assign(
+            new Error("blank New Chat probe timed out"),
+            { code: "CDP_RECOVERY_REQUIRED" }
+          )), 10_000);
+        })
+      ]);
+    } catch (error) {
+      const code = String(error?.code || "");
+      const message = String(error?.message || "");
+      if (
+        code !== "COMPOSER_NOT_READY" ||
+        /login|required|CAPTCHA|access is denied|surface is missing/i.test(message)
+      ) {
+        throw error;
+      }
+      lastError = error;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, Math.max(50, Number(pollMs) || 500)));
+  }
+
+  throw Object.assign(
+    lastError || new Error("ChatGPT New Chat composer did not become ready"),
+    { code: "COMPOSER_NOT_READY" }
+  );
+}
+
 export async function acquireBlankNewChatSurface(adapter, {
   forceNewPage = false
 } = {}) {
@@ -677,7 +720,10 @@ export async function acquireBlankNewChatSurface(adapter, {
   let page = adapter.getActivePage?.() || null;
   if (!forceNewPage && page && isHomeChatGptPage(page)) {
     try {
-      await assertBlankNewChatSurface(adapter, page);
+      await waitForBlankNewChatSurface(adapter, page, {
+        timeoutMs: 15_000,
+        pollMs: 300
+      });
       return { page, created: false, reused_home: true };
     } catch (error) {
       if (/login|required|CAPTCHA|access is denied/i.test(String(error?.message || ""))) {
@@ -687,7 +733,10 @@ export async function acquireBlankNewChatSurface(adapter, {
   }
 
   page = await adapter.newChatPage(HOME_URL);
-  await assertBlankNewChatSurface(adapter, page);
+  await waitForBlankNewChatSurface(adapter, page, {
+    timeoutMs: 30_000,
+    pollMs: 300
+  });
   return { page, created: true, reused_home: false };
 }
 
