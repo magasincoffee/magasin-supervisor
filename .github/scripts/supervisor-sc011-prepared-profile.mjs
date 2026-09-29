@@ -58,3 +58,7 @@ try{
 } finally {
   await adapter.close().catch(()=>{});
 }
+
+// connectOverCDP can leave a transport handle alive even after diagnostic cleanup.
+// This profiler is read-only, so terminate only this Node process after all bounded measurements.
+process.exit(0);
