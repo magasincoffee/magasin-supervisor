@@ -155,6 +155,13 @@ try {
   log("SC010_LIVE_STATUS", "FAIL");
   log("SC010_LIVE_ERROR_NAME", error?.name || "Error");
   log("SC010_LIVE_ERROR_CODE", error?.code || "");
+  log("SC010_LIVE_ERROR_MESSAGE", String(error?.message || "").slice(0, 240));
+  if (error?.bootstrap_send_evidence) {
+    log(
+      "SC010_LIVE_BOOTSTRAP_SEND_EVIDENCE",
+      JSON.stringify(error.bootstrap_send_evidence)
+    );
+  }
   finalExitCode = 1;
 } finally {
   await bounded("ADAPTER_CLOSE", () => adapter.close(), 1500);
