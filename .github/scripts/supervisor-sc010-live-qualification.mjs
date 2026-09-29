@@ -111,27 +111,13 @@ try {
     throw new Error("SC-010 conversation was not ACTIVE");
   }
 
-  const activePage = adapter.getActivePage();
-  if (!activePage || activePage.isClosed?.()) {
-    throw new Error("SC-010 active ChatGPT page is unavailable");
-  }
-
-  for (const candidate of adapter.getChatGptPages()) {
-    if (candidate === activePage || candidate.isClosed?.()) continue;
-    await bounded("OLD_CHAT_CLOSE", () => adapter.closePage(candidate), 2000);
-  }
-
-  // Closing stale ChatGPT tabs can race with a ChatGPT rerender/navigation and
-  // invalidate the Page handle captured before cleanup. The runtime has already
-  // completed all five cycles at this point, so reacquire the live page from
-  // the adapter before the final read-only probe instead of failing on a stale
-  // qualification-only handle.
-  const finalPage =
-    adapter.getActivePage() ||
-    adapter.getChatGptPages().find((candidate) => !candidate.isClosed?.()) ||
-    null;
+  // Verify the runtime-owned page before any qualification cleanup. Closing
+  // sibling tabs is not part of the SC-010 acceptance contract and can itself
+  // invalidate the real conversation page, producing a false negative after
+  // all five cycles have already completed.
+  const finalPage = adapter.getActivePage();
   if (!finalPage || finalPage.isClosed?.()) {
-    throw new Error("SC-010 final ChatGPT page is unavailable after cleanup");
+    throw new Error("SC-010 active ChatGPT page is unavailable after five cycles");
   }
 
   const probe = await Promise.race([
@@ -150,15 +136,22 @@ try {
   }
 
   const pages = adapter.getChatGptPages().filter((page) => !page.isClosed?.());
-  if (pages.length !== 1) {
-    throw new Error("SC-010 did not converge to exactly one active ChatGPT conversation");
+  const conversationPages = pages.filter((page) => {
+    try {
+      return /^\/(?:c|g|project)\//.test(new URL(page.url()).pathname);
+    } catch {
+      return false;
+    }
+  });
+  if (conversationPages.length !== 1 || conversationPages[0] !== finalPage) {
+    throw new Error("SC-010 did not retain exactly one runtime-owned active ChatGPT conversation");
   }
 
   log("SC010_LIVE_FIVE_SEQUENTIAL_CYCLES", "PASS");
   log("SC010_LIVE_FINAL_OUTBOUND_VERIFIED", "True");
   log("SC010_LIVE_FINAL_PHASE_NEXT_WORK", "True");
   log("SC010_LIVE_SOT_VERIFIED", "True");
-  log("SC010_LIVE_ACTIVE_CONVERSATION_COUNT", pages.length);
+  log("SC010_LIVE_ACTIVE_CONVERSATION_COUNT", conversationPages.length);
   log("SC010_LIVE_GENERATION", durable.conversation.generation);
   log("SC010_LIVE_DUPLICATE_SEND_ATTEMPTS", durable.outbound.retry_count > 1 ? "UNSAFE" : "0");
   log("SC010_LIVE_PRODUCTION_PROJECT_STATE_MUTATED", "False");
