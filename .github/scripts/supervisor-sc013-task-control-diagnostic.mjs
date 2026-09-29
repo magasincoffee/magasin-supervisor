@@ -3,6 +3,7 @@ import process from "node:process";
 
 import { ChatGptUiAdapter } from "../../src/ui/playwright-adapter.mjs";
 import { captureLatestRoleTurn } from "../../src/ui/latest-turn.mjs";
+import { captureFreshAssistantTurn } from "../../src/runtime/single-conversation-bootstrap.mjs";
 import {
   parseTaskControl
 } from "../../src/runtime/single-conversation-loop.mjs";
@@ -55,8 +56,11 @@ try {
   log("SC013_REBIND", "PASS");
   log("SC013_REBIND_FROM", rebound.recovered_from || "");
 
-  const assistant = await captureLatestRoleTurn(rebound.page, "assistant")
+  let assistant = await captureLatestRoleTurn(rebound.page, "assistant")
     .catch(() => null);
+  if (!assistant?.text) {
+    assistant = await captureFreshAssistantTurn(rebound.page).catch(() => null);
+  }
   if (!assistant?.text) {
     throw Object.assign(
       new Error("latest production assistant turn is unavailable"),
