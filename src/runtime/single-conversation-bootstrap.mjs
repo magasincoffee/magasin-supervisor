@@ -930,6 +930,7 @@ async function persistResponseRunning(statePath, now) {
 
 async function persistResponseComplete(statePath, {
   assistantTurnId,
+  runtimeId = null,
   now
 }) {
   const state = await readSingleConversationState(statePath);
@@ -943,6 +944,9 @@ async function persistResponseComplete(statePath, {
   // Assistant turn identity is runtime evidence only. Keep it under
   // automation diagnostics rather than creating a second project authority.
   state.automation.last_assistant_turn_id = assistantTurnId || null;
+  if (runtimeId) {
+    state.conversation.runtime_id = runtimeId;
+  }
   return writeSingleConversationState(statePath, state, { now });
 }
 
@@ -1102,6 +1106,7 @@ export async function waitForBootstrapResponse({
           ) {
             await persistResponseComplete(statePath, {
               assistantTurnId: assistant.turn_id,
+              runtimeId: opaqueRuntimeIdentity(pageUrl(page)),
               now
             });
             return {
@@ -1114,6 +1119,7 @@ export async function waitForBootstrapResponse({
         } else {
           await persistResponseComplete(statePath, {
             assistantTurnId: assistant.turn_id,
+            runtimeId: opaqueRuntimeIdentity(pageUrl(page)),
             now
           });
           return {
