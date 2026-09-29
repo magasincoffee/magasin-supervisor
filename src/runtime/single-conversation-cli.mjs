@@ -31,6 +31,7 @@ function parseArgs(argv) {
     sourceOfTruthUrl: null,
     cdpUrl: null,
     execute: false,
+    qualificationOnly: false,
     pollMs: 2_000,
     responseTimeoutMs: 180_000,
     maxCycles: 0
@@ -43,6 +44,7 @@ function parseArgs(argv) {
     else if (arg === "--poll-ms") out.pollMs = Number(argv[++i]);
     else if (arg === "--response-timeout-ms") out.responseTimeoutMs = Number(argv[++i]);
     else if (arg === "--max-cycles") out.maxCycles = Number(argv[++i]);
+    else if (arg === "--qualification-only") out.qualificationOnly = true;
     else if (arg === "--execute") out.execute = true;
     else throw new Error("unknown argument: " + arg);
   }
@@ -93,6 +95,7 @@ export async function runSingleConversationRuntime({
   statePath,
   sourceOfTruthUrl,
   execute = false,
+  qualificationOnly = false,
   pollMs = 2_000,
   responseTimeoutMs = 180_000,
   maxCycles = 0
@@ -123,6 +126,7 @@ export async function runSingleConversationRuntime({
       statePath,
       sourceOfTruthUrl,
       projectId: "LIVE",
+      qualificationOnly,
       forceNewPage: true,
       timeoutMs: responseTimeoutMs,
       pollMs: Math.min(750, Math.max(100, pollMs))
@@ -139,6 +143,7 @@ export async function runSingleConversationRuntime({
       reason: "RUNTIME_RESTART_AMBIGUOUS_PAGE_IDENTITY",
       sourceOfTruthUrl,
       projectId: "LIVE",
+      qualificationOnly,
       timeoutMs: responseTimeoutMs,
       pollMs: Math.min(750, Math.max(100, pollMs))
     });
@@ -162,7 +167,8 @@ export async function runSingleConversationRuntime({
     const messageId = randomUUID();
     const message = buildSingleConversationNextInstruction({
       sourceOfTruthUrl: before.source_of_truth.url,
-      messageId
+      messageId,
+      qualificationOnly
     });
     const baselineUser = await captureLatestRoleTurn(page, "user").catch(() => null);
     const baselineAssistant = await captureLatestRoleTurn(page, "assistant").catch(() => null);
@@ -245,6 +251,7 @@ if (isMain) {
       statePath: path.resolve(args.statePath),
       sourceOfTruthUrl: args.sourceOfTruthUrl,
       execute: args.execute,
+      qualificationOnly: args.qualificationOnly,
       pollMs: args.pollMs,
       responseTimeoutMs: args.responseTimeoutMs,
       maxCycles: args.maxCycles
