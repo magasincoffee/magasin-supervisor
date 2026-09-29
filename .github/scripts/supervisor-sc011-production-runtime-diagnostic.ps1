@@ -1,3 +1,4 @@
+# rerun-marker: post-main-sidebar-fix-790a1ffb
 param(
   [Parameter(Mandatory=$true)][string]$TargetComputer,
   [int]$NonTargetHoldSeconds = 150,
