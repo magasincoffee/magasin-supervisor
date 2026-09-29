@@ -58,6 +58,63 @@ function terminalAnswer(text) {
   return null;
 }
 
+export async function boundedRuntimeOperation(
+  label,
+  operation,
+  { timeoutMs = 12_000 } = {}
+) {
+  if (typeof operation !== "function") {
+    throw new TypeError("operation is required");
+  }
+  const limit = Math.max(1, Number(timeoutMs || 12_000));
+  let timer = null;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(operation),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          reject(Object.assign(
+            new Error(`single-conversation runtime stalled during ${label}`),
+            {
+              code: "SINGLE_CONVERSATION_RUNTIME_STALL",
+              stall_stage: String(label || "UNKNOWN")
+            }
+          ));
+        }, limit);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+export async function runtimePollDelay(ms, {
+  setTimeoutImpl = setTimeout
+} = {}) {
+  const delay = Math.max(0, Number(ms || 0));
+  if (delay <= 0) return;
+  await new Promise((resolve) => {
+    setTimeoutImpl(resolve, delay);
+  });
+}
+
+export async function captureBaselineTurnBounded(
+  page,
+  role,
+  { timeoutMs = 10_000 } = {}
+) {
+  try {
+    return await boundedRuntimeOperation(
+      `CAPTURE_BASELINE_${String(role || "").toUpperCase()}`,
+      () => captureLatestRoleTurn(page, role),
+      { timeoutMs }
+    );
+  } catch (error) {
+    if (error?.code === "SINGLE_CONVERSATION_RUNTIME_STALL") throw error;
+    return null;
+  }
+}
+
 async function settleTransactionResponse({
   adapter,
   page,
@@ -158,6 +215,7 @@ export async function runSingleConversationRuntime({
       statePath,
       sourceOfTruthUrl,
       projectId: "LIVE",
+      probeTimeoutMs: Math.min(12_000, Math.max(3_000, responseTimeoutMs)),
       timeoutMs: responseTimeoutMs,
       pollMs: Math.min(750, Math.max(100, pollMs))
     });
@@ -170,8 +228,8 @@ export async function runSingleConversationRuntime({
       messageId,
       qualificationOnly
     });
-    const baselineUser = await captureLatestRoleTurn(page, "user").catch(() => null);
-    const baselineAssistant = await captureLatestRoleTurn(page, "assistant").catch(() => null);
+    const baselineUser = await captureBaselineTurnBounded(page, "user");
+    const baselineAssistant = await captureBaselineTurnBounded(page, "assistant");
 
     await prepareExactOnceOutbound(statePath, {
       messageId,
@@ -215,9 +273,10 @@ export async function runSingleConversationRuntime({
       };
     }
 
-    if (pollMs > 0 && typeof page.waitForTimeout === "function") {
-      await page.waitForTimeout(pollMs);
-    }
+    // NEXT_WORK pacing must not depend on a live Playwright Page. A wedged
+    // page/CDP transport previously left durable state at VERIFIED/NEXT_WORK
+    // forever even though the Node process remained alive.
+    await runtimePollDelay(pollMs);
   }
 
   const finalState = await readSingleConversationState(statePath);
@@ -245,6 +304,7 @@ if (isMain) {
     timeoutMs: 45_000
   });
 
+  let exitCode = 0;
   try {
     const result = await runSingleConversationRuntime({
       adapter,
@@ -261,7 +321,24 @@ if (isMain) {
     if (result.generation !== undefined) {
       console.log("SINGLE_CONVERSATION_GENERATION=" + result.generation);
     }
+  } catch (error) {
+    const code = String(error?.code || "");
+    console.error("SINGLE_CONVERSATION_RUNTIME_ERROR=" + (code || error?.name || "Error"));
+    if (error?.stall_stage) {
+      console.error("SINGLE_CONVERSATION_RUNTIME_STALL_STAGE=" + error.stall_stage);
+    }
+    exitCode = [
+      "SINGLE_CONVERSATION_RUNTIME_STALL",
+      "DISPOSABLE_CONVERSATION_PROBE_TIMEOUT"
+    ].includes(code) ? 75 : 1;
   } finally {
     await adapter.close().catch(() => {});
+  }
+
+  if (exitCode !== 0) {
+    // Exit explicitly because a wedged CDP command may otherwise retain an
+    // attached Playwright transport handle. Exit 75 asks the Windows wrapper
+    // to restart only the dedicated Supervisor Chrome and rehydrate safely.
+    process.exit(exitCode);
   }
 }
