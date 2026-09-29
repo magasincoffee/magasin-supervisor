@@ -212,6 +212,7 @@ export async function waitForSingleConversationResponse({
   timeoutMs = 180_000,
   pollMs = 600,
   maxContinueClicks = 8,
+  transientFailureThreshold = 3,
   now = () => new Date().toISOString()
 } = {}) {
   if (!adapter) throw new Error("adapter is required");
@@ -221,6 +222,8 @@ export async function waitForSingleConversationResponse({
   const started = Date.now();
   let continueClicks = 0;
   let sawRunning = false;
+  let consecutiveTransientFailures = 0;
+  const transientLimit = Math.max(1, Number(transientFailureThreshold || 3));
   const expectedMarker = String(expectedAssistantMarker || "").trim();
   let stableAssistantDigest = null;
   let stableAssistantSince = 0;
@@ -228,6 +231,53 @@ export async function waitForSingleConversationResponse({
   while (Date.now() - started <= timeoutMs) {
     const probe = await adapter.probePage(page);
     const snapshot = probe?.snapshot || {};
+
+    // A single ChatGPT transient/network banner is not an unrecoverable
+    // conversation fault. SOT replacement policy requires repeated failure.
+    // Tolerate a bounded sequence while still failing closed at the threshold.
+    const retryableTransient =
+      !snapshot.responseRunning &&
+      (snapshot.hasTransientError || snapshot.hasNetworkError);
+    if (retryableTransient) {
+      // ChatGPT can leave a transient/network banner rendered after the actual
+      // assistant turn has completed. Exact cycle correlation is stronger
+      // completion evidence than that stale banner, so reconcile it before
+      // counting the transient toward the unrecoverable threshold.
+      if (expectedMarker) {
+        const assistant = await captureTurn(page, "assistant").catch(() => null);
+        const assistantText = String(assistant?.text || "");
+        if (
+          assistant?.turn_id &&
+          assistant.turn_id !== baselineAssistantTurnId &&
+          assistantText.includes(expectedMarker)
+        ) {
+          await persistCycleComplete(statePath, {
+            assistantTurnId: assistant.turn_id,
+            now
+          });
+          return {
+            status: "RESPONSE_COMPLETE",
+            assistant_turn: assistant,
+            continue_clicks: continueClicks,
+            saw_running: sawRunning,
+            marker_confirmed: true,
+            stale_transient_banner_ignored: true
+          };
+        }
+      }
+
+      consecutiveTransientFailures += 1;
+      if (consecutiveTransientFailures >= transientLimit) {
+        assertSafeSnapshot(snapshot);
+      }
+      if (typeof page.waitForTimeout === "function") {
+        await page.waitForTimeout(pollMs);
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, pollMs));
+      }
+      continue;
+    }
+    consecutiveTransientFailures = 0;
     assertSafeSnapshot(snapshot);
 
     if (snapshot.responseRunning) {

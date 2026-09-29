@@ -181,6 +181,84 @@ test("SC-003 fresh sender falls back to native keyboard when fill is inert", asy
   assert.equal(typed, 1);
 });
 
+test("SC-008 fresh bootstrap reacquires composer when locator Enter detaches", async () => {
+  const instruction = "MAGASIN_SINGLE_CONVERSATION_BOOTSTRAP_V1 id=cold-enter SOT=https://example.com/SOURCE_OF_TRUTH.md";
+  let composerText = instruction;
+  let sent = false;
+  let pageEnter = 0;
+
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async fill(value) { composerText = value; },
+    async inputValue() { return composerText; },
+    async click() {},
+    async press(key) {
+      if (key === "Enter") throw new Error("detached from document");
+    },
+    locator() {
+      return {
+        first() { return this; },
+        async isVisible() { return false; }
+      };
+    }
+  };
+
+  const page = {
+    url() { return sent ? "https://chatgpt.com/c/cold-enter" : "https://chatgpt.com/"; },
+    locator(selector) {
+      if (selector.includes("send-button") || selector.includes("submit")) {
+        return {
+          first() { return this; },
+          async isVisible() { return false; },
+          async isEnabled() { return false; }
+        };
+      }
+      return composer;
+    },
+    async bringToFront() {},
+    async waitForTimeout() {},
+    async evaluate(fn) {
+      if (String(fn).includes("conversation-turn-")) {
+        return sent
+          ? {
+              turn_id: "conversation-turn-cold",
+              conversation_turn_count: 1,
+              evidence: "exact-fresh-conversation-turn"
+            }
+          : {
+              turn_id: null,
+              conversation_turn_count: 0,
+              evidence: "exact-fresh-user-turn-not-observed"
+            };
+      }
+      return null;
+    },
+    keyboard: {
+      async press(key) {
+        if (key === "Enter" && composerText === instruction) {
+          pageEnter += 1;
+          sent = true;
+          composerText = "";
+        }
+      },
+      async type(value) { composerText = value; }
+    }
+  };
+
+  const result = await sendFreshChatBootstrapInstruction(
+    page,
+    instruction,
+    { dryRun: false }
+  );
+
+  assert.equal(result.executed, true);
+  assert.equal(result.send_method, "composer-enter");
+  assert.equal(result.user_turn_id, "conversation-turn-cold");
+  assert.equal(pageEnter, 1);
+});
+
 test("SC-003 forceNewPage never reuses a pre-existing home page", async () => {
   const oldHome = fakePage();
   const fresh = fakePage();

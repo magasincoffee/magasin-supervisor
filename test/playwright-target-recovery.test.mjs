@@ -83,6 +83,20 @@ test("CDP adapter contains bounded reconnect logic for a replaced browser contex
   assert.match(source, /page = await this\.context\.newPage\(\)/);
 });
 
+test("cold New Chat navigation waits for commit, not DOMContentLoaded", async () => {
+  const source = await import("node:fs/promises").then((fs) =>
+    fs.readFile(new URL("../src/ui/playwright-adapter.mjs", import.meta.url), "utf8")
+  );
+
+  const start = source.indexOf("async newChatPage(");
+  const end = source.indexOf("async probePage(", start);
+  const method = source.slice(start, end);
+  assert.match(method, /waitUntil: "commit"/);
+  assert.doesNotMatch(method, /waitUntil: "domcontentloaded"/);
+  assert.match(method, /isTransientNavigationError\(error\)/);
+  assert.match(method, /await this\.reconnectOverCdp\(\)/);
+});
+
 test("target recovery reuses an open Project route for the same direct conversation id", async () => {
   const adapter = new ChatGptUiAdapter({ chromeExecutable: "fake-chrome" });
   const uuid = "6ab6b646-4804-43ec-99dd-415b1f123456";

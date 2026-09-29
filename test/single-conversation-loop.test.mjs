@@ -337,6 +337,105 @@ test("SC-004 waits through false-idle partial assistant text until cycle correla
   }
 });
 
+test("SC-008 correlated response wins over a stale transient banner", async () => {
+  const { root, statePath } = await tempState();
+  try {
+    const marker = "MAGASIN_CYCLE_CORRELATION_V1 sc008-stale-banner";
+    let probes = 0;
+    const response = await waitForSingleConversationResponse({
+      adapter: {
+        async probePage() {
+          probes += 1;
+          return {
+            snapshot: baseSnapshot({
+              responseRunning: false,
+              hasTransientError: true
+            })
+          };
+        }
+      },
+      page: { async waitForTimeout() {} },
+      statePath,
+      baselineAssistantTurnId: "assistant-old",
+      expectedAssistantMarker: marker,
+      captureTurn: async () => ({
+        turn_id: "assistant-new",
+        text: "Architecture generation: SINGLE_CONVERSATION_V1\n" + marker,
+        digest: "correlated-complete"
+      }),
+      transientFailureThreshold: 3,
+      pollMs: 1,
+      timeoutMs: 1_000
+    });
+
+    assert.equal(response.status, "RESPONSE_COMPLETE");
+    assert.equal(response.marker_confirmed, true);
+    assert.equal(response.stale_transient_banner_ignored, true);
+    assert.equal(probes, 1);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("SC-008 response wait tolerates bounded transient snapshots but fails when repeated", async () => {
+  const { root, statePath } = await tempState();
+  try {
+    let probes = 0;
+    const recovered = await waitForSingleConversationResponse({
+      adapter: {
+        async probePage() {
+          probes += 1;
+          if (probes <= 2) {
+            return {
+              snapshot: baseSnapshot({
+                responseRunning: false,
+                hasTransientError: true
+              })
+            };
+          }
+          return { snapshot: baseSnapshot({ responseRunning: false }) };
+        }
+      },
+      page: { async waitForTimeout() {} },
+      statePath,
+      baselineAssistantTurnId: "assistant-old",
+      captureTurn: async () => ({
+        turn_id: "assistant-new",
+        text: "complete after transient",
+        digest: "done"
+      }),
+      transientFailureThreshold: 3,
+      pollMs: 1,
+      timeoutMs: 1_000
+    });
+    assert.equal(recovered.status, "RESPONSE_COMPLETE");
+    assert.equal(probes, 3);
+
+    await assert.rejects(
+      waitForSingleConversationResponse({
+        adapter: {
+          async probePage() {
+            return {
+              snapshot: baseSnapshot({
+                responseRunning: false,
+                hasTransientError: true
+              })
+            };
+          }
+        },
+        page: { async waitForTimeout() {} },
+        statePath,
+        transientFailureThreshold: 3,
+        pollMs: 1,
+        timeoutMs: 1_000
+      }),
+      (error) => error?.code === "TRANSIENT_ERROR"
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("SC-004 auth/captcha boundary blocks without a new send", async () => {
   const { root, statePath } = await tempState();
   let sends = 0;
