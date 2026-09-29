@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { runSingleConversationRuntime } from "../src/runtime/single-conversation-cli.mjs";
+import { runSingleConversationRuntime, runtimeOwnedDelay, withRuntimeDeadline } from "../src/runtime/single-conversation-cli.mjs";
 import {
   ensureSingleConversationState,
   readSingleConversationState
@@ -64,4 +64,46 @@ test("SC-007 runtime source mismatch fails closed", async () => {
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+
+test("SC-010 inter-cycle delay is runtime-owned and does not depend on Playwright page timers", async () => {
+  let requested = null;
+  let callback = null;
+  const promise = runtimeOwnedDelay(25, {
+    setTimeoutImpl(fn, ms) {
+      requested = ms;
+      callback = fn;
+      return { unref() {} };
+    }
+  });
+  assert.equal(requested, 25);
+  assert.equal(typeof callback, "function");
+  callback();
+  await promise;
+});
+
+test("SC-010 runtime deadline converts a never-resolving UI operation into deterministic recovery", async () => {
+  await assert.rejects(
+    withRuntimeDeadline(
+      "NEXT_WORK_CAPTURE_USER",
+      () => new Promise(() => {}),
+      20
+    ),
+    (error) =>
+      error?.code === "CDP_STALL_RECOVERY_REQUIRED" &&
+      error?.runtime_operation === "NEXT_WORK_CAPTURE_USER"
+  );
+});
+
+test("SC-010 production CLI maps a UI stall to wrapper Chrome recovery and exits explicitly", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.doesNotMatch(source, /page\.waitForTimeout\(pollMs\)/);
+  assert.match(source, /await runtimeOwnedDelay\(pollMs\)/);
+  assert.match(source, /CDP_STALL_RECOVERY_REQUIRED/);
+  assert.match(source, /finalExitCode[\s\S]*?\? 75[\s\S]*?: 1/);
+  assert.match(source, /process\.exit\(finalExitCode\)/);
 });
