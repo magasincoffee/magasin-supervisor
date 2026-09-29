@@ -169,6 +169,14 @@ export class ChatGptUiAdapter {
     return this.page;
   }
 
+  setActivePage(page) {
+    if (!page || page.isClosed?.() || !isChatGptUrl(page.url?.() || "")) {
+      throw new Error("active page must be an open ChatGPT page");
+    }
+    this.page = page;
+    return page;
+  }
+
   getChatGptPages() {
     if (!this.context) return [];
     return this.context
