@@ -446,11 +446,7 @@ export async function waitForSingleConversationResponse({
       if (consecutiveTransientFailures >= transientLimit) {
         assertSafeSnapshot(snapshot);
       }
-      if (typeof page.waitForTimeout === "function") {
-        await page.waitForTimeout(pollMs);
-      } else {
-        await new Promise((resolve) => setTimeout(resolve, pollMs));
-      }
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
       continue;
     }
     consecutiveTransientFailures = 0;
