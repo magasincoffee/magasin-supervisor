@@ -53,12 +53,10 @@ jobs:
         shell: cmd
         run: |
           @echo off
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc011-live-qualification.ps1" -TargetComputer "DESKTOP-4K7IM13" -Attempt 1 -NonTargetHoldSeconds 60
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc011-live-qualification.ps1" -TargetComputer "DESKTOP-4K7IM13" -Attempt 1 -NonTargetHoldSeconds 90
           exit /b %ERRORLEVEL%
 
   attempt-2:
-    needs: attempt-1
-    if: always() && needs.attempt-1.outputs.qualified != 'true'
     runs-on: self-hosted
     timeout-minutes: 20
     outputs:
@@ -81,7 +79,7 @@ jobs:
         shell: cmd
         run: |
           @echo off
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc011-live-qualification.ps1" -TargetComputer "DESKTOP-4K7IM13" -Attempt 2 -NonTargetHoldSeconds 60
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc011-live-qualification.ps1" -TargetComputer "DESKTOP-4K7IM13" -Attempt 2 -NonTargetHoldSeconds 90
           exit /b %ERRORLEVEL%
 
   qualification-authority:
