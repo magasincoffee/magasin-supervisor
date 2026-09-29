@@ -469,3 +469,53 @@ test("SC-006 response completion must reach VERIFIED explicitly", async () => {
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+
+test("SC-010 exact-once polling never depends on Playwright page timers", async () => {
+  const { root, statePath } = await makeState();
+  const message = "MAGASIN_SINGLE_CONVERSATION_NEXT_V1 id=sc010-native-poll";
+  let sent = false;
+  let postSendReads = 0;
+  try {
+    await prepareExactOnceOutbound(statePath, {
+      messageId: "sc010-native-poll",
+      message,
+      kind: "NEXT",
+      baselineUserTurnId: "u0"
+    });
+
+    const result = await reconcileExactOnceOutbound({
+      statePath,
+      page: {
+        async waitForTimeout() {
+          throw new Error("Playwright timer must not be used for exact-once polling");
+        }
+      },
+      messageId: "sc010-native-poll",
+      message,
+      reconciliationProbes: 3,
+      reconciliationPollMs: 1,
+      inspectDraft: async () => ({ ready: true, has_text: false, digest: null }),
+      captureMatchingTurn: async () => ({ confirmed: false }),
+      captureTurn: async (_page, role) => {
+        if (role !== "user") return null;
+        if (!sent) return { turn_id: "u0", text: "old" };
+        postSendReads += 1;
+        return postSendReads >= 2
+          ? { turn_id: "u1", text: message }
+          : { turn_id: "u0", text: "old" };
+      },
+      sendInstruction: async () => {
+        sent = true;
+        return { executed: true };
+      }
+    });
+
+    assert.equal(result.action, "SEND");
+    assert.ok(postSendReads >= 2);
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "DELIVERED");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
