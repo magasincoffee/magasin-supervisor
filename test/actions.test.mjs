@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { ACTIONS } from "../src/decision.mjs";
 import {
+  captureMatchingUserTurnEvidence,
   discardComposerDraftIfDigest,
   executeDecision,
   inspectComposerDraftDigest,
@@ -130,6 +131,26 @@ function fakePage({
     }
   };
 }
+
+test("exact user-turn evidence supports modern ChatGPT user nodes", async () => {
+  const message = "MAGASIN_SINGLE_CONVERSATION_NEXT_V1 id=modern-evidence";
+  const page = {
+    async evaluate(_fn, { expected }) {
+      assert.equal(expected, message);
+      return {
+        readable: true,
+        totalCount: 2,
+        exactMatchCount: 1,
+        matchingTurnId: "modern-user-1",
+        matchingEvidence: "exact-modern-user-turn"
+      };
+    }
+  };
+  const result = await captureMatchingUserTurnEvidence(page, message);
+  assert.equal(result.confirmed, true);
+  assert.equal(result.turn_id, "modern-user-1");
+  assert.equal(result.evidence, "exact-modern-user-turn");
+});
 
 test("dry-run continue plans composer send without mutation", async () => {
   let filled = false;
