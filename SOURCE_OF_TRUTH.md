@@ -518,6 +518,24 @@ Completion evidence:
 
 The required production-cutover matrix has passed on the real self-hosted Windows runtime.
 
+### SC-009 — Production START wiring regression
+State: **IN_PROGRESS**
+
+Incident evidence:
+- on 2026-09-29, an actual Owner START on `DESKTOP-4K7IM13` opened the dedicated ChatGPT Chrome but did not type or send the bootstrap;
+- read-only live diagnostic confirmed `single-conversation-control.v1` with `mode=SINGLE_CONVERSATION_V1`, one active Supervisor wrapper, dedicated Chrome online, but `single-conversation-state.json` absent and zero `single-conversation-cli.mjs` processes;
+- the same diagnostic confirmed legacy `target.json` is absent, which is correct for the Source-of-Truth-only architecture;
+- root cause: `windows/run-supervisor.ps1` incorrectly applied a legacy target-file gate to `SINGLE_CONVERSATION_V1`, causing the wrapper to loop after opening Chrome and before launching the single-conversation runtime.
+
+Required remediation:
+1. exempt `SINGLE_CONVERSATION_V1` from the legacy `target.json` gate;
+2. add regression coverage proving forward START does not require `target.json` and launches the CLI with `--execute`;
+3. pass hosted Supervisor Tests, Integrity, Lifecycle Acceptance, and Autostart Install;
+4. install the fixed candidate on `DESKTOP-4K7IM13`;
+5. re-run the real production START path and verify a state file is created, `single-conversation-cli.mjs` launches, a fresh ChatGPT conversation receives the bootstrap, and an assistant response completes.
+
+Until SC-009 passes, the prior production-qualified claim is suspended.
+
 ---
 
 ## 11. Current implementation status
@@ -525,14 +543,13 @@ The required production-cutover matrix has passed on the real self-hosted Window
 As of 2026-09-29:
 
 - SC-001 through SC-008 are complete;
-- the canonical forward runtime is **SINGLE_CONVERSATION_V1**;
+- SC-009 is in progress after a real Owner START exposed a production wrapper wiring defect not covered by the SC-008 harness;
+- the canonical forward runtime remains **SINGLE_CONVERSATION_V1**;
 - the Owner supplies the Source of Truth URL only; no historical ChatGPT conversation URL is required;
-- the forward Control Center and runtime use one disposable Robot-created ChatGPT conversation at a time;
-- automatic replacement, exact-once reconciliation, Continue handling, and cold-start recovery have passed the required live qualification matrix;
 - persistent Planner/Executor orchestration remains superseded and is legacy/rollback-only, not a forward production dependency;
-- the final SC-008 acceptance matrix passed on the real self-hosted Windows target `DESKTOP-4K7IM13`.
+- production qualification is temporarily suspended until the SC-009 real START acceptance passes on `DESKTOP-4K7IM13`.
 
-Under the acceptance rule below, **SINGLE_CONVERSATION_V1 is production-qualified**.
+Do not claim the Robot is production-ready while SC-009 is incomplete.
 
 ---
 
