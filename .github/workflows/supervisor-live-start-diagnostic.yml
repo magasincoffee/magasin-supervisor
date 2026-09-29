@@ -1,0 +1,193 @@
+name: Supervisor Live START Diagnostic
+
+on:
+  push:
+    branches:
+      - diag-live-start-20260929
+    paths:
+      - '.github/workflows/supervisor-live-start-diagnostic.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  attempt-1:
+    runs-on: self-hosted
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read production START state
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "LIVE_DIAG_MACHINE=$env:COMPUTERNAME"
+          if ($env:COMPUTERNAME -ne 'DESKTOP-4K7IM13') {
+            Write-Host 'LIVE_DIAG_TARGET_MATCH=False'
+            Start-Sleep -Seconds 35
+            exit 0
+          }
+          Write-Host 'LIVE_DIAG_TARGET_MATCH=True'
+          . .\windows\state-root.ps1
+          $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
+          Write-Host "LIVE_DIAG_STATE_ROOT=$root"
+
+          $controlPath = Join-Path $root 'single-conversation-control.json'
+          $statePath = Join-Path $root 'single-conversation-state.json'
+          Write-Host "LIVE_DIAG_STOP_EXISTS=$([bool](Test-Path (Join-Path $root 'STOP')))"
+          Write-Host "LIVE_DIAG_AUTOSTART_DISABLED_EXISTS=$([bool](Test-Path (Join-Path $root 'AUTOSTART_DISABLED')))"
+
+          if (Test-Path $controlPath) {
+            $control = Get-Content $controlPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            Write-Host "LIVE_DIAG_CONTROL_MODE=$($control.mode)"
+            Write-Host "LIVE_DIAG_CONTROL_SCHEMA=$($control.schema_version)"
+            Write-Host "LIVE_DIAG_CONTROL_UPDATED_AT=$($control.updated_at)"
+            Write-Host "LIVE_DIAG_CONTROL_SOT=$($control.source_of_truth_url)"
+          } else { Write-Host 'LIVE_DIAG_CONTROL_MISSING=True' }
+
+          if (Test-Path $statePath) {
+            $state = Get-Content $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
+            Write-Host "LIVE_DIAG_STATE_MODE=$($state.mode)"
+            Write-Host "LIVE_DIAG_AUTOMATION_STATUS=$($state.automation.status)"
+            Write-Host "LIVE_DIAG_AUTOMATION_PHASE=$($state.automation.phase)"
+            Write-Host "LIVE_DIAG_CONVERSATION_STATUS=$($state.conversation.status)"
+            Write-Host "LIVE_DIAG_CONVERSATION_GENERATION=$($state.conversation.generation)"
+            Write-Host "LIVE_DIAG_OUTBOUND_STATE=$($state.outbound.state)"
+            Write-Host "LIVE_DIAG_SOT_SYNC_STATUS=$($state.source_of_truth.sync_status)"
+            Write-Host "LIVE_DIAG_STATE_LASTWRITE=$((Get-Item $statePath).LastWriteTimeUtc.ToString('o'))"
+          } else { Write-Host 'LIVE_DIAG_STATE_MISSING=True' }
+
+          $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue
+          $wrappers = @($procs | Where-Object { $_.Name -eq 'powershell.exe' -and $_.CommandLine -like '*run-supervisor.ps1*' })
+          Write-Host "LIVE_DIAG_WRAPPER_COUNT=$($wrappers.Count)"
+          foreach ($p in $wrappers) {
+            Write-Host "LIVE_DIAG_WRAPPER_PID=$($p.ProcessId)"
+            Write-Host "LIVE_DIAG_WRAPPER_CMD=$($p.CommandLine)"
+          }
+
+          $nodes = @($procs | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -match 'single-conversation-cli\.mjs' })
+          Write-Host "LIVE_DIAG_SINGLE_NODE_COUNT=$($nodes.Count)"
+          foreach ($p in $nodes) {
+            Write-Host "LIVE_DIAG_NODE_PID=$($p.ProcessId)"
+            Write-Host "LIVE_DIAG_NODE_PARENT=$($p.ParentProcessId)"
+            Write-Host "LIVE_DIAG_NODE_CMD=$($p.CommandLine)"
+          }
+
+          $profile = Join-Path $root 'browser_profile'
+          $chromes = @($procs | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -and $_.CommandLine -like "*$profile*" })
+          Write-Host "LIVE_DIAG_CHROME_COUNT=$($chromes.Count)"
+          foreach ($p in $chromes | Select-Object -First 3) {
+            Write-Host "LIVE_DIAG_CHROME_PID=$($p.ProcessId)"
+            Write-Host "LIVE_DIAG_CHROME_CMD=$($p.CommandLine)"
+          }
+
+          $pairs = @(
+            @('windows\run-supervisor.ps1', (Join-Path $root 'runtime\windows\run-supervisor.ps1')),
+            @('windows\start-supervisor.ps1', (Join-Path $root 'runtime\windows\start-supervisor.ps1')),
+            @('src\runtime\single-conversation-cli.mjs', (Join-Path $root 'runtime\src\runtime\single-conversation-cli.mjs')),
+            @('src\runtime\single-conversation-bootstrap.mjs', (Join-Path $root 'runtime\src\runtime\single-conversation-bootstrap.mjs'))
+          )
+          foreach ($pair in $pairs) {
+            $repoFile = Join-Path $PWD $pair[0]
+            $installedFile = $pair[1]
+            $label = ($pair[0] -replace '[^A-Za-z0-9]','_').ToUpperInvariant()
+            if ((Test-Path $repoFile) -and (Test-Path $installedFile)) {
+              $repoHash = (Get-FileHash $repoFile -Algorithm SHA256).Hash
+              $installedHash = (Get-FileHash $installedFile -Algorithm SHA256).Hash
+              Write-Host "LIVE_DIAG_HASH_$($label)_MATCH=$($repoHash -eq $installedHash)"
+              Write-Host "LIVE_DIAG_INSTALLED_$($label)_LASTWRITE=$((Get-Item $installedFile).LastWriteTimeUtc.ToString('o'))"
+            } else {
+              Write-Host "LIVE_DIAG_HASH_$($label)_MISSING=True"
+            }
+          }
+
+          $installedRun = Join-Path $root 'runtime\windows\run-supervisor.ps1'
+          if (Test-Path $installedRun) {
+            $executeLines = @(Select-String -Path $installedRun -Pattern '--execute|single-conversation-cli' -AllMatches)
+            foreach ($m in $executeLines | Select-Object -First 12) {
+              Write-Host "LIVE_DIAG_INSTALLED_RUN_LINE=$($m.LineNumber):$($m.Line.Trim())"
+            }
+          }
+
+  attempt-2:
+    runs-on: self-hosted
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read production START state
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "LIVE_DIAG_MACHINE=$env:COMPUTERNAME"
+          if ($env:COMPUTERNAME -ne 'DESKTOP-4K7IM13') {
+            Write-Host 'LIVE_DIAG_TARGET_MATCH=False'
+            Start-Sleep -Seconds 35
+            exit 0
+          }
+          Write-Host 'LIVE_DIAG_TARGET_MATCH=True'
+          . .\windows\state-root.ps1
+          $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
+          Write-Host "LIVE_DIAG_STATE_ROOT=$root"
+
+          $controlPath = Join-Path $root 'single-conversation-control.json'
+          $statePath = Join-Path $root 'single-conversation-state.json'
+          Write-Host "LIVE_DIAG_STOP_EXISTS=$([bool](Test-Path (Join-Path $root 'STOP')))"
+          Write-Host "LIVE_DIAG_AUTOSTART_DISABLED_EXISTS=$([bool](Test-Path (Join-Path $root 'AUTOSTART_DISABLED')))"
+
+          if (Test-Path $controlPath) {
+            $control = Get-Content $controlPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            Write-Host "LIVE_DIAG_CONTROL_MODE=$($control.mode)"
+            Write-Host "LIVE_DIAG_CONTROL_SCHEMA=$($control.schema_version)"
+            Write-Host "LIVE_DIAG_CONTROL_UPDATED_AT=$($control.updated_at)"
+            Write-Host "LIVE_DIAG_CONTROL_SOT=$($control.source_of_truth_url)"
+          } else { Write-Host 'LIVE_DIAG_CONTROL_MISSING=True' }
+
+          if (Test-Path $statePath) {
+            $state = Get-Content $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
+            Write-Host "LIVE_DIAG_STATE_MODE=$($state.mode)"
+            Write-Host "LIVE_DIAG_AUTOMATION_STATUS=$($state.automation.status)"
+            Write-Host "LIVE_DIAG_AUTOMATION_PHASE=$($state.automation.phase)"
+            Write-Host "LIVE_DIAG_CONVERSATION_STATUS=$($state.conversation.status)"
+            Write-Host "LIVE_DIAG_CONVERSATION_GENERATION=$($state.conversation.generation)"
+            Write-Host "LIVE_DIAG_OUTBOUND_STATE=$($state.outbound.state)"
+            Write-Host "LIVE_DIAG_SOT_SYNC_STATUS=$($state.source_of_truth.sync_status)"
+            Write-Host "LIVE_DIAG_STATE_LASTWRITE=$((Get-Item $statePath).LastWriteTimeUtc.ToString('o'))"
+          } else { Write-Host 'LIVE_DIAG_STATE_MISSING=True' }
+
+          $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue
+          $wrappers = @($procs | Where-Object { $_.Name -eq 'powershell.exe' -and $_.CommandLine -like '*run-supervisor.ps1*' })
+          Write-Host "LIVE_DIAG_WRAPPER_COUNT=$($wrappers.Count)"
+          foreach ($p in $wrappers) {
+            Write-Host "LIVE_DIAG_WRAPPER_PID=$($p.ProcessId)"
+            Write-Host "LIVE_DIAG_WRAPPER_CMD=$($p.CommandLine)"
+          }
+          $nodes = @($procs | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -match 'single-conversation-cli\.mjs' })
+          Write-Host "LIVE_DIAG_SINGLE_NODE_COUNT=$($nodes.Count)"
+          foreach ($p in $nodes) {
+            Write-Host "LIVE_DIAG_NODE_PID=$($p.ProcessId)"
+            Write-Host "LIVE_DIAG_NODE_PARENT=$($p.ParentProcessId)"
+            Write-Host "LIVE_DIAG_NODE_CMD=$($p.CommandLine)"
+          }
+
+          $profile = Join-Path $root 'browser_profile'
+          $chromes = @($procs | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -and $_.CommandLine -like "*$profile*" })
+          Write-Host "LIVE_DIAG_CHROME_COUNT=$($chromes.Count)"
+
+          $pairs = @(
+            @('windows\run-supervisor.ps1', (Join-Path $root 'runtime\windows\run-supervisor.ps1')),
+            @('windows\start-supervisor.ps1', (Join-Path $root 'runtime\windows\start-supervisor.ps1')),
+            @('src\runtime\single-conversation-cli.mjs', (Join-Path $root 'runtime\src\runtime\single-conversation-cli.mjs')),
+            @('src\runtime\single-conversation-bootstrap.mjs', (Join-Path $root 'runtime\src\runtime\single-conversation-bootstrap.mjs'))
+          )
+          foreach ($pair in $pairs) {
+            $repoFile = Join-Path $PWD $pair[0]
+            $installedFile = $pair[1]
+            $label = ($pair[0] -replace '[^A-Za-z0-9]','_').ToUpperInvariant()
+            if ((Test-Path $repoFile) -and (Test-Path $installedFile)) {
+              $repoHash = (Get-FileHash $repoFile -Algorithm SHA256).Hash
+              $installedHash = (Get-FileHash $installedFile -Algorithm SHA256).Hash
+              Write-Host "LIVE_DIAG_HASH_$($label)_MATCH=$($repoHash -eq $installedHash)"
+              Write-Host "LIVE_DIAG_INSTALLED_$($label)_LASTWRITE=$((Get-Item $installedFile).LastWriteTimeUtc.ToString('o'))"
+            } else {
+              Write-Host "LIVE_DIAG_HASH_$($label)_MISSING=True"
+            }
+          }
