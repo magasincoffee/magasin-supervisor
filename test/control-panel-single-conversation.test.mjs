@@ -78,3 +78,19 @@ test("SC-007 wrapper and lifecycle select SINGLE_CONVERSATION_V1 from forward co
   assert.match(lifecycle, /single_conversation_alive/);
   assert.match(lifecycle, /return 'SINGLE_CONVERSATION_V1'/);
 });
+
+
+test("SC-009 production wrapper does not require legacy target.json for SINGLE_CONVERSATION_V1", async () => {
+  const run = await read("../windows/run-supervisor.ps1");
+  const gateStart = run.indexOf("target.json belongs only to legacy target-bound runtimes");
+  const gateEnd = run.indexOf('Write-Host "Supervisor entry point:', gateStart);
+  assert.ok(gateStart >= 0);
+  assert.ok(gateEnd > gateStart);
+  const gate = run.slice(gateStart, gateEnd);
+
+  assert.match(
+    gate,
+    /\$runtimeMode -notin @\('SINGLE_CONVERSATION_V1','PLANNER_EXECUTOR_V1','THREE_LANE_V1','BRAIN_WORKER_V1'\)/
+  );
+  assert.match(run, /if \(-not \$DryRun\) \{ \$nodeArgs \+= '--execute' \}/);
+});
