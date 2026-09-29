@@ -39,7 +39,7 @@ jobs:
         shell: cmd
         run: |
           node --check ".github\scripts\supervisor-sc010-live-qualification.mjs"
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$errors=$null; [System.Management.Automation.Language.Parser]::ParseFile('.github\scripts\supervisor-sc010-live-qualification.ps1',[ref]$null,[ref]$errors) ^| Out-Null; if($errors.Count -gt 0){$errors ^| %% { Write-Host $_.Message }; exit 1}"
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc010-live-qualification.ps1" -TargetComputer "__SC010_SYNTAX_ONLY__" -Attempt 0 -NonTargetHoldSeconds 0
       - name: Run SC-010 target attempt 1
         id: qualify
         shell: cmd
