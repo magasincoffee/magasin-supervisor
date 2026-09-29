@@ -564,13 +564,40 @@ Completion evidence:
 
 The production NEXT_WORK stall is closed.
 
+### SC-011 — Task-ID execution continuity and long-running work
+State: **IN_PROGRESS**
+
+Owner-visible incident evidence:
+- after SC-010, the Robot can still open a fresh ChatGPT conversation after a normal runtime process restart even when the current conversation is healthy;
+- normal work instructions ask ChatGPT to re-read Source of Truth and choose the next action in free text, so the Robot has no explicit task identifier to transport between turns;
+- production response timeout is 180 seconds, which is not sufficient for E2E or verification work that can take 30-60 minutes;
+- terminal detection based on free-text keywords can stop the runtime even when words such as BLOCKED appear only descriptively.
+
+Canonical forward contract:
+1. ChatGPT selects exactly one authoritative task ID from Source of Truth; the Robot never invents or chooses the task.
+2. The Robot copies that exact task ID into an execution instruction in the same active conversation.
+3. Every production response ends with one machine-readable `MAGASIN_TASK_CONTROL_V1` block.
+4. Long-running work may return `STATUS=RUNNING` with the same `TASK_ID` and a bounded `CHECK_AFTER_SECONDS`; the Robot waits with a native timer and checks the same task in the same conversation.
+5. `STATUS=DONE` and `STATUS=BLOCKED` are terminal machine states; descriptive prose is not terminal authority.
+6. A runtime restart reuses the current conversation only when its opaque runtime identity can be uniquely verified and the prior outbound transaction is at a safe boundary; otherwise disposable-chat replacement remains the recovery path.
+7. Terminal completion/Owner wait pauses the wrapper instead of immediately starting another runtime session.
+
+DoD:
+- a normal process restart with one healthy verified conversation does not create a new Chat;
+- the Robot executes the task ID returned by ChatGPT rather than issuing an unbounded generic NEXT_WORK instruction;
+- a synthetic RUNNING -> CHECK -> COMPLETE path remains in one conversation without duplicate execution;
+- direct assistant turns may be observed for up to 90 minutes, while durable external jobs are preferred for work expected to exceed about five minutes;
+- terminal status causes wrapper pause and cannot be triggered by unrelated prose;
+- unit/integrity/lifecycle/autostart gates pass;
+- a live target qualification on `DESKTOP-4K7IM13` proves one conversation generation survives at least one real CLI restart.
+
 ---
 
 ## 11. Current implementation status
 
 As of 2026-09-29:
 
-- SC-001 through SC-010 are complete;
+- SC-001 through SC-010 are complete; SC-011 is in progress;
 - the canonical forward runtime is **SINGLE_CONVERSATION_V1**;
 - the Owner supplies the Source of Truth URL only; no historical ChatGPT conversation URL is required;
 - the forward Control Center and runtime use one disposable Robot-created ChatGPT conversation at a time;
