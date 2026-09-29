@@ -59,21 +59,19 @@ function normalizeTaskId(value) {
 }
 
 export function parseTaskControl(text) {
-  const source = String(text || "");
-  const start = source.lastIndexOf(TASK_CONTROL_HEADER);
-  if (start < 0) {
-    throw Object.assign(new Error("task-control header is missing"), {
-      code: "TASK_PROTOCOL_INVALID"
-    });
+  const source = String(text || "").replace(/\r\n/g, "\n");
+  const pattern = /(?:^|\n)MAGASIN_TASK_CONTROL_V1\n([\s\S]*?)\nEND_MAGASIN_TASK_CONTROL_V1(?=\n|$)/g;
+  let match = null;
+  for (const candidate of source.matchAll(pattern)) {
+    match = candidate;
   }
-  const end = source.indexOf(TASK_CONTROL_FOOTER, start);
-  if (end < 0) {
-    throw Object.assign(new Error("task-control footer is missing"), {
+  if (!match) {
+    throw Object.assign(new Error("complete task-control block is missing"), {
       code: "TASK_PROTOCOL_INVALID"
     });
   }
 
-  const body = source.slice(start + TASK_CONTROL_HEADER.length, end);
+  const body = match[1];
   const fields = new Map();
   for (const rawLine of body.split(/\r?\n/)) {
     const line = rawLine.trim();
