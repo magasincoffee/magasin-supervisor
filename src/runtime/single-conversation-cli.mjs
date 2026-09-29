@@ -39,6 +39,7 @@ function parseArgs(argv) {
     execute: false,
     qualificationOnly: false,
     pollMs: 2_000,
+    // SC-011: allow one direct ChatGPT turn to remain observable for long E2E work.
     responseTimeoutMs: 5_400_000,
     maxCycles: 0
   };
