@@ -538,13 +538,35 @@ Completion evidence:
 
 The production START wiring regression is closed.
 
+### SC-010 — NEXT_WORK stall recovery
+State: **IN_PROGRESS**
+
+Incident evidence:
+- actual Owner production use on `DESKTOP-4K7IM13` successfully completed bootstrap plus one bounded work cycle, then stopped issuing further instructions while Control Center still reported `AUTOMATION: RUNNING • phase=NEXT_WORK`;
+- read-only live diagnostic at 2026-09-29T04:47:17Z confirmed one Supervisor wrapper, one `single-conversation-cli.mjs` process, one healthy ChatGPT CDP tab, and production runtime files matching the current installed candidate;
+- durable state had been unchanged since 2026-09-29T04:38:39Z with `conversation.status=ACTIVE`, `outbound.state=VERIFIED`, `source_of_truth.sync_status=VERIFIED`, no `last_error_code`, and `automation.phase=NEXT_WORK`;
+- therefore the live stall is after a fully verified cycle and before the next outbound reaches PREPARED, so replay of the verified instruction is not required.
+
+Required fix:
+1. remove browser-dependent sleeping between verified cycles;
+2. place bounded native deadlines around the live UI/CDP steps at the NEXT_WORK boundary;
+3. on a bounded UI/CDP timeout, persist a recovery reason and terminate the Node runtime with the wrapper's dedicated-Chrome recovery exit so it cannot remain RUNNING/NEXT_WORK indefinitely;
+4. preserve exact-once semantics: a VERIFIED cycle must never be resent during recovery;
+5. add regression coverage for non-resolving UI probes/captures and the recovery exit contract;
+6. requalify the actual production START path on `DESKTOP-4K7IM13` for at least five sequential work cycles, with no NEXT_WORK stall, no duplicate send, one active Robot conversation in steady state, and Source of Truth verification between cycles.
+
+DoD:
+- the Robot cannot remain indefinitely in `RUNNING/NEXT_WORK` because of an unresolved Playwright/CDP operation;
+- real production Control Center START completes at least five sequential work cycles on `DESKTOP-4K7IM13` without Owner intervention;
+- hosted regression/integrity/lifecycle/autostart gates and the SC-010 target-machine qualification authority pass before SC-010 is marked COMPLETE.
+
 ---
 
 ## 11. Current implementation status
 
 As of 2026-09-29:
 
-- SC-001 through SC-009 are complete;
+- SC-001 through SC-009 are complete; SC-010 is IN_PROGRESS due to a production NEXT_WORK stall discovered during actual Owner use;
 - the canonical forward runtime is **SINGLE_CONVERSATION_V1**;
 - the Owner supplies the Source of Truth URL only; no historical ChatGPT conversation URL is required;
 - the forward Control Center and runtime use one disposable Robot-created ChatGPT conversation at a time;
@@ -552,7 +574,7 @@ As of 2026-09-29:
 - automatic replacement, exact-once reconciliation, Continue handling, cold-start recovery, and the real Owner START path have passed their required live qualifications;
 - persistent Planner/Executor orchestration remains superseded and is legacy/rollback-only, not a forward production dependency.
 
-Under the acceptance rule below, **SINGLE_CONVERSATION_V1 is production-qualified**.
+SC-010 is a production blocker for unattended continuous operation until its live qualification passes; do not claim continuous unattended operation is qualified while SC-010 is IN_PROGRESS.
 
 ---
 
