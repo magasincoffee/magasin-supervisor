@@ -518,19 +518,39 @@ Completion evidence:
 
 The required production-cutover matrix has passed on the real self-hosted Windows runtime.
 
+### SC-009 — Production START wiring regression
+State: **COMPLETE**
+
+Incident evidence:
+- on 2026-09-29, an actual Owner START on `DESKTOP-4K7IM13` opened the dedicated ChatGPT Chrome but did not type or send the bootstrap;
+- read-only live diagnostic confirmed `single-conversation-control.v1` with `mode=SINGLE_CONVERSATION_V1`, one active Supervisor wrapper, dedicated Chrome online, but `single-conversation-state.json` absent and zero `single-conversation-cli.mjs` processes;
+- the same diagnostic confirmed legacy `target.json` was absent, which is correct for the Source-of-Truth-only architecture;
+- root cause: `windows/run-supervisor.ps1` incorrectly applied a legacy target-file gate to `SINGLE_CONVERSATION_V1`, causing the wrapper to loop after opening Chrome and before launching the single-conversation runtime.
+
+Completion evidence:
+- `windows/run-supervisor.ps1` now exempts `SINGLE_CONVERSATION_V1` from the legacy `target.json` gate while preserving the gate for legacy target-bound modes;
+- `test/control-panel-single-conversation.test.mjs` locks the targetless forward START contract and confirms production launch includes `--execute`;
+- hosted Supervisor Tests #1010, Supervisor Integrity #1024, Supervisor Lifecycle Acceptance #835, and Supervisor Autostart Install #865 passed on the fix candidate;
+- the fixed candidate was installed on the real production target `DESKTOP-4K7IM13` without changing the existing single-conversation control record;
+- SC-009 Production START Qualification run #1 passed its target-machine attempt and the aggregate `qualification-authority` job passed;
+- target evidence recorded `SC009_LIVE_OWNER_START_INVOKED=True`, `SC009_LIVE_SINGLE_NODE_OBSERVED=True`, `SC009_LIVE_STATE_CREATED=True`, `SC009_LIVE_GENERATION=1`, `SC009_LIVE_BOOTSTRAP_VISIBLE=True`, `SC009_LIVE_ASSISTANT_RESPONSE_VISIBLE=True`, and `SC009_LIVE_PRODUCTION_START=PASS`;
+- the live state ended with an ACTIVE conversation and RUNNING automation, proving the real Control Center/START -> wrapper -> single-conversation runtime -> ChatGPT bootstrap path now operates end to end.
+
+The production START wiring regression is closed.
+
 ---
 
 ## 11. Current implementation status
 
 As of 2026-09-29:
 
-- SC-001 through SC-008 are complete;
+- SC-001 through SC-009 are complete;
 - the canonical forward runtime is **SINGLE_CONVERSATION_V1**;
 - the Owner supplies the Source of Truth URL only; no historical ChatGPT conversation URL is required;
 - the forward Control Center and runtime use one disposable Robot-created ChatGPT conversation at a time;
-- automatic replacement, exact-once reconciliation, Continue handling, and cold-start recovery have passed the required live qualification matrix;
-- persistent Planner/Executor orchestration remains superseded and is legacy/rollback-only, not a forward production dependency;
-- the final SC-008 acceptance matrix passed on the real self-hosted Windows target `DESKTOP-4K7IM13`.
+- the actual production START wiring has been requalified on `DESKTOP-4K7IM13` after fixing the legacy `target.json` gate regression;
+- automatic replacement, exact-once reconciliation, Continue handling, cold-start recovery, and the real Owner START path have passed their required live qualifications;
+- persistent Planner/Executor orchestration remains superseded and is legacy/rollback-only, not a forward production dependency.
 
 Under the acceptance rule below, **SINGLE_CONVERSATION_V1 is production-qualified**.
 
