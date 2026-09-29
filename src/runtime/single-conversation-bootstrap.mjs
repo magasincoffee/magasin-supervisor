@@ -437,51 +437,33 @@ export async function sendFreshChatBootstrapInstruction(
   try {
     await submitComposer.press("Enter", { timeout: 5_000 });
   } catch {
-    // Cold-start ChatGPT can rerender ProseMirror between exact-text
-    // verification and locator.press(). Reacquire the live composer, restore
-    // focus, and issue one page-level Enter. This is still the same bounded
-    // submit attempt; no delivery evidence has been observed yet.
+    // locator.press() can throw while the browser has already consumed Enter
+    // and rerendered/cleared ProseMirror. In that ambiguous state, do NOT issue
+    // a second mutation immediately. Reacquire only to determine whether the
+    // exact Robot-owned text is still present. If it is, one page-level Enter
+    // is still the same bounded submit attempt. Otherwise fall through to
+    // delivery observation; a later retry is permitted only after positive
+    // blank-home + zero-turn non-delivery evidence.
     const retryComposer = await findFreshChatComposer(page, 5_000);
-    if (
-      !retryComposer ||
-      !page.keyboard ||
-      typeof page.keyboard.press !== "function"
-    ) {
-      return {
-        executed: false,
-        rejection_class: "SEND_NOT_ACTUATED",
-        reason: "fresh ChatGPT composer Enter submit failed",
-        input_method: inputMethod,
-        send_method: "composer-enter"
-      };
-    }
+    const canPageEnter =
+      page.keyboard &&
+      typeof page.keyboard.press === "function";
+    if (retryComposer && canPageEnter) {
+      const retryText = await readFreshComposerText(retryComposer);
+      const retryStillExact =
+        retryText !== null &&
+        normalizeBootstrapRenderedText(retryText) ===
+          normalizeBootstrapRenderedText(instruction);
 
-    const retryText = await readFreshComposerText(retryComposer);
-    if (
-      retryText === null ||
-      normalizeBootstrapRenderedText(retryText) !==
-        normalizeBootstrapRenderedText(instruction)
-    ) {
-      return {
-        executed: false,
-        rejection_class: "COMPOSER_NOT_READY",
-        reason: "fresh ChatGPT composer changed before Enter recovery",
-        input_method: inputMethod,
-        send_method: "composer-enter"
-      };
-    }
-
-    await retryComposer.click({ timeout: 2_000 }).catch(() => {});
-    try {
-      await page.keyboard.press("Enter");
-    } catch {
-      return {
-        executed: false,
-        rejection_class: "SEND_NOT_ACTUATED",
-        reason: "fresh ChatGPT composer Enter recovery failed",
-        input_method: inputMethod,
-        send_method: "composer-enter"
-      };
+      if (retryStillExact) {
+        await retryComposer.click({ timeout: 2_000 }).catch(() => {});
+        try {
+          await page.keyboard.press("Enter");
+        } catch {
+          // Do not classify this as non-delivery yet. Observe the blank fresh
+          // chat for exact user-turn evidence before any safe retry.
+        }
+      }
     }
   }
 
