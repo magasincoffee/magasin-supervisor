@@ -58,6 +58,42 @@ function terminalAnswer(text) {
   return null;
 }
 
+export async function runtimeOwnedDelay(ms, {
+  setTimeoutImpl = setTimeout
+} = {}) {
+  const delay = Math.max(0, Number(ms) || 0);
+  if (!delay) return;
+  await new Promise((resolve) => setTimeoutImpl(resolve, delay));
+}
+
+export async function withRuntimeDeadline(
+  label,
+  action,
+  timeoutMs = 10_000
+) {
+  if (typeof action !== "function") throw new TypeError("action is required");
+  const timeout = Math.max(250, Number(timeoutMs) || 10_000);
+  let timer = null;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(action),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error(
+            "single-conversation runtime deadline exceeded: " + String(label || "UI")
+          );
+          error.code = "CDP_STALL_RECOVERY_REQUIRED";
+          error.runtime_operation = String(label || "UI");
+          reject(error);
+        }, timeout);
+        timer.unref?.();
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function settleTransactionResponse({
   adapter,
   page,
@@ -129,7 +165,8 @@ export async function runSingleConversationRuntime({
       qualificationOnly,
       forceNewPage: true,
       timeoutMs: responseTimeoutMs,
-      pollMs: Math.min(750, Math.max(100, pollMs))
+      pollMs: Math.min(750, Math.max(100, pollMs)),
+      probeTimeoutMs: Math.min(10_000, Math.max(2_000, pollMs * 4))
     });
     page = bootstrap.page;
   } else {
@@ -170,8 +207,22 @@ export async function runSingleConversationRuntime({
       messageId,
       qualificationOnly
     });
-    const baselineUser = await captureLatestRoleTurn(page, "user").catch(() => null);
-    const baselineAssistant = await captureLatestRoleTurn(page, "assistant").catch(() => null);
+    const baselineUser = await withRuntimeDeadline(
+      "NEXT_WORK_CAPTURE_USER",
+      () => captureLatestRoleTurn(page, "user"),
+      10_000
+    ).catch((error) => {
+      if (error?.code === "CDP_STALL_RECOVERY_REQUIRED") throw error;
+      return null;
+    });
+    const baselineAssistant = await withRuntimeDeadline(
+      "NEXT_WORK_CAPTURE_ASSISTANT",
+      () => captureLatestRoleTurn(page, "assistant"),
+      10_000
+    ).catch((error) => {
+      if (error?.code === "CDP_STALL_RECOVERY_REQUIRED") throw error;
+      return null;
+    });
 
     await prepareExactOnceOutbound(statePath, {
       messageId,
@@ -215,9 +266,11 @@ export async function runSingleConversationRuntime({
       };
     }
 
-    if (pollMs > 0 && typeof page.waitForTimeout === "function") {
-      await page.waitForTimeout(pollMs);
-    }
+    // SC-010: never use the Playwright page transport as the scheduler clock.
+    // A stale CDP session can leave page.waitForTimeout() pending forever after
+    // a VERIFIED transaction, which makes the process look RUNNING/NEXT_WORK
+    // while no next PREPARED transaction is ever created.
+    await runtimeOwnedDelay(pollMs);
   }
 
   const finalState = await readSingleConversationState(statePath);
@@ -245,6 +298,7 @@ if (isMain) {
     timeoutMs: 45_000
   });
 
+  let finalExitCode = 0;
   try {
     const result = await runSingleConversationRuntime({
       adapter,
@@ -261,7 +315,21 @@ if (isMain) {
     if (result.generation !== undefined) {
       console.log("SINGLE_CONVERSATION_GENERATION=" + result.generation);
     }
+  } catch (error) {
+    console.error(
+      "SINGLE_CONVERSATION_RUNTIME_ERROR=" +
+      String(error?.code || error?.name || "Error")
+    );
+    finalExitCode =
+      error?.code === "CDP_STALL_RECOVERY_REQUIRED"
+        ? 75
+        : 1;
   } finally {
-    await adapter.close().catch(() => {});
+    await Promise.race([
+      adapter.close().catch(() => {}),
+      runtimeOwnedDelay(1_500)
+    ]).catch(() => {});
   }
+
+  process.exit(finalExitCode);
 }
