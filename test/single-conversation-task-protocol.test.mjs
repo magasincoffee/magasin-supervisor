@@ -149,3 +149,17 @@ test("SC-011 production CLI pauses terminal/protocol states and allows long resp
   assert.match(source, /code === "TASK_PROTOCOL_INVALID"[\s\S]*\? 76/);
   assert.doesNotMatch(source, /terminalAnswer\(response\.assistant_turn/);
 });
+
+
+test("SC-011 long response polling uses native timers instead of page RPC sleeps", async () => {
+  const loop = await fs.readFile(
+    new URL("../src/runtime/single-conversation-loop.mjs", import.meta.url),
+    "utf8"
+  );
+  const bootstrap = await fs.readFile(
+    new URL("../src/runtime/single-conversation-bootstrap.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.doesNotMatch(loop, /page\.waitForTimeout\(pollMs\)/);
+  assert.doesNotMatch(bootstrap, /page\.waitForTimeout\(pollMs\)/);
+});
