@@ -538,13 +538,36 @@ Completion evidence:
 
 The production START wiring regression is closed.
 
+### SC-010 — NEXT_WORK stall recovery
+State: **IN_PROGRESS**
+
+Incident evidence:
+- on 2026-09-29, an actual Owner production run on `DESKTOP-4K7IM13` completed bootstrap plus one bounded work cycle, then stopped issuing new work while Control Center still reported `AUTOMATION: RUNNING • phase=NEXT_WORK`;
+- read-only live diagnostic at 2026-09-29T04:47:17Z confirmed exactly one Supervisor wrapper, exactly one `single-conversation-cli.mjs` process, healthy dedicated Chrome/CDP on port 9222, and exactly one active ChatGPT conversation;
+- durable state had been unchanged since 2026-09-29T04:38:39Z with `conversation.status=ACTIVE`, `outbound.state=VERIFIED`, `automation.status=RUNNING`, and `automation.phase=NEXT_WORK`;
+- the completed outbound transaction had no error code and had reached PREPARED -> ENQUEUED -> DELIVERED -> RESPONSE_RUNNING -> RESPONSE_COMPLETE -> VERIFIED;
+- installed production copies of `windows/run-supervisor.ps1`, `single-conversation-cli.mjs`, `single-conversation-loop.mjs`, and `single-conversation-transaction.mjs` matched the qualified repository revision.
+
+Required fix:
+- no inter-cycle delay may depend on a long-lived Playwright page RPC;
+- every UI/CDP operation before the next PREPARED state must have a bounded watchdog;
+- a hung CDP/UI step must fail closed into deterministic runtime recovery instead of leaving `RUNNING/NEXT_WORK` indefinitely;
+- runtime shutdown after watchdog recovery must itself be bounded;
+- recovery must not resend an already VERIFIED outbound transaction.
+
+DoD:
+- regression tests prove a hung post-VERIFIED UI/CDP step cannot leave the runtime indefinitely in NEXT_WORK;
+- production runtime recovers safely from a forced bounded NEXT_WORK stall;
+- live qualification on `DESKTOP-4K7IM13` completes at least five sequential work cycles without NEXT_WORK stall, with one active Robot conversation and no duplicate send;
+- Source of Truth is verified between cycles and the real Control Center/START path remains intact.
+
 ---
 
 ## 11. Current implementation status
 
 As of 2026-09-29:
 
-- SC-001 through SC-009 are complete;
+- SC-001 through SC-009 are complete; SC-010 is in progress after a real production NEXT_WORK stall was reproduced and diagnosed;
 - the canonical forward runtime is **SINGLE_CONVERSATION_V1**;
 - the Owner supplies the Source of Truth URL only; no historical ChatGPT conversation URL is required;
 - the forward Control Center and runtime use one disposable Robot-created ChatGPT conversation at a time;
