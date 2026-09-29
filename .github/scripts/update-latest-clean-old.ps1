@@ -69,9 +69,14 @@ $plannerExecutorActive=[bool](
   $truthBefore.wrapper_alive -and
   [string]$truthBefore.runtime_mode -eq 'PLANNER_EXECUTOR_V1'
 )
+$singleConversationActive=[bool](
+  $truthBefore.wrapper_alive -and
+  [string]$truthBefore.runtime_mode -eq 'SINGLE_CONVERSATION_V1'
+)
 Write-Host "PLANNER_EXECUTOR_ACTIVE_BEFORE=$plannerExecutorActive"
+Write-Host "SINGLE_CONVERSATION_ACTIVE_BEFORE=$singleConversationActive"
 
-if($enabledBefore -ne 0 -or $plannerExecutorActive){
+if($enabledBefore -ne 0 -or $plannerExecutorActive -or $singleConversationActive){
   $ownerStop=Get-LifecycleOwnerStopState -Root $canonical
   if($ownerStop.blocked){
     Write-Host 'UPDATE_RESULT=DEFERRED_OWNER_STOP'
@@ -134,12 +139,19 @@ if($enabledBefore -ne 0 -or $plannerExecutorActive){
         [int]$_.ParentProcessId -eq $wrapperPid -and
         $_.CommandLine -and (
           $_.CommandLine -like '*three-lane-cli.mjs*' -or
-          $_.CommandLine -like '*planner-executor-cli.mjs*'
+          $_.CommandLine -like '*planner-executor-cli.mjs*' -or
+          $_.CommandLine -like '*single-conversation-cli.mjs*'
         )
       } |
       Select-Object -First 1
     if($child){
-      $childKind = if($child.CommandLine -like '*planner-executor-cli.mjs*'){'PLANNER_EXECUTOR'}else{'THREE_LANE'}
+      $childKind = if($child.CommandLine -like '*single-conversation-cli.mjs*'){
+        'SINGLE_CONVERSATION'
+      }elseif($child.CommandLine -like '*planner-executor-cli.mjs*'){
+        'PLANNER_EXECUTOR'
+      }else{
+        'THREE_LANE'
+      }
       Stop-Process -Id ([int]$child.ProcessId) -Force -ErrorAction Stop
       Write-Host "HOTPATCH_OLD_CHILD_STOPPED=$($child.ProcessId)"
       Write-Host "HOTPATCH_OLD_CHILD_KIND=$childKind"
@@ -219,7 +231,7 @@ if($enabledBefore -ne 0 -or $plannerExecutorActive){
 }
 
 # This branch is reached only when there are no enabled legacy lanes AND
-# no live Planner/Executor runtime. Never classify PLANNER_EXECUTOR_V1 as idle
+# no live Planner/Executor or Single-Conversation runtime. Never classify PLANNER_EXECUTOR_V1 as idle
 # merely because lanes.json has zero enabled lanes; doing so would crash-kill
 # its dedicated Chrome and produce the "Restore pages?" bubble mid-project.
 # When truly idle, retire only the dedicated Robot Chrome profile so the next
