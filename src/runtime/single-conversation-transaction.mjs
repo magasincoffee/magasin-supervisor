@@ -34,6 +34,11 @@ function transactionCode(error) {
   return code || "EXACT_ONCE_FAILED";
 }
 
+function nativeTransactionSleep(ms) {
+  const delay = Math.max(0, Number(ms) || 0);
+  return new Promise((resolve) => setTimeout(resolve, delay));
+}
+
 async function mutateState(statePath, mutate, now) {
   const state = await readSingleConversationState(statePath);
   const at = nowIso(now);
@@ -239,6 +244,7 @@ export async function reconcileExactOnceOutbound({
   maxSafeRetries = 1,
   reconciliationProbes = 5,
   reconciliationPollMs = 200,
+  sleep = nativeTransactionSleep,
   now = () => new Date().toISOString()
 } = {}) {
   if (!statePath) throw new Error("statePath is required");
@@ -321,8 +327,8 @@ export async function reconcileExactOnceOutbound({
         positiveNonDelivery = false;
       }
 
-      if (index < probes - 1 && typeof page.waitForTimeout === "function") {
-        await page.waitForTimeout(reconciliationPollMs);
+      if (index < probes - 1) {
+        await sleep(reconciliationPollMs);
       }
     }
 
@@ -383,11 +389,8 @@ export async function reconcileExactOnceOutbound({
         matchingDelivery?.confirmed ||
         latestTurnMatchesMessage(deliveredTurn, digest)
       ) break;
-      if (
-        index < deliveryProbes - 1 &&
-        typeof page.waitForTimeout === "function"
-      ) {
-        await page.waitForTimeout(reconciliationPollMs);
+      if (index < deliveryProbes - 1) {
+        await sleep(reconciliationPollMs);
       }
     }
 
