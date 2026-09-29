@@ -2,6 +2,21 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 
+test("SC-008 live qualification bounds CDP cleanup and exits explicitly", async () => {
+  const source = await fs.readFile(
+    new URL("../.github/scripts/supervisor-sc008-live-qualification.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /boundedCleanup/);
+  assert.match(source, /SC008_LIVE_CLEANUP_TIMEOUT_/);
+  assert.match(source, /process\.exit\(finalExitCode\)/);
+  assert.doesNotMatch(
+    source,
+    /SC008_LIVE_ERROR_NAME[\s\S]{0,160}throw error/
+  );
+});
+
 test("SC-008 live harness covers the canonical ten-item acceptance matrix", async () => {
   const source = await fs.readFile(
     new URL("../.github/scripts/supervisor-sc008-live-qualification.mjs", import.meta.url),
