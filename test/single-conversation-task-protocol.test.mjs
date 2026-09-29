@@ -139,6 +139,101 @@ test("SC-011 restart rebinds exactly one verified existing conversation", async 
   );
 });
 
+
+test("SC-011 restart recovers the exact conversation from recent sidebar after Chrome restart", async () => {
+  const targetUrl = "https://chatgpt.com/c/recover-me";
+  const home = {
+    isClosed: () => false,
+    url: () => "https://chatgpt.com/"
+  };
+  const recoveredPage = {
+    isClosed: () => false,
+    url: () => targetUrl
+  };
+
+  let reopenedUrl = null;
+  let selected = null;
+  let closedHome = false;
+  const adapter = {
+    getChatGptPages: () => [home],
+    getActivePage: () => home,
+    listRecentConversationUrls: async () => [
+      "https://chatgpt.com/c/other",
+      targetUrl
+    ],
+    reopenTargetPage: async (url) => {
+      reopenedUrl = url;
+      return recoveredPage;
+    },
+    setActivePage: (page) => {
+      selected = page;
+      return page;
+    },
+    closePage: async (page) => {
+      if (page === home) closedHome = true;
+      return true;
+    },
+    probePage: async () => ({
+      snapshot: {
+        composerReady: true,
+        loginRequired: false,
+        hasCaptcha: false,
+        conversationMissing: false,
+        conversationAccessDenied: false,
+        pageClosed: false
+      }
+    })
+  };
+  const state = {
+    conversation: {
+      status: "ACTIVE",
+      generation: 9,
+      runtime_id: opaqueRuntimeIdentity(targetUrl)
+    },
+    outbound: { state: "RESPONSE_COMPLETE" }
+  };
+
+  const rebound = await resumeExistingConversationPage({ adapter, state });
+  assert.equal(reopenedUrl, targetUrl);
+  assert.equal(rebound?.page, recoveredPage);
+  assert.equal(rebound?.generation, 9);
+  assert.equal(rebound?.runtime_id, state.conversation.runtime_id);
+  assert.equal(rebound?.recovered_from, "RECENT_SIDEBAR");
+  assert.equal(selected, recoveredPage);
+  assert.equal(closedHome, true);
+});
+
+test("SC-011 restart does not replace chat when recent sidebar has no matching runtime identity", async () => {
+  const home = {
+    isClosed: () => false,
+    url: () => "https://chatgpt.com/"
+  };
+  let reopenCalls = 0;
+  const adapter = {
+    getChatGptPages: () => [home],
+    getActivePage: () => home,
+    listRecentConversationUrls: async () => [
+      "https://chatgpt.com/c/not-the-target"
+    ],
+    reopenTargetPage: async () => {
+      reopenCalls += 1;
+      return null;
+    }
+  };
+  const state = {
+    conversation: {
+      status: "ACTIVE",
+      generation: 9,
+      runtime_id: opaqueRuntimeIdentity("https://chatgpt.com/c/missing-target")
+    },
+    outbound: { state: "VERIFIED" }
+  };
+
+  const rebound = await resumeExistingConversationPage({ adapter, state });
+  assert.equal(rebound, null);
+  assert.equal(reopenCalls, 0);
+});
+
 test("SC-011 production CLI pauses terminal/protocol states and allows long responses", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
