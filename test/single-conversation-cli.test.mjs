@@ -36,6 +36,16 @@ test("SC-007 runtime dry-run starts from Source of Truth only", async () => {
   }
 });
 
+test("SC-007 CLI exposes a qualification-only mode without chat URL arguments", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /--qualification-only/);
+  assert.match(source, /qualificationOnly/);
+  assert.doesNotMatch(source, /--planner-url|--executor-url|--chat-url/);
+});
+
 test("SC-007 runtime source mismatch fails closed", async () => {
   const { root, statePath } = await tempState();
   try {
