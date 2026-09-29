@@ -75,6 +75,107 @@ test("SC-006 persists PREPARED then ENQUEUED receipt before UI send", async () =
   }
 });
 
+test("SC-006 polls delayed post-send user-turn evidence before marking DELIVERED", async () => {
+  const { root, statePath } = await makeState();
+  const message = "MAGASIN_SINGLE_CONVERSATION_NEXT_V1 id=delayed";
+  let sent = false;
+  let postSendCaptures = 0;
+  try {
+    await prepareExactOnceOutbound(statePath, {
+      messageId: "delayed",
+      message,
+      kind: "NEXT",
+      baselineUserTurnId: "u0"
+    });
+
+    const result = await reconcileExactOnceOutbound({
+      statePath,
+      page: { async waitForTimeout() {} },
+      messageId: "delayed",
+      message,
+      reconciliationProbes: 3,
+      reconciliationPollMs: 1,
+      inspectDraft: async () => ({ ready: true, has_text: false, digest: null }),
+      captureTurn: async (_page, role) => {
+        if (role !== "user") return null;
+        if (!sent) return { turn_id: "u0", text: "old" };
+        postSendCaptures += 1;
+        if (postSendCaptures < 3) return { turn_id: "u0", text: "old" };
+        return { turn_id: "u1", text: message };
+      },
+      sendInstruction: async () => {
+        sent = true;
+        return { executed: true };
+      }
+    });
+
+    assert.equal(result.action, "SEND");
+    assert.ok(postSendCaptures >= 3);
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "DELIVERED");
+    assert.equal(durable.outbound.delivered_user_turn_id, "u1");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("SC-006 ambiguous post-send evidence is fail-closed across restart", async () => {
+  const { root, statePath } = await makeState();
+  const message = "MAGASIN_SINGLE_CONVERSATION_NEXT_V1 id=ambiguous";
+  let sends = 0;
+  try {
+    await prepareExactOnceOutbound(statePath, {
+      messageId: "ambiguous",
+      message,
+      kind: "NEXT",
+      baselineUserTurnId: "u0"
+    });
+
+    await assert.rejects(
+      reconcileExactOnceOutbound({
+        statePath,
+        page: { async waitForTimeout() {} },
+        messageId: "ambiguous",
+        message,
+        reconciliationProbes: 1,
+        reconciliationPollMs: 1,
+        inspectDraft: async () => ({ ready: true, has_text: false, digest: null }),
+        captureTurn: async () => ({ turn_id: "u0", text: "old" }),
+        sendInstruction: async () => {
+          sends += 1;
+          return { executed: true };
+        }
+      }),
+      (error) => error?.code === "AMBIGUOUS_POST_SEND_DELIVERY"
+    );
+
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "ENQUEUED");
+    assert.equal(durable.outbound.last_error_code, "AMBIGUOUS_POST_SEND_DELIVERY");
+
+    await assert.rejects(
+      reconcileExactOnceOutbound({
+        statePath,
+        page: { async waitForTimeout() {} },
+        messageId: "ambiguous",
+        message,
+        reconciliationProbes: 1,
+        reconciliationPollMs: 1,
+        inspectDraft: async () => ({ ready: true, has_text: false, digest: null }),
+        captureTurn: async () => ({ turn_id: "u0", text: "old" }),
+        sendInstruction: async () => {
+          sends += 1;
+          return { executed: true };
+        }
+      }),
+      (error) => error?.code === "AMBIGUOUS_POST_SEND_DELIVERY"
+    );
+    assert.equal(sends, 1);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("SC-006 crash after send reconciles matching user turn without duplicate send", async () => {
   const { root, statePath } = await makeState();
   const message = "MAGASIN_SINGLE_CONVERSATION_NEXT_V1 id=m2";
