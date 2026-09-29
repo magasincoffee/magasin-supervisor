@@ -1,0 +1,350 @@
+name: SC-009 Production START Qualification
+
+on:
+  push:
+    branches:
+      - sc009-live-start-qualification
+    paths:
+      - '.github/workflows/supervisor-sc009-production-start.yml'
+      - '.github/scripts/supervisor-sc009-production-start-verify.mjs'
+      - 'windows/run-supervisor.ps1'
+      - 'windows/start-supervisor.ps1'
+      - 'windows/install-supervisor.ps1'
+      - 'src/runtime/single-conversation-*.mjs'
+      - 'src/ui/**'
+      - 'package.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sc009-production-start-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  attempt-1:
+    runs-on: self-hosted
+    timeout-minutes: 12
+    outputs:
+      target_match: ${{ steps.qualify.outputs.target_match }}
+      qualified: ${{ steps.qualify.outputs.qualified }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install verifier dependencies
+        shell: cmd
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Run real production START acceptance
+        id: qualify
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          "target_match=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "qualified=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "SC009_QUAL_MACHINE=$env:COMPUTERNAME"
+          
+          if ($env:COMPUTERNAME -ne 'DESKTOP-4K7IM13') {
+            Write-Host 'SC009_QUAL_TARGET_MATCH=False'
+            Start-Sleep -Seconds 75
+            exit 0
+          }
+          
+          "target_match=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host 'SC009_QUAL_TARGET_MATCH=True'
+          
+          . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
+          $controlPath = Join-Path $root 'single-conversation-control.json'
+          $statePath = Join-Path $root 'single-conversation-state.json'
+          
+          if (-not (Test-Path $controlPath)) {
+            throw 'Production single-conversation control record is missing.'
+          }
+          $controlRawBefore = Get-Content $controlPath -Raw -Encoding UTF8
+          $control = $controlRawBefore | ConvertFrom-Json
+          if ([string]$control.schema_version -ne 'single-conversation-control.v1') {
+            throw 'Production control schema is not single-conversation-control.v1.'
+          }
+          if ([string]$control.mode -ne 'SINGLE_CONVERSATION_V1') {
+            throw 'Production control mode is not SINGLE_CONVERSATION_V1.'
+          }
+          $sourceOfTruthUrl = [string]$control.source_of_truth_url
+          if ([string]::IsNullOrWhiteSpace($sourceOfTruthUrl)) {
+            throw 'Production control Source of Truth is empty.'
+          }
+          Write-Host "SC009_LIVE_CONTROL_MODE=$($control.mode)"
+          Write-Host 'SC009_LIVE_CONTROL_SOT_PRESENT=True'
+          
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\windows\install-supervisor.ps1" -SourceRoot "$env:GITHUB_WORKSPACE"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Candidate install failed with exit code $LASTEXITCODE."
+          }
+          Write-Host 'SC009_LIVE_CANDIDATE_INSTALLED=True'
+          
+          $installedRun = Join-Path $root 'runtime\windows\run-supervisor.ps1'
+          $installedStart = Join-Path $root 'runtime\windows\start-supervisor.ps1'
+          $installedCli = Join-Path $root 'runtime\src\runtime\single-conversation-cli.mjs'
+          foreach ($required in @($installedRun, $installedStart, $installedCli)) {
+            if (-not (Test-Path $required)) { throw "Installed candidate missing: $required" }
+          }
+          
+          $sourceRunHash = (Get-FileHash "$env:GITHUB_WORKSPACE\windows\run-supervisor.ps1" -Algorithm SHA256).Hash
+          $installedRunHash = (Get-FileHash $installedRun -Algorithm SHA256).Hash
+          if ($sourceRunHash -ne $installedRunHash) {
+            throw 'Installed run-supervisor.ps1 does not match candidate.'
+          }
+          Write-Host 'SC009_LIVE_INSTALLED_WRAPPER_MATCH=True'
+          
+          $controlRawAfterInstall = Get-Content $controlPath -Raw -Encoding UTF8
+          if ($controlRawBefore -ne $controlRawAfterInstall) {
+            throw 'Candidate install changed the production single-conversation control record.'
+          }
+          Write-Host 'SC009_LIVE_CONTROL_PRESERVED=True'
+          
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installedStart -Hidden
+          if ($LASTEXITCODE -ne 0) {
+            throw "Production START failed with exit code $LASTEXITCODE."
+          }
+          Write-Host 'SC009_LIVE_OWNER_START_INVOKED=True'
+          
+          $nodeObserved = $false
+          $stateObserved = $false
+          $generationObserved = 0
+          $cdpPort = $null
+          $deadline = [DateTimeOffset]::UtcNow.AddSeconds(120)
+          
+          while ([DateTimeOffset]::UtcNow -lt $deadline) {
+            $nodes = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.CommandLine -and $_.CommandLine -match 'single-conversation-cli\.mjs' })
+            if ($nodes.Count -gt 0) {
+              $nodeObserved = $true
+            }
+          
+            if (Test-Path $statePath) {
+              try {
+                $state = Get-Content $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
+                $generationObserved = [int]$state.conversation.generation
+                if (
+                  [string]$state.mode -eq 'SINGLE_CONVERSATION_V1' -and
+                  $generationObserved -ge 1
+                ) {
+                  $stateObserved = $true
+                }
+              } catch {}
+            }
+          
+            $profile = Join-Path $root 'browser_profile'
+            $browser = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.CommandLine -and
+                $_.CommandLine -like "*$profile*" -and
+                $_.CommandLine -match '--remote-debugging-port=(\d+)'
+              } |
+              Select-Object -First 1
+            if ($browser -and $browser.CommandLine -match '--remote-debugging-port=(\d+)') {
+              $cdpPort = [int]$Matches[1]
+            }
+          
+            if ($nodeObserved -and $stateObserved -and $cdpPort) { break }
+            Start-Sleep -Milliseconds 500
+          }
+          
+          Write-Host "SC009_LIVE_SINGLE_NODE_OBSERVED=$nodeObserved"
+          Write-Host "SC009_LIVE_STATE_CREATED=$stateObserved"
+          Write-Host "SC009_LIVE_GENERATION=$generationObserved"
+          if (-not $nodeObserved) { throw 'single-conversation-cli.mjs was never observed after production START.' }
+          if (-not $stateObserved) { throw 'single-conversation-state.json was not created after production START.' }
+          if (-not $cdpPort) { throw 'Dedicated Supervisor Chrome CDP port was not found after production START.' }
+          
+          $cdpUrl = "http://127.0.0.1:$cdpPort"
+          & node "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-sc009-production-start-verify.mjs" $cdpUrl $sourceOfTruthUrl 120000
+          if ($LASTEXITCODE -ne 0) {
+            throw "Production browser verification failed with exit code $LASTEXITCODE."
+          }
+          
+          $finalState = Get-Content $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
+          Write-Host "SC009_LIVE_FINAL_CONVERSATION_STATUS=$($finalState.conversation.status)"
+          Write-Host "SC009_LIVE_FINAL_AUTOMATION_STATUS=$($finalState.automation.status)"
+          Write-Host "SC009_LIVE_FINAL_AUTOMATION_PHASE=$($finalState.automation.phase)"
+          Write-Host "SC009_LIVE_FINAL_OUTBOUND_STATE=$($finalState.outbound.state)"
+          Write-Host 'SC009_LIVE_PRODUCTION_START=PASS'
+          "qualified=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+  attempt-2:
+    runs-on: self-hosted
+    timeout-minutes: 12
+    outputs:
+      target_match: ${{ steps.qualify.outputs.target_match }}
+      qualified: ${{ steps.qualify.outputs.qualified }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install verifier dependencies
+        shell: cmd
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Run real production START acceptance
+        id: qualify
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          "target_match=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "qualified=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "SC009_QUAL_MACHINE=$env:COMPUTERNAME"
+          
+          if ($env:COMPUTERNAME -ne 'DESKTOP-4K7IM13') {
+            Write-Host 'SC009_QUAL_TARGET_MATCH=False'
+            Start-Sleep -Seconds 75
+            exit 0
+          }
+          
+          "target_match=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host 'SC009_QUAL_TARGET_MATCH=True'
+          
+          . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
+          $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
+          $controlPath = Join-Path $root 'single-conversation-control.json'
+          $statePath = Join-Path $root 'single-conversation-state.json'
+          
+          if (-not (Test-Path $controlPath)) {
+            throw 'Production single-conversation control record is missing.'
+          }
+          $controlRawBefore = Get-Content $controlPath -Raw -Encoding UTF8
+          $control = $controlRawBefore | ConvertFrom-Json
+          if ([string]$control.schema_version -ne 'single-conversation-control.v1') {
+            throw 'Production control schema is not single-conversation-control.v1.'
+          }
+          if ([string]$control.mode -ne 'SINGLE_CONVERSATION_V1') {
+            throw 'Production control mode is not SINGLE_CONVERSATION_V1.'
+          }
+          $sourceOfTruthUrl = [string]$control.source_of_truth_url
+          if ([string]::IsNullOrWhiteSpace($sourceOfTruthUrl)) {
+            throw 'Production control Source of Truth is empty.'
+          }
+          Write-Host "SC009_LIVE_CONTROL_MODE=$($control.mode)"
+          Write-Host 'SC009_LIVE_CONTROL_SOT_PRESENT=True'
+          
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\windows\install-supervisor.ps1" -SourceRoot "$env:GITHUB_WORKSPACE"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Candidate install failed with exit code $LASTEXITCODE."
+          }
+          Write-Host 'SC009_LIVE_CANDIDATE_INSTALLED=True'
+          
+          $installedRun = Join-Path $root 'runtime\windows\run-supervisor.ps1'
+          $installedStart = Join-Path $root 'runtime\windows\start-supervisor.ps1'
+          $installedCli = Join-Path $root 'runtime\src\runtime\single-conversation-cli.mjs'
+          foreach ($required in @($installedRun, $installedStart, $installedCli)) {
+            if (-not (Test-Path $required)) { throw "Installed candidate missing: $required" }
+          }
+          
+          $sourceRunHash = (Get-FileHash "$env:GITHUB_WORKSPACE\windows\run-supervisor.ps1" -Algorithm SHA256).Hash
+          $installedRunHash = (Get-FileHash $installedRun -Algorithm SHA256).Hash
+          if ($sourceRunHash -ne $installedRunHash) {
+            throw 'Installed run-supervisor.ps1 does not match candidate.'
+          }
+          Write-Host 'SC009_LIVE_INSTALLED_WRAPPER_MATCH=True'
+          
+          $controlRawAfterInstall = Get-Content $controlPath -Raw -Encoding UTF8
+          if ($controlRawBefore -ne $controlRawAfterInstall) {
+            throw 'Candidate install changed the production single-conversation control record.'
+          }
+          Write-Host 'SC009_LIVE_CONTROL_PRESERVED=True'
+          
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installedStart -Hidden
+          if ($LASTEXITCODE -ne 0) {
+            throw "Production START failed with exit code $LASTEXITCODE."
+          }
+          Write-Host 'SC009_LIVE_OWNER_START_INVOKED=True'
+          
+          $nodeObserved = $false
+          $stateObserved = $false
+          $generationObserved = 0
+          $cdpPort = $null
+          $deadline = [DateTimeOffset]::UtcNow.AddSeconds(120)
+          
+          while ([DateTimeOffset]::UtcNow -lt $deadline) {
+            $nodes = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.CommandLine -and $_.CommandLine -match 'single-conversation-cli\.mjs' })
+            if ($nodes.Count -gt 0) {
+              $nodeObserved = $true
+            }
+          
+            if (Test-Path $statePath) {
+              try {
+                $state = Get-Content $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
+                $generationObserved = [int]$state.conversation.generation
+                if (
+                  [string]$state.mode -eq 'SINGLE_CONVERSATION_V1' -and
+                  $generationObserved -ge 1
+                ) {
+                  $stateObserved = $true
+                }
+              } catch {}
+            }
+          
+            $profile = Join-Path $root 'browser_profile'
+            $browser = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.CommandLine -and
+                $_.CommandLine -like "*$profile*" -and
+                $_.CommandLine -match '--remote-debugging-port=(\d+)'
+              } |
+              Select-Object -First 1
+            if ($browser -and $browser.CommandLine -match '--remote-debugging-port=(\d+)') {
+              $cdpPort = [int]$Matches[1]
+            }
+          
+            if ($nodeObserved -and $stateObserved -and $cdpPort) { break }
+            Start-Sleep -Milliseconds 500
+          }
+          
+          Write-Host "SC009_LIVE_SINGLE_NODE_OBSERVED=$nodeObserved"
+          Write-Host "SC009_LIVE_STATE_CREATED=$stateObserved"
+          Write-Host "SC009_LIVE_GENERATION=$generationObserved"
+          if (-not $nodeObserved) { throw 'single-conversation-cli.mjs was never observed after production START.' }
+          if (-not $stateObserved) { throw 'single-conversation-state.json was not created after production START.' }
+          if (-not $cdpPort) { throw 'Dedicated Supervisor Chrome CDP port was not found after production START.' }
+          
+          $cdpUrl = "http://127.0.0.1:$cdpPort"
+          & node "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-sc009-production-start-verify.mjs" $cdpUrl $sourceOfTruthUrl 120000
+          if ($LASTEXITCODE -ne 0) {
+            throw "Production browser verification failed with exit code $LASTEXITCODE."
+          }
+          
+          $finalState = Get-Content $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
+          Write-Host "SC009_LIVE_FINAL_CONVERSATION_STATUS=$($finalState.conversation.status)"
+          Write-Host "SC009_LIVE_FINAL_AUTOMATION_STATUS=$($finalState.automation.status)"
+          Write-Host "SC009_LIVE_FINAL_AUTOMATION_PHASE=$($finalState.automation.phase)"
+          Write-Host "SC009_LIVE_FINAL_OUTBOUND_STATE=$($finalState.outbound.state)"
+          Write-Host 'SC009_LIVE_PRODUCTION_START=PASS'
+          "qualified=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+  qualification-authority:
+    if: always()
+    needs: [attempt-1, attempt-2]
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require target production START PASS
+        shell: powershell
+        run: |
+          $a1Match = '${{ needs.attempt-1.outputs.target_match }}'
+          $a1Pass = '${{ needs.attempt-1.outputs.qualified }}'
+          $a2Match = '${{ needs.attempt-2.outputs.target_match }}'
+          $a2Pass = '${{ needs.attempt-2.outputs.qualified }}'
+          Write-Host "SC009_AUTH_ATTEMPT1_TARGET_MATCH=$a1Match"
+          Write-Host "SC009_AUTH_ATTEMPT1_QUALIFIED=$a1Pass"
+          Write-Host "SC009_AUTH_ATTEMPT2_TARGET_MATCH=$a2Match"
+          Write-Host "SC009_AUTH_ATTEMPT2_QUALIFIED=$a2Pass"
+          $qualified = (
+            ($a1Match -eq 'true' -and $a1Pass -eq 'true') -or
+            ($a2Match -eq 'true' -and $a2Pass -eq 'true')
+          )
+          if (-not $qualified) {
+            throw 'SC-009 has no successful production START qualification from DESKTOP-4K7IM13.'
+          }
+          Write-Host 'SC009_QUALIFICATION_AUTHORITY=PASS'
