@@ -632,6 +632,125 @@ export async function sendFreshChatBootstrapInstruction(
     };
   }
 
+  // After the full bounded observation window, a blank home route with zero
+  // conversation turns is positive non-delivery evidence. Current ChatGPT can
+  // consume Enter (clearing ProseMirror) without submitting. In that exact
+  // state only, restore the same Robot-owned bootstrap and actuate one explicit
+  // Send control. Never perform this retry if any user turn or conversation
+  // navigation exists.
+  let finalStillHome = false;
+  try {
+    const url = new URL(String(page.url?.() || ""));
+    finalStillHome = url.origin === "https://chatgpt.com" && url.pathname === "/";
+  } catch {}
+
+  const finalTurnCount = Number(proof?.conversation_turn_count || 0);
+  const finalDirectUserCount = Number(proof?.direct_user_count || 0);
+  if (
+    finalStillHome &&
+    finalTurnCount === 0 &&
+    finalDirectUserCount === 0
+  ) {
+    const restoreComposer = await findFreshChatComposer(page, 5_000);
+    if (restoreComposer) {
+      let restoredText = null;
+      try {
+        await restoreComposer.fill(instruction, { timeout: 5_000 });
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        restoredText = await readFreshComposerText(restoreComposer);
+      } catch {}
+
+      let restoredExact =
+        restoredText !== null &&
+        normalizeBootstrapRenderedText(restoredText) ===
+          normalizeBootstrapRenderedText(instruction);
+
+      if (
+        !restoredExact &&
+        /^[\x20-\x7E]+$/.test(instruction) &&
+        page.keyboard &&
+        typeof page.keyboard.type === "function"
+      ) {
+        const liveRestore = await findFreshChatComposer(page, 3_000);
+        if (liveRestore) {
+          await liveRestore.click({ timeout: 2_000 }).catch(() => {});
+          if (typeof page.keyboard.press === "function") {
+            const selectAll = process.platform === "darwin" ? "Meta+A" : "Control+A";
+            await page.keyboard.press(selectAll).catch(() => {});
+            await page.keyboard.press("Backspace").catch(() => {});
+          }
+          await page.keyboard.type(instruction, { delay: 0 });
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          const verifiedRestore = await findFreshChatComposer(page, 3_000);
+          restoredText = verifiedRestore
+            ? await readFreshComposerText(verifiedRestore)
+            : null;
+          restoredExact =
+            restoredText !== null &&
+            normalizeBootstrapRenderedText(restoredText) ===
+              normalizeBootstrapRenderedText(instruction);
+        }
+      }
+
+      if (restoredExact) {
+        const liveRestore = await findFreshChatComposer(page, 3_000);
+        const scopes = [];
+        if (typeof liveRestore?.locator === "function") {
+          const form = liveRestore.locator("xpath=ancestor::form[1]").first();
+          if (await form.isVisible().catch(() => false)) scopes.push(form);
+        }
+        scopes.push(page);
+
+        const selectors = [
+          'button[data-testid="send-button"]:visible',
+          'button#composer-submit-button:visible',
+          'button[data-testid="composer-submit-button"]:visible',
+          'button[data-testid="composer-send-button"]:visible',
+          'button[type="submit"]:visible',
+          'button[aria-label*="Send" i]:visible',
+          'button[aria-label*="Gửi" i]:visible'
+        ];
+
+        let send = null;
+        let sendSelector = null;
+        for (const scope of scopes) {
+          for (const selector of selectors) {
+            const candidate = scope.locator(selector).first();
+            if (!(await candidate.isVisible().catch(() => false))) continue;
+            const enabled = typeof candidate.isEnabled === "function"
+              ? await candidate.isEnabled().catch(() => false)
+              : true;
+            if (!enabled) continue;
+            send = candidate;
+            sendSelector = selector;
+            break;
+          }
+          if (send) break;
+        }
+
+        if (send) {
+          await send.click({ timeout: 5_000 });
+          const retryProof = await waitForExactFreshUserTurn(page, instruction, {
+            timeoutMs: 30_000,
+            pollMs: 250
+          });
+          if (retryProof?.turn_id) {
+            return {
+              executed: true,
+              input_method: inputMethod,
+              send_method: "composer-enter+restored-safe-direct-control",
+              send_selector: sendSelector,
+              user_turn_evidence: retryProof.evidence,
+              user_turn_id: retryProof.turn_id,
+              conversation_turn_count:
+                Number(retryProof.conversation_turn_count || 0)
+            };
+          }
+        }
+      }
+    }
+  }
+
   return {
     executed: false,
     rejection_class: "SEND_NOT_ACTUATED",
