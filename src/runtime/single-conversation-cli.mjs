@@ -97,7 +97,6 @@ export async function boundedRuntimeStep(
           );
           reject(error);
         }, budget);
-        timer?.unref?.();
       })
     ]);
   } finally {
