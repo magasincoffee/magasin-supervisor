@@ -50,8 +50,6 @@ jobs:
           exit /b %ERRORLEVEL%
 
   attempt-2:
-    if: always()
-    needs: [attempt-1]
     runs-on: self-hosted
     timeout-minutes: 20
     outputs:
