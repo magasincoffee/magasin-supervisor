@@ -14,7 +14,7 @@ function Set-Output([string]$Name, [string]$Value) {
 Set-Output 'target_match' 'false'
 Set-Output 'diagnosed' 'false'
 Write-Host "SC010_ATTEMPT=$Attempt"
-Write-Host 'SC010_DIAG_REVISION=POST_FIX_INSTALL_1'
+Write-Host 'SC010_DIAG_REVISION=POST_FIX_INSTALL_2'
 Write-Host "SC010_MACHINE=$env:COMPUTERNAME"
 
 if ($env:COMPUTERNAME -ne $TargetComputer) {
