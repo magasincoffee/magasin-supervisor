@@ -58,6 +58,23 @@ function makeAdapter() {
   });
 }
 
+async function boundedAdapterClose(adapter, timeoutMs = 1_500) {
+  let timer = null;
+  try {
+    await Promise.race([
+      Promise.resolve().then(() => adapter.close()),
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, Math.max(1, Number(timeoutMs) || 1_500));
+        timer.unref?.();
+      })
+    ]);
+  } catch {
+    // Qualification cleanup must never turn a durable PASS into runner timeout.
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 let qualificationPage = null;
 let firstRuntimeId = null;
 let firstGeneration = null;
@@ -93,7 +110,7 @@ try {
   log("SC011_LIVE_FIRST_GENERATION", firstGeneration);
   log("SC011_LIVE_FIRST_RUNTIME_ID_PRESENT", Boolean(firstRuntimeId));
 } finally {
-  await adapter1.close().catch(() => {});
+  await boundedAdapterClose(adapter1);
 }
 
 const adapter2 = makeAdapter();
@@ -158,5 +175,8 @@ try {
   log("SC011_LIVE_ERROR_MESSAGE", String(error?.message || "").slice(0, 240));
   process.exitCode = 1;
 } finally {
-  await adapter2.close().catch(() => {});
+  await boundedAdapterClose(adapter2);
 }
+
+log("SC011_LIVE_EXPLICIT_EXIT", "True");
+process.exit(process.exitCode || 0);
