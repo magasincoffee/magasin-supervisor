@@ -11,6 +11,7 @@ on:
       - 'src/runtime/single-conversation-cli.mjs'
       - 'src/runtime/single-conversation-bootstrap.mjs'
       - 'test/single-conversation-cli.test.mjs'
+      - 'test/single-conversation-bootstrap.test.mjs'
       - 'SOURCE_OF_TRUTH.md'
   workflow_dispatch:
 
