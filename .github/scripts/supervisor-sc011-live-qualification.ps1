@@ -100,8 +100,9 @@ $installedRun = Join-Path $root 'runtime\windows\run-supervisor.ps1'
 $holdToken = "SC011_QUALIFICATION_HOLD:$env:GITHUB_RUN_ID:$Attempt"
 
 $ownerStop = Get-LifecycleOwnerStopState -Root $root
-if ($ownerStop.blocked) {
-  throw 'SC-011 qualification refuses to override Owner STOP/AUTOSTART_DISABLED.'
+$ownerStopInitiallyBlocked = [bool]$ownerStop.blocked
+if ($ownerStopInitiallyBlocked) {
+  Write-Host 'SC011_QUAL_OWNER_STOP_PRESERVED=True'
 }
 
 $wrapperBefore = Get-LifecycleSupervisorWrapper -Root $root
@@ -111,9 +112,13 @@ $holdCreated = $false
 $nodeExit = 1
 
 try {
-  Set-Content -Path $stopPath -Value $holdToken -Encoding ascii
-  $holdCreated = $true
-  Write-Host 'SC011_QUAL_TEMPORARY_LIFECYCLE_PAUSE=True'
+  if (-not $ownerStopInitiallyBlocked) {
+    Set-Content -Path $stopPath -Value $holdToken -Encoding ascii
+    $holdCreated = $true
+    Write-Host 'SC011_QUAL_TEMPORARY_LIFECYCLE_PAUSE=True'
+  } else {
+    Write-Host 'SC011_QUAL_TEMPORARY_LIFECYCLE_PAUSE=False'
+  }
 
   if ($wrapperBefore) {
     & taskkill.exe /PID ([int]$wrapperBefore.ProcessId) /T /F | Out-Host
