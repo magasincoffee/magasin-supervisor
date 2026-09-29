@@ -212,6 +212,7 @@ export async function waitForSingleConversationResponse({
   timeoutMs = 180_000,
   pollMs = 600,
   maxContinueClicks = 8,
+  transientFailureThreshold = 3,
   now = () => new Date().toISOString()
 } = {}) {
   if (!adapter) throw new Error("adapter is required");
@@ -221,6 +222,8 @@ export async function waitForSingleConversationResponse({
   const started = Date.now();
   let continueClicks = 0;
   let sawRunning = false;
+  let consecutiveTransientFailures = 0;
+  const transientLimit = Math.max(1, Number(transientFailureThreshold || 3));
   const expectedMarker = String(expectedAssistantMarker || "").trim();
   let stableAssistantDigest = null;
   let stableAssistantSince = 0;
@@ -228,6 +231,26 @@ export async function waitForSingleConversationResponse({
   while (Date.now() - started <= timeoutMs) {
     const probe = await adapter.probePage(page);
     const snapshot = probe?.snapshot || {};
+
+    // A single ChatGPT transient/network banner is not an unrecoverable
+    // conversation fault. SOT replacement policy requires repeated failure.
+    // Tolerate a bounded sequence while still failing closed at the threshold.
+    const retryableTransient =
+      !snapshot.responseRunning &&
+      (snapshot.hasTransientError || snapshot.hasNetworkError);
+    if (retryableTransient) {
+      consecutiveTransientFailures += 1;
+      if (consecutiveTransientFailures >= transientLimit) {
+        assertSafeSnapshot(snapshot);
+      }
+      if (typeof page.waitForTimeout === "function") {
+        await page.waitForTimeout(pollMs);
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, pollMs));
+      }
+      continue;
+    }
+    consecutiveTransientFailures = 0;
     assertSafeSnapshot(snapshot);
 
     if (snapshot.responseRunning) {
