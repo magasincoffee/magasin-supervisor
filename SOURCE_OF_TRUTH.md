@@ -603,7 +603,7 @@ Completion evidence:
 - the same live qualification preserved Owner STOP, did not mutate production project state or request an external-system mutation, bounded CDP cleanup, closed the qualification chat, and exited explicitly instead of timing out after a durable PASS.
 
 ### SC-012 — Production restart replacement regression
-State: **IN_PROGRESS**
+State: **COMPLETE**
 
 Owner-visible incident evidence:
 - on 2026-09-29, a real production run on `DESKTOP-4K7IM13` showed `conversation.generation=173` after repeated open/send/close/reopen behavior;
@@ -627,13 +627,22 @@ DoD:
 - focused tests and hosted integrity/lifecycle gates pass;
 - real production qualification on `DESKTOP-4K7IM13` shows bounded generation growth and no repeated tab/chat creation.
 
+Completion evidence:
+- `src/runtime/single-conversation-rollover.mjs` now acquires/commits the replacement page before closing the retired page, so the last dedicated-Chrome tab is never closed before another page exists;
+- `windows/run-supervisor.ps1` treats durable `automation.status=BLOCKED` as a fail-closed wrapper boundary and stops retry relaunch instead of creating chat churn;
+- focused SC-012 regressions passed 22/22 on the real target before live qualification;
+- hosted Supervisor Tests #1095, Supervisor Integrity #1109, Supervisor Lifecycle Acceptance #920, and Supervisor Autostart Install #950 passed on the final candidate;
+- SC-012 Production Restart Replacement Qualification run #1 passed on `DESKTOP-4K7IM13` and aggregate `qualification-authority` passed;
+- target evidence recorded `SC012_LIVE_RESTART_FIXTURE_ONE_HOME_PAGE=True`, `SC012_LIVE_FORCED_IDENTITY_MISS=True`, `SC012_LIVE_REPLACEMENT_BEFORE_CLOSE=PASS`, `SC012_LIVE_CDP_SURVIVED_REPLACEMENT=True`, `SC012_LIVE_GENERATION_ADVANCED_EXACTLY_ONCE=2`, `SC012_LIVE_ACTIVE_CHATGPT_PAGE_COUNT=1`, `SC012_LIVE_FINAL_OUTBOUND_VERIFIED=True`, and `SC012_LIVE_STATUS=PASS`;
+- qualification mutated no production project state, requested no external-system mutation, installed the exact qualified candidate on the target, and preserved Owner STOP.
+
 ---
 
 ## 11. Current implementation status
 
 As of 2026-09-29:
 
-- SC-001 through SC-011 are complete; SC-012 is in progress for the production restart/replacement regression discovered on 2026-09-29;
+- SC-001 through SC-012 are complete;
 - the canonical forward runtime is **SINGLE_CONVERSATION_V1**;
 - the Owner supplies the Source of Truth URL only; no historical ChatGPT conversation URL is required;
 - the forward Control Center and runtime use one disposable Robot-created ChatGPT conversation at a time;
@@ -643,7 +652,7 @@ As of 2026-09-29:
 - long-running 30-60 minute E2E/verification tasks are supported through durable RUNNING/CHECK polling, with a 90-minute direct response ceiling when no durable external job is available;
 - persistent Planner/Executor orchestration remains superseded and is legacy/rollback-only, not a forward production dependency.
 
-Until SC-012 passes its real-target acceptance, **continuous unattended production qualification is suspended**.
+Under the acceptance rule below, **SINGLE_CONVERSATION_V1 is production-qualified for continuous unattended multi-cycle operation**.
 
 ---
 
