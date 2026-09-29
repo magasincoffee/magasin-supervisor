@@ -4,7 +4,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { runSingleConversationRuntime } from "../src/runtime/single-conversation-cli.mjs";
+import {
+  boundedRuntimeStep,
+  runSingleConversationRuntime,
+  waitForNextCycleDelay
+} from "../src/runtime/single-conversation-cli.mjs";
 import {
   ensureSingleConversationState,
   readSingleConversationState
@@ -64,4 +68,50 @@ test("SC-007 runtime source mismatch fails closed", async () => {
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+
+test("SC-010 inter-cycle delay does not depend on Playwright page RPC", async () => {
+  let slept = 0;
+  await waitForNextCycleDelay(25, {
+    sleep: async (ms) => {
+      slept = ms;
+    }
+  });
+  assert.equal(slept, 25);
+
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.doesNotMatch(source, /page\.waitForTimeout\(pollMs\)/);
+  assert.match(source, /await waitForNextCycleDelay\(pollMs\)/);
+});
+
+test("SC-010 bounded runtime step converts a hung NEXT_WORK UI probe into recovery", async () => {
+  await assert.rejects(
+    boundedRuntimeStep(
+      "NEXT_WORK_RECOVERY_PROBE",
+      () => new Promise(() => {}),
+      { timeoutMs: 20 }
+    ),
+    (error) => {
+      assert.equal(error?.code, "CDP_RECOVERY_REQUIRED");
+      assert.equal(error?.runtime_stage, "NEXT_WORK_RECOVERY_PROBE");
+      return true;
+    }
+  );
+});
+
+test("SC-010 production CLI maps watchdog recovery to wrapper exit 75 and bounds cleanup", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /NEXT_WORK_RECOVERY_PROBE/);
+  assert.match(source, /NEXT_WORK_CAPTURE_USER/);
+  assert.match(source, /NEXT_WORK_CAPTURE_ASSISTANT/);
+  assert.match(source, /code === "CDP_RECOVERY_REQUIRED" \? 75 : 1/);
+  assert.match(source, /boundedRuntimeCleanup\(\(\) => adapter\.close\(\), 1_500\)/);
+  assert.match(source, /process\.exit\(finalExitCode\)/);
 });
