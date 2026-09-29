@@ -29,6 +29,36 @@ MAGASIN_CYCLE_CORRELATION_V1 demo
   });
 });
 
+
+test("SC-013 parses READY block when rendered DOM flattens protocol whitespace", () => {
+  for (const rendered of [
+    "MAGASIN_TASK_CONTROL_V1 STATUS=READY TASK_ID=NONE NEXT_TASK_ID=OPS-004 CHECK_AFTER_SECONDS=0 END_MAGASIN_TASK_CONTROL_V1",
+    "MAGASIN_TASK_CONTROL_V1STATUS=READYTASK_ID=NONENEXT_TASK_ID=OPS-004CHECK_AFTER_SECONDS=0END_MAGASIN_TASK_CONTROL_V1"
+  ]) {
+    assert.deepEqual(parseTaskControl(rendered), {
+      status: "READY",
+      task_id: null,
+      next_task_id: "OPS-004",
+      check_after_seconds: 0
+    });
+  }
+});
+
+test("SC-013 remains strict for flattened template or injected content", () => {
+  assert.throws(
+    () => parseTaskControl(
+      "MAGASIN_TASK_CONTROL_V1 STATUS=<READY|BLOCKED|DONE> TASK_ID=NONE NEXT_TASK_ID=<existing SOT task id or NONE> CHECK_AFTER_SECONDS=0 END_MAGASIN_TASK_CONTROL_V1"
+    ),
+    (error) => error?.code === "TASK_PROTOCOL_INVALID"
+  );
+  assert.throws(
+    () => parseTaskControl(
+      "MAGASIN_TASK_CONTROL_V1 STATUS=READY unexpected TASK_ID=NONE NEXT_TASK_ID=OPS-004 CHECK_AFTER_SECONDS=0 END_MAGASIN_TASK_CONTROL_V1"
+    ),
+    (error) => error?.code === "TASK_PROTOCOL_INVALID"
+  );
+});
+
 test("SC-011 RUNNING keeps the same task and bounded check delay", () => {
   const parsed = parseTaskControl(`
 MAGASIN_TASK_CONTROL_V1
