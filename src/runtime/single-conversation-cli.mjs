@@ -165,8 +165,7 @@ export async function runSingleConversationRuntime({
       qualificationOnly,
       forceNewPage: true,
       timeoutMs: responseTimeoutMs,
-      pollMs: Math.min(750, Math.max(100, pollMs)),
-      probeTimeoutMs: Math.min(10_000, Math.max(2_000, pollMs * 4))
+      pollMs: Math.min(750, Math.max(100, pollMs))
     });
     page = bootstrap.page;
   } else {
@@ -196,7 +195,8 @@ export async function runSingleConversationRuntime({
       sourceOfTruthUrl,
       projectId: "LIVE",
       timeoutMs: responseTimeoutMs,
-      pollMs: Math.min(750, Math.max(100, pollMs))
+      pollMs: Math.min(750, Math.max(100, pollMs)),
+      probeTimeoutMs: Math.min(10_000, Math.max(2_000, pollMs * 4))
     });
     page = recovery.page;
 
