@@ -325,6 +325,14 @@ export async function reconcileExactOnceOutbound({
 
     let retry = false;
     if (current === "ENQUEUED") {
+      if (
+        state.outbound.last_error_code === "AMBIGUOUS_POST_SEND_DELIVERY"
+      ) {
+        throw Object.assign(
+          new Error("prior post-send delivery outcome remains ambiguous"),
+          { code: "AMBIGUOUS_POST_SEND_DELIVERY" }
+        );
+      }
       if (!positiveNonDelivery && !draft?.has_text) {
         throw Object.assign(
           new Error("prior ENQUEUED send outcome remains ambiguous"),
@@ -356,11 +364,26 @@ export async function reconcileExactOnceOutbound({
       );
     }
 
-    const deliveredTurn = await captureTurn(page, "user").catch(() => null);
+    let deliveredTurn = null;
+    const deliveryProbes = Math.max(
+      5,
+      Number(reconciliationProbes) || 1
+    );
+    for (let index = 0; index < deliveryProbes; index += 1) {
+      deliveredTurn = await captureTurn(page, "user").catch(() => null);
+      if (latestTurnMatchesMessage(deliveredTurn, digest)) break;
+      if (
+        index < deliveryProbes - 1 &&
+        typeof page.waitForTimeout === "function"
+      ) {
+        await page.waitForTimeout(reconciliationPollMs);
+      }
+    }
+
     if (!latestTurnMatchesMessage(deliveredTurn, digest)) {
       throw Object.assign(
-        new Error("send reported success without matching latest user turn"),
-        { code: "DELIVERY_EVIDENCE_MISSING" }
+        new Error("send succeeded but durable delivery evidence remains ambiguous"),
+        { code: "AMBIGUOUS_POST_SEND_DELIVERY" }
       );
     }
 
