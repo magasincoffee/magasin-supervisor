@@ -20,6 +20,8 @@ $laneConfigFile = Join-Path $root 'lanes.json'
 $laneStatusFile = Join-Path $root 'lane-status.json'
 $plannerExecutorStateFile = Join-Path $root 'planner-executor-state.json'
 $plannerExecutorTransportFile = Join-Path $root 'planner-executor-transport.json'
+$singleConversationControlFile = Join-Path $root 'single-conversation-control.json'
+$singleConversationStateFile = Join-Path $root 'single-conversation-state.json'
 $projectAdapterPath = [string]$env:SUPERVISOR_PROJECT_ADAPTER_PATH
 $projectAdapterUrl = [string]$env:SUPERVISOR_PROJECT_ADAPTER_URL
 if (-not [string]::IsNullOrWhiteSpace($projectAdapterPath) -and -not [string]::IsNullOrWhiteSpace($projectAdapterUrl)) {
@@ -69,8 +71,23 @@ function Get-PlannerExecutorPrimaryTransport {
 }
 
 function Resolve-LocalRuntimeMode {
-    # Planner/Executor cutover state is the highest-priority local runtime
-    # authority once explicitly created by the guarded production cutover.
+    # SINGLE_CONVERSATION_V1 is the forward runtime authority once the
+    # Control Center persists a Source-of-Truth-only control record.
+    try {
+        if (Test-Path $singleConversationControlFile) {
+            $singleControl = Get-Content $singleConversationControlFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            if (
+                [string]$singleControl.schema_version -eq 'single-conversation-control.v1' -and
+                [string]$singleControl.mode -eq 'SINGLE_CONVERSATION_V1' -and
+                -not [string]::IsNullOrWhiteSpace([string]$singleControl.source_of_truth_url)
+            ) {
+                return 'SINGLE_CONVERSATION_V1'
+            }
+        }
+    } catch {}
+
+    # Planner/Executor remains rollback-compatible when no forward control
+    # record exists.
     try {
         if (Test-Path $plannerExecutorStateFile) {
             $plannerExecutorState = Get-Content $plannerExecutorStateFile -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -146,7 +163,7 @@ function Get-ThreeLaneProcesses {
     return @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
         Where-Object {
             $_.CommandLine -and
-            $_.CommandLine -match '(three-lane-cli|planner-executor-cli|planner-executor-bridge-cli)\.mjs'
+            $_.CommandLine -match '(three-lane-cli|planner-executor-cli|planner-executor-bridge-cli|single-conversation-cli)\.mjs'
         })
 }
 
@@ -299,11 +316,10 @@ try {
             continue
         }
 
-        # Explicit local Planner/Executor cutover state outranks the legacy
-        # project-adapter mode. Otherwise preserve the existing adapter-first
-        # behavior for released legacy modes.
+        # Forward single-conversation and rollback Planner/Executor are both
+        # local runtime authorities. Only legacy modes consult project adapters.
         $runtimeMode = Resolve-LocalRuntimeMode
-        if ($runtimeMode -ne 'PLANNER_EXECUTOR_V1') {
+        if ($runtimeMode -notin @('SINGLE_CONVERSATION_V1','PLANNER_EXECUTOR_V1')) {
             try {
                 $projectState = Read-ConfiguredProjectAdapterState
                 if ($projectState -and $projectState.supervisor_orchestration) {
@@ -331,6 +347,7 @@ try {
         }
 
         $entryPoint = switch ($runtimeMode) {
+            'SINGLE_CONVERSATION_V1' { 'src/runtime/single-conversation-cli.mjs' }
             'PLANNER_EXECUTOR_V1' {
                 if ($plannerExecutorTransport -eq 'CHATGPT_BRIDGE_V1') {
                     'src/runtime/planner-executor-bridge-cli.mjs'
@@ -375,6 +392,17 @@ try {
             }
 
             $nodeArgs = @($entryPoint, '--cdp-url', $cdpBaseUrl, '--poll-ms', $pollMs)
+            if ($entryPoint -eq 'src/runtime/single-conversation-cli.mjs') {
+                $singleControl = Get-Content $singleConversationControlFile -Raw -Encoding UTF8 | ConvertFrom-Json
+                $sourceOfTruth = [string]$singleControl.source_of_truth_url
+                if ([string]::IsNullOrWhiteSpace($sourceOfTruth)) {
+                    throw 'SINGLE_CONVERSATION_V1 control record has no Source of Truth.'
+                }
+                $nodeArgs += @(
+                    '--state', $singleConversationStateFile,
+                    '--source-of-truth', $sourceOfTruth
+                )
+            }
             if ($entryPoint -in @('src/runtime/planner-executor-cli.mjs','src/runtime/planner-executor-bridge-cli.mjs')) {
                 $nodeArgs += @('--state', $plannerExecutorStateFile)
             }

@@ -6,7 +6,7 @@ async function read(rel) {
   return fs.readFile(new URL(rel, import.meta.url), "utf8");
 }
 
-test("production Control Panel is link-only: Source of Truth + Planner + Executor + progress", async () => {
+test("legacy Planner Executor rollback panel retains historical link-only controls", async () => {
   const panel = await read("../windows/control-panel.ps1");
 
   assert.match(panel, /function Show-PlannerExecutorControlPanel/);
@@ -47,7 +47,7 @@ test("Planner Executor Control Center uses a scrollable viewport so lower contro
   assert.match(ui, /\$content\.Controls\.Add\(\$footer\)/);
 });
 
-test("START always creates a fresh link-only runtime session from the three current links", async () => {
+test("legacy Planner Executor START still creates its historical three-link session", async () => {
   const panel = await read("../windows/control-panel.ps1");
 
   assert.match(panel, /function Initialize-LinkOnlyPlannerExecutorSession/);
@@ -61,7 +61,8 @@ test("START always creates a fresh link-only runtime session from the three curr
   assert.match(init, /Remove-Item \$plannerExecutorProjectsDir -Recurse/);
   assert.match(init, /Write-JsonAtomic \$plannerExecutorStateFile \$state/);
 
-  const start = panel.indexOf("$startButton.Add_Click({");
+  const legacyUiStart = panel.indexOf("function Show-PlannerExecutorControlPanel");
+  const start = panel.indexOf("$startButton.Add_Click({", legacyUiStart);
   const end = panel.indexOf("$stopButton.Add_Click", start);
   const handler = panel.slice(start, end);
   assert.match(handler, /\$source = \$sourceBox\.Text\.Trim\(\)/);

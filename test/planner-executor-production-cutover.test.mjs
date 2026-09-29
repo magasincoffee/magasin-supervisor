@@ -402,18 +402,21 @@ test("all Robot-authored Planner/Executor prompts transport machine-frame exampl
   assert.doesNotMatch(messageBuilders, /@M \{"v":1/);
 });
 
-test("production wrapper routes explicit Planner/Executor state before legacy project-adapter mode", async () => {
+test("production wrapper routes single-conversation control before legacy adapter and preserves Planner/Executor rollback", async () => {
   const source = await fs.readFile(
     new URL("../windows/run-supervisor.ps1", import.meta.url),
     "utf8"
   );
+  assert.match(source, /single-conversation-control\.json/);
+  assert.match(source, /SINGLE_CONVERSATION_V1/);
+  assert.match(source, /single-conversation-cli\.mjs/);
+  assert.match(source, /--source-of-truth/);
   assert.match(source, /planner-executor-state\.json/);
   assert.match(source, /PLANNER_EXECUTOR_V1/);
   assert.match(source, /planner-executor-cli\.mjs/);
-  assert.match(source, /--state/);
   assert.match(
     source,
-    /runtimeMode -ne 'PLANNER_EXECUTOR_V1'/
+    /runtimeMode -notin @\('SINGLE_CONVERSATION_V1','PLANNER_EXECUTOR_V1'\)/
   );
 });
 

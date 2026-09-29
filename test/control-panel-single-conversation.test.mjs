@@ -1,0 +1,80 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+
+async function read(rel) {
+  return fs.readFile(new URL(rel, import.meta.url), "utf8");
+}
+
+test("SC-007 forward Control Center requires only Source of Truth plus START STOP", async () => {
+  const panel = await read("../windows/control-panel.ps1");
+  const start = panel.indexOf("function Show-SingleConversationControlPanel");
+  const end = panel.indexOf("function Show-PlannerExecutorControlPanel", start);
+  assert.ok(start >= 0);
+  assert.ok(end > start);
+  const ui = panel.slice(start, end);
+
+  assert.match(ui, /SOURCE OF TRUTH/);
+  assert.match(ui, /START ROBOT/);
+  assert.match(ui, /STOP ROBOT/);
+  assert.match(ui, /SINGLE_CONVERSATION_V1/);
+  assert.match(ui, /generation=/);
+  assert.match(ui, /conversationStatus/);
+  assert.match(ui, /source_of_truth_url/);
+  assert.match(ui, /single-conversation-control\.v1/);
+  assert.match(ui, /START = create\/resume Robot session from Source of Truth/);
+
+  assert.doesNotMatch(ui, /Planner URL|Executor URL|LINK CHAT PLANNER|LINK CHAT EXECUTOR/);
+  assert.doesNotMatch(ui, /MỞ PLANNER|MỞ EXECUTOR/);
+  assert.doesNotMatch(ui, /Save-PlannerExecutorTargets|Initialize-LinkOnlyPlannerExecutorSession/);
+});
+
+test("SC-007 production panel bypasses legacy Planner Executor unless rollback flag is explicit", async () => {
+  const panel = await read("../windows/control-panel.ps1");
+  const forward = panel.indexOf("if ([string]$env:SUPERVISOR_CONTROL_PANEL_LEGACY -ne '1')");
+  const legacySelector = panel.indexOf("$plannerExecutorPanelState = Read-JsonFile $plannerExecutorStateFile");
+  assert.ok(forward >= 0);
+  assert.ok(legacySelector > forward);
+  assert.match(
+    panel.slice(forward, legacySelector),
+    /Show-SingleConversationControlPanel[\s\S]*exit 0/
+  );
+});
+
+test("SC-007 START writes only Source of Truth control identity and no chat targets", async () => {
+  const panel = await read("../windows/control-panel.ps1");
+  const start = panel.indexOf("function Show-SingleConversationControlPanel");
+  const end = panel.indexOf("function Show-PlannerExecutorControlPanel", start);
+  const ui = panel.slice(start, end);
+
+  const writeStart = ui.indexOf("function Write-SingleConversationControl");
+  const writeEnd = ui.indexOf("function Refresh-SingleConversationUi", writeStart);
+  const write = ui.slice(writeStart, writeEnd);
+  assert.match(write, /schema_version = 'single-conversation-control\.v1'/);
+  assert.match(write, /mode = 'SINGLE_CONVERSATION_V1'/);
+  assert.match(write, /source_of_truth_url = \$source/);
+  assert.doesNotMatch(write, /planner|executor|chat_url|conversation_url/i);
+
+  const clickStart = ui.indexOf("$startButton.Add_Click({");
+  const clickEnd = ui.indexOf("$stopButton.Add_Click", clickStart);
+  const handler = ui.slice(clickStart, clickEnd);
+  assert.match(handler, /Write-SingleConversationControl/);
+  assert.match(handler, /start-supervisor\.ps1|\$startScript/);
+  assert.doesNotMatch(handler, /planner|executor/i);
+});
+
+test("SC-007 wrapper and lifecycle select SINGLE_CONVERSATION_V1 from forward control", async () => {
+  const run = await read("../windows/run-supervisor.ps1");
+  const lifecycle = await read("../windows/lifecycle-truth.ps1");
+
+  assert.match(run, /single-conversation-control\.json/);
+  assert.match(run, /SINGLE_CONVERSATION_V1/);
+  assert.match(run, /src\/runtime\/single-conversation-cli\.mjs/);
+  assert.match(run, /--source-of-truth/);
+  assert.match(run, /--state/);
+
+  assert.match(lifecycle, /single-conversation-control\.json/);
+  assert.match(lifecycle, /Get-LifecycleSingleConversationProcess/);
+  assert.match(lifecycle, /single_conversation_alive/);
+  assert.match(lifecycle, /return 'SINGLE_CONVERSATION_V1'/);
+});
