@@ -464,3 +464,45 @@ test("SC-004 auth/captcha boundary blocks without a new send", async () => {
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+
+test("SC-010 response polling does not depend on Playwright page timers", async () => {
+  const { root, statePath } = await tempState();
+  let probes = 0;
+  try {
+    const response = await waitForSingleConversationResponse({
+      adapter: {
+        async probePage() {
+          probes += 1;
+          return {
+            snapshot: baseSnapshot({
+              responseRunning: probes < 2
+            })
+          };
+        }
+      },
+      page: {
+        async waitForTimeout() {
+          throw new Error("Playwright timer must not be used for response polling");
+        }
+      },
+      statePath,
+      baselineAssistantTurnId: "assistant-old",
+      expectedAssistantMarker: "MAGASIN_CYCLE_CORRELATION_V1 sc010-native-response",
+      captureTurn: async () => probes >= 2
+        ? {
+            turn_id: "assistant-new",
+            text: "done MAGASIN_CYCLE_CORRELATION_V1 sc010-native-response",
+            digest: "done"
+          }
+        : null,
+      pollMs: 1,
+      timeoutMs: 1_000
+    });
+
+    assert.equal(response.status, "RESPONSE_COMPLETE");
+    assert.ok(probes >= 2);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
