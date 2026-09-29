@@ -1117,7 +1117,19 @@ export async function createNewChatAndBootstrap({
     if (!sendResult?.executed) {
       throw Object.assign(
         new Error(sendResult?.reason || "bootstrap send was not confirmed"),
-        { code: sendResult?.rejection_class || "SEND_NOT_CONFIRMED" }
+        {
+          code: sendResult?.rejection_class || "SEND_NOT_CONFIRMED",
+          bootstrap_send_evidence: {
+            input_method: sendResult?.input_method || null,
+            send_method: sendResult?.send_method || null,
+            rejection_class: sendResult?.rejection_class || null,
+            mismatch: sendResult?.mismatch || null,
+            after_enter: sendResult?.after_enter || null,
+            user_turn_evidence: sendResult?.user_turn_evidence || null,
+            conversation_turn_count: Number(sendResult?.conversation_turn_count || 0),
+            direct_user_count: Number(sendResult?.direct_user_count || 0)
+          }
+        }
       );
     }
 
