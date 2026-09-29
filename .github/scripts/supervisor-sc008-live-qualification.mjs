@@ -295,6 +295,28 @@ const adapter = new ChatGptUiAdapter({
 });
 
 let activePage = null;
+let finalExitCode = 0;
+
+async function boundedCleanup(label, action, timeoutMs = 2_500) {
+  let timer = null;
+  try {
+    await Promise.race([
+      Promise.resolve().then(action),
+      new Promise((resolve) => {
+        timer = setTimeout(() => {
+          log(`SC008_LIVE_CLEANUP_TIMEOUT_${label}`, "True");
+          resolve();
+        }, timeoutMs);
+        timer.unref?.();
+      })
+    ]);
+  } catch (error) {
+    log(`SC008_LIVE_CLEANUP_ERROR_${label}`, error?.name || "Error");
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 try {
   await adapter.open();
 
@@ -433,10 +455,18 @@ try {
 } catch (error) {
   log("SC008_LIVE_STATUS", "FAIL");
   log("SC008_LIVE_ERROR_NAME", error?.name || "Error");
-  throw error;
+  finalExitCode = 1;
 } finally {
   if (activePage && !activePage.isClosed?.()) {
-    await adapter.closePage(activePage).catch(() => {});
+    await boundedCleanup(
+      "PAGE_CLOSE",
+      () => adapter.closePage(activePage)
+    );
   }
-  await adapter.close().catch(() => {});
+  await boundedCleanup("ADAPTER_CLOSE", () => adapter.close(), 1_000);
 }
+
+// Dedicated qualification process: Playwright CDP transport may keep the
+// event loop alive after all matrix evidence is already durable in stdout.
+// Exit explicitly so a PASS cannot be converted into a workflow timeout.
+process.exit(finalExitCode);
