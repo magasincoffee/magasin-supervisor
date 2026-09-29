@@ -94,3 +94,16 @@ test("SC-009 production wrapper does not require legacy target.json for SINGLE_C
   );
   assert.match(run, /if \(-not \$DryRun\) \{ \$nodeArgs \+= '--execute' \}/);
 });
+
+
+test("SC-012 production wrapper pauses instead of retrying a durable BLOCKED state", async () => {
+  const run = await read("../windows/run-supervisor.ps1");
+  const blocked = run.indexOf("SINGLE_CONVERSATION_BLOCKED_PAUSE=True");
+  const cdpRecovery = run.indexOf("$nodeExitCode -eq 75", blocked);
+  assert.ok(blocked >= 0);
+  assert.ok(cdpRecovery > blocked);
+  const guard = run.slice(Math.max(0, blocked - 1800), cdpRecovery);
+  assert.match(guard, /\$runtimeMode -eq 'SINGLE_CONVERSATION_V1'/);
+  assert.match(guard, /\$singleAutomationAfterRun -eq 'BLOCKED'/);
+  assert.match(guard, /break/);
+});
