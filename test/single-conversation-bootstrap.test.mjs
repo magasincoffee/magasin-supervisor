@@ -204,6 +204,19 @@ test("SC-010 fresh bootstrap tolerates delayed composer hydration", async () => 
   );
 });
 
+test("SC-010 retries explicit Send only after positive blank-home non-delivery evidence", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-bootstrap.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /positive non-delivery evidence/);
+  assert.match(source, /finalStillHome &&/);
+  assert.match(source, /finalTurnCount === 0/);
+  assert.match(source, /finalDirectUserCount === 0/);
+  assert.match(source, /composer-enter\+restored-safe-direct-control/);
+  assert.match(source, /waitForExactFreshUserTurn\(page, instruction, \{\s*timeoutMs: 30_000/);
+});
+
 test("SC-008 fresh bootstrap reacquires composer when locator Enter detaches", async () => {
   const instruction = "MAGASIN_SINGLE_CONVERSATION_BOOTSTRAP_V1 id=cold-enter SOT=https://example.com/SOURCE_OF_TRUTH.md";
   let composerText = instruction;
