@@ -287,7 +287,13 @@ export async function runSingleConversationRuntime({
     });
     cycles += 1;
 
-    const terminal = terminalAnswer(response.assistant_turn?.text);
+    // Qualification-only runs exercise transport/continuity, not project
+    // completion semantics. A read-only assistant response may legitimately
+    // mention DONE/BLOCKED while describing SOT state; that must not stop a
+    // fixed-cycle qualification before maxCycles is reached.
+    const terminal = qualificationOnly
+      ? null
+      : terminalAnswer(response.assistant_turn?.text);
     if (terminal) {
       return {
         status: terminal,
