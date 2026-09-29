@@ -602,13 +602,38 @@ Completion evidence:
 - SC-011 Task-ID Continuity Qualification run #13 passed on the real target `DESKTOP-4K7IM13`: `SC011_LIVE_CLI_RESTART_REUSED_CONVERSATION=True`, `SC011_LIVE_GENERATION_STABLE=1`, `SC011_LIVE_RUNTIME_ID_STABLE=True`, `SC011_LIVE_TOTAL_SEQUENTIAL_CYCLES=3`, `SC011_LIVE_MATCHED_RUNTIME_PAGE_COUNT=1`, `SC011_LIVE_DUPLICATE_SEND_ATTEMPTS=0`, and `SC011_LIVE_STATUS=PASS`;
 - the same live qualification preserved Owner STOP, did not mutate production project state or request an external-system mutation, bounded CDP cleanup, closed the qualification chat, and exited explicitly instead of timing out after a durable PASS.
 
+### SC-012 — Production restart replacement regression
+State: **IN_PROGRESS**
+
+Owner-visible incident evidence:
+- on 2026-09-29, a real production run on `DESKTOP-4K7IM13` showed `conversation.generation=173` after repeated open/send/close/reopen behavior;
+- bounded production diagnostic on the same target started from `generation=173`, healthy dedicated Chrome/CDP, and an ACTIVE conversation at a safe `RESPONSE_COMPLETE` boundary;
+- restart rebind could not verify the prior opaque runtime identity and correctly selected disposable replacement with reason `RUNTIME_RESTART_IDENTITY_NOT_VERIFIED`;
+- the replacement path then closed the currently attached ChatGPT page before acquiring a replacement page; when that page was the last tab in dedicated Chrome, Chrome/CDP terminated and bootstrap failed;
+- durable state ended `conversation=RETIRED`, `automation=BLOCKED`, `phase=BOOTSTRAP_FAILED`, `outbound.last_error_code=BOOTSTRAP_FAILED`;
+- the production wrapper treated generic runtime failure as retryable even after durable `automation.status=BLOCKED`, allowing repeated restart/replacement attempts and chat-generation churn.
+
+Canonical fix:
+1. disposable replacement MUST acquire/commit the new ChatGPT page before closing the retired page;
+2. the retired page MUST be closed after replacement acquisition and before the new bootstrap mutation, preserving one active Robot conversation in steady state;
+3. a durable single-conversation `automation.status=BLOCKED` after runtime exit is a fail-closed wrapper boundary and MUST stop automatic relaunch;
+4. restart identity mismatch may still select disposable replacement, as required by SC-011, but one failed replacement MUST NOT create an unbounded rollover loop;
+5. regression tests MUST lock replacement-before-close ordering and blocked-state wrapper pause;
+6. final acceptance requires a real target run on `DESKTOP-4K7IM13` proving restart/replacement no longer kills Chrome/CDP and does not advance conversation generation repeatedly.
+
+DoD:
+- replacement cannot close the final dedicated-Chrome page before a replacement page exists;
+- a bootstrap/replacement failure reaches a bounded BLOCKED state without automatic wrapper churn;
+- focused tests and hosted integrity/lifecycle gates pass;
+- real production qualification on `DESKTOP-4K7IM13` shows bounded generation growth and no repeated tab/chat creation.
+
 ---
 
 ## 11. Current implementation status
 
 As of 2026-09-29:
 
-- SC-001 through SC-011 are complete;
+- SC-001 through SC-011 are complete; SC-012 is in progress for the production restart/replacement regression discovered on 2026-09-29;
 - the canonical forward runtime is **SINGLE_CONVERSATION_V1**;
 - the Owner supplies the Source of Truth URL only; no historical ChatGPT conversation URL is required;
 - the forward Control Center and runtime use one disposable Robot-created ChatGPT conversation at a time;
@@ -618,7 +643,7 @@ As of 2026-09-29:
 - long-running 30-60 minute E2E/verification tasks are supported through durable RUNNING/CHECK polling, with a 90-minute direct response ceiling when no durable external job is available;
 - persistent Planner/Executor orchestration remains superseded and is legacy/rollback-only, not a forward production dependency.
 
-Under the acceptance rule below, **SINGLE_CONVERSATION_V1 is production-qualified for continuous unattended multi-cycle operation**.
+Until SC-012 passes its real-target acceptance, **continuous unattended production qualification is suspended**.
 
 ---
 
