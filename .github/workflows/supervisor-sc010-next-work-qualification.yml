@@ -11,9 +11,11 @@ on:
       - 'src/runtime/single-conversation-cli.mjs'
       - 'src/runtime/single-conversation-bootstrap.mjs'
       - 'src/runtime/single-conversation-rollover.mjs'
+      - 'src/ui/playwright-adapter.mjs'
       - 'test/single-conversation-cli.test.mjs'
       - 'test/single-conversation-bootstrap.test.mjs'
       - 'test/single-conversation-rollover.test.mjs'
+      - 'test/playwright-target-recovery.test.mjs'
       - 'SOURCE_OF_TRUTH.md'
   workflow_dispatch:
 
