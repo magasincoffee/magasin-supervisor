@@ -338,8 +338,12 @@ export class ChatGptUiAdapter {
     }
 
     try {
+      // Cold dedicated Chrome can commit chatgpt.com quickly while deferred
+      // scripts keep DOMContentLoaded pending for tens of seconds. New Chat
+      // usability is verified later by composer/auth probes, so require only
+      // a real navigation commit here and keep the existing bounded CDP retry.
       await page.goto(url, {
-        waitUntil: "domcontentloaded",
+        waitUntil: "commit",
         timeout: this.timeoutMs
       });
     } catch (error) {
@@ -347,7 +351,7 @@ export class ChatGptUiAdapter {
       await this.reconnectOverCdp();
       page = await this.context.newPage();
       await page.goto(url, {
-        waitUntil: "domcontentloaded",
+        waitUntil: "commit",
         timeout: this.timeoutMs
       });
     }
