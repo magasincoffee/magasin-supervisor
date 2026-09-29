@@ -41,7 +41,7 @@ test("installer stops orphaned Supervisor loops even when pid file is stale", as
 });
 
 
-test("canonical desktop updater hotpatches active Three-Lane or Planner/Executor without crash-killing dedicated Chrome", async () => {
+test("canonical desktop updater hotpatches active Three-Lane, Planner/Executor, or Single-Conversation without crash-killing dedicated Chrome", async () => {
   const source = await fs.readFile(
     new URL("../.github/scripts/update-latest-clean-old.ps1", import.meta.url),
     "utf8"
@@ -59,8 +59,10 @@ test("canonical desktop updater hotpatches active Three-Lane or Planner/Executor
   assert.match(source, /ParentProcessId -eq \$wrapperPid/);
   assert.match(source, /three-lane-cli\.mjs/);
   assert.match(source, /planner-executor-cli\.mjs/);
+  assert.match(source, /single-conversation-cli\.mjs/);
   assert.match(source, /PLANNER_EXECUTOR_ACTIVE_BEFORE/);
-  assert.match(source, /\$enabledBefore -ne 0 -or \$plannerExecutorActive/);
+  assert.match(source, /SINGLE_CONVERSATION_ACTIVE_BEFORE/);
+  assert.match(source, /\$enabledBefore -ne 0 -or \$plannerExecutorActive -or \$singleConversationActive/);
   assert.match(source, /HOTPATCH_OLD_CHILD_KIND/);
   assert.match(source, /UPDATE_RESULT=HOTPATCH_ENABLED_LANES/);
   assert.match(source, /PROJECT_STATE_PRESERVED=True/);
