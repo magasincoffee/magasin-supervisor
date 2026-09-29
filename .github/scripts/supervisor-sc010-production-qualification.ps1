@@ -56,8 +56,7 @@ $installedRoot = Join-Path $root 'runtime'
 $installedStart = Join-Path $installedRoot 'windows\start-supervisor.ps1'
 foreach ($rel in @(
   'src\runtime\single-conversation-cli.mjs',
-  'src\runtime\single-conversation-rollover.mjs',
-  'test\single-conversation-cli.test.mjs'
+  'src\runtime\single-conversation-rollover.mjs'
 )) {
   $source = Join-Path $env:GITHUB_WORKSPACE $rel
   $installed = Join-Path $installedRoot $rel
