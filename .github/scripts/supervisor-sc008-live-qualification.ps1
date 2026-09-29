@@ -82,7 +82,10 @@ function Restart-QualificationDedicatedChrome([string]$Root) {
     '--disable-backgrounding-occluded-windows',
     '--disable-renderer-backgrounding',
     '--disable-features=CalculateNativeWinOcclusion',
-    'https://chatgpt.com/'
+    # Keep cold Chrome inert until CDP is healthy. The Robot performs the
+    # single authoritative ChatGPT navigation after attaching, avoiding two
+    # competing cold-start navigations on the same freshly opened profile.
+    'about:blank'
   )
 
   for ($i = 0; $i -lt 40; $i++) {
