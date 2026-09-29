@@ -247,19 +247,26 @@ export async function recoverDisposableConversationIfNeeded({
 
   const pageClosed =
     typeof page.isClosed === "function" && page.isClosed();
-  const probe = pageClosed
-    ? { snapshot: { pageClosed: true } }
-    : await Promise.race([
+  let probeTimer = null;
+  let probe;
+  if (pageClosed) {
+    probe = { snapshot: { pageClosed: true } };
+  } else {
+    try {
+      probe = await Promise.race([
         Promise.resolve().then(() => adapter.probePage(page)),
         new Promise((_, reject) => {
-          const timer = setTimeout(() => {
+          probeTimer = setTimeout(() => {
             const error = new Error("single-conversation UI probe exceeded deadline");
             error.code = "CDP_STALL_RECOVERY_REQUIRED";
             reject(error);
           }, Math.max(250, Number(probeTimeoutMs) || 10_000));
-          timer.unref?.();
         })
       ]);
+    } finally {
+      if (probeTimer) clearTimeout(probeTimer);
+    }
+  }
   const classification = classifyDisposableConversation(
     probe?.snapshot || {},
     { consecutiveTransientFailures, transientFailureThreshold }
