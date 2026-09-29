@@ -210,9 +210,10 @@ test("N full install retires only idle dedicated Robot Chrome so new fast flags 
   assert.match(update, /OLD_DEDICATED_CHROME_STOPPED=/);
   assert.match(update, /DEDICATED_CHROME_FAST_RESTART_ARMED=True/);
 
-  const activeBranch = update.indexOf("if($enabledBefore -ne 0 -or $plannerExecutorActive)");
+  const activeBranch = update.indexOf("if($enabledBefore -ne 0 -or $plannerExecutorActive -or $singleConversationActive)");
   const activeExit = update.indexOf("exit 0", activeBranch);
   assert.match(update, /PLANNER_EXECUTOR_ACTIVE_BEFORE/);
+  assert.match(update, /SINGLE_CONVERSATION_ACTIVE_BEFORE/);
   const idleChromeStop = update.indexOf("$dedicatedChrome=@(", activeExit);
   assert.ok(activeBranch >= 0 && activeExit > activeBranch);
   assert.ok(idleChromeStop > activeExit);
