@@ -1126,11 +1126,7 @@ export async function waitForBootstrapResponse({
       }
     }
 
-    if (typeof page?.waitForTimeout === "function") {
-      await page.waitForTimeout(pollMs);
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, pollMs));
-    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
 
   throw Object.assign(new Error("bootstrap assistant response timed out"), {
