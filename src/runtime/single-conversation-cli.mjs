@@ -24,7 +24,6 @@ import {
   readSingleConversationState
 } from "./single-conversation-state.mjs";
 import {
-  markExactOnceEnqueued,
   markExactOnceResponseComplete,
   markExactOnceVerified,
   prepareExactOnceOutbound,
@@ -347,8 +346,11 @@ async function sendProtocolMessage({
     kind,
     baselineUserTurnId: baselineUser?.turn_id || null
   });
-  await markExactOnceEnqueued(statePath, { messageId, message });
 
+  // PREPARED is the only correct state before first reconciliation. The
+  // reconciler persists ENQUEUED immediately before browser actuation, which
+  // preserves exact-once crash safety without making a fresh transaction look
+  // like an ambiguous prior send.
   const delivery = await reconcileExactOnceOutbound({
     statePath,
     page,
