@@ -60,7 +60,7 @@ function normalizeTaskId(value) {
 
 export function parseTaskControl(text) {
   const source = String(text || "").replace(/\r\n/g, "\n");
-  const pattern = /(?:^|\n)MAGASIN_TASK_CONTROL_V1\n([\s\S]*?)\nEND_MAGASIN_TASK_CONTROL_V1(?=\n|$)/g;
+  const pattern = /MAGASIN_TASK_CONTROL_V1\b([\s\S]*?)\bEND_MAGASIN_TASK_CONTROL_V1/g;
   let match = null;
   for (const candidate of source.matchAll(pattern)) {
     match = candidate;
@@ -71,18 +71,47 @@ export function parseTaskControl(text) {
     });
   }
 
+  // ChatGPT's rendered DOM is not a stable text serialization contract.
+  // Depending on hydration timing, textContent can preserve block newlines,
+  // collapse them to spaces, or concatenate adjacent block elements with no
+  // separator at all. The machine protocol itself is stable because field
+  // names delimit every value. Parse that protocol directly instead of
+  // requiring presentation newlines.
   const body = match[1];
+  const fieldPattern =
+    /(STATUS|TASK_ID|NEXT_TASK_ID|CHECK_AFTER_SECONDS)=([\s\S]*?)(?=(?:STATUS|TASK_ID|NEXT_TASK_ID|CHECK_AFTER_SECONDS)=|$)/g;
+  const parsedFields = [...body.matchAll(fieldPattern)];
+  const expectedOrder = [
+    "STATUS",
+    "TASK_ID",
+    "NEXT_TASK_ID",
+    "CHECK_AFTER_SECONDS"
+  ];
+  if (
+    parsedFields.length !== expectedOrder.length ||
+    parsedFields.some((entry, index) => entry[1] !== expectedOrder[index])
+  ) {
+    throw Object.assign(new Error("malformed task-control fields"), {
+      code: "TASK_PROTOCOL_INVALID"
+    });
+  }
+
+  let cursor = 0;
   const fields = new Map();
-  for (const rawLine of body.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const match = /^([A-Z_]+)=(.*)$/.exec(line);
-    if (!match) {
-      throw Object.assign(new Error("malformed task-control line"), {
+  for (const entry of parsedFields) {
+    const gap = body.slice(cursor, entry.index);
+    if (gap.trim()) {
+      throw Object.assign(new Error("unexpected task-control content"), {
         code: "TASK_PROTOCOL_INVALID"
       });
     }
-    fields.set(match[1], match[2].trim());
+    fields.set(entry[1], String(entry[2] || "").trim());
+    cursor = Number(entry.index || 0) + entry[0].length;
+  }
+  if (body.slice(cursor).trim()) {
+    throw Object.assign(new Error("unexpected task-control trailing content"), {
+      code: "TASK_PROTOCOL_INVALID"
+    });
   }
 
   const status = String(fields.get("STATUS") || "").toUpperCase();
