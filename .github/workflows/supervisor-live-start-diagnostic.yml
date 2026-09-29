@@ -30,6 +30,9 @@ jobs:
           . .\windows\state-root.ps1
           $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
           Write-Host "LIVE_DIAG_STATE_ROOT=$root"
+          Write-Host "LIVE_DIAG_TARGET_JSON_EXISTS=$([bool](Test-Path (Join-Path $root 'target.json')))"
+          Write-Host "LIVE_DIAG_RUNTIME_NODE_MODULES_EXISTS=$([bool](Test-Path (Join-Path $root 'runtime\\node_modules')))"
+          Write-Host "LIVE_DIAG_RUNTIME_PLAYWRIGHT_EXISTS=$([bool](Test-Path (Join-Path $root 'runtime\\node_modules\\playwright')))"
 
           $controlPath = Join-Path $root 'single-conversation-control.json'
           $statePath = Join-Path $root 'single-conversation-state.json'
@@ -127,6 +130,9 @@ jobs:
           . .\windows\state-root.ps1
           $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
           Write-Host "LIVE_DIAG_STATE_ROOT=$root"
+          Write-Host "LIVE_DIAG_TARGET_JSON_EXISTS=$([bool](Test-Path (Join-Path $root 'target.json')))"
+          Write-Host "LIVE_DIAG_RUNTIME_NODE_MODULES_EXISTS=$([bool](Test-Path (Join-Path $root 'runtime\\node_modules')))"
+          Write-Host "LIVE_DIAG_RUNTIME_PLAYWRIGHT_EXISTS=$([bool](Test-Path (Join-Path $root 'runtime\\node_modules\\playwright')))"
 
           $controlPath = Join-Path $root 'single-conversation-control.json'
           $statePath = Join-Path $root 'single-conversation-state.json'
