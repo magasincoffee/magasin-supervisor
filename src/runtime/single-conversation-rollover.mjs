@@ -192,15 +192,38 @@ export async function replaceDisposableConversation({
 
   await retireConversation(statePath, { reason, at: now });
 
-  if (page && !page.isClosed?.()) {
-    const closed = await adapter.closePage(page);
-    if (closed === false) {
-      throw Object.assign(
-        new Error("retired ChatGPT page could not be closed"),
-        { code: "RETIRED_PAGE_CLOSE_FAILED" }
-      );
+  // SC-012: never close the current/last Chrome page before a replacement
+  // page exists. In the dedicated Supervisor Chrome, closing the final tab can
+  // terminate Chrome/CDP itself; the subsequent bootstrap then runs against a
+  // dead browser and the wrapper can enter a replacement/restart storm.
+  //
+  // createNewChatAndBootstrap invokes onPageAcquired immediately after the
+  // fresh page is committed and before it starts the new generation or sends
+  // the bootstrap. Close the retired page at that boundary: a live replacement
+  // page already keeps Chrome/CDP alive, while steady state still returns to a
+  // single Robot-controlled ChatGPT page before any new message mutation.
+  const closeRetiredPageAfterReplacementAcquired = async (
+    replacementPage,
+    surface
+  ) => {
+    if (
+      page &&
+      page !== replacementPage &&
+      !page.isClosed?.()
+    ) {
+      const closed = await adapter.closePage(page);
+      if (closed === false) {
+        throw Object.assign(
+          new Error("retired ChatGPT page could not be closed"),
+          { code: "RETIRED_PAGE_CLOSE_FAILED" }
+        );
+      }
     }
-  }
+
+    if (typeof onPageAcquired === "function") {
+      await onPageAcquired(replacementPage, surface);
+    }
+  };
 
   const result = await createNewChatAndBootstrap({
     adapter,
@@ -210,7 +233,7 @@ export async function replaceDisposableConversation({
     messageId,
     qualificationOnly,
     forceNewPage: true,
-    onPageAcquired,
+    onPageAcquired: closeRetiredPageAfterReplacementAcquired,
     sendInstruction,
     captureTurn,
     timeoutMs,
