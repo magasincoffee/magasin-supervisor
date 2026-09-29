@@ -4,7 +4,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { runSingleConversationRuntime } from "../src/runtime/single-conversation-cli.mjs";
+import {
+  nativeRuntimeSleep,
+  runSingleConversationRuntime,
+  withRuntimeDeadline
+} from "../src/runtime/single-conversation-cli.mjs";
 import {
   ensureSingleConversationState,
   readSingleConversationState
@@ -64,4 +68,39 @@ test("SC-007 runtime source mismatch fails closed", async () => {
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+
+test("SC-010 unresolved NEXT_WORK UI step is bounded and requests recovery", async () => {
+  const started = Date.now();
+  await assert.rejects(
+    withRuntimeDeadline(
+      "NEXT_WORK_PROBE_PAGE",
+      () => new Promise(() => {}),
+      120
+    ),
+    (error) => {
+      assert.equal(error?.code, "RUNTIME_UI_STEP_TIMEOUT");
+      assert.equal(error?.step, "NEXT_WORK_PROBE_PAGE");
+      return true;
+    }
+  );
+  assert.ok(Date.now() - started < 2_000);
+});
+
+test("SC-010 inter-cycle delay uses native timer and production CLI has hard recovery exit", async () => {
+  const started = Date.now();
+  await nativeRuntimeSleep(20);
+  assert.ok(Date.now() - started >= 10);
+
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.doesNotMatch(source, /page\.waitForTimeout\(pollMs\)/);
+  assert.match(source, /NEXT_WORK_PROBE_PAGE/);
+  assert.match(source, /RUNTIME_UI_STEP_TIMEOUT/);
+  assert.match(source, /RECOVERY_REQUESTED/);
+  assert.match(source, /finalExitCode = 75/);
+  assert.match(source, /process\.exit\(finalExitCode\)/);
 });
