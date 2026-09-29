@@ -493,7 +493,7 @@ Completion evidence:
 - hosted Supervisor Tests, Supervisor Integrity, Lifecycle Acceptance, and Autostart Install passed on the SC-007 candidate before completion was recorded.
 
 ### SC-008 — Cold-start and failure qualification
-State: **PLANNED**
+State: **COMPLETE**
 
 Required acceptance matrix:
 1. cold start, authenticated profile;
@@ -507,22 +507,32 @@ Required acceptance matrix:
 9. no Planner/Executor URLs required;
 10. exactly one active Robot ChatGPT conversation in steady state.
 
-Production cutover is allowed only when this matrix passes on the real self-hosted Windows runtime.
+Completion evidence:
+- canonical live qualification harness: `.github/scripts/supervisor-sc008-live-qualification.mjs` and `.github/scripts/supervisor-sc008-live-qualification.ps1`;
+- SC-008 Cold Start Failure Qualification run #11 passed on the real self-hosted Windows target `DESKTOP-4K7IM13`;
+- the aggregate `qualification-authority` job passed and target evidence recorded `SC008_QUAL_QUALIFIED=True`;
+- all ten acceptance-matrix checks recorded PASS: cold authenticated start, automatic fresh New Chat, bootstrap delivery/answer, Continue path, sequential cycles, automatic broken-chat rollover, restart reconciliation across PREPARED/ENQUEUED/DELIVERED/WAIT_RESPONSE, no duplicate unsafe mutation, no Owner-supplied Planner/Executor URL, and exactly one active Robot ChatGPT conversation in steady state;
+- target evidence recorded `SC008_LIVE_STATUS=PASS`, `SC008_LIVE_PRODUCTION_PROJECT_STATE_MUTATED=False`, and `SC008_LIVE_EXTERNAL_SYSTEM_MUTATION_REQUESTED=False`;
+- live qualification cleanup is bounded and exits explicitly so a completed PASS cannot be lost to an attached-CDP cleanup hang;
+- Supervisor Tests, Supervisor Integrity, Supervisor Lifecycle Acceptance, and Supervisor Autostart Install passed on the final SC-008 runtime candidate before completion was recorded.
+
+The required production-cutover matrix has passed on the real self-hosted Windows runtime.
 
 ---
 
 ## 11. Current implementation status
 
-As of 2026-09-28:
+As of 2026-09-29:
 
-- dedicated Chrome/CDP startup has been observed healthy;
-- Bridge has been observed with live ChatGPT pages;
-- the old Planner/Executor runtime can fail at project bootstrap/reconciliation;
-- the Owner has approved replacing persistent conversation links with Robot-created disposable conversations;
-- the previous two-conversation architecture is therefore **superseded for forward development**;
-- existing production/runtime code still contains Planner/Executor assumptions and must be migrated through SC-002..SC-008.
+- SC-001 through SC-008 are complete;
+- the canonical forward runtime is **SINGLE_CONVERSATION_V1**;
+- the Owner supplies the Source of Truth URL only; no historical ChatGPT conversation URL is required;
+- the forward Control Center and runtime use one disposable Robot-created ChatGPT conversation at a time;
+- automatic replacement, exact-once reconciliation, Continue handling, and cold-start recovery have passed the required live qualification matrix;
+- persistent Planner/Executor orchestration remains superseded and is legacy/rollback-only, not a forward production dependency;
+- the final SC-008 acceptance matrix passed on the real self-hosted Windows target `DESKTOP-4K7IM13`.
 
-Until SC-008 passes, do not claim the new architecture is production-qualified.
+Under the acceptance rule below, **SINGLE_CONVERSATION_V1 is production-qualified**.
 
 ---
 
