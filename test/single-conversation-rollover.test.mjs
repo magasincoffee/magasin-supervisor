@@ -151,6 +151,7 @@ test("SC-005 preserves prior transaction evidence across replacement", async () 
     await writeSingleConversationState(statePath, state);
 
     let closed = false;
+    const lifecycle = [];
     const oldPage = {
       isClosed() { return closed; },
       locator() {
@@ -174,12 +175,16 @@ test("SC-005 preserves prior transaction evidence across replacement", async () 
     const adapter = {
       async closePage(candidate) {
         assert.equal(candidate, oldPage);
+        lifecycle.push("close-old");
         closed = true;
         return true;
       },
       async open() {},
       getActivePage() { return oldPage; },
-      async newChatPage() { return newPage; },
+      async newChatPage() {
+        lifecycle.push("new-page");
+        return newPage;
+      },
       async probePage(candidate) {
         if (candidate === newPage && !sent) {
           return { snapshot: snapshot({
@@ -227,6 +232,11 @@ test("SC-005 preserves prior transaction evidence across replacement", async () 
     assert.equal(result.replaced_generation, 1);
     assert.equal(result.active_generation, 2);
     assert.equal(closed, true);
+    assert.deepEqual(
+      lifecycle,
+      ["new-page", "close-old"],
+      "replacement page must exist before the retired/last Chrome page closes"
+    );
 
     const durable = await readSingleConversationState(statePath);
     assert.equal(durable.conversation.generation, 2);
