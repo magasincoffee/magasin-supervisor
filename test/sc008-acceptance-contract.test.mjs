@@ -18,6 +18,19 @@ test("SC-008 live harness covers the canonical ten-item acceptance matrix", asyn
   assert.match(source, /planner_url\|executor_url/);
 });
 
+test("SC-008 cold browser launch stays inert until Robot navigation", async () => {
+  const source = await fs.readFile(
+    new URL("../.github/scripts/supervisor-sc008-live-qualification.ps1", import.meta.url),
+    "utf8"
+  );
+
+  const start = source.indexOf("Start-Process -FilePath $chromeExecutable");
+  const end = source.indexOf("for ($i = 0; $i -lt 40; $i++)", start);
+  const launch = source.slice(start, end);
+  assert.match(launch, /'about:blank'/);
+  assert.doesNotMatch(launch, /'https:\/\/chatgpt\.com\/'/);
+});
+
 test("SC-008 Windows wrapper performs a true dedicated-Chrome cold restart", async () => {
   const source = await fs.readFile(
     new URL("../.github/scripts/supervisor-sc008-live-qualification.ps1", import.meta.url),
