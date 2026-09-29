@@ -387,3 +387,31 @@ test("SC-005 recovery helper replaces a missing conversation automatically", asy
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+
+test("SC-010 recovery probe deadline fails closed instead of stalling NEXT_WORK forever", async () => {
+  const { root, statePath } = await tempState();
+  try {
+    await assert.rejects(
+      recoverDisposableConversationIfNeeded({
+        adapter: {
+          async probePage() {
+            return new Promise(() => {});
+          }
+        },
+        page: {
+          isClosed() { return false; }
+        },
+        statePath,
+        probeTimeoutMs: 20
+      }),
+      (error) => error?.code === "CDP_STALL_RECOVERY_REQUIRED"
+    );
+
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "NONE");
+    assert.equal(durable.conversation.status, "ACTIVE");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
