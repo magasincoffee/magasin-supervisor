@@ -57,6 +57,7 @@ jobs:
             test/single-conversation-loop.test.mjs \
             test/single-conversation-rollover.test.mjs \
             test/single-conversation-transaction.test.mjs \
+            test/sc008-acceptance-contract.test.mjs \
             test/single-conversation-cli.test.mjs \
             test/control-panel-single-conversation.test.mjs
 
