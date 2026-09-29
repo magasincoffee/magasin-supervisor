@@ -4,9 +4,15 @@ import process from "node:process";
 
 import { ChatGptUiAdapter } from "../ui/playwright-adapter.mjs";
 import { captureLatestRoleTurn } from "../ui/latest-turn.mjs";
-import { createNewChatAndBootstrap } from "./single-conversation-bootstrap.mjs";
+import {
+  createNewChatAndBootstrap,
+  opaqueRuntimeIdentity
+} from "./single-conversation-bootstrap.mjs";
 import {
   buildSingleConversationNextInstruction,
+  buildSingleConversationTaskDiscoveryInstruction,
+  buildSingleConversationTaskInstruction,
+  parseTaskControl,
   waitForSingleConversationResponse
 } from "./single-conversation-loop.mjs";
 import {
@@ -33,7 +39,7 @@ function parseArgs(argv) {
     execute: false,
     qualificationOnly: false,
     pollMs: 2_000,
-    responseTimeoutMs: 180_000,
+    responseTimeoutMs: 5_400_000,
     maxCycles: 0
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -153,6 +159,153 @@ async function settleTransactionResponse({
   return response;
 }
 
+
+function safeRebindOutboundState(state) {
+  return ["RESPONSE_COMPLETE", "VERIFIED"].includes(
+    String(state?.outbound?.state || "").toUpperCase()
+  );
+}
+
+export async function resumeExistingConversationPage({
+  adapter,
+  state
+} = {}) {
+  if (!adapter || !state) return null;
+  if (String(state?.conversation?.status || "").toUpperCase() !== "ACTIVE") {
+    return null;
+  }
+  if (!safeRebindOutboundState(state)) return null;
+
+  const expected = String(state?.conversation?.runtime_id || "").trim();
+  if (!expected) return null;
+
+  const pages = typeof adapter.getChatGptPages === "function"
+    ? adapter.getChatGptPages()
+    : [];
+  const matches = pages.filter((candidate) => {
+    try {
+      return opaqueRuntimeIdentity(candidate?.url?.()) === expected;
+    } catch {
+      return false;
+    }
+  });
+  if (matches.length !== 1) return null;
+
+  const page = typeof adapter.setActivePage === "function"
+    ? adapter.setActivePage(matches[0])
+    : matches[0];
+  const probe = await adapter.probePage(page).catch(() => null);
+  const snapshot = probe?.snapshot || {};
+  if (
+    !probe ||
+    snapshot.loginRequired ||
+    snapshot.hasCaptcha ||
+    snapshot.conversationMissing ||
+    snapshot.conversationAccessDenied ||
+    snapshot.pageClosed
+  ) {
+    return null;
+  }
+
+  return {
+    page,
+    runtime_id: expected,
+    generation: Number(state.conversation?.generation || 0)
+  };
+}
+
+async function captureProtocolBaselines(page) {
+  const baselineUser = await boundedRuntimeStep(
+    "TASK_CAPTURE_USER",
+    () => captureLatestRoleTurn(page, "user"),
+    { timeoutMs: 10_000 }
+  ).catch((error) => {
+    if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+    return null;
+  });
+  const baselineAssistant = await boundedRuntimeStep(
+    "TASK_CAPTURE_ASSISTANT",
+    () => captureLatestRoleTurn(page, "assistant"),
+    { timeoutMs: 10_000 }
+  ).catch((error) => {
+    if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+    return null;
+  });
+  return { baselineUser, baselineAssistant };
+}
+
+async function sendProtocolMessage({
+  adapter,
+  page,
+  statePath,
+  message,
+  messageId,
+  kind,
+  responseTimeoutMs,
+  pollMs
+}) {
+  const { baselineUser, baselineAssistant } =
+    await captureProtocolBaselines(page);
+
+  await prepareExactOnceOutbound(statePath, {
+    messageId,
+    message,
+    kind,
+    baselineUserTurnId: baselineUser?.turn_id || null
+  });
+  await markExactOnceEnqueued(statePath, { messageId, message });
+
+  const delivery = await reconcileExactOnceOutbound({
+    statePath,
+    page,
+    messageId,
+    message,
+    maxSafeRetries: 1,
+    reconciliationProbes: 4,
+    reconciliationPollMs: Math.min(500, Math.max(100, pollMs))
+  });
+  if (!["SEND", "SAFE_RETRY_SENT", "NO_SEND"].includes(delivery.action)) {
+    throw new Error("single-conversation transaction did not reach delivery evidence");
+  }
+
+  return settleTransactionResponse({
+    adapter,
+    page,
+    statePath,
+    messageId,
+    message,
+    baselineAssistantTurnId: baselineAssistant?.turn_id || null,
+    timeoutMs: responseTimeoutMs,
+    pollMs: Math.min(750, Math.max(100, pollMs))
+  });
+}
+
+async function discoverTaskControl({
+  adapter,
+  page,
+  statePath,
+  sourceOfTruthUrl,
+  responseTimeoutMs,
+  pollMs
+}) {
+  const messageId = randomUUID();
+  const message = buildSingleConversationTaskDiscoveryInstruction({
+    sourceOfTruthUrl,
+    messageId
+  });
+  const response = await sendProtocolMessage({
+    adapter,
+    page,
+    statePath,
+    message,
+    messageId,
+    kind: "SOURCE_OF_TRUTH_TASK_DISCOVERY",
+    responseTimeoutMs,
+    pollMs
+  });
+  return parseTaskControl(response.assistant_turn?.text);
+}
+
 export async function runSingleConversationRuntime({
   adapter,
   statePath,
@@ -160,7 +313,7 @@ export async function runSingleConversationRuntime({
   execute = false,
   qualificationOnly = false,
   pollMs = 2_000,
-  responseTimeoutMs = 180_000,
+  responseTimeoutMs = 5_400_000,
   maxCycles = 0
 } = {}) {
   if (!adapter) throw new Error("adapter is required");
@@ -182,6 +335,7 @@ export async function runSingleConversationRuntime({
   await adapter.open();
   let page = adapter.getActivePage();
   let current = await readSingleConversationState(statePath);
+  let bootstrapResponse = null;
 
   if (current.conversation.status !== "ACTIVE") {
     const bootstrap = await createNewChatAndBootstrap({
@@ -195,117 +349,178 @@ export async function runSingleConversationRuntime({
       pollMs: Math.min(750, Math.max(100, pollMs))
     });
     page = bootstrap.page;
+    bootstrapResponse = bootstrap.response;
   } else {
-    // Durable conversation identity intentionally contains no URL. On process
-    // restart, a browser page cannot be authoritatively rebound from local
-    // state alone. Fail-safe replacement rehydrates from SOT before new work.
-    const replacement = await replaceDisposableConversation({
+    const rebound = await resumeExistingConversationPage({
       adapter,
-      page,
-      statePath,
-      reason: "RUNTIME_RESTART_AMBIGUOUS_PAGE_IDENTITY",
-      sourceOfTruthUrl,
-      projectId: "LIVE",
-      qualificationOnly,
-      timeoutMs: responseTimeoutMs,
-      pollMs: Math.min(750, Math.max(100, pollMs))
+      state: current
     });
-    page = replacement.page;
+    if (rebound?.page) {
+      page = rebound.page;
+    } else {
+      const replacement = await replaceDisposableConversation({
+        adapter,
+        page,
+        statePath,
+        reason: "RUNTIME_RESTART_IDENTITY_NOT_VERIFIED",
+        sourceOfTruthUrl,
+        projectId: "LIVE",
+        qualificationOnly,
+        timeoutMs: responseTimeoutMs,
+        pollMs: Math.min(750, Math.max(100, pollMs))
+      });
+      page = replacement.page;
+      bootstrapResponse = replacement.response;
+    }
   }
 
   let cycles = 0;
+
+  if (qualificationOnly) {
+    while (maxCycles <= 0 || cycles < maxCycles) {
+      const recovery = await boundedRuntimeStep(
+        "NEXT_WORK_RECOVERY_PROBE",
+        () => recoverDisposableConversationIfNeeded({
+          adapter,
+          page,
+          statePath,
+          sourceOfTruthUrl,
+          projectId: "LIVE",
+          qualificationOnly: true,
+          timeoutMs: responseTimeoutMs,
+          pollMs: Math.min(750, Math.max(100, pollMs))
+        }),
+        { timeoutMs: 15_000 }
+      );
+      page = recovery.page;
+
+      const before = await readSingleConversationState(statePath);
+      const messageId = randomUUID();
+      const message = buildSingleConversationNextInstruction({
+        sourceOfTruthUrl: before.source_of_truth.url,
+        messageId,
+        qualificationOnly: true
+      });
+      await sendProtocolMessage({
+        adapter,
+        page,
+        statePath,
+        message,
+        messageId,
+        kind: "SOURCE_OF_TRUTH_NEXT_WORK",
+        responseTimeoutMs,
+        pollMs
+      });
+      cycles += 1;
+      await waitForNextCycleDelay(pollMs);
+    }
+
+    const finalState = await readSingleConversationState(statePath);
+    return {
+      status: "MAX_CYCLES",
+      cycles,
+      generation: finalState.conversation.generation
+    };
+  }
+
+  let control = null;
+  if (bootstrapResponse?.assistant_turn?.text) {
+    control = parseTaskControl(bootstrapResponse.assistant_turn.text);
+  } else {
+    const latestAssistant = await captureLatestRoleTurn(page, "assistant")
+      .catch(() => null);
+    try {
+      control = parseTaskControl(latestAssistant?.text);
+    } catch (error) {
+      if (error?.code !== "TASK_PROTOCOL_INVALID") throw error;
+      control = await discoverTaskControl({
+        adapter,
+        page,
+        statePath,
+        sourceOfTruthUrl,
+        responseTimeoutMs,
+        pollMs
+      });
+      cycles += 1;
+    }
+  }
+
   while (maxCycles <= 0 || cycles < maxCycles) {
+    if (control.status === "DONE") {
+      return {
+        status: "DONE",
+        cycles,
+        generation: (await readSingleConversationState(statePath)).conversation.generation
+      };
+    }
+    if (control.status === "BLOCKED") {
+      return {
+        status: "WAIT_OWNER",
+        cycles,
+        generation: (await readSingleConversationState(statePath)).conversation.generation
+      };
+    }
+
     const recovery = await boundedRuntimeStep(
-      "NEXT_WORK_RECOVERY_PROBE",
+      "TASK_RECOVERY_PROBE",
       () => recoverDisposableConversationIfNeeded({
         adapter,
         page,
         statePath,
         sourceOfTruthUrl,
         projectId: "LIVE",
+        qualificationOnly: false,
         timeoutMs: responseTimeoutMs,
         pollMs: Math.min(750, Math.max(100, pollMs))
       }),
       { timeoutMs: 15_000 }
     );
     page = recovery.page;
-
-    const before = await readSingleConversationState(statePath);
-    const messageId = randomUUID();
-    const message = buildSingleConversationNextInstruction({
-      sourceOfTruthUrl: before.source_of_truth.url,
-      messageId,
-      qualificationOnly
-    });
-    const baselineUser = await boundedRuntimeStep(
-      "NEXT_WORK_CAPTURE_USER",
-      () => captureLatestRoleTurn(page, "user"),
-      { timeoutMs: 10_000 }
-    ).catch((error) => {
-      if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
-      return null;
-    });
-    const baselineAssistant = await boundedRuntimeStep(
-      "NEXT_WORK_CAPTURE_ASSISTANT",
-      () => captureLatestRoleTurn(page, "assistant"),
-      { timeoutMs: 10_000 }
-    ).catch((error) => {
-      if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
-      return null;
-    });
-
-    await prepareExactOnceOutbound(statePath, {
-      messageId,
-      message,
-      kind: "SOURCE_OF_TRUTH_NEXT_WORK",
-      baselineUserTurnId: baselineUser?.turn_id || null
-    });
-    await markExactOnceEnqueued(statePath, { messageId, message });
-
-    const delivery = await reconcileExactOnceOutbound({
-      statePath,
-      page,
-      messageId,
-      message,
-      maxSafeRetries: 1,
-      reconciliationProbes: 4,
-      reconciliationPollMs: Math.min(500, Math.max(100, pollMs))
-    });
-    if (!["SEND", "SAFE_RETRY_SENT", "NO_SEND"].includes(delivery.action)) {
-      throw new Error("single-conversation transaction did not reach delivery evidence");
+    if (recovery.recovered) {
+      control = parseTaskControl(
+        recovery.result?.response?.assistant_turn?.text
+      );
+      continue;
     }
 
-    const response = await settleTransactionResponse({
+    const checkOnly = control.status === "RUNNING";
+    const taskId = checkOnly
+      ? control.task_id
+      : control.next_task_id;
+    if (!taskId) {
+      throw Object.assign(
+        new Error("task protocol did not provide an executable task id"),
+        { code: "TASK_PROTOCOL_INVALID" }
+      );
+    }
+
+    if (checkOnly) {
+      await waitForNextCycleDelay(control.check_after_seconds * 1000);
+    }
+
+    const messageId = randomUUID();
+    const message = buildSingleConversationTaskInstruction({
+      sourceOfTruthUrl,
+      taskId,
+      messageId,
+      checkOnly
+    });
+    const response = await sendProtocolMessage({
       adapter,
       page,
       statePath,
-      messageId,
       message,
-      baselineAssistantTurnId: baselineAssistant?.turn_id || null,
-      timeoutMs: responseTimeoutMs,
-      pollMs: Math.min(750, Math.max(100, pollMs))
+      messageId,
+      kind: checkOnly ? "TASK_STATUS_CHECK" : "TASK_EXECUTION",
+      responseTimeoutMs,
+      pollMs
     });
     cycles += 1;
+    control = parseTaskControl(response.assistant_turn?.text);
 
-    // Qualification-only runs exercise transport/continuity, not project
-    // completion semantics. A read-only assistant response may legitimately
-    // mention DONE/BLOCKED while describing SOT state; that must not stop a
-    // fixed-cycle qualification before maxCycles is reached.
-    const terminal = qualificationOnly
-      ? null
-      : terminalAnswer(response.assistant_turn?.text);
-    if (terminal) {
-      return {
-        status: terminal,
-        cycles,
-        generation: (await readSingleConversationState(statePath)).conversation.generation
-      };
+    if (!checkOnly) {
+      await waitForNextCycleDelay(pollMs);
     }
-
-    // Never use a long-lived Playwright page RPC merely to delay the next
-    // cycle. A stale CDP session can leave page.waitForTimeout() pending
-    // forever after the prior outbound transaction is already VERIFIED.
-    await waitForNextCycleDelay(pollMs);
   }
 
   const finalState = await readSingleConversationState(statePath);
@@ -350,6 +565,9 @@ if (isMain) {
     if (result.generation !== undefined) {
       console.log("SINGLE_CONVERSATION_GENERATION=" + result.generation);
     }
+    if (["DONE", "WAIT_OWNER"].includes(result.status)) {
+      finalExitCode = 76;
+    }
   } catch (error) {
     const code = String(error?.code || "");
     const stage = String(error?.runtime_stage || "");
@@ -357,7 +575,12 @@ if (isMain) {
     if (stage) {
       console.error("SINGLE_CONVERSATION_RUNTIME_ERROR_STAGE=" + stage);
     }
-    finalExitCode = code === "CDP_RECOVERY_REQUIRED" ? 75 : 1;
+    finalExitCode =
+      code === "CDP_RECOVERY_REQUIRED"
+        ? 75
+        : code === "TASK_PROTOCOL_INVALID"
+          ? 76
+          : 1;
   } finally {
     await boundedRuntimeCleanup(() => adapter.close(), 1_500);
   }

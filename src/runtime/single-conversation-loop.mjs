@@ -41,6 +41,182 @@ function assertActiveConversation(state) {
   }
 }
 
+export const TASK_CONTROL_HEADER = "MAGASIN_TASK_CONTROL_V1";
+export const TASK_CONTROL_FOOTER = "END_MAGASIN_TASK_CONTROL_V1";
+
+const TASK_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/;
+const TASK_STATUSES = new Set(["READY", "RUNNING", "COMPLETE", "BLOCKED", "DONE"]);
+
+function normalizeTaskId(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw.toUpperCase() === "NONE") return null;
+  if (!TASK_ID_RE.test(raw)) {
+    throw Object.assign(new Error("invalid task id in task-control block"), {
+      code: "TASK_PROTOCOL_INVALID"
+    });
+  }
+  return raw;
+}
+
+export function parseTaskControl(text) {
+  const source = String(text || "").replace(/\r\n/g, "\n");
+  const pattern = /(?:^|\n)MAGASIN_TASK_CONTROL_V1\n([\s\S]*?)\nEND_MAGASIN_TASK_CONTROL_V1(?=\n|$)/g;
+  let match = null;
+  for (const candidate of source.matchAll(pattern)) {
+    match = candidate;
+  }
+  if (!match) {
+    throw Object.assign(new Error("complete task-control block is missing"), {
+      code: "TASK_PROTOCOL_INVALID"
+    });
+  }
+
+  const body = match[1];
+  const fields = new Map();
+  for (const rawLine of body.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const match = /^([A-Z_]+)=(.*)$/.exec(line);
+    if (!match) {
+      throw Object.assign(new Error("malformed task-control line"), {
+        code: "TASK_PROTOCOL_INVALID"
+      });
+    }
+    fields.set(match[1], match[2].trim());
+  }
+
+  const status = String(fields.get("STATUS") || "").toUpperCase();
+  if (!TASK_STATUSES.has(status)) {
+    throw Object.assign(new Error("invalid task-control status"), {
+      code: "TASK_PROTOCOL_INVALID"
+    });
+  }
+
+  const taskId = normalizeTaskId(fields.get("TASK_ID"));
+  const nextTaskId = normalizeTaskId(fields.get("NEXT_TASK_ID"));
+  const checkAfter = Number(fields.get("CHECK_AFTER_SECONDS") || 0);
+  if (!Number.isInteger(checkAfter) || checkAfter < 0 || checkAfter > 3600) {
+    throw Object.assign(new Error("invalid CHECK_AFTER_SECONDS"), {
+      code: "TASK_PROTOCOL_INVALID"
+    });
+  }
+
+  if (status === "READY" && !nextTaskId) {
+    throw Object.assign(new Error("READY requires NEXT_TASK_ID"), {
+      code: "TASK_PROTOCOL_INVALID"
+    });
+  }
+  if (status === "RUNNING" && (!taskId || checkAfter < 1)) {
+    throw Object.assign(new Error("RUNNING requires TASK_ID and positive CHECK_AFTER_SECONDS"), {
+      code: "TASK_PROTOCOL_INVALID"
+    });
+  }
+  if (status === "COMPLETE" && (!taskId || !nextTaskId)) {
+    throw Object.assign(new Error("COMPLETE requires TASK_ID and NEXT_TASK_ID"), {
+      code: "TASK_PROTOCOL_INVALID"
+    });
+  }
+  if (status === "COMPLETE" && taskId === nextTaskId) {
+    throw Object.assign(new Error("COMPLETE cannot repeat the same TASK_ID as NEXT_TASK_ID"), {
+      code: "TASK_PROTOCOL_INVALID"
+    });
+  }
+  if ((status === "DONE" || status === "BLOCKED") && nextTaskId) {
+    throw Object.assign(new Error(status + " must not include NEXT_TASK_ID"), {
+      code: "TASK_PROTOCOL_INVALID"
+    });
+  }
+
+  return {
+    status,
+    task_id: taskId,
+    next_task_id: nextTaskId,
+    check_after_seconds: checkAfter
+  };
+}
+
+function taskControlContractLines() {
+  return [
+    "End the response with exactly one machine-readable block:",
+    TASK_CONTROL_HEADER,
+    "STATUS=<READY|RUNNING|COMPLETE|BLOCKED|DONE>",
+    "TASK_ID=<existing SOT task id or NONE>",
+    "NEXT_TASK_ID=<existing SOT task id or NONE>",
+    "CHECK_AFTER_SECONDS=<0-3600>",
+    TASK_CONTROL_FOOTER
+  ];
+}
+
+export function buildSingleConversationTaskDiscoveryInstruction({
+  sourceOfTruthUrl,
+  messageId = randomUUID()
+} = {}) {
+  const source = String(sourceOfTruthUrl || "").trim();
+  const id = String(messageId || "").trim();
+  if (!source) throw new Error("sourceOfTruthUrl is required");
+  if (!id) throw new Error("messageId is required");
+
+  return [
+    "MAGASIN_DISCOVER_TASK_V1",
+    `id=${id}`,
+    `SOT=${source}`,
+    "Re-read SOT from the beginning.",
+    "SOT is the sole project authority.",
+    "Do not execute project work in this turn.",
+    "Identify exactly one authoritative next executable task ID already present in SOT.",
+    "If a task is available, use STATUS=READY and put it in NEXT_TASK_ID.",
+    "If the project is finished, use STATUS=DONE. If Owner input is required, use STATUS=BLOCKED.",
+    ...taskControlContractLines(),
+    `End with: MAGASIN_CYCLE_CORRELATION_V1 ${id}`
+  ].join("\n");
+}
+
+export function buildSingleConversationTaskInstruction({
+  sourceOfTruthUrl,
+  taskId,
+  messageId = randomUUID(),
+  checkOnly = false
+} = {}) {
+  const source = String(sourceOfTruthUrl || "").trim();
+  const task = normalizeTaskId(taskId);
+  const id = String(messageId || "").trim();
+  if (!source) throw new Error("sourceOfTruthUrl is required");
+  if (!task) throw new Error("taskId is required");
+  if (!id) throw new Error("messageId is required");
+
+  const common = [
+    checkOnly ? "MAGASIN_CHECK_TASK_V1" : "MAGASIN_EXECUTE_TASK_V1",
+    `id=${id}`,
+    `TASK_ID=${task}`,
+    `SOT=${source}`,
+    "Re-read SOT only to validate this TASK_ID against current authoritative state.",
+    "Do not select or execute a different task in this turn."
+  ];
+
+  if (checkOnly) {
+    return [
+      ...common,
+      "Inspect the durable execution evidence for this same task.",
+      "If it is still running, use STATUS=RUNNING with the same TASK_ID and a bounded CHECK_AFTER_SECONDS.",
+      "If it completed, verify the result and use STATUS=COMPLETE with the next authoritative SOT task ID.",
+      "If this completion finishes the whole project, use STATUS=DONE. If Owner input is required, use STATUS=BLOCKED.",
+      ...taskControlContractLines(),
+      `End with: MAGASIN_CYCLE_CORRELATION_V1 ${id}`
+    ].join("\n");
+  }
+
+  return [
+    ...common,
+    "If valid, execute this task now using the available tools; do not merely report or recommend the work.",
+    "Verify concrete completion evidence before declaring COMPLETE.",
+    "For work expected to take more than about 5 minutes, prefer launching a durable external job/run when available, then return promptly with STATUS=RUNNING instead of holding the chat turn open.",
+    "When STATUS=RUNNING, keep TASK_ID unchanged and choose a practical CHECK_AFTER_SECONDS (normally 30-600).",
+    "After completion, report exactly one next authoritative task ID from SOT. If no work remains, use STATUS=DONE.",
+    ...taskControlContractLines(),
+    `End with: MAGASIN_CYCLE_CORRELATION_V1 ${id}`
+  ].join("\n");
+}
+
 export function buildSingleConversationNextInstruction({
   sourceOfTruthUrl,
   messageId = randomUUID(),
@@ -270,11 +446,7 @@ export async function waitForSingleConversationResponse({
       if (consecutiveTransientFailures >= transientLimit) {
         assertSafeSnapshot(snapshot);
       }
-      if (typeof page.waitForTimeout === "function") {
-        await page.waitForTimeout(pollMs);
-      } else {
-        await new Promise((resolve) => setTimeout(resolve, pollMs));
-      }
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
       continue;
     }
     consecutiveTransientFailures = 0;
@@ -359,11 +531,7 @@ export async function waitForSingleConversationResponse({
       }
     }
 
-    if (typeof page.waitForTimeout === "function") {
-      await page.waitForTimeout(pollMs);
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, pollMs));
-    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
 
   throw Object.assign(new Error("single-conversation response timed out"), {

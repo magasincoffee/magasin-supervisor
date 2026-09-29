@@ -66,7 +66,8 @@ test("SC-003 bootstrap prompt carries sole Source of Truth and unique correlatio
   );
   assert.match(message, /sole project authority/i);
   assert.match(message, /Read SOT from the beginning/i);
-  assert.match(message, /one bounded next unit allowed by SOT/i);
+  assert.match(message, /authoritative next executable task ID/i);
+  assert.match(message, /MAGASIN_TASK_CONTROL_V1/);
   assert.match(message, /^[\x20-\x7E]+$/);
   assert.match(message, /MAGASIN_BOOTSTRAP_CORRELATION_V1 msg-001/);
   assert.doesNotMatch(message, /Planner|Executor|Brain|Work mode/i);
@@ -454,7 +455,7 @@ test("SC-003 persists PREPARED before send, confirms user turn, then records res
       return {
         role: "assistant",
         turn_id: "conversation-turn-2",
-        text: "Bootstrap response",
+        text: "Bootstrap response\nMAGASIN_BOOTSTRAP_CORRELATION_V1 msg-002",
         digest: "assistant-digest"
       };
     }
@@ -506,6 +507,83 @@ test("SC-003 persists PREPARED before send, confirms user turn, then records res
   }
 });
 
+test("SC-011 persists final conversation identity after delayed URL assignment", async () => {
+  const { root, statePath } = await tempStatePath();
+  const page = fakePage();
+  let sent = false;
+  let probeCount = 0;
+
+  const adapter = {
+    async open() {},
+    getActivePage() { return page; },
+    async newChatPage() {
+      throw new Error("blank home should be reused");
+    },
+    async probePage() {
+      if (!sent) return { snapshot: blankSnapshot() };
+      probeCount += 1;
+      if (probeCount === 1) {
+        return {
+          snapshot: blankSnapshot({
+            pathKind: "conversation",
+            conversationPath: true,
+            userMessageCount: 1,
+            responseRunning: true
+          })
+        };
+      }
+      page.setUrl("https://chatgpt.com/c/delayed-identity");
+      return {
+        snapshot: blankSnapshot({
+          pathKind: "conversation",
+          conversationPath: true,
+          userMessageCount: 1,
+          assistantMessageCount: 1,
+          responseRunning: false
+        })
+      };
+    }
+  };
+
+  const captureTurn = async (_page, role) => {
+    if (!sent || role === "user") return null;
+    if (probeCount >= 2) {
+      return {
+        role: "assistant",
+        turn_id: "assistant-delayed",
+        text: "ready\nMAGASIN_BOOTSTRAP_CORRELATION_V1 delayed-id",
+        digest: "assistant-delayed-digest"
+      };
+    }
+    return null;
+  };
+
+  try {
+    await createNewChatAndBootstrap({
+      adapter,
+      statePath,
+      sourceOfTruthUrl: "https://example.com/source",
+      messageId: "delayed-id",
+      captureTurn,
+      sendInstruction: async () => {
+        sent = true;
+        return {
+          executed: true,
+          user_turn_id: "user-delayed",
+          user_turn_evidence: "exact-fresh-conversation-turn"
+        };
+      },
+      timeoutMs: 5_000,
+      pollMs: 1
+    });
+
+    const durable = await readSingleConversationState(statePath);
+    assert.match(durable.conversation.runtime_id, /^chat:[0-9a-f]{32}$/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("SC-003 trusts exact fresh-turn send proof without a second role-selector capture", async () => {
   const { root, statePath } = await tempStatePath();
   const page = fakePage();
@@ -548,7 +626,7 @@ test("SC-003 trusts exact fresh-turn send proof without a second role-selector c
       return {
         role: "assistant",
         turn_id: "conversation-turn-2",
-        text: "done",
+        text: "done\nMAGASIN_BOOTSTRAP_CORRELATION_V1 msg-direct-proof",
         digest: "assistant-digest"
       };
     }

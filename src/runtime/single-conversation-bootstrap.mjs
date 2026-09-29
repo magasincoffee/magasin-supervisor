@@ -19,7 +19,7 @@ function nowIso(now) {
   return date.toISOString();
 }
 
-function opaqueRuntimeIdentity(url) {
+export function opaqueRuntimeIdentity(url) {
   try {
     const parsed = new URL(String(url || ""));
     if (!isChatGptUrl(parsed.toString())) return null;
@@ -97,7 +97,17 @@ export function buildSingleConversationBootstrap({
 
   return [
     ...common,
-    "Do one bounded next unit allowed by SOT, or state the blocker.",
+    "Do not execute project work in this bootstrap turn.",
+    "Identify exactly one authoritative next executable task ID already present in SOT.",
+    "If a task is available, end with a machine block using STATUS=READY and NEXT_TASK_ID=<id>.",
+    "If the project is complete, use STATUS=DONE. If Owner input is required, use STATUS=BLOCKED.",
+    "The block format is:",
+    "MAGASIN_TASK_CONTROL_V1",
+    "STATUS=<READY|BLOCKED|DONE>",
+    "TASK_ID=NONE",
+    "NEXT_TASK_ID=<existing SOT task id or NONE>",
+    "CHECK_AFTER_SECONDS=0",
+    "END_MAGASIN_TASK_CONTROL_V1",
     `End with: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
   ].join(" ");
 }
@@ -304,7 +314,7 @@ async function waitForExactFreshUserTurn(
   while (Date.now() <= deadline) {
     latest = await captureExactFreshUserTurn(page, expected);
     if (latest?.turn_id) return latest;
-    await page.waitForTimeout(pollMs);
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
   return latest || {
     turn_id: null,
@@ -920,6 +930,7 @@ async function persistResponseRunning(statePath, now) {
 
 async function persistResponseComplete(statePath, {
   assistantTurnId,
+  runtimeId = null,
   now
 }) {
   const state = await readSingleConversationState(statePath);
@@ -933,6 +944,9 @@ async function persistResponseComplete(statePath, {
   // Assistant turn identity is runtime evidence only. Keep it under
   // automation diagnostics rather than creating a second project authority.
   state.automation.last_assistant_turn_id = assistantTurnId || null;
+  if (runtimeId) {
+    state.conversation.runtime_id = runtimeId;
+  }
   return writeSingleConversationState(statePath, state, { now });
 }
 
@@ -1092,6 +1106,7 @@ export async function waitForBootstrapResponse({
           ) {
             await persistResponseComplete(statePath, {
               assistantTurnId: assistant.turn_id,
+              runtimeId: opaqueRuntimeIdentity(pageUrl(page)),
               now
             });
             return {
@@ -1104,6 +1119,7 @@ export async function waitForBootstrapResponse({
         } else {
           await persistResponseComplete(statePath, {
             assistantTurnId: assistant.turn_id,
+            runtimeId: opaqueRuntimeIdentity(pageUrl(page)),
             now
           });
           return {
@@ -1116,11 +1132,7 @@ export async function waitForBootstrapResponse({
       }
     }
 
-    if (typeof page?.waitForTimeout === "function") {
-      await page.waitForTimeout(pollMs);
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, pollMs));
-    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
 
   throw Object.assign(new Error("bootstrap assistant response timed out"), {
@@ -1263,9 +1275,8 @@ export async function createNewChatAndBootstrap({
       statePath,
       baselineAssistantTurnId: baselineAssistant?.turn_id || null,
       captureTurn,
-      expectedAssistantMarker: qualificationOnly
-        ? `MAGASIN_BOOTSTRAP_CORRELATION_V1 ${messageId}`
-        : null,
+      expectedAssistantMarker:
+        `MAGASIN_BOOTSTRAP_CORRELATION_V1 ${messageId}`,
       timeoutMs,
       pollMs,
       now
