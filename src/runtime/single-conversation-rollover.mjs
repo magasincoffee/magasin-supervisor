@@ -239,6 +239,7 @@ export async function recoverDisposableConversationIfNeeded({
   statePath,
   consecutiveTransientFailures = 0,
   transientFailureThreshold = 3,
+  probePage = null,
   ...replacementOptions
 } = {}) {
   if (!adapter) throw new Error("adapter is required");
@@ -248,7 +249,9 @@ export async function recoverDisposableConversationIfNeeded({
     typeof page.isClosed === "function" && page.isClosed();
   const probe = pageClosed
     ? { snapshot: { pageClosed: true } }
-    : await adapter.probePage(page);
+    : await (typeof probePage === "function"
+      ? probePage(page)
+      : adapter.probePage(page));
   const classification = classifyDisposableConversation(
     probe?.snapshot || {},
     { consecutiveTransientFailures, transientFailureThreshold }
