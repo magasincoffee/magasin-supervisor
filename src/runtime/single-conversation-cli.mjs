@@ -86,7 +86,6 @@ export async function withRuntimeDeadline(
           error.runtime_operation = String(label || "UI");
           reject(error);
         }, timeout);
-        timer.unref?.();
       })
     ]);
   } finally {
