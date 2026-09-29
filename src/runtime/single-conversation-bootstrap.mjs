@@ -112,7 +112,7 @@ function normalizeBootstrapRenderedText(value) {
     .trim();
 }
 
-async function findFreshChatComposer(page, timeoutMs = 8_000) {
+async function findFreshChatComposer(page, timeoutMs = 30_000) {
   const selectors = [
     "#prompt-textarea:visible",
     "[contenteditable][role='textbox']:visible",
@@ -130,7 +130,10 @@ async function findFreshChatComposer(page, timeoutMs = 8_000) {
         : true;
       if (enabled) return locator;
     }
-    await page.waitForTimeout(150);
+    // Composer hydration is a UI condition; the retry delay must not itself
+    // depend on the long-lived Playwright/CDP page RPC that SC-010 is designed
+    // to recover from.
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
   return null;
 }
@@ -331,7 +334,7 @@ export async function sendFreshChatBootstrapInstruction(
     await page.bringToFront().catch(() => {});
   }
 
-  const composer = await findFreshChatComposer(page);
+  const composer = await findFreshChatComposer(page, 30_000);
   if (!composer) {
     return {
       executed: false,
@@ -366,7 +369,7 @@ export async function sendFreshChatBootstrapInstruction(
     page.keyboard &&
     typeof page.keyboard.type === "function"
   ) {
-    const keyboardComposer = await findFreshChatComposer(page, 2_000);
+    const keyboardComposer = await findFreshChatComposer(page, 5_000);
     if (keyboardComposer) {
       await keyboardComposer.click({ timeout: 2_000 }).catch(() => {});
       if (page.keyboard && typeof page.keyboard.press === "function") {
@@ -376,7 +379,7 @@ export async function sendFreshChatBootstrapInstruction(
       }
       await page.keyboard.type(instruction, { delay: 0 });
       await page.waitForTimeout(250);
-      const typedComposer = await findFreshChatComposer(page, 1_500);
+      const typedComposer = await findFreshChatComposer(page, 5_000);
       rendered = typedComposer
         ? await readFreshComposerText(typedComposer)
         : null;
@@ -405,7 +408,7 @@ export async function sendFreshChatBootstrapInstruction(
   // Native typing can rerender/replace ProseMirror. Never submit through the
   // locator captured before typing; reacquire the live editor after exact text
   // verification and verify the same Robot-owned message is still present.
-  const submitComposer = await findFreshChatComposer(page, 2_000);
+  const submitComposer = await findFreshChatComposer(page, 5_000);
   const submitText = submitComposer
     ? await readFreshComposerText(submitComposer)
     : null;
@@ -438,7 +441,7 @@ export async function sendFreshChatBootstrapInstruction(
     // verification and locator.press(). Reacquire the live composer, restore
     // focus, and issue one page-level Enter. This is still the same bounded
     // submit attempt; no delivery evidence has been observed yet.
-    const retryComposer = await findFreshChatComposer(page, 1_500);
+    const retryComposer = await findFreshChatComposer(page, 5_000);
     if (
       !retryComposer ||
       !page.keyboard ||
