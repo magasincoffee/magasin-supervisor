@@ -121,8 +121,21 @@ try {
     await bounded("OLD_CHAT_CLOSE", () => adapter.closePage(candidate), 2000);
   }
 
+  // Closing stale ChatGPT tabs can race with a ChatGPT rerender/navigation and
+  // invalidate the Page handle captured before cleanup. The runtime has already
+  // completed all five cycles at this point, so reacquire the live page from
+  // the adapter before the final read-only probe instead of failing on a stale
+  // qualification-only handle.
+  const finalPage =
+    adapter.getActivePage() ||
+    adapter.getChatGptPages().find((candidate) => !candidate.isClosed?.()) ||
+    null;
+  if (!finalPage || finalPage.isClosed?.()) {
+    throw new Error("SC-010 final ChatGPT page is unavailable after cleanup");
+  }
+
   const probe = await Promise.race([
-    adapter.probePage(activePage),
+    adapter.probePage(finalPage),
     new Promise((_, reject) => setTimeout(
       () => reject(Object.assign(new Error("final live probe timeout"), { code: "FINAL_PROBE_TIMEOUT" })),
       10000
