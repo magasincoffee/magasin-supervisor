@@ -132,5 +132,39 @@ foreach ($rel in @(
   }
 }
 
+
+$qualDir = Join-Path $root 'diagnostics\sc010-live'
+if (Test-Path $qualDir) {
+  $latestQual = Get-ChildItem $qualDir -Filter '*.state.json' -File -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTimeUtc -Descending |
+    Select-Object -First 1
+  if ($latestQual) {
+    Write-Host ("SC010_LATEST_QUAL_STATE=" + $latestQual.Name)
+    Write-Host ("SC010_LATEST_QUAL_STATE_MTIME_UTC=" + $latestQual.LastWriteTimeUtc.ToString('o'))
+    try {
+      $q = Get-Content $latestQual.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+      Write-Host ("SC010_QUAL_STATE_UPDATED_AT=" + [string]$q.updated_at)
+      Write-Host ("SC010_QUAL_AUTOMATION_STATUS=" + [string]$q.automation.status)
+      Write-Host ("SC010_QUAL_AUTOMATION_PHASE=" + [string]$q.automation.phase)
+      Write-Host ("SC010_QUAL_AUTOMATION_REASON=" + [string]$q.automation.reason)
+      Write-Host ("SC010_QUAL_CONVERSATION_GENERATION=" + [string]$q.conversation.generation)
+      Write-Host ("SC010_QUAL_CONVERSATION_STATUS=" + [string]$q.conversation.status)
+      Write-Host ("SC010_QUAL_OUTBOUND_STATE=" + [string]$q.outbound.state)
+      Write-Host ("SC010_QUAL_OUTBOUND_MESSAGE_ID=" + [string]$q.outbound.message_id)
+      Write-Host ("SC010_QUAL_OUTBOUND_RETRY_COUNT=" + [string]$q.outbound.retry_count)
+      Write-Host ("SC010_QUAL_OUTBOUND_PREPARED_AT=" + [string]$q.outbound.prepared_at)
+      Write-Host ("SC010_QUAL_OUTBOUND_DELIVERED_AT=" + [string]$q.outbound.delivered_at)
+      Write-Host ("SC010_QUAL_OUTBOUND_RESPONSE_RUNNING_AT=" + [string]$q.outbound.response_running_at)
+      Write-Host ("SC010_QUAL_OUTBOUND_RESPONSE_COMPLETE_AT=" + [string]$q.outbound.response_complete_at)
+      Write-Host ("SC010_QUAL_OUTBOUND_VERIFIED_AT=" + [string]$q.outbound.verified_at)
+      Write-Host ("SC010_QUAL_OUTBOUND_LAST_ERROR_CODE=" + [string]$q.outbound.last_error_code)
+      Write-Host ("SC010_QUAL_SOT_SYNC_STATUS=" + [string]$q.source_of_truth.sync_status)
+      Write-Host ("SC010_QUAL_SOT_LAST_VERIFIED_AT=" + [string]$q.source_of_truth.last_verified_at)
+    } catch {
+      Write-Host ("SC010_QUAL_STATE_READ_ERROR=" + $_.Exception.GetType().Name)
+    }
+  }
+}
+
 Set-Output 'diagnosed' 'true'
 Write-Host 'SC010_DIAGNOSTIC=PASS'
