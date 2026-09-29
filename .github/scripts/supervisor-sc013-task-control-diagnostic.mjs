@@ -61,14 +61,25 @@ try {
   if (!assistant?.text) {
     assistant = await captureFreshAssistantTurn(rebound.page).catch(() => null);
   }
-  if (!assistant?.text) {
+
+  let text = String(assistant?.text || "");
+  let sourceKind = assistant?.text ? "ASSISTANT_CAPTURE" : "MAIN_TEXT_FALLBACK";
+  if (!text) {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      text = await rebound.page.evaluate(() =>
+        String(document.querySelector("main")?.innerText || "")
+      ).catch(() => "");
+      if (text.includes("MAGASIN_TASK_CONTROL_V1")) break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  if (!text) {
     throw Object.assign(
-      new Error("latest production assistant turn is unavailable"),
-      { code: "ASSISTANT_TURN_UNAVAILABLE" }
+      new Error("production conversation main text is unavailable"),
+      { code: "CONVERSATION_TEXT_UNAVAILABLE" }
     );
   }
-
-  const text = String(assistant.text);
+  log("SC013_TEXT_SOURCE", sourceKind);
   log("SC013_ASSISTANT_TEXT_LENGTH", text.length);
   log("SC013_HAS_TASK_HEADER", text.includes("MAGASIN_TASK_CONTROL_V1"));
   log("SC013_HAS_TASK_FOOTER", text.includes("END_MAGASIN_TASK_CONTROL_V1"));
@@ -77,14 +88,19 @@ try {
     /MAGASIN_BOOTSTRAP_CORRELATION_V1\s+[0-9a-f-]{16,}/i.test(text)
   );
 
-  const block = text.match(
-    /MAGASIN_TASK_CONTROL_V1[\s\S]*?END_MAGASIN_TASK_CONTROL_V1/
-  )?.[0] || "";
-  if (block) {
-    // Only emit the protocol block, never arbitrary assistant prose.
-    log("SC013_PROTOCOL_BLOCK_BEGIN", "True");
-    console.log(block.slice(0, 2000));
-    log("SC013_PROTOCOL_BLOCK_END", "True");
+  const blocks = [
+    ...text.matchAll(
+      /MAGASIN_TASK_CONTROL_V1[\s\S]*?END_MAGASIN_TASK_CONTROL_V1/g
+    )
+  ].map((match) => match[0]);
+  log("SC013_PROTOCOL_BLOCK_COUNT", blocks.length);
+  if (blocks.length) {
+    // Emit only machine blocks, never arbitrary conversation prose.
+    blocks.slice(-3).forEach((block, index) => {
+      log("SC013_PROTOCOL_BLOCK_BEGIN_" + index, "True");
+      console.log(block.slice(0, 2000));
+      log("SC013_PROTOCOL_BLOCK_END_" + index, "True");
+    });
   }
 
   try {
