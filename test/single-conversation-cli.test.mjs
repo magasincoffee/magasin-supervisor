@@ -127,3 +127,18 @@ test("SC-010 qualification-only remains fixed-cycle and read-only after SC-011",
   assert.match(source, /while \(maxCycles <= 0 \|\| cycles < maxCycles\)/);
   assert.match(source, /status: "MAX_CYCLES"/);
 });
+
+
+test("SC-011 fresh task send remains PREPARED until exact-once reconciler enqueues", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const start = source.indexOf("async function sendProtocolMessage");
+  const end = source.indexOf("async function discoverTaskControl", start);
+  assert.ok(start >= 0 && end > start);
+  const body = source.slice(start, end);
+  assert.match(body, /prepareExactOnceOutbound/);
+  assert.match(body, /reconcileExactOnceOutbound/);
+  assert.doesNotMatch(body, /markExactOnceEnqueued/);
+});
