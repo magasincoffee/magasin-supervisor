@@ -109,7 +109,7 @@ export function buildSingleConversationBootstrap({
     "CHECK_AFTER_SECONDS=0",
     "END_MAGASIN_TASK_CONTROL_V1",
     `End with: MAGASIN_BOOTSTRAP_CORRELATION_V1 ${id}`
-  ].join("\n");
+  ].join(" ");
 }
 
 
