@@ -140,3 +140,28 @@ test("CDP adapter keeps navigation generous but UI actions fail fast", async () 
   assert.match(source, /setDefaultNavigationTimeout\(this\.timeoutMs\)/);
 });
 
+
+
+test("SC-010 new Chat page becomes the adapter sticky active page", async () => {
+  const adapter = new ChatGptUiAdapter({
+    chromeExecutable: "fake-chrome",
+    settleMs: 0
+  });
+  const warm = fakePage("https://chatgpt.com/");
+  let currentUrl = "about:blank";
+  const fresh = {
+    url() { return currentUrl; },
+    isClosed() { return false; },
+    async goto(url) { currentUrl = url; },
+    async waitForTimeout() {}
+  };
+  adapter.page = warm;
+  adapter.context = {
+    pages: () => [warm, fresh],
+    async newPage() { return fresh; }
+  };
+
+  const created = await adapter.newChatPage("https://chatgpt.com/");
+  assert.equal(created, fresh);
+  assert.equal(adapter.getActivePage(), fresh);
+});
