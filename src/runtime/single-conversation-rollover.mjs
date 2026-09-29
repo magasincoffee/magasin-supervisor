@@ -18,6 +18,26 @@ function nowIso(now) {
   return date.toISOString();
 }
 
+async function boundedProbe(operation, timeoutMs) {
+  const limit = Math.max(1, Number(timeoutMs || 12_000));
+  let timer = null;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(operation),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          reject(Object.assign(
+            new Error("disposable conversation probe timed out"),
+            { code: "DISPOSABLE_CONVERSATION_PROBE_TIMEOUT" }
+          ));
+        }, limit);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export function classifyDisposableConversation(snapshot = {}, {
   consecutiveTransientFailures = 0,
   transientFailureThreshold = 3
@@ -239,6 +259,7 @@ export async function recoverDisposableConversationIfNeeded({
   statePath,
   consecutiveTransientFailures = 0,
   transientFailureThreshold = 3,
+  probeTimeoutMs = 12_000,
   ...replacementOptions
 } = {}) {
   if (!adapter) throw new Error("adapter is required");
@@ -248,7 +269,10 @@ export async function recoverDisposableConversationIfNeeded({
     typeof page.isClosed === "function" && page.isClosed();
   const probe = pageClosed
     ? { snapshot: { pageClosed: true } }
-    : await adapter.probePage(page);
+    : await boundedProbe(
+        () => adapter.probePage(page),
+        probeTimeoutMs
+      );
   const classification = classifyDisposableConversation(
     probe?.snapshot || {},
     { consecutiveTransientFailures, transientFailureThreshold }
