@@ -204,6 +204,19 @@ test("SC-010 fresh bootstrap tolerates delayed composer hydration", async () => 
   );
 });
 
+test("SC-010 observes delivery when Enter throws after composer rerender", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-bootstrap.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /locator\.press\(\) can throw while the browser has already consumed Enter/);
+  assert.match(source, /Otherwise fall through to\s*\/\/ delivery observation/);
+  assert.doesNotMatch(
+    source,
+    /reason: "fresh ChatGPT composer changed before Enter recovery"/
+  );
+});
+
 test("SC-010 retries explicit Send only after positive blank-home non-delivery evidence", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/single-conversation-bootstrap.mjs", import.meta.url),
