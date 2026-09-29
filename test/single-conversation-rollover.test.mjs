@@ -390,33 +390,79 @@ test("SC-005 recovery helper replaces a missing conversation automatically", asy
 
 
 test("SC-010 converts probe-close race into disposable rollover", async () => {
-  const statePath = await createActiveState();
+  const { root, statePath } = await tempState();
   let closed = false;
   const oldPage = {
     isClosed() { return closed; }
   };
-  const replacementPage = {
-    isClosed() { return false; }
+  const newPage = {
+    isClosed() { return false; },
+    url() { return "https://chatgpt.com/c/recovered-race"; },
+    async waitForTimeout() {}
   };
-  const adapter = {
-    async probePage() {
-      closed = true;
-      throw new Error("page is required");
-    },
-    async closePage() { return true; }
-  };
+  let sent = false;
+  let phase = 0;
 
-  const result = await recoverDisposableConversationIfNeeded({
-    adapter,
-    page: oldPage,
-    statePath,
-    sourceOfTruthUrl: SOURCE,
-    replaceConversation: async () => ({ page: replacementPage })
-  }).catch((error) => ({ error }));
+  try {
+    const adapter = {
+      async open() {},
+      getActivePage() { return oldPage; },
+      async closePage() {
+        throw new Error("race-closed page must not be closed again");
+      },
+      async newChatPage() { return newPage; },
+      async probePage(candidate) {
+        if (candidate === oldPage) {
+          closed = true;
+          throw new Error("page is required");
+        }
+        if (!sent) {
+          return { snapshot: snapshot({
+            conversationPath: false,
+            composerReady: true
+          }) };
+        }
+        phase += 1;
+        return { snapshot: snapshot({
+          responseRunning: phase === 1,
+          userMessageCount: 1,
+          assistantMessageCount: phase > 1 ? 1 : 0
+        }) };
+      }
+    };
 
-  // The production implementation must not leak the probe race as
-  // "page is required"; it must classify the page as closed. This source-level
-  // assertion complements integration coverage where replacement is exercised
-  // with the real bootstrap path.
-  assert.equal(result?.error?.message, undefined);
+    const result = await recoverDisposableConversationIfNeeded({
+      adapter,
+      page: oldPage,
+      statePath,
+      messageId: "recover-race",
+      qualificationOnly: true,
+      sendInstruction: async () => {
+        sent = true;
+        return { executed: true };
+      },
+      captureTurn: async (_page, role) => {
+        if (!sent) return null;
+        if (role === "user") {
+          return { turn_id: "u-race", text: "b", digest: "u-race" };
+        }
+        if (phase > 1) {
+          return {
+            turn_id: "a-race",
+            text:
+              "SINGLE_CONVERSATION_V1 MAGASIN_BOOTSTRAP_CORRELATION_V1 recover-race",
+            digest: "a-race"
+          };
+        }
+        return null;
+      },
+      pollMs: 1
+    });
+
+    assert.equal(result.recovered, true);
+    assert.equal(result.classification.reason, "STALE_OR_CLOSED_PAGE");
+    assert.equal(result.result.active_generation, 2);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
