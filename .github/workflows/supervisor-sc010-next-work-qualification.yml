@@ -22,6 +22,7 @@ concurrency:
 
 jobs:
   attempt-1:
+    if: ${{ false }}
     runs-on: self-hosted
     timeout-minutes: 25
     outputs:
@@ -49,6 +50,7 @@ jobs:
           exit /b %ERRORLEVEL%
 
   attempt-2:
+    if: ${{ false }}
     runs-on: self-hosted
     timeout-minutes: 25
     outputs:
