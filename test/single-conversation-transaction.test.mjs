@@ -75,6 +75,47 @@ test("SC-006 persists PREPARED then ENQUEUED receipt before UI send", async () =
   }
 });
 
+test("SC-006 exact DOM evidence reconciles delivery when latest-turn helper is stale", async () => {
+  const { root, statePath } = await makeState();
+  const message = "MAGASIN_SINGLE_CONVERSATION_NEXT_V1 id=modern-dom";
+  try {
+    await prepareExactOnceOutbound(statePath, {
+      messageId: "modern-dom",
+      message,
+      kind: "NEXT",
+      baselineUserTurnId: "u0"
+    });
+
+    let sends = 0;
+    const result = await reconcileExactOnceOutbound({
+      statePath,
+      page: { async waitForTimeout() {} },
+      messageId: "modern-dom",
+      message,
+      reconciliationProbes: 1,
+      captureTurn: async () => ({ turn_id: "u0", text: "old" }),
+      captureMatchingTurn: async () => ({
+        confirmed: true,
+        turn_id: "modern-user-1",
+        evidence: "exact-modern-user-turn"
+      }),
+      inspectDraft: async () => ({ ready: true, has_text: false, digest: null }),
+      sendInstruction: async () => {
+        sends += 1;
+        return { executed: true };
+      }
+    });
+
+    assert.equal(result.action, "NO_SEND");
+    assert.equal(sends, 0);
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "DELIVERED");
+    assert.equal(durable.outbound.delivered_user_turn_id, "modern-user-1");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("SC-006 polls delayed post-send user-turn evidence before marking DELIVERED", async () => {
   const { root, statePath } = await makeState();
   const message = "MAGASIN_SINGLE_CONVERSATION_NEXT_V1 id=delayed";
