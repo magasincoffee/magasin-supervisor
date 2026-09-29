@@ -82,6 +82,7 @@ $deadline = [DateTimeOffset]::UtcNow.AddMinutes(22)
 $nodeObserved = $false
 $maxNextWorkAge = [TimeSpan]::Zero
 $recoveryObserved = $false
+$candidateStateObserved = $false
 
 while ([DateTimeOffset]::UtcNow -lt $deadline -and $cycleIds.Count -lt 5) {
   $nodes = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
@@ -93,13 +94,14 @@ while ([DateTimeOffset]::UtcNow -lt $deadline -and $cycleIds.Count -lt 5) {
       $state = Get-Content $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
       $phase = [string]$state.automation.phase
       $updatedAt = [DateTimeOffset]::Parse([string]$state.updated_at)
+      if ($updatedAt -gt $qualificationStart) { $candidateStateObserved = $true }
       $age = [DateTimeOffset]::UtcNow - $updatedAt
-      if ($phase -eq 'NEXT_WORK' -and $age -gt $maxNextWorkAge) { $maxNextWorkAge = $age }
-      if ($phase -eq 'NEXT_WORK' -and $age.TotalSeconds -gt 45) {
+      if ($candidateStateObserved -and $phase -eq 'NEXT_WORK' -and $age -gt $maxNextWorkAge) { $maxNextWorkAge = $age }
+      if ($candidateStateObserved -and $phase -eq 'NEXT_WORK' -and $age.TotalSeconds -gt 45) {
         Write-Host "SC010_LIVE_NEXT_WORK_STALL_SECONDS=$([int]$age.TotalSeconds)"
         throw 'NEXT_WORK remained stale for more than 45 seconds.'
       }
-      if ($phase -eq 'RECOVERY_REQUESTED') { $recoveryObserved = $true }
+      if ($candidateStateObserved -and $phase -eq 'RECOVERY_REQUESTED') { $recoveryObserved = $true }
 
       $messageId = [string]$state.outbound.message_id
       $verifiedAtRaw = [string]$state.outbound.verified_at
@@ -131,6 +133,7 @@ while ([DateTimeOffset]::UtcNow -lt $deadline -and $cycleIds.Count -lt 5) {
 }
 
 Write-Host "SC010_LIVE_SINGLE_NODE_OBSERVED=$nodeObserved"
+Write-Host "SC010_LIVE_CANDIDATE_STATE_OBSERVED=$candidateStateObserved"
 Write-Host "SC010_LIVE_VERIFIED_CYCLE_COUNT=$($cycleIds.Count)"
 Write-Host "SC010_LIVE_MAX_NEXT_WORK_AGE_SECONDS=$([int]$maxNextWorkAge.TotalSeconds)"
 Write-Host "SC010_LIVE_RECOVERY_OBSERVED=$recoveryObserved"
