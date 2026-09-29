@@ -1,0 +1,27 @@
+name: SC-011 Production Project Start
+
+on:
+  push:
+    branches:
+      - sc011-live-task-continuity
+    paths:
+      - '.github/workflows/supervisor-sc011-production-start.yml'
+      - '.github/scripts/supervisor-sc011-production-start.ps1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sc011-production-start
+  cancel-in-progress: false
+
+jobs:
+  start-production-project:
+    runs-on: self-hosted
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start configured production project
+        shell: powershell
+        run: |
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc011-production-start.ps1" -TargetComputer "DESKTOP-4K7IM13"
