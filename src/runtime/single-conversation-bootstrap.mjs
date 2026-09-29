@@ -314,7 +314,7 @@ async function waitForExactFreshUserTurn(
   while (Date.now() <= deadline) {
     latest = await captureExactFreshUserTurn(page, expected);
     if (latest?.turn_id) return latest;
-    await page.waitForTimeout(pollMs);
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
   return latest || {
     turn_id: null,
