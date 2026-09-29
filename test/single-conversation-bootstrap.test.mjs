@@ -507,6 +507,83 @@ test("SC-003 persists PREPARED before send, confirms user turn, then records res
   }
 });
 
+test("SC-011 persists final conversation identity after delayed URL assignment", async () => {
+  const { root, statePath } = await tempStatePath();
+  const page = fakePage();
+  let sent = false;
+  let probeCount = 0;
+
+  const adapter = {
+    async open() {},
+    getActivePage() { return page; },
+    async newChatPage() {
+      throw new Error("blank home should be reused");
+    },
+    async probePage() {
+      if (!sent) return { snapshot: blankSnapshot() };
+      probeCount += 1;
+      if (probeCount === 1) {
+        return {
+          snapshot: blankSnapshot({
+            pathKind: "conversation",
+            conversationPath: true,
+            userMessageCount: 1,
+            responseRunning: true
+          })
+        };
+      }
+      page.setUrl("https://chatgpt.com/c/delayed-identity");
+      return {
+        snapshot: blankSnapshot({
+          pathKind: "conversation",
+          conversationPath: true,
+          userMessageCount: 1,
+          assistantMessageCount: 1,
+          responseRunning: false
+        })
+      };
+    }
+  };
+
+  const captureTurn = async (_page, role) => {
+    if (!sent || role === "user") return null;
+    if (probeCount >= 2) {
+      return {
+        role: "assistant",
+        turn_id: "assistant-delayed",
+        text: "ready\nMAGASIN_BOOTSTRAP_CORRELATION_V1 delayed-id",
+        digest: "assistant-delayed-digest"
+      };
+    }
+    return null;
+  };
+
+  try {
+    await createNewChatAndBootstrap({
+      adapter,
+      statePath,
+      sourceOfTruthUrl: "https://example.com/source",
+      messageId: "delayed-id",
+      captureTurn,
+      sendInstruction: async () => {
+        sent = true;
+        return {
+          executed: true,
+          user_turn_id: "user-delayed",
+          user_turn_evidence: "exact-fresh-conversation-turn"
+        };
+      },
+      timeoutMs: 5_000,
+      pollMs: 1
+    });
+
+    const durable = await readSingleConversationState(statePath);
+    assert.match(durable.conversation.runtime_id, /^chat:[0-9a-f]{32}$/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("SC-003 trusts exact fresh-turn send proof without a second role-selector capture", async () => {
   const { root, statePath } = await tempStatePath();
   const page = fakePage();
