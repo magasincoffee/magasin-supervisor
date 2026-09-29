@@ -438,7 +438,7 @@ Completion evidence:
 - hosted Supervisor Tests, Supervisor Integrity, Lifecycle Acceptance, and Autostart Install passed on the SC-005 candidate before completion was recorded.
 
 ### SC-006 — Exact-once message receipt/reconciliation
-State: **PLANNED**
+State: **COMPLETE**
 
 Implement durable message state:
 - PREPARED;
@@ -452,6 +452,19 @@ Embed a unique Robot correlation id in outbound instructions.
 DoD:
 - crash at any point cannot cause an unbounded duplicate resend;
 - positive non-delivery evidence permits a bounded safe resend.
+
+Completion evidence:
+- canonical implementation: `src/runtime/single-conversation-transaction.mjs`;
+- outbound intent and message digest are persisted at PREPARED before replay-sensitive UI mutation;
+- ENQUEUED persists a stable `cmd_id` before browser actuation and carries a bounded retry counter;
+- reconciliation searches exact correlated user-turn evidence across both legacy and current ChatGPT DOM surfaces rather than relying only on a stale latest-turn probe;
+- a matching delivered user turn reconciles to DELIVERED without another send, while ambiguous post-send evidence fails closed across restart;
+- positive non-delivery evidence permits at most one bounded safe retry in the qualified path;
+- RESPONSE_COMPLETE must transition explicitly to VERIFIED, which also records Source of Truth verification;
+- SC-006 Live Exact Once Qualification run #4 passed its target-machine attempt on `DESKTOP-4K7IM13` and the aggregate `qualification-authority` gate passed;
+- live evidence recorded `SC006_LIVE_PREPARED_ENQUEUED_DURABLE=True`, `SC006_LIVE_POSITIVE_NON_DELIVERY_SAFE_RETRY=True`, `SC006_LIVE_SAFE_RETRY_COUNT=1`, `SC006_LIVE_DELIVERED_NO_RESEND=True`, `SC006_LIVE_DUPLICATE_SEND_ATTEMPTS=0`, and `SC006_LIVE_VERIFIED_TERMINAL_STATE=True`;
+- qualification confirmed no conversation URL was persisted and no production project state or external system was mutated;
+- hosted Supervisor Tests, Supervisor Integrity, Lifecycle Acceptance, and Autostart Install are required to pass on the final SC-006 candidate before merge.
 
 ### SC-007 — Control Center simplification
 State: **PLANNED**
