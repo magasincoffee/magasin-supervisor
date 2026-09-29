@@ -351,6 +351,13 @@ try {
 
   const beforeRollover = await readSingleConversationState(statePath);
   const oldPage = activePage;
+
+  // Keep Chrome itself alive while intentionally breaking the conversation.
+  // Closing the last browser tab on Windows exits Chrome and tests browser
+  // process recovery instead of disposable-conversation rollover. A blank
+  // landing surface is not an active conversation and is closed again after
+  // replacement.
+  const browserSurvivalPage = await adapter.newChatPage("https://chatgpt.com/");
   await oldPage.close();
   if (!oldPage.isClosed()) throw new Error("SC-008 intentional chat break did not close page");
 
@@ -367,6 +374,9 @@ try {
     pollMs: 500
   });
   activePage = replacement.page;
+  if (browserSurvivalPage && !browserSurvivalPage.isClosed?.()) {
+    await adapter.closePage(browserSurvivalPage).catch(() => {});
+  }
   const afterRollover = await readSingleConversationState(statePath);
   if (afterRollover.conversation.generation !== beforeRollover.conversation.generation + 1) {
     throw new Error("SC-008 rollover did not advance generation exactly once");
