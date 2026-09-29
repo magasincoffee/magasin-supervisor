@@ -337,6 +337,65 @@ test("SC-004 waits through false-idle partial assistant text until cycle correla
   }
 });
 
+test("SC-008 response wait tolerates bounded transient snapshots but fails when repeated", async () => {
+  const { root, statePath } = await tempState();
+  try {
+    let probes = 0;
+    const recovered = await waitForSingleConversationResponse({
+      adapter: {
+        async probePage() {
+          probes += 1;
+          if (probes <= 2) {
+            return {
+              snapshot: baseSnapshot({
+                responseRunning: false,
+                hasTransientError: true
+              })
+            };
+          }
+          return { snapshot: baseSnapshot({ responseRunning: false }) };
+        }
+      },
+      page: { async waitForTimeout() {} },
+      statePath,
+      baselineAssistantTurnId: "assistant-old",
+      captureTurn: async () => ({
+        turn_id: "assistant-new",
+        text: "complete after transient",
+        digest: "done"
+      }),
+      transientFailureThreshold: 3,
+      pollMs: 1,
+      timeoutMs: 1_000
+    });
+    assert.equal(recovered.status, "RESPONSE_COMPLETE");
+    assert.equal(probes, 3);
+
+    await assert.rejects(
+      waitForSingleConversationResponse({
+        adapter: {
+          async probePage() {
+            return {
+              snapshot: baseSnapshot({
+                responseRunning: false,
+                hasTransientError: true
+              })
+            };
+          }
+        },
+        page: { async waitForTimeout() {} },
+        statePath,
+        transientFailureThreshold: 3,
+        pollMs: 1,
+        timeoutMs: 1_000
+      }),
+      (error) => error?.code === "TRANSIENT_ERROR"
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("SC-004 auth/captcha boundary blocks without a new send", async () => {
   const { root, statePath } = await tempState();
   let sends = 0;
