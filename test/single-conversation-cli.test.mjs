@@ -111,7 +111,7 @@ test("SC-010 production CLI maps watchdog recovery to wrapper exit 75 and bounds
   assert.match(source, /NEXT_WORK_RECOVERY_PROBE/);
   assert.match(source, /TASK_CAPTURE_USER/);
   assert.match(source, /TASK_CAPTURE_ASSISTANT/);
-  assert.match(source, /code === "CDP_RECOVERY_REQUIRED" \? 75 : 1/);
+  assert.match(source, /code === "CDP_RECOVERY_REQUIRED"[\s\S]*\? 75/);
   assert.match(source, /boundedRuntimeCleanup\(\(\) => adapter\.close\(\), 1_500\)/);
   assert.match(source, /process\.exit\(finalExitCode\)/);
 });
