@@ -337,6 +337,46 @@ test("SC-004 waits through false-idle partial assistant text until cycle correla
   }
 });
 
+test("SC-008 correlated response wins over a stale transient banner", async () => {
+  const { root, statePath } = await tempState();
+  try {
+    const marker = "MAGASIN_CYCLE_CORRELATION_V1 sc008-stale-banner";
+    let probes = 0;
+    const response = await waitForSingleConversationResponse({
+      adapter: {
+        async probePage() {
+          probes += 1;
+          return {
+            snapshot: baseSnapshot({
+              responseRunning: false,
+              hasTransientError: true
+            })
+          };
+        }
+      },
+      page: { async waitForTimeout() {} },
+      statePath,
+      baselineAssistantTurnId: "assistant-old",
+      expectedAssistantMarker: marker,
+      captureTurn: async () => ({
+        turn_id: "assistant-new",
+        text: "Architecture generation: SINGLE_CONVERSATION_V1\n" + marker,
+        digest: "correlated-complete"
+      }),
+      transientFailureThreshold: 3,
+      pollMs: 1,
+      timeoutMs: 1_000
+    });
+
+    assert.equal(response.status, "RESPONSE_COMPLETE");
+    assert.equal(response.marker_confirmed, true);
+    assert.equal(response.stale_transient_banner_ignored, true);
+    assert.equal(probes, 1);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("SC-008 response wait tolerates bounded transient snapshots but fails when repeated", async () => {
   const { root, statePath } = await tempState();
   try {
