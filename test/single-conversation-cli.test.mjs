@@ -4,7 +4,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { runSingleConversationRuntime } from "../src/runtime/single-conversation-cli.mjs";
+import {
+  boundedRuntimeOperation,
+  captureBaselineTurnBounded,
+  runSingleConversationRuntime,
+  runtimePollDelay
+} from "../src/runtime/single-conversation-cli.mjs";
 import {
   ensureSingleConversationState,
   readSingleConversationState
@@ -64,4 +69,61 @@ test("SC-007 runtime source mismatch fails closed", async () => {
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+
+test("SC-010 NEXT_WORK pacing is independent of a wedged Playwright page timer", async () => {
+  let browserTimerTouched = false;
+  const fakePage = {
+    waitForTimeout() {
+      browserTimerTouched = true;
+      return new Promise(() => {});
+    }
+  };
+
+  const started = Date.now();
+  await runtimePollDelay(5);
+  assert.equal(browserTimerTouched, false);
+  assert.ok(Date.now() - started < 500);
+  assert.equal(typeof fakePage.waitForTimeout, "function");
+});
+
+test("SC-010 bounded runtime operation rejects a never-resolving UI operation", async () => {
+  await assert.rejects(
+    boundedRuntimeOperation(
+      "TEST_NEVER_RESOLVES",
+      () => new Promise(() => {}),
+      { timeoutMs: 15 }
+    ),
+    (error) =>
+      error?.code === "SINGLE_CONVERSATION_RUNTIME_STALL" &&
+      error?.stall_stage === "TEST_NEVER_RESOLVES"
+  );
+});
+
+test("SC-010 baseline turn capture cannot hang NEXT_WORK indefinitely", async () => {
+  const page = {
+    evaluate() {
+      return new Promise(() => {});
+    }
+  };
+  await assert.rejects(
+    captureBaselineTurnBounded(page, "assistant", { timeoutMs: 15 }),
+    (error) =>
+      error?.code === "SINGLE_CONVERSATION_RUNTIME_STALL" &&
+      error?.stall_stage === "CAPTURE_BASELINE_ASSISTANT"
+  );
+});
+
+test("SC-010 CLI maps bounded UI stalls to dedicated Chrome recovery", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /DISPOSABLE_CONVERSATION_PROBE_TIMEOUT/);
+  assert.match(source, /SINGLE_CONVERSATION_RUNTIME_STALL/);
+  assert.match(source, /exitCode = \[/);
+  assert.match(source, /\? 75 : 1/);
+  assert.match(source, /process\.exit\(exitCode\)/);
+  assert.doesNotMatch(source, /await page\.waitForTimeout\(pollMs\)/);
 });
