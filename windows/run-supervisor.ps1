@@ -360,7 +360,10 @@ try {
             default { 'src/runtime/supervisor-loop-cli.mjs' }
         }
 
-        if ($runtimeMode -notin @('PLANNER_EXECUTOR_V1','THREE_LANE_V1','BRAIN_WORKER_V1') -and -not (Test-Path $target)) {
+        # target.json belongs only to legacy target-bound runtimes.
+        # SINGLE_CONVERSATION_V1 is Source-of-Truth-only and MUST proceed when
+        # target.json is absent.
+        if ($runtimeMode -notin @('SINGLE_CONVERSATION_V1','PLANNER_EXECUTOR_V1','THREE_LANE_V1','BRAIN_WORKER_V1') -and -not (Test-Path $target)) {
             Write-Host 'Legacy mode was explicitly selected but no legacy target exists; waiting for authoritative project state instead of terminating.'
             Start-Sleep -Seconds 5
             continue
