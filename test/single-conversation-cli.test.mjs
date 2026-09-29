@@ -115,3 +115,16 @@ test("SC-010 production CLI maps watchdog recovery to wrapper exit 75 and bounds
   assert.match(source, /boundedRuntimeCleanup\(\(\) => adapter\.close\(\), 1_500\)/);
   assert.match(source, /process\.exit\(finalExitCode\)/);
 });
+
+
+test("SC-010 qualification-only ignores terminal-looking assistant text until maxCycles", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.match(
+    source,
+    /const terminal = qualificationOnly\s*\? null\s*:\s*terminalAnswer\(response\.assistant_turn\?\.text\)/
+  );
+  assert.match(source, /while \(maxCycles <= 0 \|\| cycles < maxCycles\)/);
+});
