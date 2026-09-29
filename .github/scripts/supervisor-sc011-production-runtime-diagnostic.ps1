@@ -1,3 +1,4 @@
+# rerun-marker: post-exact-once-fix-5dc223e
 # rerun-marker: post-main-sidebar-fix-790a1ffb
 param(
   [Parameter(Mandatory=$true)][string]$TargetComputer,
