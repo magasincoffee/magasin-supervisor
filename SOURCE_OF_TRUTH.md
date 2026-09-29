@@ -414,7 +414,7 @@ Completion evidence:
 - hosted Supervisor Tests, Supervisor Integrity, Lifecycle Acceptance, and Autostart Install passed on the SC-004 candidate before completion was recorded.
 
 ### SC-005 — Disposable-chat rollover
-State: **PLANNED**
+State: **COMPLETE**
 
 Implement deterministic replacement for:
 - conversation missing/access denied;
@@ -425,6 +425,17 @@ Implement deterministic replacement for:
 
 DoD:
 - Robot abandons an unusable chat, creates New Chat, rehydrates from Source of Truth, and resumes without Owner-provided chat links.
+
+Completion evidence:
+- canonical implementation: `src/runtime/single-conversation-rollover.mjs`;
+- rollover retires the unusable active page and creates a fresh ChatGPT conversation without requiring any historical conversation URL;
+- conversation generation advances monotonically and the replacement receives a new opaque runtime identity;
+- replacement bootstrap rehydrates exclusively from the sole Source of Truth before work resumes;
+- deterministic fault classification covers missing/access-denied, stale/unrecoverable page, conversation-specific network failure, conversation-full, and ambiguous page identity recovery boundaries;
+- SC-005 Live Disposable Chat Rollover Qualification run #1 passed its target-machine attempt on `DESKTOP-4K7IM13` and the aggregate `qualification-authority` gate passed;
+- live evidence recorded `SC005_LIVE_CLOSED_PAGE_REPLACED=True`, `SC005_LIVE_GENERATION_ADVANCED_1_TO_2=True`, `SC005_LIVE_NEW_RUNTIME_IDENTITY=True`, `SC005_LIVE_REHYDRATED_FROM_SOURCE_OF_TRUTH=True`, and `SC005_LIVE_POST_ROLLOVER_CYCLE_COMPLETE=True`;
+- qualification confirmed no conversation URL was persisted and no production project state or external system was mutated;
+- hosted Supervisor Tests, Supervisor Integrity, Lifecycle Acceptance, and Autostart Install passed on the SC-005 candidate before completion was recorded.
 
 ### SC-006 — Exact-once message receipt/reconciliation
 State: **PLANNED**
