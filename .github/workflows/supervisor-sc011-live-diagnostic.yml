@@ -1,0 +1,27 @@
+name: SC-011 Live Continuity Diagnostic
+
+on:
+  push:
+    branches:
+      - sc011-live-task-continuity
+    paths:
+      - '.github/workflows/supervisor-sc011-live-diagnostic.yml'
+      - '.github/scripts/supervisor-sc011-live-diagnostic.ps1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sc011-live-diagnostic
+  cancel-in-progress: true
+
+jobs:
+  live-diagnostic:
+    runs-on: self-hosted
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect live production continuity without mutation
+        shell: powershell
+        run: |
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc011-live-diagnostic.ps1" -TargetComputer "DESKTOP-4K7IM13"
