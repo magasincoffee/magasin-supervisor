@@ -1,13 +1,18 @@
 param(
   [Parameter(Mandatory=$true)]
-  [string]$TargetComputer
+  [string]$TargetComputer,
+  [int]$Attempt = 1,
+  [int]$NonTargetHoldSeconds = 90
 )
 
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version 2.0
 
+Write-Host "SC011_PROD_ATTEMPT=$Attempt"
+Write-Host "SC011_PROD_MACHINE=$env:COMPUTERNAME"
 if($env:COMPUTERNAME -ne $TargetComputer){
   Write-Host "SC011_PROD_TARGET_MATCH=False"
+  Start-Sleep -Seconds ([Math]::Max(0,[Math]::Min(180,$NonTargetHoldSeconds)))
   exit 0
 }
 Write-Host "SC011_PROD_TARGET_MATCH=True"
