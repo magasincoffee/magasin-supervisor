@@ -443,6 +443,30 @@ try {
             }
         }
 
+        # SC-012: a durable BLOCKED single-conversation state is a
+        # fail-closed autonomy boundary. Never relaunch the runtime in the
+        # wrapper loop while that state remains BLOCKED; doing so can repeat
+        # disposable replacement/bootstrap and create unbounded chat churn.
+        if (
+            $runtimeMode -eq 'SINGLE_CONVERSATION_V1' -and
+            -not (Test-Path $stop) -and
+            -not (Test-Path $autostartDisabled) -and
+            (Test-Path $singleConversationStateFile -PathType Leaf)
+        ) {
+            try {
+                $singleStateAfterRun = Get-Content $singleConversationStateFile -Raw -Encoding UTF8 | ConvertFrom-Json
+                $singleAutomationAfterRun = [string]$singleStateAfterRun.automation.status
+                if ($singleAutomationAfterRun -eq 'BLOCKED') {
+                    Write-Host 'SINGLE_CONVERSATION_BLOCKED_PAUSE=True'
+                    Write-Host 'Supervisor single-conversation state is BLOCKED; stopping wrapper retry loop to prevent chat churn.'
+                    break
+                }
+            } catch {
+                Write-Host "Single-conversation BLOCKED-state inspection failed closed: $($_.Exception.Message)"
+                break
+            }
+        }
+
         if (-not (Test-Path $stop) -and -not (Test-Path $autostartDisabled) -and $nodeExitCode -eq 75) {
             # Exit code 75 is the Supervisor's explicit request for a clean CDP
             # recovery. Kill only the dedicated Supervisor Chrome profile even

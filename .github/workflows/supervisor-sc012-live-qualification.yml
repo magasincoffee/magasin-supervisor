@@ -1,0 +1,100 @@
+name: SC-012 Production Restart Replacement Qualification
+
+on:
+  push:
+    branches:
+      - sc012-restart-replacement-regression
+    paths:
+      - 'src/runtime/single-conversation-rollover.mjs'
+      - 'windows/run-supervisor.ps1'
+      - 'test/single-conversation-rollover.test.mjs'
+      - 'test/control-panel-single-conversation.test.mjs'
+      - '.github/scripts/supervisor-sc012-live-qualification.mjs'
+      - '.github/scripts/supervisor-sc012-live-qualification.ps1'
+      - '.github/workflows/supervisor-sc012-live-qualification.yml'
+      - 'SOURCE_OF_TRUTH.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sc012-production-restart-replacement
+  cancel-in-progress: true
+
+jobs:
+  attempt-1:
+    runs-on: self-hosted
+    timeout-minutes: 12
+    outputs:
+      target_match: ${{ steps.qualify.outputs.target_match }}
+      qualified: ${{ steps.qualify.outputs.qualified }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        shell: cmd
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Run SC-012 focused regressions
+        shell: cmd
+        run: node --test test\single-conversation-rollover.test.mjs test\single-conversation-cli.test.mjs test\control-panel-single-conversation.test.mjs
+      - name: Run target attempt 1
+        id: qualify
+        shell: cmd
+        run: |
+          @echo off
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc012-live-qualification.ps1" -TargetComputer "DESKTOP-4K7IM13" -Attempt 1 -NonTargetHoldSeconds 90
+          exit /b %ERRORLEVEL%
+
+  attempt-2:
+    runs-on: self-hosted
+    timeout-minutes: 12
+    outputs:
+      target_match: ${{ steps.qualify.outputs.target_match }}
+      qualified: ${{ steps.qualify.outputs.qualified }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        shell: cmd
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Run SC-012 focused regressions
+        shell: cmd
+        run: node --test test\single-conversation-rollover.test.mjs test\single-conversation-cli.test.mjs test\control-panel-single-conversation.test.mjs
+      - name: Run target attempt 2
+        id: qualify
+        shell: cmd
+        run: |
+          @echo off
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc012-live-qualification.ps1" -TargetComputer "DESKTOP-4K7IM13" -Attempt 2 -NonTargetHoldSeconds 90
+          exit /b %ERRORLEVEL%
+
+  qualification-authority:
+    if: always()
+    needs: [attempt-1, attempt-2]
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require DESKTOP-4K7IM13 PASS
+        shell: powershell
+        run: |
+          $a1Match = '${{ needs.attempt-1.outputs.target_match }}'
+          $a1Pass = '${{ needs.attempt-1.outputs.qualified }}'
+          $a2Match = '${{ needs.attempt-2.outputs.target_match }}'
+          $a2Pass = '${{ needs.attempt-2.outputs.qualified }}'
+          Write-Host "SC012_AUTH_ATTEMPT1_TARGET_MATCH=$a1Match"
+          Write-Host "SC012_AUTH_ATTEMPT1_QUALIFIED=$a1Pass"
+          Write-Host "SC012_AUTH_ATTEMPT2_TARGET_MATCH=$a2Match"
+          Write-Host "SC012_AUTH_ATTEMPT2_QUALIFIED=$a2Pass"
+          $qualified = (
+            ($a1Match -eq 'true' -and $a1Pass -eq 'true') -or
+            ($a2Match -eq 'true' -and $a2Pass -eq 'true')
+          )
+          if (-not $qualified) {
+            throw 'SC-012 has no successful real-target qualification from DESKTOP-4K7IM13.'
+          }
+          Write-Host 'SC012_QUALIFICATION_AUTHORITY=PASS'
