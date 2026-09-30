@@ -81,6 +81,39 @@ test("SC-013 startup resumes the pending discovery before selecting new work", a
   assert.match(body, /pendingMessageId/);
 });
 
+test("SC-013 missing restart identity uses disposable replacement only for proven pre-actuation discovery", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const activeBranch = source.indexOf(
+    "const pendingPreActuation = canResumePreActuationDiscovery(current)"
+  );
+  const replacement = source.indexOf(
+    "RUNTIME_RESTART_IDENTITY_NOT_VERIFIED_PRE_ACTUATION",
+    activeBranch
+  );
+  const replay = source.indexOf(
+    "initialRetryCount: pendingPreActuation.retry_count + 1",
+    replacement
+  );
+  const failClosed = source.indexOf(
+    'code: "RUNTIME_RESTART_IDENTITY_NOT_VERIFIED"',
+    replay
+  );
+
+  assert.ok(activeBranch >= 0);
+  assert.ok(replacement > activeBranch);
+  assert.ok(replay > replacement);
+  assert.ok(failClosed > replay);
+
+  const body = source.slice(activeBranch, failClosed);
+  assert.match(body, /replaceDisposableConversation/);
+  assert.match(body, /composerInstructionDigest\(pendingMessage\)/);
+  assert.match(body, /messageId: pendingPreActuation\.message_id/);
+  assert.match(body, /kind: "SOURCE_OF_TRUTH_TASK_DISCOVERY"/);
+});
+
 test("SC-007 runtime dry-run starts from Source of Truth only", async () => {
   const { root, statePath } = await tempState();
   try {
