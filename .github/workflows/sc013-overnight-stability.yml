@@ -32,3 +32,5 @@ jobs:
           @echo off
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc013-overnight-observer.ps1" -TargetComputer "DESKTOP-4K7IM13" -EndUtc "2026-09-30T23:00:00Z" -AttemptSeconds 1200 -PollSeconds 5 -NonTargetHoldSeconds 60
           exit /b %ERRORLEVEL%
+
+# restart-candidate: 365775a1db4cf1abe7c555b12d32a7da6f9552ce
