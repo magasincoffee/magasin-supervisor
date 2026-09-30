@@ -1,0 +1,31 @@
+name: SC-013 Backfill Proven Pre-Actuation Evidence
+on:
+  push:
+    branches: [sc011-production-runtime-diagnostic-20260929]
+    paths:
+      - '.github/scripts/supervisor-sc013-backfill-preactuation-evidence.mjs'
+      - '.github/scripts/supervisor-sc013-backfill-preactuation-evidence.ps1'
+      - '.github/workflows/supervisor-sc013-backfill-preactuation-evidence.yml'
+permissions:
+  contents: read
+concurrency:
+  group: sc013-backfill-preactuation-evidence
+  cancel-in-progress: false
+jobs:
+  backfill:
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        slot: [1,2,3,4]
+    runs-on: self-hosted
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Backfill exact proven pre-actuation evidence on target
+        shell: cmd
+        run: |
+          @echo off
+          echo SC013_BACKFILL_SLOT=${{ matrix.slot }}
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc013-backfill-preactuation-evidence.ps1" -TargetComputer "DESKTOP-4K7IM13" -ExpectedMessageId "32616356-fe9a-4809-a8a5-e2b11321d724" -NonTargetHoldSeconds 90
+          exit /b %ERRORLEVEL%
