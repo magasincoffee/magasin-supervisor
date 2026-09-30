@@ -283,7 +283,7 @@ test("SC-011 restart identity uncertainty stays fail closed outside the SC-013 p
   );
   assert.match(
     startup,
-    /RUNTIME_RESTART_IDENTITY_NOT_VERIFIED_PRE_ACTUATION[\s\S]*replaceDisposableConversation/
+    /replaceDisposableConversation\([\s\S]*RUNTIME_RESTART_IDENTITY_NOT_VERIFIED_PRE_ACTUATION/
   );
 
   const fallbackStart = startup.indexOf(
