@@ -64,7 +64,7 @@ try {
             Add-Content -Path $eventsPath -Encoding UTF8
     }
 
-    function Write-StatusAtomically([hashtable]$Status) {
+    function Write-StatusAtomically($Status) {
         $temp = "$statusPath.tmp.$PID"
         ($Status | ConvertTo-Json -Depth 8) | Set-Content -Path $temp -Encoding UTF8
         Move-Item -Path $temp -Destination $statusPath -Force
@@ -175,6 +175,10 @@ try {
         try {
             $truth = Get-LifecycleProcessTruth -Root $root
             $ownerStop = Get-LifecycleOwnerStopState -Root $root
+            if ($ownerStop.blocked) {
+                $lastUiProbe = $null
+                $lastUiProbeAt = [DateTimeOffset]::MinValue
+            }
             $state = $null
             $stateReadable = $false
 
