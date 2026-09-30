@@ -101,7 +101,8 @@ export async function prepareExactOnceOutbound(statePath, {
       response_complete_at: null,
       verified_at: null,
       retry_count: 0,
-      last_error_code: null
+      last_error_code: null,
+      last_error_stage: null
     };
     state.automation.status = "RUNNING";
     state.automation.phase = "SEND_WORK";
@@ -132,6 +133,7 @@ export async function markExactOnceEnqueued(statePath, {
       state.outbound.retry_count = Number(state.outbound.retry_count || 0) + 1;
     }
     state.outbound.last_error_code = null;
+    state.outbound.last_error_stage = null;
     state.automation.status = "RUNNING";
     state.automation.reason = null;
     state.automation.phase = "SEND_WORK";
@@ -158,6 +160,7 @@ export async function markExactOnceDelivered(statePath, {
       userTurnId || state.outbound.delivered_user_turn_id || null;
     state.outbound.delivered_at = state.outbound.delivered_at || at;
     state.outbound.last_error_code = null;
+    state.outbound.last_error_stage = null;
     state.automation.status = "RUNNING";
     state.automation.reason = null;
     state.automation.phase = "WAIT_RESPONSE";
@@ -215,6 +218,7 @@ export async function markExactOnceVerified(statePath, {
 async function persistExactOnceFailure(statePath, error, now) {
   return mutateState(statePath, (state, at) => {
     state.outbound.last_error_code = transactionCode(error).slice(0, 120);
+    state.outbound.last_error_stage = String(error?.failure_stage || "").trim().slice(0, 120) || null;
     state.automation.status = "BLOCKED";
     state.automation.reason = state.outbound.last_error_code;
     state.automation.updated_at = at;
@@ -376,7 +380,10 @@ export async function reconcileExactOnceOutbound({
     if (!sent?.executed) {
       throw Object.assign(
         new Error(sent?.reason || "outbound send was not confirmed"),
-        { code: sent?.rejection_class || "SEND_NOT_CONFIRMED" }
+        {
+          code: sent?.rejection_class || "SEND_NOT_CONFIRMED",
+          failure_stage: sent?.failure_stage || null
+        }
       );
     }
 

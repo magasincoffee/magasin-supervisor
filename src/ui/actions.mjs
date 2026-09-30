@@ -1040,6 +1040,7 @@ export async function sendComposerInstruction(
       dryRun,
       action: ACTIONS.CONTINUE,
       reason: "composer is not ready",
+      failure_stage: "SURFACE_COMPOSER_READY",
       rejection_class: SEND_REJECTION_CLASSES.COMPOSER_NOT_READY
     };
   }
@@ -1082,6 +1083,7 @@ export async function sendComposerInstruction(
         dryRun: false,
         action: ACTIONS.CONTINUE,
         reason: textSet.reason,
+        failure_stage: "SET_COMPOSER_TEXT",
         rejection_class: SEND_REJECTION_CLASSES.COMPOSER_NOT_READY
       });
     }
@@ -1106,6 +1108,7 @@ export async function sendComposerInstruction(
           dryRun: false,
           action: ACTIONS.CONTINUE,
           reason: "machine-frame mention dismissal changed composer text",
+          failure_stage: "DISMISS_MACHINE_FRAME_MENTION",
           rejection_class: SEND_REJECTION_CLASSES.COMPOSER_NOT_READY
         });
       }
@@ -1170,6 +1173,7 @@ export async function sendComposerInstruction(
             dryRun: false,
             action: ACTIONS.CONTINUE,
             reason: "composer lost instruction before send",
+            failure_stage: "PRE_SEND_TEXT_PERSISTENCE",
             rejection_class: SEND_REJECTION_CLASSES.COMPOSER_NOT_READY
           });
         }
