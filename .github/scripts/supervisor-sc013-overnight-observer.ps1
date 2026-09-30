@@ -48,7 +48,7 @@ Write-Summary ""
 while([DateTimeOffset]::UtcNow -lt $end){
   $attempt += 1
   $attemptStart=[DateTimeOffset]::UtcNow
-  $remaining=[Math]::Max(1,[int]($end-$attemptStart).TotalSeconds)
+  $remaining=[Math]::Max(1,[int](($end-$attemptStart).TotalSeconds))
   $window=[Math]::Min([Math]::Max(60,$AttemptSeconds),$remaining)
   $attemptEnd=$attemptStart.AddSeconds($window)
   $attemptFailed=$false
