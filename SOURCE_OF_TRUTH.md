@@ -656,6 +656,20 @@ Canonical fix:
 5. successful safe reconciliation MUST clear transient `BLOCKED` state and return automation to `RUNNING`;
 6. final acceptance requires real target evidence on `DESKTOP-4K7IM13` that the blocked outbound is either safely delivered or safely reconstructed, a matching user turn appears, a response completes, and at least two subsequent task-control cycles continue in the same active conversation without duplicate sends or legacy workflow interference.
 
+### SC-013 live first-failure progression rule
+
+For SC-013 production debugging, the Robot MUST use a real production-length workload and advance strictly one blocking stage at a time:
+
+1. run the real production path on `DESKTOP-4K7IM13`, not a shortened synthetic prompt as acceptance evidence;
+2. identify the first blocking stage reached by the live run;
+3. fix only that first blocking stage; do not bundle speculative fixes for later unproven stages into the same recovery iteration;
+4. rerun the real production path from the beginning after that single-stage fix;
+5. if the run advances and then blocks at a later stage, treat that later stage as the next independent repair iteration;
+6. continue until the full Owner-visible flow and SC-013 DoD pass without special-case test shortcuts;
+7. unit tests may protect a proven fix, but they cannot replace the subsequent real production rerun.
+
+The live transaction stages used for this progression are, in order where applicable: PREPARED -> ENQUEUED -> COMPOSER_READY/TEXT_PERSISTED -> SUBMIT_ACTUATED -> DELIVERED -> RESPONSE_COMPLETE -> VERIFIED -> NEXT_WORK. A failure report must identify the earliest proven failing stage before implementation is changed.
+
 DoD:
 - PE-001, PE-007, legacy Brain submit/repair, and superseded Bridge qualification/cutover workflows cannot auto-run on `main`;
 - current composer text is not falsely rejected solely because ProseMirror rewrites equivalent whitespace/paragraph structure;
