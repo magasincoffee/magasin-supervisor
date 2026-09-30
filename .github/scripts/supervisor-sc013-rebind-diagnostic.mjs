@@ -10,6 +10,7 @@ const {
   resumeExistingConversationPage
 }=await mod("src/runtime/single-conversation-cli.mjs");
 const {readSingleConversationState}=await mod("src/runtime/single-conversation-state.mjs");
+const {inspectComposerDraftDigest}=await mod("src/ui/actions.mjs");
 
 const bounded=async(label,promise,ms)=>{
   let timer;
@@ -85,7 +86,15 @@ try{
   }
   console.log("SC013_DIAG_REBIND_SUCCESS="+String(Boolean(resumed?.page)));
   console.log("SC013_DIAG_REBIND_SOURCE="+String(resumed?.recovered_from||""));
-  if(resumed?.page) console.log("SC013_DIAG_REBOUND_URL="+String(resumed.page.url?.()||""));
+  if(resumed?.page) {
+    console.log("SC013_DIAG_REBOUND_URL="+String(resumed.page.url?.()||""));
+    const draft=await inspectComposerDraftDigest(resumed.page,{timeoutMs:1500}).catch(()=>null);
+    console.log("SC013_DIAG_DRAFT_READY="+String(Boolean(draft?.ready)));
+    console.log("SC013_DIAG_DRAFT_HAS_TEXT="+String(Boolean(draft?.has_text)));
+    console.log("SC013_DIAG_DRAFT_DIGEST="+String(draft?.digest||""));
+    const draftText=String(draft?.normalized_text||"");
+    console.log("SC013_DIAG_DRAFT_TEXT_PREFIX="+draftText.slice(0,600).replace(/\r?\n/g,"\\n"));
+  }
 }finally{
   await Promise.race([
     adapter.close().catch(()=>{}),
