@@ -3,7 +3,7 @@ name: SC-013 Start Stop Read Only Diagnostic
 on:
   push:
     branches:
-      - sc013-start-stop-diagnostic
+      - main
     paths:
       - .github/workflows/sc013-start-stop-readonly-diagnostic.yml
 
