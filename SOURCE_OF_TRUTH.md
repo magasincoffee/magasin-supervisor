@@ -670,6 +670,16 @@ For SC-013 production debugging, the Robot MUST use a real production-length wor
 
 The live transaction stages used for this progression are, in order where applicable: PREPARED -> ENQUEUED -> COMPOSER_READY/TEXT_PERSISTED -> SUBMIT_ACTUATED -> DELIVERED -> RESPONSE_COMPLETE -> VERIFIED -> NEXT_WORK. A failure report must identify the earliest proven failing stage before implementation is changed.
 
+### SC-013 unattended observation policy
+
+While SC-013 remains IN PROGRESS, production evidence collection is unattended:
+- `.github/workflows/sc013-runtime-watchdog.yml` samples the real `DESKTOP-4K7IM13` runtime every five minutes without sending ChatGPT messages;
+- the watchdog records wrapper/CDP health, conversation state, outbound state, retry count, automation status/phase/reason, and bounded PREPARED/ENQUEUED stall age;
+- explicit Owner STOP is authoritative and is not treated as a fault;
+- when a non-Owner fault is detected and CDP remains reachable, the watchdog runs the read-only rebind/composer diagnostic so the first failing stage and live ChatGPT draft are preserved in GitHub Actions evidence;
+- the watchdog MUST NOT repair or send by itself; repair still follows the SC-013 first-failure rule, with tests and exact-main deployment before the production rerun;
+- SC-013 remains IN PROGRESS until the required same-conversation multi-cycle production evidence is sustained without BLOCKED state, duplicate sends, or legacy workflow interference.
+
 DoD:
 - PE-001, PE-007, legacy Brain submit/repair, and superseded Bridge qualification/cutover workflows cannot auto-run on `main`;
 - current composer text is not falsely rejected solely because ProseMirror rewrites equivalent whitespace/paragraph structure;
