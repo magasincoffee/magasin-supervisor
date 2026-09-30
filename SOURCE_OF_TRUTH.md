@@ -673,11 +673,13 @@ The live transaction stages used for this progression are, in order where applic
 ### SC-013 unattended observation policy
 
 While SC-013 remains IN PROGRESS, production evidence collection is unattended:
-- `.github/workflows/sc013-runtime-watchdog.yml` samples the real `DESKTOP-4K7IM13` runtime every five minutes without sending ChatGPT messages;
-- the watchdog records wrapper/CDP health, conversation state, outbound state, retry count, automation status/phase/reason, and bounded PREPARED/ENQUEUED stall age;
-- explicit Owner STOP is authoritative and is not treated as a fault;
-- when a non-Owner fault is detected and CDP remains reachable, the watchdog runs the read-only rebind/composer diagnostic so the first failing stage and live ChatGPT draft are preserved in GitHub Actions evidence;
-- the watchdog MUST NOT repair or send by itself; repair still follows the SC-013 first-failure rule, with tests and exact-main deployment before the production rerun;
+- `windows/local-watchdog.ps1` runs as an independent local observer on `DESKTOP-4K7IM13`, polling runtime/state truth every five seconds and sampling the live ChatGPT UI read-only every 30 seconds when CDP is healthy;
+- the local observer writes a fresh `local-watchdog-status.json`, bounded `local-watchdog-events.ndjson`, and fault snapshots under `local-watchdog-failures`; persisted evidence contains state/UI health metadata and digests, not ChatGPT conversation URLs or message text;
+- the local observer survives Robot BLOCKED/STOPPED states and remains active during explicit Owner STOP; Owner STOP is recorded as authoritative and is not classified as a Robot fault;
+- Windows logon registers the local observer separately from Robot recovery, and runtime install/hotpatch restarts the observer from the exact installed version without changing project state or sending ChatGPT messages;
+- `.github/workflows/sc013-runtime-watchdog.yml` independently samples the real target every five minutes, verifies that the local heartbeat is fresh, and surfaces local ChatGPT/runtime fault codes into GitHub Actions evidence;
+- when a non-Owner fault is detected and CDP remains reachable, the local observer captures the exact active-runtime match, safe UI classification, composer readiness/digest/length, and ChatGPT error controls without navigating, typing, submitting, retrying, or repairing;
+- neither watchdog may repair or send by itself; repair still follows the SC-013 first-failure rule, with tests and exact-main deployment before the production rerun;
 - SC-013 remains IN PROGRESS until the required same-conversation multi-cycle production evidence is sustained without BLOCKED state, duplicate sends, or legacy workflow interference.
 
 DoD:
