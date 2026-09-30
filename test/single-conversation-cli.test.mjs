@@ -8,7 +8,9 @@ import {
   boundedRuntimeStep,
   canRebindEnqueuedStatusCheck,
   canRebindEnqueuedTaskMessage,
+  canRebindInFlightProtocolMessage,
   canResumePreActuationDiscovery,
+  reconstructPendingProtocolMessage,
   reconstructPendingStatusCheckMessage,
   reconstructPendingTaskMessage,
   runSingleConversationRuntime,
@@ -394,4 +396,93 @@ test("SC-013 restart reconciles pending task message before selecting any new wo
   assert.ok(activeBranch >= 0);
   assert.ok(recovery > activeBranch);
   assert.ok(cycles > recovery);
+});
+
+
+test("SC-013 restart rebind accepts DELIVERED and RESPONSE_RUNNING task messages without authorizing a resend", () => {
+  const sourceOfTruthUrl = "https://example.com/SOURCE_OF_TRUTH.md";
+  const messageId = "wait-response-restart-1";
+  const taskId = "OPS-033";
+  const message = buildSingleConversationTaskInstruction({
+    sourceOfTruthUrl,
+    taskId,
+    messageId,
+    checkOnly: false
+  });
+  const base = {
+    conversation: { status: "ACTIVE" },
+    source_of_truth: { url: sourceOfTruthUrl },
+    outbound: {
+      kind: "TASK_EXECUTION",
+      task_id: taskId,
+      message_id: messageId,
+      message_digest: composerInstructionDigest(message),
+      delivered_user_turn_id: "conversation-turn-user-1"
+    }
+  };
+
+  for (const outboundState of ["DELIVERED", "RESPONSE_RUNNING"]) {
+    const state = {
+      ...base,
+      outbound: { ...base.outbound, state: outboundState }
+    };
+    assert.equal(canRebindInFlightProtocolMessage(state), true);
+    assert.equal(reconstructPendingProtocolMessage(state), message);
+    assert.equal(canRebindEnqueuedTaskMessage(state), false);
+  }
+
+  assert.equal(
+    canRebindInFlightProtocolMessage({
+      ...base,
+      outbound: { ...base.outbound, state: "PREPARED" }
+    }),
+    false
+  );
+});
+
+test("SC-013 restart WAIT_RESPONSE recovery never reconciles or actuates outbound again", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  const helper = source.indexOf("async function resumeInFlightProtocolMessageAfterRebind");
+  const helperEnd = source.indexOf("async function probeReusableConversationPage", helper);
+  assert.ok(helper >= 0 && helperEnd > helper);
+
+  const body = source.slice(helper, helperEnd);
+  assert.match(body, /settleTransactionResponse/);
+  assert.match(body, /DELIVERED \/ RESPONSE_RUNNING already has durable positive send evidence/);
+  assert.doesNotMatch(body, /reconcileExactOnceOutbound/);
+  assert.doesNotMatch(body, /sendProtocolMessage/);
+  assert.doesNotMatch(body, /sendComposerInstruction/);
+});
+
+test("SC-013 startup resumes WAIT_RESPONSE before any new task selection", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  const activeBranch = source.indexOf("if (rebound?.page)");
+  const inFlightCheck = source.indexOf("if (canRebindInFlightProtocolMessage(current))", activeBranch);
+  const resume = source.indexOf("resumeInFlightProtocolMessageAfterRebind", inFlightCheck);
+  const enqueuedFallback = source.indexOf("else if (canRebindEnqueuedTaskMessage(current))", resume);
+  const cycles = source.indexOf("let cycles = 0;", enqueuedFallback);
+
+  assert.ok(activeBranch >= 0);
+  assert.ok(inFlightCheck > activeBranch);
+  assert.ok(resume > inFlightCheck);
+  assert.ok(enqueuedFallback > resume);
+  assert.ok(cycles > enqueuedFallback);
+});
+
+test("SC-013 delivered bootstrap can be reconstructed for response-only restart recovery", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /SOURCE_OF_TRUTH_BOOTSTRAP/);
+  assert.match(source, /MAGASIN_BOOTSTRAP_CORRELATION_V1/);
+  assert.match(source, /buildSingleConversationBootstrap/);
 });
