@@ -111,7 +111,13 @@ Write-Host "RECOVER_STUCK_CDP=$cdp"
 
 & node (Join-Path $env:GITHUB_WORKSPACE '.github\scripts\supervisor-sc011-recover-stuck-enqueued.mjs') $runtime $statePath $cdp $ResponseTimeoutSeconds
 $nodeExit=$LASTEXITCODE
-if($nodeExit -ne 0){throw "Recovery worker failed with exit $nodeExit"}
+if($nodeExit -ne 0){
+  $failed=Get-Content $statePath -Raw -Encoding UTF8|ConvertFrom-Json
+  $failedStage=if($failed.outbound.PSObject.Properties.Name -contains 'last_error_stage'){[string]$failed.outbound.last_error_stage}else{''}
+  Write-Host "RECOVER_STUCK_FAILURE_CODE=$([string]$failed.outbound.last_error_code)"
+  Write-Host "RECOVER_STUCK_FAILURE_STAGE=$failedStage"
+  throw "Recovery worker failed with exit $nodeExit"
+}
 
 & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $startScript -Hidden
 if($LASTEXITCODE -ne 0){throw "Post-recovery START failed with exit $LASTEXITCODE"}
