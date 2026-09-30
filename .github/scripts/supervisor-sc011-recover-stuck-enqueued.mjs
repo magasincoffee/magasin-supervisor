@@ -46,14 +46,26 @@ try{
   if(!page){
     const discovery=adapter.getActivePage()||pages.at(-1)||null;
     if(discovery){
-      const urls=await adapter.listRecentConversationUrls(discovery,{limit:50}).catch(()=>[]);
-      const matches=[...new Set(urls.filter(u=>opaqueRuntimeIdentity(u)===expected))];
-      if(matches.length===1){
-        page=await adapter.reopenTargetPage(matches[0]);
+      for(let attempt=0;attempt<60 && !page;attempt+=1){
+        const urls=await adapter.listRecentConversationUrls(discovery,{limit:50}).catch(()=>[]);
+        const matches=[...new Set(urls.filter(u=>opaqueRuntimeIdentity(u)===expected))];
+        if(matches.length>1){
+          throw new Error("multiple sidebar conversations match active runtime identity");
+        }
+        if(matches.length===1){
+          const candidate=await adapter.reopenTargetPage(matches[0]).catch(()=>null);
+          if(candidate && opaqueRuntimeIdentity(candidate.url())===expected){
+            page=candidate;
+            break;
+          }
+        }
+        if(attempt<59){
+          await new Promise(resolve=>setTimeout(resolve,500));
+        }
       }
     }
   }
-  if(!page) throw new Error("exact active conversation could not be rebound");
+  if(!page) throw new Error("exact active conversation could not be rebound after bounded sidebar recovery");
 
   adapter.setActivePage(page);
   const draft=await inspectComposerDraftDigest(page,{timeoutMs:2000});
