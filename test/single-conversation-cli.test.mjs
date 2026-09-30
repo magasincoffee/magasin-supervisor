@@ -6,6 +6,7 @@ import path from "node:path";
 
 import {
   boundedRuntimeStep,
+  canResumePreActuationDiscovery,
   runSingleConversationRuntime,
   waitForNextCycleDelay
 } from "../src/runtime/single-conversation-cli.mjs";
@@ -18,6 +19,67 @@ async function tempState() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "sc007-runtime-"));
   return { root, statePath: path.join(root, "state.json") };
 }
+
+test("SC-013 restart rebind permits only proven pre-actuation task discovery recovery", () => {
+  const candidate = {
+    conversation: { status: "ACTIVE" },
+    outbound: {
+      state: "ENQUEUED",
+      kind: "SOURCE_OF_TRUTH_TASK_DISCOVERY",
+      message_id: "sc013-pending",
+      message_digest: "digest",
+      retry_count: 0,
+      last_pre_actuation_error_code: "COMPOSER_NOT_READY"
+    }
+  };
+
+  assert.equal(canResumePreActuationDiscovery(candidate), true);
+  assert.equal(
+    canResumePreActuationDiscovery({
+      ...candidate,
+      outbound: { ...candidate.outbound, retry_count: 1 }
+    }),
+    false
+  );
+  assert.equal(
+    canResumePreActuationDiscovery({
+      ...candidate,
+      outbound: {
+        ...candidate.outbound,
+        last_pre_actuation_error_code: null
+      }
+    }),
+    false
+  );
+  assert.equal(
+    canResumePreActuationDiscovery({
+      ...candidate,
+      outbound: { ...candidate.outbound, kind: "TASK_EXECUTION" }
+    }),
+    false
+  );
+  assert.equal(
+    canResumePreActuationDiscovery({
+      ...candidate,
+      outbound: { ...candidate.outbound, state: "DELIVERED" }
+    }),
+    false
+  );
+});
+
+test("SC-013 startup resumes the pending discovery before selecting new work", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const recovery = source.indexOf("if (canResumePreActuationDiscovery(current))");
+  const cycles = source.indexOf("let cycles = 0;", recovery);
+  assert.ok(recovery >= 0 && cycles > recovery);
+  const body = source.slice(recovery, cycles);
+  assert.match(body, /buildSingleConversationTaskDiscoveryInstruction/);
+  assert.match(body, /sendProtocolMessage/);
+  assert.match(body, /pendingMessageId/);
+});
 
 test("SC-007 runtime dry-run starts from Source of Truth only", async () => {
   const { root, statePath } = await tempState();

@@ -159,9 +159,25 @@ async function settleTransactionResponse({
 }
 
 
+export function canResumePreActuationDiscovery(state) {
+  const outbound = state?.outbound || {};
+  return Boolean(
+    String(state?.conversation?.status || "").toUpperCase() === "ACTIVE" &&
+    String(outbound.state || "").toUpperCase() === "ENQUEUED" &&
+    String(outbound.kind || "") === "SOURCE_OF_TRUTH_TASK_DISCOVERY" &&
+    String(outbound.last_pre_actuation_error_code || "") === "COMPOSER_NOT_READY" &&
+    Number(outbound.retry_count || 0) < 1 &&
+    String(outbound.message_id || "").trim() &&
+    String(outbound.message_digest || "").trim()
+  );
+}
+
 function safeRebindOutboundState(state) {
-  return ["RESPONSE_COMPLETE", "VERIFIED"].includes(
-    String(state?.outbound?.state || "").toUpperCase()
+  return (
+    ["RESPONSE_COMPLETE", "VERIFIED"].includes(
+      String(state?.outbound?.state || "").toUpperCase()
+    ) ||
+    canResumePreActuationDiscovery(state)
   );
 }
 
@@ -468,6 +484,29 @@ export async function runSingleConversationRuntime({
         { code: "RUNTIME_RESTART_IDENTITY_NOT_VERIFIED" }
       );
     }
+  }
+
+  // SC-013: a restart may resume exactly one proven pre-actuation discovery
+  // transaction. The durable COMPOSER_NOT_READY evidence means no submit was
+  // actuated, so exact-once reconciliation may safely perform its one retry.
+  current = await readSingleConversationState(statePath);
+  if (canResumePreActuationDiscovery(current)) {
+    const pendingMessageId = String(current.outbound.message_id);
+    const pendingMessage = buildSingleConversationTaskDiscoveryInstruction({
+      sourceOfTruthUrl,
+      messageId: pendingMessageId
+    });
+    bootstrapResponse = await sendProtocolMessage({
+      adapter,
+      page,
+      statePath,
+      message: pendingMessage,
+      messageId: pendingMessageId,
+      kind: "SOURCE_OF_TRUTH_TASK_DISCOVERY",
+      responseTimeoutMs,
+      pollMs
+    });
+    current = await readSingleConversationState(statePath);
   }
 
   let cycles = 0;
