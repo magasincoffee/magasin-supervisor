@@ -40,9 +40,9 @@ $lastSignature=''
 
 Write-Summary "## SC-013 Overnight Stability Observation"
 Write-Summary ""
-Write-Summary "- Target: `$TargetComputer`"
-Write-Summary "- End UTC: `$($end.ToString('o'))`"
-Write-Summary "- Attempt window: `$AttemptSeconds seconds`"
+Write-Summary "- Target: $TargetComputer"
+Write-Summary "- End UTC: $($end.ToString('o'))"
+Write-Summary "- Attempt window: $AttemptSeconds seconds"
 Write-Summary ""
 
 while([DateTimeOffset]::UtcNow -lt $end){
@@ -159,7 +159,7 @@ while([DateTimeOffset]::UtcNow -lt $end){
     $totalFailures += 1
     $codes=($failureCodes | Sort-Object) -join ','
     Write-Host "SC013_OVERNIGHT_ATTEMPT_RESULT=$attempt|FAIL|$codes"
-    Write-Summary "- Result: **FAIL** — `$codes`"
+    Write-Summary "- Result: **FAIL** — $codes"
   }else{
     $totalPasses += 1
     Write-Host "SC013_OVERNIGHT_ATTEMPT_RESULT=$attempt|PASS"
