@@ -12,7 +12,7 @@ test("SC-013 overnight observer is valid PowerShell syntax", () => {
     "$tokens=$null",
     "$errors=$null",
     `[System.Management.Automation.Language.Parser]::ParseFile('${escaped}', [ref]$tokens, [ref]$errors) | Out-Null`,
-    "if($errors.Count -gt 0){ $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }",
+    "if($errors.Count -gt 0){ $errors | ForEach-Object { Write-Output ((\"LINE={0} COL={1} TEXT={2} MSG={3}\" -f $_.Extent.StartLineNumber,$_.Extent.StartColumnNumber,$_.Extent.Text,$_.Message)) }; exit 1 }",
     "exit 0"
   ].join("; ");
 
