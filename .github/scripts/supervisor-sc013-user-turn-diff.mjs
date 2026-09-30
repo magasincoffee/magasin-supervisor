@@ -1,9 +1,9 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
 const [runtimeRoot,statePath,cdpUrl]=process.argv.slice(2);
 const mod=async(rel)=>import(pathToFileURL(path.join(runtimeRoot,...rel.split("/"))).href);
 const {ChatGptUiAdapter}=await mod("src/ui/playwright-adapter.mjs");
-const {composerInstructionDigest,composerRenderedInstructionDigest}=await mod("src/ui/actions.mjs");
 const {buildSingleConversationTaskDiscoveryInstruction}=await mod("src/runtime/single-conversation-loop.mjs");
 const {readSingleConversationState}=await mod("src/runtime/single-conversation-state.mjs");
 const {opaqueRuntimeIdentity}=await mod("src/runtime/single-conversation-bootstrap.mjs");
@@ -13,52 +13,59 @@ const expected=buildSingleConversationTaskDiscoveryInstruction({
   sourceOfTruthUrl:state.source_of_truth.url,
   messageId:state.outbound.message_id
 });
-const strictExpected=composerInstructionDigest(expected);
-const renderedExpected=composerRenderedInstructionDigest(expected);
+const norm=(v)=>String(v||"")
+ .replace(/[\u200B-\u200F\u2060\uFEFF]/g,"")
+ .replace(/\r\n/g,"\n")
+ .replace(/\u00A0/g," ")
+ .replace(/\s+/gu," ")
+ .replace(/\bSOT=\s+(https?:\/\/)/giu,"SOT=$1")
+ .trim();
+const esc=(v)=>String(v||"").replace(/\n/g,"\\n").replace(/\r/g,"\\r").replace(/\t/g,"\\t");
 
-const adapter=new ChatGptUiAdapter({cdpUrl,settleMs:0,actionTimeoutMs:3000,timeoutMs:10000});
+const adapter=new ChatGptUiAdapter({cdpUrl,settleMs:0,actionTimeoutMs:4000,timeoutMs:12000});
 try{
   await adapter.open();
-  const wanted=String(state.conversation.runtime_id||"");
-  const pages=adapter.getChatGptPages();
-  const page=pages.find(p=>opaqueRuntimeIdentity(p.url())===wanted)||
-    pages.find(p=>/^https:\/\/chatgpt\.com\/c\//.test(p.url()))||pages[0];
-  if(!page) throw new Error("conversation page missing");
-  const actual=await page.evaluate(()=>{
-    const legacy=[...document.querySelectorAll('[data-message-author-role="user"]')];
-    const modern=[...document.querySelectorAll('main .text-size-chat.whitespace-pre-wrap')];
-    const nodes=[...legacy,...modern].filter((n,i,a)=>a.indexOf(n)===i).filter(n=>
-      !n.matches?.("#prompt-textarea,textarea,[contenteditable='true'],[contenteditable='plaintext-only']") &&
-      !n.closest?.("#prompt-textarea")
-    );
-    const node=nodes.at(-1)||null;
-    return node ? String(node.innerText||node.textContent||"") : "";
+  const rid=String(state.conversation.runtime_id||"");
+  let page=adapter.getChatGptPages().find(p=>opaqueRuntimeIdentity(p.url())===rid)||null;
+  if(!page) page=adapter.getChatGptPages().find(p=>/\/c\//.test(new URL(p.url()).pathname))||null;
+  if(!page) throw new Error("conversation page not found");
+
+  const turns=await page.evaluate(()=>{
+    const nodes=[
+      ...document.querySelectorAll('[data-message-author-role="user"]'),
+      ...document.querySelectorAll("main .text-size-chat.whitespace-pre-wrap")
+    ];
+    const seen=new Set(), out=[];
+    for(const node of nodes){
+      if(!node||seen.has(node)) continue;
+      seen.add(node);
+      if(node.matches?.("#prompt-textarea,textarea,[contenteditable='true'],[contenteditable='plaintext-only']")||node.closest?.("#prompt-textarea")) continue;
+      out.push({
+        innerText:String(node.innerText||""),
+        textContent:String(node.textContent||""),
+        testid:String(node.closest?.("[data-testid^='conversation-turn-']")?.getAttribute?.("data-testid")||"")
+      });
+    }
+    return out;
   });
-  const strictActual=composerInstructionDigest(actual);
-  const renderedActual=composerRenderedInstructionDigest(actual);
-  const normalizeBasic=(v)=>String(v||"").replace(/[\u200B-\u200F\u2060\uFEFF]/g,"").replace(/\r\n/g,"\n").replace(/\u00A0/g," ").replace(/\s+/gu," ").trim();
-  const normExpected=normalizeBasic(expected);
-  const normActual=normalizeBasic(actual);
-  const artifactExpected=normExpected.replace(/\bSOT=\s+(https?:\/\/)/giu,"SOT=$1");
-  const artifactActual=normActual.replace(/\bSOT=\s+(https?:\/\/)/giu,"SOT=$1");
-  let firstDiff=-1;
-  const n=Math.min(artifactExpected.length,artifactActual.length);
-  for(let i=0;i<n;i++){if(artifactExpected[i]!==artifactActual[i]){firstDiff=i;break;}}
-  if(firstDiff<0 && artifactExpected.length!==artifactActual.length) firstDiff=n;
-  console.log("TURNDIFF_EXPECTED_LEN="+expected.length);
-  console.log("TURNDIFF_ACTUAL_LEN="+actual.length);
-  console.log("TURNDIFF_EXPECTED_STRICT="+strictExpected);
-  console.log("TURNDIFF_ACTUAL_STRICT="+strictActual);
-  console.log("TURNDIFF_EXPECTED_RENDERED="+renderedExpected);
-  console.log("TURNDIFF_ACTUAL_RENDERED="+renderedActual);
-  console.log("TURNDIFF_RENDERED_MATCH="+String(renderedExpected===renderedActual));
-  console.log("TURNDIFF_SOT_ARTIFACT_NORMALIZED_MATCH="+String(artifactExpected===artifactActual));
-  console.log("TURNDIFF_FIRST_DIFF="+firstDiff);
-  console.log("TURNDIFF_ACTUAL_HAS_ID="+String(actual.includes(String(state.outbound.message_id))));
-  console.log("TURNDIFF_ACTUAL_HAS_HEADER="+String(actual.includes("MAGASIN_DISCOVER_TASK_V1")));
-  console.log("TURNDIFF_ACTUAL_HAS_CONTROL_HEADER="+String(actual.includes("MAGASIN_TASK_CONTROL_V1")));
-  console.log("TURNDIFF_ACTUAL_HAS_CORRELATION="+String(actual.includes("MAGASIN_CYCLE_CORRELATION_V1")));
+
+  console.log("TURN_DIFF_COUNT="+turns.length);
+  console.log("TURN_DIFF_EXPECTED_LEN="+expected.length);
+  console.log("TURN_DIFF_EXPECTED_NORM_LEN="+norm(expected).length);
+  for(let i=0;i<turns.length;i++){
+    const actual=turns[i].innerText||turns[i].textContent||"";
+    const a=norm(actual), e=norm(expected);
+    let d=0; while(d<Math.min(a.length,e.length)&&a[d]===e[d]) d++;
+    console.log("TURN_DIFF_"+(i+1)+"_TESTID="+turns[i].testid);
+    console.log("TURN_DIFF_"+(i+1)+"_INNER_LEN="+turns[i].innerText.length);
+    console.log("TURN_DIFF_"+(i+1)+"_TEXTCONTENT_LEN="+turns[i].textContent.length);
+    console.log("TURN_DIFF_"+(i+1)+"_NORM_LEN="+a.length);
+    console.log("TURN_DIFF_"+(i+1)+"_MATCH="+String(a===e));
+    console.log("TURN_DIFF_"+(i+1)+"_FIRST_DIFF="+d);
+    const start=Math.max(0,d-100), end=Math.min(Math.max(a.length,e.length),d+220);
+    console.log("TURN_DIFF_"+(i+1)+"_EXPECTED_SNIP="+esc(e.slice(start,end)));
+    console.log("TURN_DIFF_"+(i+1)+"_ACTUAL_SNIP="+esc(a.slice(start,end)));
+  }
 }finally{
   await adapter.close().catch(()=>{});
-  process.exit(0);
 }
