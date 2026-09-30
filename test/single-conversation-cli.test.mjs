@@ -237,3 +237,22 @@ test("SC-011 fresh task send remains PREPARED until exact-once reconciler enqueu
   assert.match(body, /reconcileExactOnceOutbound/);
   assert.doesNotMatch(body, /markExactOnceEnqueued/);
 });
+
+
+test("SC-013 NEXT_WORK recovers malformed task-control with authoritative discovery instead of terminal exit", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const taskSend = source.indexOf("const response = await sendProtocolMessage", source.indexOf("while (maxCycles <= 0 || cycles < maxCycles)"));
+  const parse = source.indexOf("control = parseTaskControl(response.assistant_turn?.text)", taskSend);
+  const invalid = source.indexOf('error?.code !== "TASK_PROTOCOL_INVALID"', parse);
+  const discovery = source.indexOf("control = await discoverTaskControl", invalid);
+  const nextDelay = source.indexOf("await waitForNextCycleDelay(pollMs)", discovery);
+
+  assert.ok(taskSend >= 0);
+  assert.ok(parse > taskSend);
+  assert.ok(invalid > parse);
+  assert.ok(discovery > invalid);
+  assert.ok(nextDelay > discovery);
+});
