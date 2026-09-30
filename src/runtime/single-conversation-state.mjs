@@ -66,7 +66,8 @@ function blankOutbound() {
     response_complete_at: null,
     verified_at: null,
     retry_count: 0,
-    last_error_code: null
+    last_error_code: null,
+    last_error_stage: null
   };
 }
 
@@ -194,6 +195,8 @@ export function assertSingleConversationState(value) {
     requireNullableString(value.outbound.message_digest, "outbound.message_digest", 128);
   value.outbound.kind =
     requireNullableString(value.outbound.kind, "outbound.kind", 80);
+  value.outbound.last_error_stage =
+    requireNullableString(value.outbound.last_error_stage, "outbound.last_error_stage", 120);
   value.outbound.cmd_id =
     requireNullableString(value.outbound.cmd_id, "outbound.cmd_id", 300);
   value.outbound.baseline_user_turn_id =
