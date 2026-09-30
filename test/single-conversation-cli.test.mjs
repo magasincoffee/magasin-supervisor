@@ -6,10 +6,14 @@ import path from "node:path";
 
 import {
   boundedRuntimeStep,
+  canRebindEnqueuedStatusCheck,
   canResumePreActuationDiscovery,
+  reconstructPendingStatusCheckMessage,
   runSingleConversationRuntime,
   waitForNextCycleDelay
 } from "../src/runtime/single-conversation-cli.mjs";
+import { composerInstructionDigest } from "../src/ui/actions.mjs";
+import { buildSingleConversationTaskInstruction } from "../src/runtime/single-conversation-loop.mjs";
 import {
   ensureSingleConversationState,
   readSingleConversationState
@@ -255,4 +259,75 @@ test("SC-013 NEXT_WORK recovers malformed task-control with authoritative discov
   assert.ok(invalid > parse);
   assert.ok(discovery > invalid);
   assert.ok(nextDelay > discovery);
+});
+
+
+test("SC-013 restart rebind permits only a durable ENQUEUED TASK_STATUS_CHECK candidate", () => {
+  const sourceOfTruthUrl = "https://example.com/SOURCE_OF_TRUTH.md";
+  const messageId = "status-restart-1";
+  const taskId = "OPS-022";
+  const message = buildSingleConversationTaskInstruction({
+    sourceOfTruthUrl,
+    taskId,
+    messageId,
+    checkOnly: true
+  });
+  const state = {
+    conversation: { status: "ACTIVE" },
+    source_of_truth: { url: sourceOfTruthUrl },
+    outbound: {
+      state: "ENQUEUED",
+      kind: "TASK_STATUS_CHECK",
+      message_id: messageId,
+      message_digest: composerInstructionDigest(message),
+      retry_count: 0
+    }
+  };
+
+  assert.equal(canRebindEnqueuedStatusCheck(state), true);
+  assert.equal(
+    reconstructPendingStatusCheckMessage(state, message),
+    message
+  );
+  assert.equal(
+    reconstructPendingStatusCheckMessage(
+      state,
+      message.replace("TASK_ID=OPS-022", "TASK_ID=OPS-999")
+    ),
+    null
+  );
+  assert.equal(
+    canRebindEnqueuedStatusCheck({
+      ...state,
+      outbound: { ...state.outbound, kind: "TASK_EXECUTION" }
+    }),
+    false
+  );
+  assert.equal(
+    canRebindEnqueuedStatusCheck({
+      ...state,
+      outbound: { ...state.outbound, state: "PREPARED" }
+    }),
+    false
+  );
+});
+
+test("SC-013 restart reconciles pending status check before selecting any new work", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const helper = source.indexOf("async function resumeEnqueuedStatusCheckAfterRebind");
+  const reconcile = source.indexOf("reconcileExactOnceOutbound", helper);
+  const settle = source.indexOf("settleTransactionResponse", reconcile);
+  const activeBranch = source.indexOf("if (rebound?.page)");
+  const recovery = source.indexOf("resumeEnqueuedStatusCheckAfterRebind", activeBranch);
+  const cycles = source.indexOf("let cycles = 0;", recovery);
+
+  assert.ok(helper >= 0);
+  assert.ok(reconcile > helper);
+  assert.ok(settle > reconcile);
+  assert.ok(activeBranch >= 0);
+  assert.ok(recovery > activeBranch);
+  assert.ok(cycles > recovery);
 });
