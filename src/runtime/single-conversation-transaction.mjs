@@ -341,6 +341,7 @@ export async function reconcileExactOnceOutbound({
       }));
 
       if (
+        current === "ENQUEUED" &&
         draft?.has_text &&
         draft.digest !== digest &&
         draft.rendered_digest !== renderedDigest
