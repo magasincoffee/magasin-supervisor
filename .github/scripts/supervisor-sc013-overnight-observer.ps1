@@ -59,7 +59,7 @@ while([DateTimeOffset]::UtcNow -lt $end){
 
   Write-Host "SC013_OVERNIGHT_ATTEMPT_START=$attempt"
   Write-Host "SC013_OVERNIGHT_ATTEMPT_WINDOW_SECONDS=$window"
-  Write-Summary "### Attempt $attempt — $($attemptStart.ToString('o'))"
+  Write-Summary "### Attempt $attempt - $($attemptStart.ToString('o'))"
 
   while([DateTimeOffset]::UtcNow -lt $attemptEnd -and [DateTimeOffset]::UtcNow -lt $end){
     $truth=$null
@@ -159,7 +159,7 @@ while([DateTimeOffset]::UtcNow -lt $end){
     $totalFailures += 1
     $codes=($failureCodes | Sort-Object) -join ','
     Write-Host ("SC013_OVERNIGHT_ATTEMPT_RESULT={0};FAIL;{1}" -f $attempt,$codes)
-    Write-Summary "- Result: **FAIL** — $codes"
+    Write-Summary "- Result: **FAIL** - $codes"
   }else{
     $totalPasses += 1
     Write-Host ("SC013_OVERNIGHT_ATTEMPT_RESULT={0};PASS" -f $attempt)
