@@ -59,7 +59,8 @@ jobs:
           Write-Host "SC013_STATE_AUTOMATION_PHASE=$([string]$s.automation.phase)"
           Write-Host "SC013_STATE_OUTBOUND_STATE=$([string]$s.outbound.state)"
           Write-Host "SC013_STATE_OUTBOUND_KIND=$([string]$s.outbound.kind)"
-          Write-Host "SC013_STATE_OUTBOUND_TASK_ID=$([string]$s.outbound.task_id)"
+          $taskId = if($s.outbound.PSObject.Properties['task_id']){ [string]$s.outbound.task_id } else { '' }
+          Write-Host "SC013_STATE_OUTBOUND_TASK_ID=$taskId"
           Write-Host "SC013_STATE_OUTBOUND_MESSAGE_ID=$([string]$s.outbound.message_id)"
           Write-Host "SC013_STATE_OUTBOUND_DIGEST=$([string]$s.outbound.message_digest)"
           Write-Host "SC013_STATE_OUTBOUND_RETRY=$([string]$s.outbound.retry_count)"
