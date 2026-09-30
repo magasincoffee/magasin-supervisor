@@ -68,3 +68,5 @@ jobs:
           $qualified=(($a1Match -eq 'true' -and $a1Pass -eq 'true') -or ($a2Match -eq 'true' -and $a2Pass -eq 'true'))
           if(-not $qualified){throw 'SC-013 has no successful real-target production qualification.'}
           Write-Host 'SC013_QUALIFICATION_AUTHORITY=PASS'
+
+# rerun-candidate: 254c64f649a460fc31c986891c3cfc8045cc5bbe
