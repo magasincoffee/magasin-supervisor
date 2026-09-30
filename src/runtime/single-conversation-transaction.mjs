@@ -102,7 +102,9 @@ export async function prepareExactOnceOutbound(statePath, {
       verified_at: null,
       retry_count: 0,
       last_error_code: null,
-      last_error_stage: null
+      last_error_stage: null,
+      last_pre_actuation_error_code: null,
+      last_pre_actuation_error_stage: null
     };
     state.automation.status = "RUNNING";
     state.automation.phase = "SEND_WORK";
@@ -161,6 +163,8 @@ export async function markExactOnceDelivered(statePath, {
     state.outbound.delivered_at = state.outbound.delivered_at || at;
     state.outbound.last_error_code = null;
     state.outbound.last_error_stage = null;
+    state.outbound.last_pre_actuation_error_code = null;
+    state.outbound.last_pre_actuation_error_stage = null;
     state.automation.status = "RUNNING";
     state.automation.reason = null;
     state.automation.phase = "WAIT_RESPONSE";
@@ -217,8 +221,14 @@ export async function markExactOnceVerified(statePath, {
 
 async function persistExactOnceFailure(statePath, error, now) {
   return mutateState(statePath, (state, at) => {
-    state.outbound.last_error_code = transactionCode(error).slice(0, 120);
-    state.outbound.last_error_stage = String(error?.failure_stage || "").trim().slice(0, 120) || null;
+    const code = transactionCode(error).slice(0, 120);
+    const stage = String(error?.failure_stage || "").trim().slice(0, 120) || null;
+    state.outbound.last_error_code = code;
+    state.outbound.last_error_stage = stage;
+    if (error?.pre_actuation === true) {
+      state.outbound.last_pre_actuation_error_code = code;
+      state.outbound.last_pre_actuation_error_stage = stage;
+    }
     state.automation.status = "BLOCKED";
     state.automation.reason = state.outbound.last_error_code;
     state.automation.updated_at = at;
@@ -353,7 +363,14 @@ export async function reconcileExactOnceOutbound({
           { code: "AMBIGUOUS_POST_SEND_DELIVERY" }
         );
       }
-      if (!positiveNonDelivery && !draft?.has_text) {
+      const durablePreActuationEvidence =
+        String(state.outbound.last_pre_actuation_error_code || "") ===
+        "COMPOSER_NOT_READY";
+      if (
+        !positiveNonDelivery &&
+        !draft?.has_text &&
+        !durablePreActuationEvidence
+      ) {
         throw Object.assign(
           new Error("prior ENQUEUED send outcome remains ambiguous"),
           { code: "AMBIGUOUS_ENQUEUED_OUTCOME" }
@@ -382,7 +399,9 @@ export async function reconcileExactOnceOutbound({
         new Error(sent?.reason || "outbound send was not confirmed"),
         {
           code: sent?.rejection_class || "SEND_NOT_CONFIRMED",
-          failure_stage: sent?.failure_stage || null
+          failure_stage: sent?.failure_stage || null,
+          pre_actuation:
+            sent?.rejection_class === "COMPOSER_NOT_READY"
         }
       );
     }
