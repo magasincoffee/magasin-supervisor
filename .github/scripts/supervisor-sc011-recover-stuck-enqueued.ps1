@@ -21,6 +21,9 @@ $root=Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
 $runtime=Join-Path $root 'runtime'
 $statePath=Join-Path $root 'single-conversation-state.json'
 $startScript=Join-Path $runtime 'windows\start-supervisor.ps1'
+$profile=Join-Path $root 'browser_profile'
+$stopFile=Join-Path $root 'STOP'
+$autostartDisabled=Join-Path $root 'AUTOSTART_DISABLED'
 
 foreach($p in @($runtime,$statePath,$startScript)){
   if(-not (Test-Path $p)){throw "Required recovery path missing: $p"}
@@ -54,20 +57,50 @@ if(Get-LifecycleSupervisorWrapper -Root $root){
 
 $chrome=Get-LifecycleRobotChrome -Root $root
 if(-not $chrome -or -not $chrome.CommandLine){
-  # Start production only to establish the dedicated Chrome/CDP endpoint.
-  # The recovery worker immediately takes sole ownership after bounded startup.
-  & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $startScript -Hidden
-  if($LASTEXITCODE -ne 0){throw "START failed with exit $LASTEXITCODE"}
+  if((Test-Path $stopFile) -or (Test-Path $autostartDisabled)){
+    throw 'Owner STOP/AUTOSTART_DISABLED blocks recovery Chrome launch.'
+  }
+
+  $chromeCandidates=@(
+    "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+    "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+    "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+  )
+  $chromeExe=$chromeCandidates|Where-Object{$_ -and (Test-Path $_ -PathType Leaf)}|Select-Object -First 1
+  if(-not $chromeExe){throw 'Installed Google Chrome not found.'}
+
+  $cdpPort=$null
+  foreach($candidate in 9222..9232){
+    $listener=Get-NetTCPConnection -State Listen -LocalPort $candidate -ErrorAction SilentlyContinue|Select-Object -First 1
+    if(-not $listener){$cdpPort=[int]$candidate;break}
+  }
+  if(-not $cdpPort){throw 'No free Supervisor CDP port.'}
+
+  Start-Process -FilePath $chromeExe -WindowStyle Minimized -ArgumentList @(
+    '--remote-debugging-address=127.0.0.1',
+    "--remote-debugging-port=$cdpPort",
+    ('--user-data-dir="' + $profile + '"'),
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--hide-crash-restore-bubble',
+    '--start-minimized',
+    '--disable-background-timer-throttling',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding',
+    '--disable-features=CalculateNativeWinOcclusion',
+    'https://chatgpt.com/'
+  )
+  Write-Host "RECOVER_STUCK_CHROME_LAUNCHED_DIRECT=True"
+
+  $ready=$false
   for($i=0;$i -lt 30;$i++){
     Start-Sleep -Seconds 1
-    $chrome=Get-LifecycleRobotChrome -Root $root
-    if($chrome -and $chrome.CommandLine){break}
+    try{
+      $version=Invoke-RestMethod -Uri "http://127.0.0.1:$cdpPort/json/version" -TimeoutSec 2
+      if($version.webSocketDebuggerUrl){$ready=$true;break}
+    }catch{}
   }
-  $wrapper=Get-LifecycleSupervisorWrapper -Root $root
-  if($wrapper){
-    & taskkill.exe /PID ([int]$wrapper.ProcessId) /T /F | Out-Host
-    Start-Sleep -Milliseconds 800
-  }
+  if(-not $ready){throw 'Dedicated Chrome/CDP did not become ready.'}
 }
 $chrome=Get-LifecycleRobotChrome -Root $root
 if(-not $chrome -or -not $chrome.CommandLine -or $chrome.CommandLine -notmatch '--remote-debugging-port=(\d+)'){
