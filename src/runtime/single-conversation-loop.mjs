@@ -492,6 +492,11 @@ export async function waitForSingleConversationResponse({
           !expectedMarker || assistantText.includes(expectedMarker);
 
         if (!markerConfirmed && expectedMarker) {
+          // SC-013: correlated requests are not complete until the exact
+          // cycle marker appears. ChatGPT tool-use can briefly look idle and
+          // expose stable intermediate assistant text while GitHub/Supabase
+          // work is still in progress. Treat that as in-flight, never as a
+          // completed turn, so no new Robot request can overlap the task.
           const digest = String(
             assistant.digest || assistant.turn_id || assistantText
           );
@@ -499,21 +504,6 @@ export async function waitForSingleConversationResponse({
           if (digest !== stableAssistantDigest) {
             stableAssistantDigest = digest;
             stableAssistantSince = observedAt;
-          } else if (
-            Number(assistantSettleMs) <= 0 ||
-            observedAt - stableAssistantSince >= Number(assistantSettleMs)
-          ) {
-            await persistCycleComplete(statePath, {
-              assistantTurnId: assistant.turn_id,
-              now
-            });
-            return {
-              status: "RESPONSE_COMPLETE",
-              assistant_turn: assistant,
-              continue_clicks: continueClicks,
-              saw_running: sawRunning,
-              marker_confirmed: false
-            };
           }
         } else {
           await persistCycleComplete(statePath, {

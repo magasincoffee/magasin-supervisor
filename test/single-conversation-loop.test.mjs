@@ -337,6 +337,39 @@ test("SC-004 waits through false-idle partial assistant text until cycle correla
   }
 });
 
+test("SC-013 stable intermediate assistant text without cycle marker stays in-flight", async () => {
+  const { root, statePath } = await tempState();
+  try {
+    await assert.rejects(
+      waitForSingleConversationResponse({
+        adapter: {
+          async probePage() {
+            return { snapshot: baseSnapshot({ responseRunning: false }) };
+          }
+        },
+        page: { async waitForTimeout() {} },
+        statePath,
+        baselineAssistantTurnId: "assistant-old",
+        expectedAssistantMarker: "MAGASIN_CYCLE_CORRELATION_V1 sc013-long-task",
+        assistantSettleMs: 1,
+        captureTurn: async () => ({
+          turn_id: "assistant-working",
+          text: "I am still working with GitHub and Supabase.",
+          digest: "stable-intermediate"
+        }),
+        pollMs: 1,
+        timeoutMs: 25
+      }),
+      (error) => error?.code === "RESPONSE_TIMEOUT"
+    );
+
+    const durable = await readSingleConversationState(statePath);
+    assert.notEqual(durable.outbound.state, "RESPONSE_COMPLETE");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("SC-008 correlated response wins over a stale transient banner", async () => {
   const { root, statePath } = await tempState();
   try {
