@@ -1,6 +1,7 @@
 import {
   captureMatchingUserTurnEvidence,
   composerInstructionDigest,
+  composerRenderedInstructionDigest,
   inspectComposerDraftDigest,
   sendComposerInstruction
 } from "../ui/actions.mjs";
@@ -131,6 +132,8 @@ export async function markExactOnceEnqueued(statePath, {
       state.outbound.retry_count = Number(state.outbound.retry_count || 0) + 1;
     }
     state.outbound.last_error_code = null;
+    state.automation.status = "RUNNING";
+    state.automation.reason = null;
     state.automation.phase = "SEND_WORK";
     state.automation.updated_at = at;
   }, now);
@@ -155,6 +158,8 @@ export async function markExactOnceDelivered(statePath, {
       userTurnId || state.outbound.delivered_user_turn_id || null;
     state.outbound.delivered_at = state.outbound.delivered_at || at;
     state.outbound.last_error_code = null;
+    state.automation.status = "RUNNING";
+    state.automation.reason = null;
     state.automation.phase = "WAIT_RESPONSE";
     state.automation.updated_at = at;
   }, now);
@@ -249,6 +254,7 @@ export async function reconcileExactOnceOutbound({
   try {
     let state = await readSingleConversationState(statePath);
     const { digest } = assertSameTransaction(state, id, text);
+    const renderedDigest = composerRenderedInstructionDigest(text);
     let current = String(state.outbound.state || "").toUpperCase();
 
     if (["DELIVERED", "RESPONSE_RUNNING", "RESPONSE_COMPLETE", "VERIFIED"].includes(current)) {
@@ -305,7 +311,11 @@ export async function reconcileExactOnceOutbound({
         digest: null
       }));
 
-      if (draft?.has_text && draft.digest !== digest) {
+      if (
+        draft?.has_text &&
+        draft.digest !== digest &&
+        draft.rendered_digest !== renderedDigest
+      ) {
         throw Object.assign(
           new Error("different composer draft makes outbound delivery ambiguous"),
           { code: "AMBIGUOUS_COMPOSER_DRAFT" }
