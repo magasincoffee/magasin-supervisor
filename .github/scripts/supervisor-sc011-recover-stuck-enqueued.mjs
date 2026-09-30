@@ -84,6 +84,7 @@ try{
   console.log("RECOVER_STUCK_DELIVERY_STATE="+String(delivery.state||""));
 
   const response=await waitForSingleConversationResponse({
+    adapter,
     page,
     statePath,
     baselineAssistantTurnId:baselineAssistant?.turn_id||null,
@@ -100,6 +101,8 @@ try{
   await markExactOnceVerified(statePath,{messageId:id,message});
   console.log("RECOVER_STUCK_TRANSACTION_VERIFIED=True");
 }finally{
-  await adapter.close().catch(()=>{});
-  process.exitCode=0;
+  await Promise.race([
+    adapter.close().catch(()=>{}),
+    new Promise(resolve=>setTimeout(resolve,1500))
+  ]).catch(()=>{});
 }
