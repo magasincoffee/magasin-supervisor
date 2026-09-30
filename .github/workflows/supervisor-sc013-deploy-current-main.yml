@@ -42,5 +42,5 @@ jobs:
             exit /b 0
           )
           echo SC013_DEPLOY_TARGET_MATCH=True
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\update-latest-clean-old.ps1" -TargetComputer "DESKTOP-4K7IM13" -ExpectedMainSha "e574d190648a979e9a548bfe28f970232d71dd71"
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\update-latest-clean-old.ps1" -TargetComputer "DESKTOP-4K7IM13" -ExpectedMainSha "08ef5602f07f3af3af7a2673a30287cf650b7274"
           exit /b %ERRORLEVEL%
