@@ -402,7 +402,7 @@ test("all Robot-authored Planner/Executor prompts transport machine-frame exampl
   assert.doesNotMatch(messageBuilders, /@M \{"v":1/);
 });
 
-test("production wrapper routes single-conversation control before legacy adapter and preserves Planner/Executor rollback", async () => {
+test("production wrapper routes single-conversation control before legacy adapter and keeps Planner Executor inert", async () => {
   const source = await fs.readFile(
     new URL("../windows/run-supervisor.ps1", import.meta.url),
     "utf8"
@@ -414,10 +414,9 @@ test("production wrapper routes single-conversation control before legacy adapte
   assert.match(source, /planner-executor-state\.json/);
   assert.match(source, /PLANNER_EXECUTOR_V1/);
   assert.match(source, /planner-executor-cli\.mjs/);
-  assert.match(
-    source,
-    /runtimeMode -notin @\('SINGLE_CONVERSATION_V1','PLANNER_EXECUTOR_V1'\)/
-  );
+  assert.doesNotMatch(source, /return 'PLANNER_EXECUTOR_V1'/);
+  assert.match(source, /LEGACY_PLANNER_EXECUTOR_SELECTION_IGNORED=True/);
+  assert.match(source, /runtimeMode -ne 'SINGLE_CONVERSATION_V1'/);
 });
 
 test("lifecycle truth recognizes Planner/Executor as the active production runtime", async () => {
