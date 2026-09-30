@@ -1,0 +1,62 @@
+name: SC-013 Hotpatch Actions Runtime
+
+on:
+  push:
+    branches:
+      - sc011-production-runtime-diagnostic-20260929
+    paths:
+      - '.github/workflows/supervisor-sc013-hotpatch-actions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        slot: [1,2,3,4]
+    runs-on: self-hosted
+    timeout-minutes: 5
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - name: Patch only actions.mjs on production target
+        shell: powershell
+        run: |
+          Write-Host "SC013_HOTPATCH_SLOT=${{ matrix.slot }}"
+          Write-Host "SC013_HOTPATCH_MACHINE=$env:COMPUTERNAME"
+          if ($env:COMPUTERNAME -ne 'DESKTOP-4K7IM13') {
+            Write-Host 'SC013_HOTPATCH_TARGET_MATCH=False'
+            Start-Sleep -Seconds 90
+            exit 0
+          }
+          Write-Host 'SC013_HOTPATCH_TARGET_MATCH=True'
+          . (Join-Path $env:GITHUB_WORKSPACE 'windows\state-root.ps1')
+          . (Join-Path $env:GITHUB_WORKSPACE 'windows\lifecycle-truth.ps1')
+          $root=Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
+          $runtime=Join-Path $root 'runtime'
+          $source=Join-Path $env:GITHUB_WORKSPACE 'src\ui\actions.mjs'
+          $target=Join-Path $runtime 'src\ui\actions.mjs'
+          if (-not (Test-Path $source)) { throw 'Source actions.mjs missing' }
+          if (-not (Test-Path $target)) { throw 'Installed actions.mjs missing' }
+          $truth=Get-LifecycleProcessTruth -Root $root
+          Write-Host "SC013_HOTPATCH_WRAPPER=$([bool]$truth.wrapper_alive)"
+          Write-Host "SC013_HOTPATCH_RUNTIME=$([bool]$truth.runtime_alive)"
+          Write-Host "SC013_HOTPATCH_CHROME=$([bool]$truth.chrome_alive)"
+          Write-Host "SC013_HOTPATCH_CDP=$([bool]$truth.cdp_healthy)"
+          if ($truth.wrapper_alive -or $truth.runtime_alive) {
+            throw 'Refusing actions hotpatch while wrapper/runtime is active.'
+          }
+          Copy-Item $source $target -Force
+          $srcHash=(Get-FileHash $source -Algorithm SHA256).Hash
+          $dstHash=(Get-FileHash $target -Algorithm SHA256).Hash
+          Write-Host "SC013_HOTPATCH_SOURCE_SHA256=$srcHash"
+          Write-Host "SC013_HOTPATCH_TARGET_SHA256=$dstHash"
+          if ($srcHash -ne $dstHash) { throw 'Hotpatch hash mismatch' }
+          Write-Host 'SC013_HOTPATCH_STATUS=PASS'
