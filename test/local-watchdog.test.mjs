@@ -92,3 +92,30 @@ test("SC-013 local UI probe cannot block the 24/7 watchdog heartbeat", async () 
   assert.match(source, /\$lastUiProbeAt = \[DateTimeOffset\]::UtcNow/);
   assert.doesNotMatch(source, /\$raw = & node\.exe \$probeCli/);
 });
+
+
+test("SC-013 local UI probe error results keep a complete StrictMode-safe shape", async () => {
+  const source = await read("windows/local-watchdog.ps1");
+  assert.match(source, /function New-UiProbeErrorResult/);
+  for (const field of [
+    "expected_runtime_id_present",
+    "exact_runtime_match",
+    "login_required",
+    "has_captcha",
+    "has_network_error",
+    "has_transient_error",
+    "has_retry_control",
+    "conversation_full",
+    "conversation_missing",
+    "conversation_access_denied",
+    "probe_error"
+  ]) {
+    assert.match(source, new RegExp(field));
+  }
+  assert.match(source, /WaitForExit\(20000\)/);
+  assert.match(source, /New-UiProbeErrorResult -Code 'UI_PROBE_TIMEOUT'/);
+  assert.match(source, /New-UiProbeErrorResult -Code 'UI_PROBE_FAILED'/);
+  assert.match(source, /New-UiProbeErrorResult -Code 'UI_PROBE_EMPTY'/);
+  assert.match(source, /New-UiProbeErrorResult -Code 'UI_PROBE_EXCEPTION'/);
+  assert.doesNotMatch(source, /WaitForExit\(8000\)/);
+});
