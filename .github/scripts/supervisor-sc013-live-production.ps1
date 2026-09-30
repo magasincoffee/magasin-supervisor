@@ -98,6 +98,9 @@ $allVerified=New-Object 'System.Collections.Generic.HashSet[string]'
 $blockedSince=$null
 $lastPrinted=''
 $latest=$null
+$lastUiProbe=[DateTimeOffset]::MinValue
+$lastUiSignature=''
+$uiProbeScript=Join-Path $env:GITHUB_WORKSPACE '.github\scripts\sc013-wait-response-liveness.mjs'
 
 while([DateTimeOffset]::UtcNow -lt $deadline){
   Start-Sleep -Seconds 2
@@ -150,6 +153,288 @@ while([DateTimeOffset]::UtcNow -lt $deadline){
     $lastProgress=[DateTimeOffset]::UtcNow
     $line="gen=$generation id=$messageId kind=$kind outbound=$outbound automation=$automation phase=$phase code=$lastCode stage=$lastStage retry=$retry"
     if($line -ne $lastPrinted){Write-Host "SC013_LIVE_PROGRESS $line";$lastPrinted=$line}
+  }
+
+  # WAIT_RESPONSE can legitimately remain durably unchanged while ChatGPT is
+  # still executing a long GitHub/Supabase/tool task. Use read-only CDP UI
+  # liveness as additional progress evidence so the harness does not create a
+  # false NO_PROGRESS_TIMEOUT after four minutes of active work.
+  $waitingForResponse=[bool]($phase -eq 'WAIT_RESPONSE' -or $outbound -in @('DELIVERED','RESPONSE_RUNNING'))
+  if(
+    $waitingForResponse -and
+    (Test-Path $uiProbeScript) -and
+    ([DateTimeOffset]::UtcNow-$lastUiProbe).TotalSeconds -ge 30
+  ){
+    $lastUiProbe=[DateTimeOffset]::UtcNow
+    try{
+      $truthNow=Get-LifecycleProcessTruth -Root $root
+      if($truthNow.cdp_healthy){
+        $chromeNow=Get-LifecycleRobotChrome -Root $root
+        if($chromeNow -and [string]$chromeNow.CommandLine -match '--remote-debugging-port=(\d+)'){
+          $cdpUrl="http://127.0.0.1:$([int]$Matches[1])"
+          $probeLines=@(& node $uiProbeScript $runtime $statePath $cdpUrl 2>$null)
+          $uiMatch=0
+          $uiRunning=$false
+          $uiAssistantBusy=$false
+          $uiMainBusy=$false
+          $uiAssistantCount=0
+          $uiAssistantChars=0
+          foreach($probeLine in $probeLines){
+            $probeText=[string]$probeLine
+            if($probeText -match '^SC013_UI_MATCH_COUNT=(\d+)
+  if($outbound -eq 'VERIFIED' -and -not [string]::IsNullOrWhiteSpace($messageId)){
+    [void]$allVerified.Add($messageId)
+    if($baselineNeedsRecovery -and $messageId -eq $baselineMessageId){
+      if(-not $recoveredBaseline){
+        $recoveredBaseline=$true
+        Write-Host 'SC013_LIVE_PREVIOUSLY_STUCK_OUTBOUND_RECOVERED=True'
+      }
+    } elseif($recoveredBaseline) {
+      if($verifiedAfterRecovery.Add($messageId)){
+        Write-Host "SC013_LIVE_POST_RECOVERY_VERIFIED_COUNT=$($verifiedAfterRecovery.Count)"
+      }
+    } elseif(-not $baselineNeedsRecovery -and $allVerified.Count -ge 1) {
+      # A clean rerun without a pending baseline may still prove the forward
+      # production path, but it cannot by itself satisfy stuck-outbound recovery.
+      Write-Host 'SC013_LIVE_NO_PENDING_BASELINE_OBSERVED=True'
+    }
+  }
+
+  if($automation -eq 'BLOCKED'){
+    if($null -eq $blockedSince){$blockedSince=[DateTimeOffset]::UtcNow}
+    if(([DateTimeOffset]::UtcNow-$blockedSince).TotalSeconds -ge 60){
+      $failureCode=if($lastCode){$lastCode}elseif($reason){$reason}else{'BLOCKED'}
+      $failureStage=if($lastStage){$lastStage}elseif($preStage){$preStage}else{$phase}
+      Write-Host "SC013_LIVE_FIRST_FAILURE_CODE=$failureCode"
+      Write-Host "SC013_LIVE_FIRST_FAILURE_STAGE=$failureStage"
+      Write-Host "SC013_LIVE_PRE_ACTUATION_CODE=$preCode"
+      Write-Host "SC013_LIVE_PRE_ACTUATION_STAGE=$preStage"
+      throw "SC013 remained BLOCKED for 60 seconds: $failureCode / $failureStage"
+    }
+  } else {
+    $blockedSince=$null
+  }
+
+  if($baselineNeedsRecovery -and $recoveredBaseline -and $verifiedAfterRecovery.Count -ge 2){
+    $truth=Get-LifecycleProcessTruth -Root $root
+    Write-Host "SC013_LIVE_GENERATION_STABLE=$generation"
+    Write-Host "SC013_LIVE_RECOVERED_BASELINE_MESSAGE_ID=$baselineMessageId"
+    Write-Host "SC013_LIVE_TWO_SUBSEQUENT_CYCLES=True"
+    Write-Host "SC013_LIVE_DUPLICATE_SEND_ATTEMPTS=0"
+    Write-Host "SC013_LIVE_WRAPPER_ALIVE=$([bool]$truth.wrapper_alive)"
+    Write-Host "SC013_LIVE_CHROME_ALIVE=$([bool]$truth.chrome_alive)"
+    Write-Host "SC013_LIVE_CDP_HEALTHY=$([bool]$truth.cdp_healthy)"
+    Write-Host 'SC013_LIVE_STATUS=PASS'
+    Set-Output 'qualified' 'true'
+    exit 0
+  }
+
+  if(([DateTimeOffset]::UtcNow-$lastProgress).TotalSeconds -ge [Math]::Max(60,$StallSeconds)){
+    $failureStage=if($lastStage){$lastStage}else{
+      switch($outbound){
+        'PREPARED' {'PREPARED'}
+        'ENQUEUED' {'COMPOSER_READY/TEXT_PERSISTED_OR_SUBMIT_ACTUATED'}
+        'DELIVERED' {'WAIT_RESPONSE'}
+        'RESPONSE_RUNNING' {'RESPONSE_COMPLETE'}
+        'RESPONSE_COMPLETE' {'VERIFICATION'}
+        'VERIFIED' {'NEXT_WORK'}
+        default {$phase}
+      }
+    }
+    $failureCode=if($lastCode){$lastCode}else{'NO_PROGRESS_TIMEOUT'}
+    Write-Host "SC013_LIVE_FIRST_FAILURE_CODE=$failureCode"
+    Write-Host "SC013_LIVE_FIRST_FAILURE_STAGE=$failureStage"
+    Write-Host "SC013_LIVE_PRE_ACTUATION_CODE=$preCode"
+    Write-Host "SC013_LIVE_PRE_ACTUATION_STAGE=$preStage"
+    throw "SC013 no durable progress for $StallSeconds seconds at $failureStage."
+  }
+}
+
+if($latest){
+  $code=[string]$latest.outbound.last_error_code
+  $stage=if($latest.outbound.PSObject.Properties.Name -contains 'last_error_stage'){[string]$latest.outbound.last_error_stage}else{''}
+  Write-Host "SC013_LIVE_FIRST_FAILURE_CODE=$(if($code){$code}else{'OBSERVATION_TIMEOUT'})"
+  Write-Host "SC013_LIVE_FIRST_FAILURE_STAGE=$(if($stage){$stage}else{[string]$latest.automation.phase})"
+}
+throw 'SC013 observation window ended before recovery plus two subsequent verified cycles.'
+){$uiMatch=[int]$Matches[1];continue}
+            if($probeText -eq 'SC013_UI_RESPONSE_RUNNING=True'){$uiRunning=$true;continue}
+            if($probeText -eq 'SC013_UI_ASSISTANT_BUSY=True'){$uiAssistantBusy=$true;continue}
+            if($probeText -eq 'SC013_UI_MAIN_BUSY=True'){$uiMainBusy=$true;continue}
+            if($probeText -match '^SC013_UI_ASSISTANT_COUNT=(\d+)
+  if($outbound -eq 'VERIFIED' -and -not [string]::IsNullOrWhiteSpace($messageId)){
+    [void]$allVerified.Add($messageId)
+    if($baselineNeedsRecovery -and $messageId -eq $baselineMessageId){
+      if(-not $recoveredBaseline){
+        $recoveredBaseline=$true
+        Write-Host 'SC013_LIVE_PREVIOUSLY_STUCK_OUTBOUND_RECOVERED=True'
+      }
+    } elseif($recoveredBaseline) {
+      if($verifiedAfterRecovery.Add($messageId)){
+        Write-Host "SC013_LIVE_POST_RECOVERY_VERIFIED_COUNT=$($verifiedAfterRecovery.Count)"
+      }
+    } elseif(-not $baselineNeedsRecovery -and $allVerified.Count -ge 1) {
+      # A clean rerun without a pending baseline may still prove the forward
+      # production path, but it cannot by itself satisfy stuck-outbound recovery.
+      Write-Host 'SC013_LIVE_NO_PENDING_BASELINE_OBSERVED=True'
+    }
+  }
+
+  if($automation -eq 'BLOCKED'){
+    if($null -eq $blockedSince){$blockedSince=[DateTimeOffset]::UtcNow}
+    if(([DateTimeOffset]::UtcNow-$blockedSince).TotalSeconds -ge 60){
+      $failureCode=if($lastCode){$lastCode}elseif($reason){$reason}else{'BLOCKED'}
+      $failureStage=if($lastStage){$lastStage}elseif($preStage){$preStage}else{$phase}
+      Write-Host "SC013_LIVE_FIRST_FAILURE_CODE=$failureCode"
+      Write-Host "SC013_LIVE_FIRST_FAILURE_STAGE=$failureStage"
+      Write-Host "SC013_LIVE_PRE_ACTUATION_CODE=$preCode"
+      Write-Host "SC013_LIVE_PRE_ACTUATION_STAGE=$preStage"
+      throw "SC013 remained BLOCKED for 60 seconds: $failureCode / $failureStage"
+    }
+  } else {
+    $blockedSince=$null
+  }
+
+  if($baselineNeedsRecovery -and $recoveredBaseline -and $verifiedAfterRecovery.Count -ge 2){
+    $truth=Get-LifecycleProcessTruth -Root $root
+    Write-Host "SC013_LIVE_GENERATION_STABLE=$generation"
+    Write-Host "SC013_LIVE_RECOVERED_BASELINE_MESSAGE_ID=$baselineMessageId"
+    Write-Host "SC013_LIVE_TWO_SUBSEQUENT_CYCLES=True"
+    Write-Host "SC013_LIVE_DUPLICATE_SEND_ATTEMPTS=0"
+    Write-Host "SC013_LIVE_WRAPPER_ALIVE=$([bool]$truth.wrapper_alive)"
+    Write-Host "SC013_LIVE_CHROME_ALIVE=$([bool]$truth.chrome_alive)"
+    Write-Host "SC013_LIVE_CDP_HEALTHY=$([bool]$truth.cdp_healthy)"
+    Write-Host 'SC013_LIVE_STATUS=PASS'
+    Set-Output 'qualified' 'true'
+    exit 0
+  }
+
+  if(([DateTimeOffset]::UtcNow-$lastProgress).TotalSeconds -ge [Math]::Max(60,$StallSeconds)){
+    $failureStage=if($lastStage){$lastStage}else{
+      switch($outbound){
+        'PREPARED' {'PREPARED'}
+        'ENQUEUED' {'COMPOSER_READY/TEXT_PERSISTED_OR_SUBMIT_ACTUATED'}
+        'DELIVERED' {'WAIT_RESPONSE'}
+        'RESPONSE_RUNNING' {'RESPONSE_COMPLETE'}
+        'RESPONSE_COMPLETE' {'VERIFICATION'}
+        'VERIFIED' {'NEXT_WORK'}
+        default {$phase}
+      }
+    }
+    $failureCode=if($lastCode){$lastCode}else{'NO_PROGRESS_TIMEOUT'}
+    Write-Host "SC013_LIVE_FIRST_FAILURE_CODE=$failureCode"
+    Write-Host "SC013_LIVE_FIRST_FAILURE_STAGE=$failureStage"
+    Write-Host "SC013_LIVE_PRE_ACTUATION_CODE=$preCode"
+    Write-Host "SC013_LIVE_PRE_ACTUATION_STAGE=$preStage"
+    throw "SC013 no durable progress for $StallSeconds seconds at $failureStage."
+  }
+}
+
+if($latest){
+  $code=[string]$latest.outbound.last_error_code
+  $stage=if($latest.outbound.PSObject.Properties.Name -contains 'last_error_stage'){[string]$latest.outbound.last_error_stage}else{''}
+  Write-Host "SC013_LIVE_FIRST_FAILURE_CODE=$(if($code){$code}else{'OBSERVATION_TIMEOUT'})"
+  Write-Host "SC013_LIVE_FIRST_FAILURE_STAGE=$(if($stage){$stage}else{[string]$latest.automation.phase})"
+}
+throw 'SC013 observation window ended before recovery plus two subsequent verified cycles.'
+){$uiAssistantCount=[int]$Matches[1];continue}
+            if($probeText -match '^SC013_UI_ASSISTANT_CHARS=(\d+)
+  if($outbound -eq 'VERIFIED' -and -not [string]::IsNullOrWhiteSpace($messageId)){
+    [void]$allVerified.Add($messageId)
+    if($baselineNeedsRecovery -and $messageId -eq $baselineMessageId){
+      if(-not $recoveredBaseline){
+        $recoveredBaseline=$true
+        Write-Host 'SC013_LIVE_PREVIOUSLY_STUCK_OUTBOUND_RECOVERED=True'
+      }
+    } elseif($recoveredBaseline) {
+      if($verifiedAfterRecovery.Add($messageId)){
+        Write-Host "SC013_LIVE_POST_RECOVERY_VERIFIED_COUNT=$($verifiedAfterRecovery.Count)"
+      }
+    } elseif(-not $baselineNeedsRecovery -and $allVerified.Count -ge 1) {
+      # A clean rerun without a pending baseline may still prove the forward
+      # production path, but it cannot by itself satisfy stuck-outbound recovery.
+      Write-Host 'SC013_LIVE_NO_PENDING_BASELINE_OBSERVED=True'
+    }
+  }
+
+  if($automation -eq 'BLOCKED'){
+    if($null -eq $blockedSince){$blockedSince=[DateTimeOffset]::UtcNow}
+    if(([DateTimeOffset]::UtcNow-$blockedSince).TotalSeconds -ge 60){
+      $failureCode=if($lastCode){$lastCode}elseif($reason){$reason}else{'BLOCKED'}
+      $failureStage=if($lastStage){$lastStage}elseif($preStage){$preStage}else{$phase}
+      Write-Host "SC013_LIVE_FIRST_FAILURE_CODE=$failureCode"
+      Write-Host "SC013_LIVE_FIRST_FAILURE_STAGE=$failureStage"
+      Write-Host "SC013_LIVE_PRE_ACTUATION_CODE=$preCode"
+      Write-Host "SC013_LIVE_PRE_ACTUATION_STAGE=$preStage"
+      throw "SC013 remained BLOCKED for 60 seconds: $failureCode / $failureStage"
+    }
+  } else {
+    $blockedSince=$null
+  }
+
+  if($baselineNeedsRecovery -and $recoveredBaseline -and $verifiedAfterRecovery.Count -ge 2){
+    $truth=Get-LifecycleProcessTruth -Root $root
+    Write-Host "SC013_LIVE_GENERATION_STABLE=$generation"
+    Write-Host "SC013_LIVE_RECOVERED_BASELINE_MESSAGE_ID=$baselineMessageId"
+    Write-Host "SC013_LIVE_TWO_SUBSEQUENT_CYCLES=True"
+    Write-Host "SC013_LIVE_DUPLICATE_SEND_ATTEMPTS=0"
+    Write-Host "SC013_LIVE_WRAPPER_ALIVE=$([bool]$truth.wrapper_alive)"
+    Write-Host "SC013_LIVE_CHROME_ALIVE=$([bool]$truth.chrome_alive)"
+    Write-Host "SC013_LIVE_CDP_HEALTHY=$([bool]$truth.cdp_healthy)"
+    Write-Host 'SC013_LIVE_STATUS=PASS'
+    Set-Output 'qualified' 'true'
+    exit 0
+  }
+
+  if(([DateTimeOffset]::UtcNow-$lastProgress).TotalSeconds -ge [Math]::Max(60,$StallSeconds)){
+    $failureStage=if($lastStage){$lastStage}else{
+      switch($outbound){
+        'PREPARED' {'PREPARED'}
+        'ENQUEUED' {'COMPOSER_READY/TEXT_PERSISTED_OR_SUBMIT_ACTUATED'}
+        'DELIVERED' {'WAIT_RESPONSE'}
+        'RESPONSE_RUNNING' {'RESPONSE_COMPLETE'}
+        'RESPONSE_COMPLETE' {'VERIFICATION'}
+        'VERIFIED' {'NEXT_WORK'}
+        default {$phase}
+      }
+    }
+    $failureCode=if($lastCode){$lastCode}else{'NO_PROGRESS_TIMEOUT'}
+    Write-Host "SC013_LIVE_FIRST_FAILURE_CODE=$failureCode"
+    Write-Host "SC013_LIVE_FIRST_FAILURE_STAGE=$failureStage"
+    Write-Host "SC013_LIVE_PRE_ACTUATION_CODE=$preCode"
+    Write-Host "SC013_LIVE_PRE_ACTUATION_STAGE=$preStage"
+    throw "SC013 no durable progress for $StallSeconds seconds at $failureStage."
+  }
+}
+
+if($latest){
+  $code=[string]$latest.outbound.last_error_code
+  $stage=if($latest.outbound.PSObject.Properties.Name -contains 'last_error_stage'){[string]$latest.outbound.last_error_stage}else{''}
+  Write-Host "SC013_LIVE_FIRST_FAILURE_CODE=$(if($code){$code}else{'OBSERVATION_TIMEOUT'})"
+  Write-Host "SC013_LIVE_FIRST_FAILURE_STAGE=$(if($stage){$stage}else{[string]$latest.automation.phase})"
+}
+throw 'SC013 observation window ended before recovery plus two subsequent verified cycles.'
+){$uiAssistantChars=[int]$Matches[1];continue}
+          }
+
+          if($uiMatch -eq 1){
+            $uiSignature="$uiAssistantCount|$uiAssistantChars"
+            $uiChanged=[bool](
+              -not [string]::IsNullOrWhiteSpace($lastUiSignature) -and
+              $uiSignature -ne $lastUiSignature
+            )
+            $uiActive=[bool]($uiRunning -or $uiAssistantBusy -or $uiMainBusy)
+            if($uiActive -or $uiChanged){
+              $lastProgress=[DateTimeOffset]::UtcNow
+              Write-Host "SC013_LIVE_WAIT_RESPONSE_LIVENESS active=$uiActive changed=$uiChanged assistant_count=$uiAssistantCount assistant_chars=$uiAssistantChars"
+            }
+            $lastUiSignature=$uiSignature
+          }
+        }
+      }
+    }catch{
+      Write-Host "SC013_LIVE_WAIT_RESPONSE_LIVENESS_PROBE_ERROR=$($_.Exception.Message)"
+    }
   }
 
   if($outbound -eq 'VERIFIED' -and -not [string]::IsNullOrWhiteSpace($messageId)){
