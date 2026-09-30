@@ -148,6 +148,10 @@ test("SC-005 preserves prior transaction evidence across replacement", async () 
     state.outbound.kind = "SOURCE_OF_TRUTH_NEXT_WORK";
     state.outbound.cmd_id = "ui:prior-msg";
     state.outbound.delivered_user_turn_id = "u-prior";
+    state.outbound.last_error_code = "AMBIGUOUS_ENQUEUED_OUTCOME";
+    state.outbound.last_error_stage = "SEND_WORK";
+    state.outbound.last_pre_actuation_error_code = "COMPOSER_NOT_READY";
+    state.outbound.last_pre_actuation_error_stage = "SET_COMPOSER_TEXT";
     await writeSingleConversationState(statePath, state);
 
     let closed = false;
@@ -245,6 +249,14 @@ test("SC-005 preserves prior transaction evidence across replacement", async () 
     assert.equal(durable.recovery.reason, "CONVERSATION_FULL");
     assert.equal(durable.recovery.prior_outbound.message_id, "prior-msg");
     assert.equal(durable.recovery.prior_outbound.cmd_id, "ui:prior-msg");
+    assert.equal(
+      durable.recovery.prior_outbound.last_pre_actuation_error_code,
+      "COMPOSER_NOT_READY"
+    );
+    assert.equal(
+      durable.recovery.prior_outbound.last_pre_actuation_error_stage,
+      "SET_COMPOSER_TEXT"
+    );
     assert.equal(durable.recovery.rehydrated_generation, 2);
     assert.equal(durable.outbound.state, "RESPONSE_COMPLETE");
   } finally {
