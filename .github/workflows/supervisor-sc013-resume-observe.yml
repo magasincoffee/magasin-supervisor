@@ -29,3 +29,5 @@ jobs:
           echo SC013_RESUME_SLOT=${{ matrix.slot }}
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc013-resume-observe.ps1" -TargetComputer "DESKTOP-4K7IM13" -NonTargetHoldSeconds 180 -ObserveSeconds 900
           exit /b %ERRORLEVEL%
+
+# live-first-failure rerun
