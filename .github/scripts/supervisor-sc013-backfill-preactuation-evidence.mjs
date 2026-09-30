@@ -19,13 +19,22 @@ assert(!outbound.delivered_at && !outbound.response_complete_at && !outbound.ver
   "delivery/response evidence already exists");
 assert(outbound.last_error_code === "AMBIGUOUS_ENQUEUED_OUTCOME",
   "unexpected current error; refuse legacy evidence backfill");
-assert(!outbound.last_pre_actuation_error_code,
-  "pre-actuation evidence already exists");
-
-outbound.last_pre_actuation_error_code = "COMPOSER_NOT_READY";
-outbound.last_pre_actuation_error_stage =
-  "LEGACY_CONFIRMED_PRE_ACTUATION_RUN_36662422754";
-await writeSingleConversationState(statePath, state);
+if (outbound.last_pre_actuation_error_code) {
+  assert(
+    outbound.last_pre_actuation_error_code === "COMPOSER_NOT_READY",
+    "different pre-actuation evidence already exists"
+  );
+  assert(
+    outbound.last_pre_actuation_error_stage ===
+      "LEGACY_CONFIRMED_PRE_ACTUATION_RUN_36662422754",
+    "different pre-actuation evidence stage already exists"
+  );
+} else {
+  outbound.last_pre_actuation_error_code = "COMPOSER_NOT_READY";
+  outbound.last_pre_actuation_error_stage =
+    "LEGACY_CONFIRMED_PRE_ACTUATION_RUN_36662422754";
+  await writeSingleConversationState(statePath, state);
+}
 
 const after = await readSingleConversationState(statePath);
 console.log("SC013_BACKFILL_MESSAGE_ID=" + after.outbound.message_id);
