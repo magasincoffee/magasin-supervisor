@@ -379,10 +379,14 @@ async function captureUserTurnState(page, instruction) {
   try {
     return await page.evaluate(({ expected, selectors }) => {
       const normalize = (value) => String(value || "")
-        .replace(/\u200B/g, "")
+        .replace(/[\u200B-\u200F\u2060\uFEFF]/g, "")
         .replace(/\r\n/g, "\n")
         .replace(/\u00A0/g, " ")
         .replace(/\s+/gu, " ")
+        // Match the same narrow ProseMirror presentation artifact used by
+        // composer verification: an auto-linked SOT URL may render with a
+        // structural break immediately after the literal SOT= prefix.
+        .replace(/\bSOT=\s+(https?:\/\/)/giu, "SOT=$1")
         .trim();
       const wanted = normalize(expected);
 
