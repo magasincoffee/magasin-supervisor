@@ -47,6 +47,13 @@ if(Test-Path $localWatchdogStatusPath -PathType Leaf){
     Write-Host "SC013_WATCHDOG_LOCAL_PID=$([string]$localStatus.pid)"
     if($localAge -gt 30){[void]$failures.Add("LOCAL_WATCHDOG_STALE:$localAge")}
     if([string]$localStatus.mode -eq 'INTERNAL_ERROR'){[void]$failures.Add('LOCAL_WATCHDOG_INTERNAL_ERROR')}
+    if([string]$localStatus.mode -eq 'FAULT'){
+      foreach($localFault in @($localStatus.faults)){
+        if(-not [string]::IsNullOrWhiteSpace([string]$localFault)){
+          [void]$failures.Add("LOCAL:$([string]$localFault)")
+        }
+      }
+    }
   }catch{
     [void]$failures.Add('LOCAL_WATCHDOG_STATUS_UNREADABLE')
   }
