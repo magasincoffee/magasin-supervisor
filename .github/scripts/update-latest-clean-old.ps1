@@ -114,6 +114,7 @@ if($enabledBefore -ne 0 -or $plannerExecutorActive -or $singleConversationActive
     Where-Object {
       $_.CommandLine -and
       $_.CommandLine -like '*local-watchdog.ps1*' -and
+      $_.CommandLine -notlike '*start-local-watchdog.ps1*' -and
       $_.CommandLine -like "*$canonical*"
     } |
     ForEach-Object {

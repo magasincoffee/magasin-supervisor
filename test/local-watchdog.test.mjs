@@ -59,3 +59,15 @@ test("SC-013 GitHub watchdog requires a fresh local watchdog heartbeat", async (
   assert.match(source, /SC013_WATCHDOG_LOCAL_MODE/);
   assert.match(source, /LOCAL:\$\(\[string\]\$localFault\)/);
 });
+
+
+test("SC-013 watchdog launcher never mistakes its own start script for the observer", async () => {
+  const [launcher, installer, updater] = await Promise.all([
+    read("windows/start-local-watchdog.ps1"),
+    read("windows/install-supervisor.ps1"),
+    read(".github/scripts/update-latest-clean-old.ps1")
+  ]);
+  for (const source of [launcher, installer, updater]) {
+    assert.match(source, /-notlike '\*start-local-watchdog\.ps1\*'/);
+  }
+});
