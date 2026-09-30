@@ -15,7 +15,10 @@ import {
   ensureSingleConversationState,
   readSingleConversationState
 } from "../src/runtime/single-conversation-state.mjs";
-import { composerInstructionDigest } from "../src/ui/actions.mjs";
+import {
+  composerInstructionDigest,
+  composerRenderedInstructionDigest
+} from "../src/ui/actions.mjs";
 
 async function makeState() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "magasin-sc006-"));
@@ -465,6 +468,83 @@ test("SC-006 response completion must reach VERIFIED explicitly", async () => {
     assert.equal(durable.outbound.state, "VERIFIED");
     assert.ok(durable.outbound.verified_at);
     assert.equal(durable.source_of_truth.sync_status, "VERIFIED");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test("SC-011 rendered-equivalent ENQUEUED draft permits one safe retry and clears BLOCKED", async () => {
+  const { root, statePath } = await makeState();
+  const message = "line one\nline two\nline three";
+  let sent = false;
+  try {
+    await prepareExactOnceOutbound(statePath, {
+      messageId: "rendered-retry",
+      message,
+      kind: "SOURCE_OF_TRUTH_TASK_DISCOVERY",
+      baselineUserTurnId: null
+    });
+
+    await assert.rejects(
+      reconcileExactOnceOutbound({
+        statePath,
+        page: { async waitForTimeout() {} },
+        messageId: "rendered-retry",
+        message,
+        reconciliationProbes: 1,
+        inspectDraft: async () => ({ ready: true, has_text: false, digest: null }),
+        captureTurn: async () => null,
+        sendInstruction: async () => ({
+          executed: false,
+          rejection_class: "COMPOSER_NOT_READY",
+          reason: "simulated false negative"
+        })
+      }),
+      (error) => error?.code === "COMPOSER_NOT_READY"
+    );
+
+    let durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "ENQUEUED");
+    assert.equal(durable.automation.status, "BLOCKED");
+
+    const strictDifferent = composerInstructionDigest(
+      "line one\n\nline two\n\nline three"
+    );
+    const renderedSame = composerRenderedInstructionDigest(
+      "line one\n\nline two\n\nline three"
+    );
+    assert.notEqual(strictDifferent, composerInstructionDigest(message));
+    assert.equal(renderedSame, composerRenderedInstructionDigest(message));
+
+    const result = await reconcileExactOnceOutbound({
+      statePath,
+      page: { async waitForTimeout() {} },
+      messageId: "rendered-retry",
+      message,
+      reconciliationProbes: 1,
+      inspectDraft: async () => ({
+        ready: true,
+        has_text: true,
+        digest: strictDifferent,
+        rendered_digest: renderedSame
+      }),
+      captureTurn: async () => sent
+        ? { turn_id: "u-rendered", text: message }
+        : null,
+      sendInstruction: async () => {
+        sent = true;
+        return { executed: true };
+      }
+    });
+
+    assert.equal(result.action, "SAFE_RETRY_SENT");
+    durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "DELIVERED");
+    assert.equal(durable.outbound.retry_count, 1);
+    assert.equal(durable.automation.status, "RUNNING");
+    assert.equal(durable.automation.reason, null);
+    assert.equal(durable.automation.phase, "WAIT_RESPONSE");
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
