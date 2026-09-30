@@ -703,7 +703,24 @@ export async function runSingleConversationRuntime({
       pollMs
     });
     cycles += 1;
-    control = parseTaskControl(response.assistant_turn?.text);
+    try {
+      control = parseTaskControl(response.assistant_turn?.text);
+    } catch (error) {
+      if (error?.code !== "TASK_PROTOCOL_INVALID") throw error;
+      // SC-013: the task side effect is already exact-once VERIFIED at this
+      // boundary. A malformed/missing task-control block must not terminate
+      // autonomy or close the dedicated Chrome. Re-read authoritative SOT in
+      // the same conversation and ask only for the next task-control decision.
+      control = await discoverTaskControl({
+        adapter,
+        page,
+        statePath,
+        sourceOfTruthUrl,
+        responseTimeoutMs,
+        pollMs
+      });
+      cycles += 1;
+    }
 
     if (!checkOnly) {
       await waitForNextCycleDelay(pollMs);
