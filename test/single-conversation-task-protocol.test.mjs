@@ -265,7 +265,7 @@ test("SC-011 long response polling uses native timers instead of page RPC sleeps
 });
 
 
-test("SC-011 restart identity uncertainty fails closed instead of replacing chat", async () => {
+test("SC-011 restart identity uncertainty stays fail closed outside the SC-013 proven pre-actuation exception", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
     "utf8"
@@ -274,8 +274,24 @@ test("SC-011 restart identity uncertainty fails closed instead of replacing chat
     source.indexOf("export async function runSingleConversationRuntime"),
     source.indexOf("let cycles = 0;")
   );
+
   assert.match(startup, /RUNTIME_RESTART_IDENTITY_NOT_VERIFIED/);
-  assert.match(startup, /fail closed/i);
-  assert.doesNotMatch(startup, /replaceDisposableConversation/);
-  assert.doesNotMatch(source, /import \{[\s\S]*replaceDisposableConversation[\s\S]*\} from "\.\/single-conversation-rollover\.mjs"/);
+  assert.match(startup, /const pendingPreActuation = canResumePreActuationDiscovery\(current\)/);
+  assert.match(
+    startup,
+    /else if \(pendingPreActuation\)[\s\S]*RUNTIME_RESTART_IDENTITY_NOT_VERIFIED_PRE_ACTUATION/
+  );
+  assert.match(
+    startup,
+    /RUNTIME_RESTART_IDENTITY_NOT_VERIFIED_PRE_ACTUATION[\s\S]*replaceDisposableConversation/
+  );
+
+  const fallbackStart = startup.indexOf(
+    "// Restart continuity remains fail closed for every case without positive"
+  );
+  assert.ok(fallbackStart >= 0);
+  const fallback = startup.slice(fallbackStart);
+  assert.match(fallback, /fail closed/i);
+  assert.match(fallback, /code: "RUNTIME_RESTART_IDENTITY_NOT_VERIFIED"/);
+  assert.doesNotMatch(fallback, /replaceDisposableConversation/);
 });
