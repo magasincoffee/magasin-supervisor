@@ -1,0 +1,78 @@
+name: SC-013 Local Watchdog Live Diagnostic
+
+on:
+  push:
+    branches:
+      - sc013-local-watchdog-live-diagnostic
+    paths:
+      - '.github/workflows/sc013-local-watchdog-live-diagnostic.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        slot: [1, 2]
+    runs-on: self-hosted
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect local watchdog without mutation
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Write-Host "LW_DIAG_SLOT=${{ matrix.slot }}"
+          Write-Host "LW_DIAG_MACHINE=$env:COMPUTERNAME"
+          if($env:COMPUTERNAME -ne 'DESKTOP-4K7IM13'){
+            Write-Host 'LW_DIAG_TARGET_MATCH=False'
+            Start-Sleep -Seconds 5
+            exit 0
+          }
+          Write-Host 'LW_DIAG_TARGET_MATCH=True'
+          . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
+          $root=Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
+          $runtime=Join-Path $root 'runtime'
+          $watchdog=Join-Path $runtime 'windows\local-watchdog.ps1'
+          $status=Join-Path $root 'local-watchdog-status.json'
+          $events=Join-Path $root 'local-watchdog-events.ndjson'
+          $pidPath=Join-Path $root 'local-watchdog.pid'
+          Write-Host "LW_DIAG_ROOT=$root"
+          Write-Host "LW_DIAG_WATCHDOG_EXISTS=$(Test-Path $watchdog)"
+          if(Test-Path $pidPath){Write-Host "LW_DIAG_PID_FILE=$(Get-Content $pidPath -ErrorAction SilentlyContinue|Select-Object -First 1)"}
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+            Where-Object {$_.CommandLine -and $_.CommandLine -like '*local-watchdog.ps1*'})
+          Write-Host "LW_DIAG_PROCESS_COUNT=$($procs.Count)"
+          foreach($p in $procs){
+            Write-Host "LW_DIAG_PROCESS=$($p.ProcessId)|$($p.ParentProcessId)|$($p.CommandLine)"
+          }
+          if(Test-Path $watchdog){
+            $parseErrors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile($watchdog,[ref]$null,[ref]$parseErrors)|Out-Null
+            Write-Host "LW_DIAG_PARSE_ERROR_COUNT=$($parseErrors.Count)"
+            foreach($e in @($parseErrors)){
+              Write-Host "LW_DIAG_PARSE_ERROR=$($e.Message)|line=$($e.Extent.StartLineNumber)|text=$($e.Extent.Text)"
+            }
+          }
+          Write-Host "LW_DIAG_STATUS_EXISTS=$(Test-Path $status)"
+          if(Test-Path $status){
+            Write-Host 'LW_DIAG_STATUS_BEGIN'
+            Get-Content $status -Raw -Encoding UTF8 | Write-Host
+            Write-Host 'LW_DIAG_STATUS_END'
+          }
+          Write-Host "LW_DIAG_EVENTS_EXISTS=$(Test-Path $events)"
+          if(Test-Path $events){
+            Write-Host 'LW_DIAG_EVENTS_BEGIN'
+            Get-Content $events -Tail 40 -Encoding UTF8 | ForEach-Object {Write-Host $_}
+            Write-Host 'LW_DIAG_EVENTS_END'
+          }
+          $failuresDir=Join-Path $root 'local-watchdog-failures'
+          if(Test-Path $failuresDir){
+            Get-ChildItem $failuresDir -File -Filter '*.json' -ErrorAction SilentlyContinue |
+              Sort-Object LastWriteTimeUtc -Descending |
+              Select-Object -First 5 |
+              ForEach-Object {Write-Host "LW_DIAG_FAILURE_FILE=$($_.Name)|$($_.LastWriteTimeUtc.ToString('o'))"}
+          }
