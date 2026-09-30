@@ -83,30 +83,24 @@ while([DateTimeOffset]::UtcNow -lt $deadline){
   $snap=Snapshot 'OBSERVE'
   if($snap.Generation -gt $maxGeneration){$maxGeneration=$snap.Generation}
   if($snap.Truth.runtime_alive){$seenRuntime=$true}
-  if(
-    $snap.Phase -eq 'REPLACE_CHAT' -and
-    $snap.Reason -eq 'RUNTIME_RESTART_IDENTITY_NOT_VERIFIED'
-  ){
+  if(($snap.Phase -eq 'REPLACE_CHAT') -and ($snap.Reason -eq 'RUNTIME_RESTART_IDENTITY_NOT_VERIFIED')){
     $destructiveRestart=$true
     Write-Host 'SC011_FIX_DESTRUCTIVE_RESTART_REGRESSION=True'
     break
   }
-  if(
-    $snap.RetirementReason -eq 'RUNTIME_RESTART_IDENTITY_NOT_VERIFIED'
-    -and $snap.Generation -gt $initialGeneration
-  ){
+  if(($snap.RetirementReason -eq 'RUNTIME_RESTART_IDENTITY_NOT_VERIFIED') -and ($snap.Generation -gt $initialGeneration)){
     $destructiveRestart=$true
     Write-Host 'SC011_FIX_IDENTITY_RETIREMENT_REGRESSION=True'
     break
   }
   if(
-    $snap.Truth.wrapper_alive -and
-    $snap.Truth.runtime_alive -and
-    $snap.Truth.chrome_alive -and
-    $snap.Truth.cdp_healthy -and
-    $snap.Conversation -eq 'ACTIVE' -and
-    $snap.Automation -eq 'RUNNING' -and
-    $snap.Phase -ne 'REPLACE_CHAT'
+    ($snap.Truth.wrapper_alive) -and
+    ($snap.Truth.runtime_alive) -and
+    ($snap.Truth.chrome_alive) -and
+    ($snap.Truth.cdp_healthy) -and
+    ($snap.Conversation -eq 'ACTIVE') -and
+    ($snap.Automation -eq 'RUNNING') -and
+    ($snap.Phase -ne 'REPLACE_CHAT')
   ){
     $stableActive=$true
   }
