@@ -379,10 +379,11 @@ async function captureUserTurnState(page, instruction) {
   try {
     return await page.evaluate(({ expected, selectors }) => {
       const normalize = (value) => String(value || "")
-        .replace(/\u200B/g, "")
+        .replace(/[\u200B-\u200F\u2060\uFEFF]/g, "")
         .replace(/\r\n/g, "\n")
         .replace(/\u00A0/g, " ")
         .replace(/\s+/gu, " ")
+        .replace(/\bSOT=\s+(https?:\/\/)/giu, "SOT=$1")
         .trim();
       const wanted = normalize(expected);
 
@@ -418,7 +419,10 @@ async function captureUserTurnState(page, instruction) {
       let matchingEvidence = null;
       for (let index = 0; index < turns.length; index += 1) {
         const node = turns[index];
-        const text = normalize(node.textContent || node.innerText || "");
+        // Prefer rendered text for ChatGPT's modern user-turn surface.
+        // Auto-linked URLs can encode a presentation line break in the DOM
+        // even though the visible instruction is semantically identical.
+        const text = normalize(node.innerText || node.textContent || "");
         if (text !== wanted) continue;
         exactMatchCount += 1;
         const container = node.closest?.("[data-testid^='conversation-turn-']");
