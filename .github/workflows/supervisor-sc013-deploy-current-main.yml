@@ -1,0 +1,46 @@
+name: SC-013 Deploy Current Main To Target
+
+on:
+  push:
+    branches:
+      - sc011-production-runtime-diagnostic-20260929
+    paths:
+      - '.github/workflows/supervisor-sc013-deploy-current-main.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sc013-deploy-current-main
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        slot: [1,2,3,4]
+    runs-on: self-hosted
+    timeout-minutes: 8
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - name: Deploy only on production target
+        shell: cmd
+        run: |
+          @echo off
+          echo SC013_DEPLOY_SLOT=${{ matrix.slot }}
+          echo SC013_DEPLOY_MACHINE=%COMPUTERNAME%
+          if /I not "%COMPUTERNAME%"=="DESKTOP-4K7IM13" (
+            echo SC013_DEPLOY_TARGET_MATCH=False
+            timeout /t 120 /nobreak >nul
+            exit /b 0
+          )
+          echo SC013_DEPLOY_TARGET_MATCH=True
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\update-latest-clean-old.ps1" -TargetComputer "DESKTOP-4K7IM13" -ExpectedMainSha "e574d190648a979e9a548bfe28f970232d71dd71"
+          exit /b %ERRORLEVEL%
