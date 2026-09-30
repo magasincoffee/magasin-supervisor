@@ -1,0 +1,67 @@
+name: SC-013 Current State Read Only
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/sc013-current-state-readonly.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        slot: [1, 2]
+    runs-on: self-hosted
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect current production state without mutation
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Write-Host "SC013_STATE_SLOT=${{ matrix.slot }}"
+          Write-Host "SC013_STATE_MACHINE=$env:COMPUTERNAME"
+          if($env:COMPUTERNAME -ne 'DESKTOP-4K7IM13'){
+            Write-Host 'SC013_STATE_TARGET_MATCH=False'
+            Start-Sleep -Seconds 45
+            exit 0
+          }
+          Write-Host 'SC013_STATE_TARGET_MATCH=True'
+          . ".\windows\state-root.ps1"
+          . ".\windows\lifecycle-truth.ps1"
+          $root=Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
+          $statePath=Join-Path $root 'single-conversation-state.json'
+          $stop=Join-Path $root 'STOP'
+          $auto=Join-Path $root 'AUTOSTART_DISABLED'
+          $truth=Get-LifecycleProcessTruth -Root $root
+          $owner=Get-LifecycleOwnerStopState -Root $root
+          Write-Host "SC013_STATE_STOP_FILE=$([bool](Test-Path $stop))"
+          Write-Host "SC013_STATE_AUTOSTART_DISABLED=$([bool](Test-Path $auto))"
+          Write-Host "SC013_STATE_OWNER_STOP_BLOCKED=$([bool]$owner.blocked)"
+          Write-Host "SC013_STATE_WRAPPER_ALIVE=$([bool]$truth.wrapper_alive)"
+          Write-Host "SC013_STATE_CHROME_ALIVE=$([bool]$truth.chrome_alive)"
+          Write-Host "SC013_STATE_CDP_HEALTHY=$([bool]$truth.cdp_healthy)"
+          if(-not (Test-Path $statePath)){ Write-Host 'SC013_STATE_MISSING=True'; exit 0 }
+          $s=Get-Content $statePath -Raw -Encoding UTF8|ConvertFrom-Json
+          Write-Host "SC013_STATE_UPDATED=$([string]$s.updated_at)"
+          Write-Host "SC013_STATE_SOT=$([string]$s.source_of_truth.url)"
+          Write-Host "SC013_STATE_GENERATION=$([string]$s.conversation.generation)"
+          Write-Host "SC013_STATE_RUNTIME_ID=$([string]$s.conversation.runtime_id)"
+          Write-Host "SC013_STATE_CONVERSATION_STATUS=$([string]$s.conversation.status)"
+          Write-Host "SC013_STATE_AUTOMATION_STATUS=$([string]$s.automation.status)"
+          Write-Host "SC013_STATE_AUTOMATION_REASON=$([string]$s.automation.reason)"
+          Write-Host "SC013_STATE_AUTOMATION_PHASE=$([string]$s.automation.phase)"
+          Write-Host "SC013_STATE_OUTBOUND_STATE=$([string]$s.outbound.state)"
+          Write-Host "SC013_STATE_OUTBOUND_KIND=$([string]$s.outbound.kind)"
+          Write-Host "SC013_STATE_OUTBOUND_TASK_ID=$([string]$s.outbound.task_id)"
+          Write-Host "SC013_STATE_OUTBOUND_MESSAGE_ID=$([string]$s.outbound.message_id)"
+          Write-Host "SC013_STATE_OUTBOUND_DIGEST=$([string]$s.outbound.message_digest)"
+          Write-Host "SC013_STATE_OUTBOUND_RETRY=$([string]$s.outbound.retry_count)"
+          Write-Host "SC013_STATE_OUTBOUND_LAST_ERROR=$([string]$s.outbound.last_error_code)"
+          Write-Host 'SC013_STATE_STATUS=PASS'
