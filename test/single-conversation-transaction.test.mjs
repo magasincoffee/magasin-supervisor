@@ -78,6 +78,35 @@ test("SC-006 persists PREPARED then ENQUEUED receipt before UI send", async () =
   }
 });
 
+test("SC-013 replacement replay starts with the single retry budget consumed", async () => {
+  const { root, statePath } = await makeState();
+  const message = "MAGASIN_DISCOVER_TASK_V1 id=replacement-retry";
+  try {
+    await prepareExactOnceOutbound(statePath, {
+      messageId: "replacement-retry",
+      message,
+      kind: "SOURCE_OF_TRUTH_TASK_DISCOVERY",
+      initialRetryCount: 1
+    });
+
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "PREPARED");
+    assert.equal(durable.outbound.retry_count, 1);
+
+    await assert.rejects(
+      prepareExactOnceOutbound(statePath, {
+        messageId: "invalid-retry",
+        message: "different",
+        kind: "SOURCE_OF_TRUTH_TASK_DISCOVERY",
+        initialRetryCount: 2
+      }),
+      (error) => error?.code === "INVALID_INITIAL_RETRY_COUNT"
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("SC-006 exact DOM evidence reconciles delivery when latest-turn helper is stale", async () => {
   const { root, statePath } = await makeState();
   const message = "MAGASIN_SINGLE_CONVERSATION_NEXT_V1 id=modern-dom";
