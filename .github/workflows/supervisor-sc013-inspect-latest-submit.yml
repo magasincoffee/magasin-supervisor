@@ -1,0 +1,27 @@
+name: SC-013 Inspect Latest Submit Incident
+on:
+  push:
+    branches: [sc011-production-runtime-diagnostic-20260929]
+    paths:
+      - '.github/workflows/supervisor-sc013-inspect-latest-submit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        slot: [1,2,3,4]
+    runs-on: self-hosted
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect latest submit incident
+        shell: cmd
+        run: |
+          @echo off
+          echo SC013_INCIDENT_SLOT=${{ matrix.slot }}
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc011-inspect-submit-incident.ps1" -TargetComputer "DESKTOP-4K7IM13" -NonTargetHoldSeconds 90
+          exit /b %ERRORLEVEL%
