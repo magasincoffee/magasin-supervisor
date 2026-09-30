@@ -340,14 +340,18 @@ try {
             }
             Write-StatusAtomically -Status $status
 
+            $signatureAutomation = if ($stateReadable) { [string]$state.automation.status } else { 'NO_STATE' }
+            $signaturePhase = if ($stateReadable) { [string]$state.automation.phase } else { 'NO_PHASE' }
+            $signatureOutbound = if ($stateReadable) { [string]$state.outbound.state } else { 'NO_OUTBOUND' }
+            $signatureError = if ($stateReadable) { [string]$state.outbound.last_error_code } else { 'NO_ERROR' }
             $signature = [string]::Join('~', @(
                 $mode,
                 [string]$truth.wrapper_alive,
                 [string]$truth.cdp_healthy,
-                if ($stateReadable) { [string]$state.automation.status } else { 'NO_STATE' },
-                if ($stateReadable) { [string]$state.automation.phase } else { 'NO_PHASE' },
-                if ($stateReadable) { [string]$state.outbound.state } else { 'NO_OUTBOUND' },
-                if ($stateReadable) { [string]$state.outbound.last_error_code } else { 'NO_ERROR' },
+                $signatureAutomation,
+                $signaturePhase,
+                $signatureOutbound,
+                $signatureError,
                 $faultSignature
             ))
 

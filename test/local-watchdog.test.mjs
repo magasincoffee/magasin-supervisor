@@ -71,3 +71,13 @@ test("SC-013 watchdog launcher never mistakes its own start script for the obser
     assert.match(source, /-notlike '\*start-local-watchdog\.ps1\*'/);
   }
 });
+
+
+test("SC-013 watchdog signature construction is Windows PowerShell 5.1 parse-safe", async () => {
+  const source = await read("windows/local-watchdog.ps1");
+  assert.match(source, /\$signatureAutomation = if \(\$stateReadable\)/);
+  assert.match(source, /\$signaturePhase = if \(\$stateReadable\)/);
+  assert.match(source, /\$signatureOutbound = if \(\$stateReadable\)/);
+  assert.match(source, /\$signatureError = if \(\$stateReadable\)/);
+  assert.doesNotMatch(source, /\[string\]::Join\('~', @\([\s\S]*?,\s*if \(\$stateReadable\)/);
+});
