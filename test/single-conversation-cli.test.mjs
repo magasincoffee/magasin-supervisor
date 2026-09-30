@@ -7,8 +7,10 @@ import path from "node:path";
 import {
   boundedRuntimeStep,
   canRebindEnqueuedStatusCheck,
+  canRebindEnqueuedTaskMessage,
   canResumePreActuationDiscovery,
   reconstructPendingStatusCheckMessage,
+  reconstructPendingTaskMessage,
   runSingleConversationRuntime,
   waitForNextCycleDelay
 } from "../src/runtime/single-conversation-cli.mjs";
@@ -327,16 +329,63 @@ test("SC-013 restart rebind permits only a durable ENQUEUED TASK_STATUS_CHECK ca
   );
 });
 
-test("SC-013 restart reconciles pending status check before selecting any new work", async () => {
+test("SC-013 restart rebind safely reconstructs ENQUEUED TASK_EXECUTION from exact evidence", () => {
+  const sourceOfTruthUrl = "https://example.com/SOURCE_OF_TRUTH.md";
+  const messageId = "exec-restart-1";
+  const taskId = "OPS-022";
+  const message = buildSingleConversationTaskInstruction({
+    sourceOfTruthUrl,
+    taskId,
+    messageId,
+    checkOnly: false
+  });
+  const state = {
+    conversation: { status: "ACTIVE" },
+    source_of_truth: { url: sourceOfTruthUrl },
+    outbound: {
+      state: "ENQUEUED",
+      kind: "TASK_EXECUTION",
+      message_id: messageId,
+      message_digest: composerInstructionDigest(message),
+      retry_count: 0
+    }
+  };
+
+  assert.equal(canRebindEnqueuedTaskMessage(state), true);
+  assert.equal(reconstructPendingTaskMessage(state, message), message);
+  assert.equal(
+    reconstructPendingTaskMessage(
+      state,
+      message.replace("TASK_ID=OPS-022", "TASK_ID=OPS-999")
+    ),
+    null
+  );
+
+  const durable = {
+    ...state,
+    outbound: { ...state.outbound, task_id: taskId }
+  };
+  assert.equal(reconstructPendingTaskMessage(durable), message);
+  assert.equal(
+    reconstructPendingTaskMessage({
+      ...durable,
+      outbound: { ...durable.outbound, task_id: "OPS-999" }
+    }),
+    null
+  );
+  assert.equal(canRebindEnqueuedStatusCheck(state), false);
+});
+
+test("SC-013 restart reconciles pending task message before selecting any new work", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
     "utf8"
   );
-  const helper = source.indexOf("async function resumeEnqueuedStatusCheckAfterRebind");
+  const helper = source.indexOf("async function resumeEnqueuedTaskMessageAfterRebind");
   const reconcile = source.indexOf("reconcileExactOnceOutbound", helper);
   const settle = source.indexOf("settleTransactionResponse", reconcile);
   const activeBranch = source.indexOf("if (rebound?.page)");
-  const recovery = source.indexOf("resumeEnqueuedStatusCheckAfterRebind", activeBranch);
+  const recovery = source.indexOf("resumeEnqueuedTaskMessageAfterRebind", activeBranch);
   const cycles = source.indexOf("let cycles = 0;", recovery);
 
   assert.ok(helper >= 0);
