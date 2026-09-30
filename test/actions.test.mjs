@@ -1111,3 +1111,91 @@ test("SC-013 SOT URL normalization does not erase unrelated semantic whitespace"
     composerRenderedInstructionDigest("TASK_ID=ABC")
   );
 });
+
+
+test("SC-013 user-turn verification accepts rendered SOT auto-link line break", async () => {
+  const instruction = [
+    "MAGASIN_DISCOVER_TASK_V1",
+    "id=9dac7d14-b847-4f02-a4a6-2f96a410dba4",
+    "SOT=https://github.com/magasincoffee/example/blob/main/SOURCE_OF_TRUTH.md",
+    "MAGASIN_TASK_CONTROL_V1",
+    "END_MAGASIN_TASK_CONTROL_V1",
+    "MAGASIN_CYCLE_CORRELATION_V1 9dac7d14-b847-4f02-a4a6-2f96a410dba4"
+  ].join("\n");
+  const rendered = instruction.replace("SOT=https://", "SOT=\nhttps://");
+
+  const container = {
+    getAttribute(name) {
+      return name === "data-testid" ? "conversation-turn-7" : null;
+    }
+  };
+  const node = {
+    innerText: rendered,
+    textContent: rendered,
+    matches(selector) {
+      return selector === '[data-message-author-role="user"]';
+    },
+    closest(selector) {
+      if (selector === "#prompt-textarea") return null;
+      if (selector === "[data-testid^='conversation-turn-']") return container;
+      return null;
+    }
+  };
+
+  const page = {
+    async evaluate(fn, args) {
+      const previous = globalThis.document;
+      globalThis.document = {
+        querySelectorAll(selector) {
+          if (selector === '[data-message-author-role="user"]') return [node];
+          return [];
+        }
+      };
+      try {
+        return fn(args);
+      } finally {
+        if (previous === undefined) delete globalThis.document;
+        else globalThis.document = previous;
+      }
+    }
+  };
+
+  const result = await captureMatchingUserTurnEvidence(page, instruction);
+  assert.equal(result.confirmed, true);
+  assert.equal(result.turn_id, "conversation-turn-7");
+});
+
+test("SC-013 user-turn verification still rejects genuinely different content", async () => {
+  const instruction = "SOT=https://example.com/source\nTASK_ID=SC-013";
+  const rendered = "SOT=\nhttps://example.com/source\nTASK_ID=SC-999";
+
+  const node = {
+    innerText: rendered,
+    textContent: rendered,
+    matches(selector) {
+      return selector === '[data-message-author-role="user"]';
+    },
+    closest() { return null; }
+  };
+
+  const page = {
+    async evaluate(fn, args) {
+      const previous = globalThis.document;
+      globalThis.document = {
+        querySelectorAll(selector) {
+          if (selector === '[data-message-author-role="user"]') return [node];
+          return [];
+        }
+      };
+      try {
+        return fn(args);
+      } finally {
+        if (previous === undefined) delete globalThis.document;
+        else globalThis.document = previous;
+      }
+    }
+  };
+
+  const result = await captureMatchingUserTurnEvidence(page, instruction);
+  assert.equal(result.confirmed, false);
+});
