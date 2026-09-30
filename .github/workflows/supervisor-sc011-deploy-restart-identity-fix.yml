@@ -1,0 +1,36 @@
+name: SC-011 Deploy Restart Identity Fix
+
+on:
+  push:
+    branches:
+      - sc011-production-runtime-diagnostic-20260929
+    paths:
+      - '.github/scripts/supervisor-sc011-deploy-restart-identity-fix.ps1'
+      - '.github/workflows/supervisor-sc011-deploy-restart-identity-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sc011-deploy-restart-identity-fix
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        slot: [1,2,3,4]
+    runs-on: self-hosted
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy fix and observe target runtime
+        shell: cmd
+        run: |
+          @echo off
+          echo SC011_FIX_SLOT=${{ matrix.slot }}
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc011-deploy-restart-identity-fix.ps1" -TargetComputer "DESKTOP-4K7IM13" -ExpectedSha "${{ github.sha }}" -NonTargetHoldSeconds 150 -ObserveSeconds 150
+          exit /b %ERRORLEVEL%
