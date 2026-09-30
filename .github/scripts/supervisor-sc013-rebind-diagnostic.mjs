@@ -11,6 +11,20 @@ const {
 }=await mod("src/runtime/single-conversation-cli.mjs");
 const {readSingleConversationState}=await mod("src/runtime/single-conversation-state.mjs");
 
+const bounded=async(label,promise,ms)=>{
+  let timer;
+  try{
+    return await Promise.race([
+      Promise.resolve(promise),
+      new Promise((_,reject)=>{
+        timer=setTimeout(()=>reject(Object.assign(new Error(label+" timed out"),{code:label+"_TIMEOUT"})),ms);
+      })
+    ]);
+  }finally{
+    clearTimeout(timer);
+  }
+};
+
 const state=await readSingleConversationState(statePath);
 console.log("SC013_DIAG_CAN_RESUME_PRE_ACTUATION="+String(canResumePreActuationDiscovery(state)));
 console.log("SC013_DIAG_EXPECTED_RUNTIME_ID="+String(state.conversation?.runtime_id||""));
@@ -35,7 +49,15 @@ try{
 
   const discovery=adapter.getActivePage()||pages.at(-1)||null;
   if(discovery && typeof adapter.listRecentConversationUrls==="function"){
-    const urls=await adapter.listRecentConversationUrls(discovery,{limit:50}).catch(()=>[]);
+    let urls=[];
+    try{
+      urls=await bounded("RECENT_URLS",adapter.listRecentConversationUrls(discovery,{limit:50}),8000);
+      console.log("SC013_DIAG_RECENT_URLS_TIMEOUT=False");
+    }catch(error){
+      console.log("SC013_DIAG_RECENT_URLS_TIMEOUT=True");
+      console.log("SC013_DIAG_RECENT_URLS_ERROR="+String(error?.code||error?.message||"Error"));
+      urls=[];
+    }
     const matches=[...new Set(urls.filter(u=>{
       try{return opaqueRuntimeIdentity(u)===expected;}catch{return false;}
     }))];
@@ -44,12 +66,23 @@ try{
     for(const u of matches) console.log("SC013_DIAG_RECENT_MATCH_URL="+u);
   }
 
-  const resumed=await resumeExistingConversationPage({
-    adapter,
-    state,
-    recoveryRetries:6,
-    recoveryPollMs:500
-  });
+  let resumed=null;
+  try{
+    resumed=await bounded(
+      "REBIND",
+      resumeExistingConversationPage({
+        adapter,
+        state,
+        recoveryRetries:6,
+        recoveryPollMs:500
+      }),
+      15000
+    );
+    console.log("SC013_DIAG_REBIND_TIMEOUT=False");
+  }catch(error){
+    console.log("SC013_DIAG_REBIND_TIMEOUT=True");
+    console.log("SC013_DIAG_REBIND_ERROR="+String(error?.code||error?.message||"Error"));
+  }
   console.log("SC013_DIAG_REBIND_SUCCESS="+String(Boolean(resumed?.page)));
   console.log("SC013_DIAG_REBIND_SOURCE="+String(resumed?.recovered_from||""));
   if(resumed?.page) console.log("SC013_DIAG_REBOUND_URL="+String(resumed.page.url?.()||""));
@@ -59,3 +92,4 @@ try{
     new Promise(resolve=>setTimeout(resolve,1500))
   ]).catch(()=>{});
 }
+process.exit(0);
