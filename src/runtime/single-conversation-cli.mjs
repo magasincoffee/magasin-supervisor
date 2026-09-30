@@ -203,6 +203,23 @@ const REBINDABLE_IN_FLIGHT_PROTOCOL_KINDS = new Set([
   "TASK_EXECUTION"
 ]);
 
+export function canRebindPreparedProtocolMessage(state) {
+  const outbound = state?.outbound || {};
+  const kind = String(outbound.kind || "");
+  return Boolean(
+    String(state?.conversation?.status || "").toUpperCase() === "ACTIVE" &&
+    String(outbound.state || "").toUpperCase() === "PREPARED" &&
+    [
+      "SOURCE_OF_TRUTH_TASK_DISCOVERY",
+      "SOURCE_OF_TRUTH_NEXT_WORK",
+      "TASK_STATUS_CHECK",
+      "TASK_EXECUTION"
+    ].includes(kind) &&
+    String(outbound.message_id || "").trim() &&
+    String(outbound.message_digest || "").trim()
+  );
+}
+
 export function canRebindInFlightProtocolMessage(state) {
   const outbound = state?.outbound || {};
   const outboundState = String(outbound.state || "").toUpperCase();
@@ -222,7 +239,7 @@ function canReconstructTaskMessage(state) {
   const outboundState = String(outbound.state || "").toUpperCase();
   return Boolean(
     String(state?.conversation?.status || "").toUpperCase() === "ACTIVE" &&
-    ["ENQUEUED", "DELIVERED", "RESPONSE_RUNNING"].includes(outboundState) &&
+    ["PREPARED", "ENQUEUED", "DELIVERED", "RESPONSE_RUNNING"].includes(outboundState) &&
     ["TASK_STATUS_CHECK", "TASK_EXECUTION"].includes(kind) &&
     String(outbound.message_id || "").trim() &&
     String(outbound.message_digest || "").trim()
@@ -273,7 +290,10 @@ export function reconstructPendingStatusCheckMessage(state, evidenceText = null)
 }
 
 export function reconstructPendingProtocolMessage(state, evidenceText = null) {
-  if (!canRebindInFlightProtocolMessage(state)) return null;
+  if (
+    !canRebindPreparedProtocolMessage(state) &&
+    !canRebindInFlightProtocolMessage(state)
+  ) return null;
 
   const outbound = state.outbound || {};
   const kind = String(outbound.kind || "");
@@ -333,9 +353,75 @@ function safeRebindOutboundState(state) {
       String(state?.outbound?.state || "").toUpperCase()
     ) ||
     canResumePreActuationDiscovery(state) ||
+    canRebindPreparedProtocolMessage(state) ||
     canRebindEnqueuedTaskMessage(state) ||
     canRebindInFlightProtocolMessage(state)
   );
+}
+
+async function resumePreparedProtocolMessageAfterRebind({
+  adapter,
+  page,
+  statePath,
+  responseTimeoutMs,
+  pollMs
+} = {}) {
+  const state = await readSingleConversationState(statePath);
+  if (!canRebindPreparedProtocolMessage(state)) return null;
+
+  const kind = String(state.outbound.kind || "");
+  const messageId = String(state.outbound.message_id || "");
+  let message = reconstructPendingProtocolMessage(state);
+  let latestUser = null;
+
+  if (!message) {
+    latestUser = await boundedRuntimeStep(
+      "RESTART_PREPARED_CAPTURE_USER",
+      () => captureLatestRoleTurn(page, "user"),
+      { timeoutMs: 10_000 }
+    ).catch((error) => {
+      if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+      return null;
+    });
+    message = reconstructPendingProtocolMessage(state, latestUser?.text);
+  }
+
+  if (!message) {
+    throw Object.assign(
+      new Error(`prepared ${kind} has no exact restart reconstruction`),
+      { code: "RUNTIME_RESTART_PREPARED_UNRESOLVED" }
+    );
+  }
+
+  // PREPARED is durable proof that browser actuation has not yet started.
+  // Rebind the exact conversation and let the exact-once reconciler perform
+  // the first send. This is not a retry and must not increment retry_count.
+  const delivery = await reconcileExactOnceOutbound({
+    statePath,
+    page,
+    messageId,
+    message,
+    maxSafeRetries: 1,
+    reconciliationProbes: 4,
+    reconciliationPollMs: Math.min(500, Math.max(100, pollMs))
+  });
+  if (!["SEND", "NO_SEND"].includes(delivery.action)) {
+    throw Object.assign(
+      new Error(`restart PREPARED ${kind} did not reach first-send evidence`),
+      { code: "RUNTIME_RESTART_PREPARED_RECONCILE_FAILED" }
+    );
+  }
+
+  return settleTransactionResponse({
+    adapter,
+    page,
+    statePath,
+    messageId,
+    message,
+    baselineAssistantTurnId: null,
+    timeoutMs: responseTimeoutMs,
+    pollMs: Math.min(750, Math.max(100, pollMs))
+  });
 }
 
 async function resumeEnqueuedTaskMessageAfterRebind({
@@ -789,7 +875,16 @@ export async function runSingleConversationRuntime({
     });
     if (rebound?.page) {
       page = rebound.page;
-      if (canRebindInFlightProtocolMessage(current)) {
+      if (canRebindPreparedProtocolMessage(current)) {
+        bootstrapResponse = await resumePreparedProtocolMessageAfterRebind({
+          adapter,
+          page,
+          statePath,
+          responseTimeoutMs,
+          pollMs
+        });
+        current = await readSingleConversationState(statePath);
+      } else if (canRebindInFlightProtocolMessage(current)) {
         bootstrapResponse = await resumeInFlightProtocolMessageAfterRebind({
           adapter,
           page,

@@ -9,6 +9,7 @@ import {
   canRebindEnqueuedStatusCheck,
   canRebindEnqueuedTaskMessage,
   canRebindInFlightProtocolMessage,
+  canRebindPreparedProtocolMessage,
   canResumePreActuationDiscovery,
   reconstructPendingProtocolMessage,
   reconstructPendingStatusCheckMessage,
@@ -485,4 +486,67 @@ test("SC-013 delivered bootstrap can be reconstructed for response-only restart 
   assert.match(source, /SOURCE_OF_TRUTH_BOOTSTRAP/);
   assert.match(source, /MAGASIN_BOOTSTRAP_CORRELATION_V1/);
   assert.match(source, /buildSingleConversationBootstrap/);
+});
+
+
+test("SC-013 restart can safely rebind PREPARED task status check before first actuation", () => {
+  const sourceOfTruthUrl = "https://example.com/SOURCE_OF_TRUTH.md";
+  const messageId = "prepared-status-1";
+  const taskId = "OPS-033";
+  const message = buildSingleConversationTaskInstruction({
+    sourceOfTruthUrl,
+    taskId,
+    messageId,
+    checkOnly: true
+  });
+  const state = {
+    conversation: { status: "ACTIVE" },
+    source_of_truth: { url: sourceOfTruthUrl },
+    outbound: {
+      state: "PREPARED",
+      kind: "TASK_STATUS_CHECK",
+      task_id: taskId,
+      message_id: messageId,
+      message_digest: composerInstructionDigest(message),
+      retry_count: 0
+    }
+  };
+
+  assert.equal(canRebindPreparedProtocolMessage(state), true);
+  assert.equal(reconstructPendingProtocolMessage(state), message);
+  assert.equal(canRebindEnqueuedTaskMessage(state), false);
+  assert.equal(canRebindInFlightProtocolMessage(state), false);
+});
+
+test("SC-013 PREPARED restart recovery reconciles exactly once and is not treated as retry", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const helper = source.indexOf("async function resumePreparedProtocolMessageAfterRebind");
+  const helperEnd = source.indexOf("async function resumeEnqueuedTaskMessageAfterRebind", helper);
+  assert.ok(helper >= 0 && helperEnd > helper);
+  const body = source.slice(helper, helperEnd);
+  assert.match(body, /PREPARED is durable proof that browser actuation has not yet started/);
+  assert.match(body, /reconcileExactOnceOutbound/);
+  assert.match(body, /\["SEND", "NO_SEND"\]/);
+  assert.doesNotMatch(body, /SAFE_RETRY_SENT/);
+  assert.doesNotMatch(body, /initialRetryCount/);
+});
+
+test("SC-013 startup prioritizes PREPARED recovery before in-flight and ENQUEUED branches", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const active = source.indexOf("if (rebound?.page)");
+  const prepared = source.indexOf("if (canRebindPreparedProtocolMessage(current))", active);
+  const preparedResume = source.indexOf("resumePreparedProtocolMessageAfterRebind", prepared);
+  const inFlight = source.indexOf("else if (canRebindInFlightProtocolMessage(current))", preparedResume);
+  const enqueued = source.indexOf("else if (canRebindEnqueuedTaskMessage(current))", inFlight);
+  assert.ok(active >= 0);
+  assert.ok(prepared > active);
+  assert.ok(preparedResume > prepared);
+  assert.ok(inFlight > preparedResume);
+  assert.ok(enqueued > inFlight);
 });
