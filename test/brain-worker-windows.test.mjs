@@ -15,7 +15,7 @@ test("Windows wrapper selects THREE_LANE_V1 from source of truth", async () => {
   assert.match(source, /supervisor-loop-cli\.mjs/);
 });
 
-test("wrapper gives local single-conversation authority precedence while preserving legacy rollback modes", async () => {
+test("wrapper gives local single-conversation authority precedence and refuses legacy Planner Executor selection", async () => {
   const source = await fs.readFile(
     new URL("../windows/run-supervisor.ps1", import.meta.url),
     "utf8"
@@ -25,14 +25,15 @@ test("wrapper gives local single-conversation authority precedence while preserv
   assert.match(source, /single-conversation-control\.json/);
   assert.match(source, /return 'SINGLE_CONVERSATION_V1'/);
   assert.match(source, /planner-executor-state\.json/);
-  assert.match(source, /return 'PLANNER_EXECUTOR_V1'/);
+  assert.doesNotMatch(source, /return 'PLANNER_EXECUTOR_V1'/);
   assert.match(source, /lane-status\.json/);
   assert.match(source, /lanes\.json/);
   assert.match(source, /return 'THREE_LANE_V1'/);
   assert.match(source, /\$runtimeMode = Resolve-LocalRuntimeMode/);
+  assert.match(source, /LEGACY_PLANNER_EXECUTOR_SELECTION_IGNORED=True/);
   assert.match(
     source,
-    /if \(\$runtimeMode -notin @\('SINGLE_CONVERSATION_V1','PLANNER_EXECUTOR_V1'\)\) \{[\s\S]*?Read-ConfiguredProjectAdapterState/
+    /if \(\$runtimeMode -ne 'SINGLE_CONVERSATION_V1'\) \{[\s\S]*?Read-ConfiguredProjectAdapterState/
   );
   assert.match(
     source,
