@@ -42,6 +42,30 @@ const ownedDraft=Boolean(
   draftText.includes("SOT="+String(state.source_of_truth.url||""))
 );
 const compact=(value)=>String(value||"").replace(/[\\s\\u200B-\\u200F\\u2060\\uFEFF]+/gu,"");
+const startsMarker=draftText.startsWith("MAGASIN_DISCOVER_TASK_V1");
+const containsId=draftText.includes("id="+id);
+const containsSot=draftText.includes("SOT="+String(state.source_of_truth.url||""));
+let prefix=0;
+while(prefix<draftText.length && prefix<message.length && draftText[prefix]===message[prefix]) prefix+=1;
+let suffix=0;
+while(
+  suffix<draftText.length-prefix &&
+  suffix<message.length-prefix &&
+  draftText[draftText.length-1-suffix]===message[message.length-1-suffix]
+) suffix+=1;
+const draftCp=prefix<draftText.length?draftText.codePointAt(prefix):null;
+const expectedCp=prefix<message.length?message.codePointAt(prefix):null;
+let singleExtraIndex=-1;
+let singleExtraCodePoint=null;
+if(draftText.length===message.length+1){
+  for(let i=0;i<draftText.length;i+=1){
+    if(draftText.slice(0,i)+draftText.slice(i+1)===message){
+      singleExtraIndex=i;
+      singleExtraCodePoint=draftText.codePointAt(i);
+      break;
+    }
+  }
+}
 
 console.log("SC013_PREFLIGHT_CHAT_PAGES="+pages.length);
 console.log("SC013_PREFLIGHT_DRAFT_READY="+String(draft?.ready));
@@ -51,6 +75,15 @@ console.log("SC013_PREFLIGHT_DRAFT_RENDERED_MATCH="+String(draft?.rendered_diges
 console.log("SC013_PREFLIGHT_EXPECTED_LEN="+String(message.length));
 console.log("SC013_PREFLIGHT_DRAFT_LEN="+String(draftText.length));
 console.log("SC013_PREFLIGHT_DRAFT_OWNED="+String(ownedDraft));
+console.log("SC013_PREFLIGHT_STARTS_MARKER="+String(startsMarker));
+console.log("SC013_PREFLIGHT_CONTAINS_ID="+String(containsId));
+console.log("SC013_PREFLIGHT_CONTAINS_SOT="+String(containsSot));
+console.log("SC013_PREFLIGHT_COMMON_PREFIX="+String(prefix));
+console.log("SC013_PREFLIGHT_COMMON_SUFFIX="+String(suffix));
+console.log("SC013_PREFLIGHT_DRAFT_CODEPOINT_AT_MISMATCH="+String(draftCp));
+console.log("SC013_PREFLIGHT_EXPECTED_CODEPOINT_AT_MISMATCH="+String(expectedCp));
+console.log("SC013_PREFLIGHT_SINGLE_EXTRA_INDEX="+String(singleExtraIndex));
+console.log("SC013_PREFLIGHT_SINGLE_EXTRA_CODEPOINT="+String(singleExtraCodePoint));
 console.log("SC013_PREFLIGHT_DRAFT_HAS_CORRELATION="+String(draftText.includes("MAGASIN_CYCLE_CORRELATION_V1 "+id)));
 console.log("SC013_PREFLIGHT_NONWHITESPACE_MATCH="+String(compact(draftText)===compact(message)));
 console.log("SC013_PREFLIGHT_MATCHING_USER_TURN="+String(Boolean(matching?.confirmed)));
