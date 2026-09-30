@@ -229,7 +229,12 @@ test("SC-011 restart does not replace chat when recent sidebar has no matching r
     outbound: { state: "VERIFIED" }
   };
 
-  const rebound = await resumeExistingConversationPage({ adapter, state });
+  const rebound = await resumeExistingConversationPage({
+    adapter,
+    state,
+    recoveryRetries: 1,
+    recoveryPollMs: 0
+  });
   assert.equal(rebound, null);
   assert.equal(reopenCalls, 0);
 });
@@ -257,4 +262,20 @@ test("SC-011 long response polling uses native timers instead of page RPC sleeps
   );
   assert.doesNotMatch(loop, /page\.waitForTimeout\(pollMs\)/);
   assert.doesNotMatch(bootstrap, /page\.waitForTimeout\(pollMs\)/);
+});
+
+
+test("SC-011 restart identity uncertainty fails closed instead of replacing chat", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const startup = source.slice(
+    source.indexOf("export async function runSingleConversationRuntime"),
+    source.indexOf("let cycles = 0;")
+  );
+  assert.match(startup, /RUNTIME_RESTART_IDENTITY_NOT_VERIFIED/);
+  assert.match(startup, /fail closed/i);
+  assert.doesNotMatch(startup, /replaceDisposableConversation/);
+  assert.doesNotMatch(source, /import \{[\s\S]*replaceDisposableConversation[\s\S]*\} from "\.\/single-conversation-rollover\.mjs"/);
 });
