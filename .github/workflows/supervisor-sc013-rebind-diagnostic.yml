@@ -1,0 +1,51 @@
+name: SC-013 Read-Only Rebind Diagnostic
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/supervisor-sc013-rebind-diagnostic.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sc013-read-only-rebind-diagnostic
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        slot: [1, 2]
+    runs-on: self-hosted
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe target rebind without sending
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Write-Host "SC013_DIAG_SLOT=${{ matrix.slot }}"
+          Write-Host "SC013_DIAG_MACHINE=$env:COMPUTERNAME"
+          if($env:COMPUTERNAME -ne 'DESKTOP-4K7IM13'){
+            Write-Host 'SC013_DIAG_TARGET_MATCH=False'
+            Start-Sleep -Seconds 120
+            exit 0
+          }
+          Write-Host 'SC013_DIAG_TARGET_MATCH=True'
+          . "$env:GITHUB_WORKSPACE\windows\state-root.ps1"
+          . "$env:GITHUB_WORKSPACE\windows\lifecycle-truth.ps1"
+          $root=Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
+          $runtime=Join-Path $root 'runtime'
+          $state=Join-Path $root 'single-conversation-state.json'
+          if(-not (Test-Path $state)){throw 'single-conversation-state.json missing'}
+          $chrome=Get-LifecycleRobotChrome -Root $root
+          if(-not $chrome -or -not $chrome.CommandLine -or $chrome.CommandLine -notmatch '--remote-debugging-port=(\d+)'){throw 'Dedicated Chrome/CDP unavailable'}
+          $cdp="http://127.0.0.1:$([int]$Matches[1])"
+          Write-Host "SC013_DIAG_CDP=$cdp"
+          & node "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-sc013-rebind-diagnostic.mjs" $runtime $state $cdp
+          if($LASTEXITCODE -ne 0){throw "SC013 rebind diagnostic failed with exit $LASTEXITCODE"}
