@@ -82,7 +82,7 @@ try{
     throw new Error("live draft differs from reconstructed outbound message");
   }
 
-  const baselineAssistant=await captureLatestRoleTurn(page,"assistant").catch(()=>null);
+  const priorAssistantTurnId=String(state.automation?.last_assistant_turn_id||"")||null;
   const delivery=await reconcileExactOnceOutbound({
     statePath,
     page,
@@ -95,23 +95,34 @@ try{
   console.log("RECOVER_STUCK_DELIVERY_ACTION="+String(delivery.action||""));
   console.log("RECOVER_STUCK_DELIVERY_STATE="+String(delivery.state||""));
 
-  const response=await waitForSingleConversationResponse({
-    adapter,
-    page,
-    statePath,
-    baselineAssistantTurnId:baselineAssistant?.turn_id||null,
-    expectedAssistantMarker:"MAGASIN_CYCLE_CORRELATION_V1 "+id,
-    timeoutMs:responseTimeoutMs,
-    pollMs:750,
-    maxContinueClicks:8
-  });
-  console.log("RECOVER_STUCK_RESPONSE_STATUS="+String(response?.status||""));
-  if(response?.status!=="RESPONSE_COMPLETE"){
-    throw new Error("recovered task discovery response did not complete");
+  const expectedMarker="MAGASIN_CYCLE_CORRELATION_V1 "+id;
+  const existingAssistant=await captureLatestRoleTurn(page,"assistant").catch(()=>null);
+  const existingText=String(existingAssistant?.text||"");
+  if(existingAssistant?.turn_id && existingText.includes(expectedMarker)){
+    console.log("RECOVER_STUCK_EXISTING_RESPONSE_MATCH=True");
+    await markExactOnceResponseComplete(statePath,{messageId:id,message});
+    await markExactOnceVerified(statePath,{messageId:id,message});
+    console.log("RECOVER_STUCK_TRANSACTION_VERIFIED=True");
+  }else{
+    console.log("RECOVER_STUCK_EXISTING_RESPONSE_MATCH=False");
+    const response=await waitForSingleConversationResponse({
+      adapter,
+      page,
+      statePath,
+      baselineAssistantTurnId:priorAssistantTurnId,
+      expectedAssistantMarker:expectedMarker,
+      timeoutMs:responseTimeoutMs,
+      pollMs:750,
+      maxContinueClicks:8
+    });
+    console.log("RECOVER_STUCK_RESPONSE_STATUS="+String(response?.status||""));
+    if(response?.status!=="RESPONSE_COMPLETE"){
+      throw new Error("recovered task discovery response did not complete");
+    }
+    await markExactOnceResponseComplete(statePath,{messageId:id,message});
+    await markExactOnceVerified(statePath,{messageId:id,message});
+    console.log("RECOVER_STUCK_TRANSACTION_VERIFIED=True");
   }
-  await markExactOnceResponseComplete(statePath,{messageId:id,message});
-  await markExactOnceVerified(statePath,{messageId:id,message});
-  console.log("RECOVER_STUCK_TRANSACTION_VERIFIED=True");
 }finally{
   await Promise.race([
     adapter.close().catch(()=>{}),
