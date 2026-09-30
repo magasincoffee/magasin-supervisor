@@ -65,3 +65,13 @@ jobs:
           Write-Host "SC013_STATE_OUTBOUND_RETRY=$([string]$s.outbound.retry_count)"
           Write-Host "SC013_STATE_OUTBOUND_LAST_ERROR=$([string]$s.outbound.last_error_code)"
           Write-Host 'SC013_STATE_STATUS=PASS'
+
+          if($env:COMPUTERNAME -eq 'DESKTOP-4K7IM13' -and $truth.cdp_healthy){
+            $runtime=Join-Path $root 'runtime'
+            $chrome=Get-LifecycleRobotChrome -Root $root
+            if($chrome -and $chrome.CommandLine -match '--remote-debugging-port=(\d+)'){
+              $cdp="http://127.0.0.1:$([int]$Matches[1])"
+              node ".github\scripts\sc013-pending-outbound-readonly.mjs" $runtime $statePath $cdp
+              if($LASTEXITCODE -ne 0){ throw "pending outbound read-only probe failed with exit $LASTEXITCODE" }
+            }
+          }
