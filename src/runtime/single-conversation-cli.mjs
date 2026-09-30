@@ -243,7 +243,9 @@ async function recoverConversationFromRecentSidebar({
 
 export async function resumeExistingConversationPage({
   adapter,
-  state
+  state,
+  recoveryRetries = 60,
+  recoveryPollMs = 500
 } = {}) {
   if (!adapter || !state) return null;
   if (String(state?.conversation?.status || "").toUpperCase() !== "ACTIVE") {
@@ -277,7 +279,9 @@ export async function resumeExistingConversationPage({
     page = await recoverConversationFromRecentSidebar({
       adapter,
       expected,
-      discoveryPage
+      discoveryPage,
+      retries: recoveryRetries,
+      pollMs: recoveryPollMs
     });
     if (!page) return null;
     recoveredFrom = "RECENT_SIDEBAR";
