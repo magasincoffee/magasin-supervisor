@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 
+import { composerInstructionDigest } from "../ui/actions.mjs";
 import { ChatGptUiAdapter } from "../ui/playwright-adapter.mjs";
 import { captureLatestRoleTurn } from "../ui/latest-turn.mjs";
 import {
@@ -16,7 +17,8 @@ import {
   waitForSingleConversationResponse
 } from "./single-conversation-loop.mjs";
 import {
-  recoverDisposableConversationIfNeeded
+  recoverDisposableConversationIfNeeded,
+  replaceDisposableConversation
 } from "./single-conversation-rollover.mjs";
 import {
   ensureSingleConversationState,
@@ -354,7 +356,8 @@ async function sendProtocolMessage({
   messageId,
   kind,
   responseTimeoutMs,
-  pollMs
+  pollMs,
+  initialRetryCount = 0
 }) {
   const { baselineUser, baselineAssistant } =
     await captureProtocolBaselines(page);
@@ -363,7 +366,8 @@ async function sendProtocolMessage({
     messageId,
     message,
     kind,
-    baselineUserTurnId: baselineUser?.turn_id || null
+    baselineUserTurnId: baselineUser?.turn_id || null,
+    initialRetryCount
   });
 
   // PREPARED is the only correct state before first reconciliation. The
@@ -466,19 +470,67 @@ export async function runSingleConversationRuntime({
     page = bootstrap.page;
     bootstrapResponse = bootstrap.response;
   } else {
+    const pendingPreActuation = canResumePreActuationDiscovery(current)
+      ? {
+          message_id: String(current.outbound.message_id),
+          message_digest: String(current.outbound.message_digest),
+          retry_count: Number(current.outbound.retry_count || 0)
+        }
+      : null;
+
     const rebound = await resumeExistingConversationPage({
       adapter,
       state: current
     });
     if (rebound?.page) {
       page = rebound.page;
+    } else if (pendingPreActuation) {
+      // SC-013: the old chat identity is no longer verifiable, but durable
+      // evidence proves this one task-discovery send failed before submit.
+      // Bootstrap a disposable replacement from SOT, then replay exactly the
+      // same pending discovery correlation once. Never weaken identity checks.
+      const pendingMessage = buildSingleConversationTaskDiscoveryInstruction({
+        sourceOfTruthUrl,
+        messageId: pendingPreActuation.message_id
+      });
+      if (
+        composerInstructionDigest(pendingMessage) !==
+        pendingPreActuation.message_digest
+      ) {
+        throw Object.assign(
+          new Error("pre-actuation discovery reconstruction digest mismatch"),
+          { code: "OUTBOUND_DIGEST_MISMATCH" }
+        );
+      }
+
+      const replacement = await replaceDisposableConversation({
+        adapter,
+        page,
+        statePath,
+        reason: "RUNTIME_RESTART_IDENTITY_NOT_VERIFIED_PRE_ACTUATION",
+        sourceOfTruthUrl,
+        projectId: "LIVE",
+        qualificationOnly,
+        timeoutMs: responseTimeoutMs,
+        pollMs: Math.min(750, Math.max(100, pollMs))
+      });
+      page = replacement.page;
+
+      bootstrapResponse = await sendProtocolMessage({
+        adapter,
+        page,
+        statePath,
+        message: pendingMessage,
+        messageId: pendingPreActuation.message_id,
+        kind: "SOURCE_OF_TRUTH_TASK_DISCOVERY",
+        responseTimeoutMs,
+        pollMs,
+        initialRetryCount: pendingPreActuation.retry_count + 1
+      });
+      current = await readSingleConversationState(statePath);
     } else {
-      // Restart continuity must fail closed. Missing runtime identity evidence
-      // is not proof that the active conversation is unusable, so never retire,
-      // close, or replace it merely because Chrome/sidebar recovery has not
-      // re-established the exact opaque identity yet. The wrapper may retry
-      // this read-only rebind path; replacement remains reserved for positive
-      // unusable/full/error evidence detected by the normal recovery probe.
+      // Restart continuity remains fail closed for every case without positive
+      // pre-actuation non-delivery evidence.
       throw Object.assign(
         new Error("active conversation identity could not be verified after runtime restart"),
         { code: "RUNTIME_RESTART_IDENTITY_NOT_VERIFIED" }
