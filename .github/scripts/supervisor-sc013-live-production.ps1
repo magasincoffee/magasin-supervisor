@@ -98,6 +98,9 @@ $allVerified=New-Object 'System.Collections.Generic.HashSet[string]'
 $blockedSince=$null
 $lastPrinted=''
 $latest=$null
+$lastUiProbe=[DateTimeOffset]::MinValue
+$lastUiSignature=''
+$uiProbeScript=Join-Path $env:GITHUB_WORKSPACE '.github\scripts\sc013-wait-response-liveness.mjs'
 
 while([DateTimeOffset]::UtcNow -lt $deadline){
   Start-Sleep -Seconds 2
@@ -150,6 +153,60 @@ while([DateTimeOffset]::UtcNow -lt $deadline){
     $lastProgress=[DateTimeOffset]::UtcNow
     $line="gen=$generation id=$messageId kind=$kind outbound=$outbound automation=$automation phase=$phase code=$lastCode stage=$lastStage retry=$retry"
     if($line -ne $lastPrinted){Write-Host "SC013_LIVE_PROGRESS $line";$lastPrinted=$line}
+  }
+
+  # WAIT_RESPONSE can legitimately remain durably unchanged while ChatGPT is
+  # still executing a long GitHub/Supabase/tool task. Use read-only CDP UI
+  # liveness as additional progress evidence so the harness does not create a
+  # false NO_PROGRESS_TIMEOUT after four minutes of active work.
+  $waitingForResponse=[bool]($phase -eq 'WAIT_RESPONSE' -or $outbound -in @('DELIVERED','RESPONSE_RUNNING'))
+  if(
+    $waitingForResponse -and
+    (Test-Path $uiProbeScript) -and
+    ([DateTimeOffset]::UtcNow-$lastUiProbe).TotalSeconds -ge 30
+  ){
+    $lastUiProbe=[DateTimeOffset]::UtcNow
+    try{
+      $truthNow=Get-LifecycleProcessTruth -Root $root
+      if($truthNow.cdp_healthy){
+        $chromeNow=Get-LifecycleRobotChrome -Root $root
+        if($chromeNow -and [string]$chromeNow.CommandLine -match '--remote-debugging-port=(\d+)'){
+          $cdpUrl="http://127.0.0.1:$([int]$Matches[1])"
+          $probeLines=@(& node $uiProbeScript $runtime $statePath $cdpUrl 2>$null)
+          $uiMatch=0
+          $uiRunning=$false
+          $uiAssistantBusy=$false
+          $uiMainBusy=$false
+          $uiAssistantCount=0
+          $uiAssistantChars=0
+          foreach($probeLine in $probeLines){
+            $probeText=[string]$probeLine
+            if($probeText -match '^SC013_UI_MATCH_COUNT=(\d+)$'){$uiMatch=[int]$Matches[1];continue}
+            if($probeText -eq 'SC013_UI_RESPONSE_RUNNING=True'){$uiRunning=$true;continue}
+            if($probeText -eq 'SC013_UI_ASSISTANT_BUSY=True'){$uiAssistantBusy=$true;continue}
+            if($probeText -eq 'SC013_UI_MAIN_BUSY=True'){$uiMainBusy=$true;continue}
+            if($probeText -match '^SC013_UI_ASSISTANT_COUNT=(\d+)$'){$uiAssistantCount=[int]$Matches[1];continue}
+            if($probeText -match '^SC013_UI_ASSISTANT_CHARS=(\d+)$'){$uiAssistantChars=[int]$Matches[1];continue}
+          }
+
+          if($uiMatch -eq 1){
+            $uiSignature="$uiAssistantCount|$uiAssistantChars"
+            $uiChanged=[bool](
+              -not [string]::IsNullOrWhiteSpace($lastUiSignature) -and
+              $uiSignature -ne $lastUiSignature
+            )
+            $uiActive=[bool]($uiRunning -or $uiAssistantBusy -or $uiMainBusy)
+            if($uiActive -or $uiChanged){
+              $lastProgress=[DateTimeOffset]::UtcNow
+              Write-Host "SC013_LIVE_WAIT_RESPONSE_LIVENESS active=$uiActive changed=$uiChanged assistant_count=$uiAssistantCount assistant_chars=$uiAssistantChars"
+            }
+            $lastUiSignature=$uiSignature
+          }
+        }
+      }
+    }catch{
+      Write-Host "SC013_LIVE_WAIT_RESPONSE_LIVENESS_PROBE_ERROR=$($_.Exception.Message)"
+    }
   }
 
   if($outbound -eq 'VERIFIED' -and -not [string]::IsNullOrWhiteSpace($messageId)){
