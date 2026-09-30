@@ -1,0 +1,39 @@
+name: SC-013 Delivery Ambiguity Snapshot
+on:
+  push:
+    branches:
+      - sc011-production-runtime-diagnostic-20260929
+    paths:
+      - '.github/scripts/supervisor-sc013-delivery-ambiguity.ps1'
+      - '.github/scripts/supervisor-sc013-delivery-ambiguity.mjs'
+      - '.github/workflows/supervisor-sc013-delivery-ambiguity.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sc013-delivery-ambiguity
+  cancel-in-progress: true
+jobs:
+  inspect:
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        slot: [1,2,3,4]
+    runs-on: self-hosted
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect ambiguous delivery on target
+        shell: cmd
+        run: |
+          @echo off
+          echo SC013_AMBIG_SLOT=${{ matrix.slot }}
+          if /I not "%COMPUTERNAME%"=="DESKTOP-4K7IM13" (
+            echo SC013_AMBIG_TARGET_MATCH=False
+            timeout /t 90 /nobreak >nul
+            exit /b 0
+          )
+          echo SC013_AMBIG_TARGET_MATCH=True
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc013-delivery-ambiguity.ps1" -TargetComputer "DESKTOP-4K7IM13" -NonTargetHoldSeconds 90
+          exit /b %ERRORLEVEL%
