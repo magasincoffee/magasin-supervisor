@@ -22,6 +22,8 @@ test("autostart installer registers HKCU Run and never bypasses Windows login", 
   const source = await read("install-autostart.ps1");
   assert.match(source, /HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run/);
   assert.match(source, /MAGASINBusinessOSAutostart/);
+  assert.match(source, /MAGASINSupervisorLocalWatchdog/);
+  assert.match(source, /start-local-watchdog\.ps1/);
   assert.match(source, /windows_session_required = \$true/);
   assert.match(source, /bypass_windows_login = \$false/);
   assert.match(source, /AUTOSTART_DISABLED/);
@@ -58,3 +60,13 @@ test("Robot Chrome disables background throttling and Three-Lane uses low-latenc
   assert.match(source, /'--page-budget', \$pageBudget/);
 });
 
+
+
+test("local watchdog starts before Owner STOP suppresses Robot recovery", async () => {
+  const source = await read("autostart-bootstrap.ps1");
+  const watchdog = source.indexOf("LOCAL_WATCHDOG_ONLINE");
+  const ownerStop = source.indexOf("$ownerStop = Get-LifecycleOwnerStopState");
+  assert.ok(watchdog >= 0);
+  assert.ok(ownerStop > watchdog);
+  assert.match(source, /start-local-watchdog\.ps1/);
+});
