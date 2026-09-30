@@ -146,10 +146,10 @@ while([DateTimeOffset]::UtcNow -lt $end){
       $blockedSince=$null
     }
 
-    $signature="$generation|$messageId|$kind|$outbound|$automation|$phase|$lastCode|$retry"
+    $signature=[string]::Join('~',@([string]$generation,$messageId,$kind,$outbound,$automation,$phase,$lastCode,[string]$retry))
     if($signature -ne $lastSignature){
       $lastSignature=$signature
-      Write-Host "SC013_OVERNIGHT_PROGRESS attempt=$attempt gen=$generation id=$messageId kind=$kind outbound=$outbound automation=$automation phase=$phase code=$lastCode retry=$retry"
+      Write-Host ("SC013_OVERNIGHT_PROGRESS attempt={0} gen={1} id={2} kind={3} outbound={4} automation={5} phase={6} code={7} retry={8}" -f $attempt,$generation,$messageId,$kind,$outbound,$automation,$phase,$lastCode,$retry)
     }
 
     Start-Sleep -Seconds ([Math]::Max(2,$PollSeconds))
@@ -158,11 +158,11 @@ while([DateTimeOffset]::UtcNow -lt $end){
   if($attemptFailed){
     $totalFailures += 1
     $codes=($failureCodes | Sort-Object) -join ','
-    Write-Host "SC013_OVERNIGHT_ATTEMPT_RESULT=$attempt|FAIL|$codes"
+    Write-Host ("SC013_OVERNIGHT_ATTEMPT_RESULT={0};FAIL;{1}" -f $attempt,$codes)
     Write-Summary "- Result: **FAIL** — $codes"
   }else{
     $totalPasses += 1
-    Write-Host "SC013_OVERNIGHT_ATTEMPT_RESULT=$attempt|PASS"
+    Write-Host ("SC013_OVERNIGHT_ATTEMPT_RESULT={0};PASS" -f $attempt)
     Write-Summary "- Result: **PASS**"
   }
 
