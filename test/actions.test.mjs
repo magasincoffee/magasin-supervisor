@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { ACTIONS } from "../src/decision.mjs";
 import {
   captureMatchingUserTurnEvidence,
+  composerInstructionDigest,
+  composerRenderedInstructionDigest,
   discardComposerDraftIfDigest,
   executeDecision,
   inspectComposerDraftDigest,
@@ -965,3 +967,103 @@ test("v49 composer transaction falls back to keyboard after detached fill timeou
   assert.equal(events.at(-1), "send");
 });
 
+
+
+test("SC-011 contenteditable verification preserves rendered paragraph boundaries", async () => {
+  const instruction = "line one\nline two\nline three";
+  let renderedText = "";
+  let sends = 0;
+
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async getAttribute(name) {
+      if (name === "contenteditable") return "true";
+      if (name === "role") return "textbox";
+      return null;
+    },
+    async fill(value) {
+      // Model ProseMirror block rendering: visually correct line boundaries,
+      // but DOM paragraph layout contributes extra line breaks.
+      renderedText = String(value).replace(/\n/g, "\n\n");
+    },
+    async inputValue() { throw new Error("contenteditable has no inputValue"); },
+    async evaluate(fn) {
+      return renderedText;
+    },
+    async click() {},
+    async press() {}
+  };
+
+  const send = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async count() { return 1; },
+    async click() {
+      sends += 1;
+      renderedText = "";
+    }
+  };
+
+  const page = {
+    locator(selector) {
+      if (
+        selector.includes("prompt-textarea") ||
+        selector.includes("contenteditable") ||
+        selector.includes("textarea")
+      ) return composer;
+      if (selector.includes("send") || selector.includes("submit")) return send;
+      return fakeLocator({ visible: false, enabled: false, count: 0 });
+    },
+    async evaluate(fn) {
+      if (String(fn).includes("data-message-author-role")) {
+        return {
+          readable: true,
+          totalCount: sends,
+          exactMatchCount: sends
+        };
+      }
+      return [{ text: "", ariaLabel: "Gửi", testId: "send-button", disabled: false }];
+    },
+    async waitForTimeout() {},
+    async bringToFront() {},
+    keyboard: {
+      async press() {},
+      async insertText(value) { renderedText = String(value).replace(/\n/g, "\n\n"); },
+      async type(value) { renderedText = String(value).replace(/\n/g, "\n\n"); }
+    },
+    getByRole() { return send; }
+  };
+
+  const result = await sendComposerInstruction(page, instruction, { dryRun: false });
+  assert.equal(result.executed, true);
+  assert.equal(sends, 1);
+});
+
+test("SC-011 draft exposes rendered digest distinct from strict paragraph digest", async () => {
+  const instruction = "alpha\nbeta";
+  const rendered = "alpha\n\nbeta";
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async inputValue() { throw new Error("not a textarea"); },
+    async evaluate() { return rendered; }
+  };
+  const page = {
+    locator() { return composer; },
+    async waitForTimeout() {}
+  };
+
+  const draft = await inspectComposerDraftDigest(page);
+  assert.equal(draft.has_text, true);
+  assert.notEqual(draft.digest, composerInstructionDigest(instruction));
+  assert.equal(
+    draft.rendered_digest,
+    composerRenderedInstructionDigest(instruction)
+  );
+});
