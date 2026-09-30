@@ -83,3 +83,8 @@ jobs:
             }
           Write-Host 'SC013_START_DIAG_PROCESSES_END'
           Write-Host 'SC013_START_DIAG_DONE=PASS'
+
+      - name: Read-only conversation rebind probe
+        shell: powershell
+        run: |
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc013-rebind-diagnostic.ps1" -TargetComputer "DESKTOP-4K7IM13" -NonTargetHoldSeconds 0
