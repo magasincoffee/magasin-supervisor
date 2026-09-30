@@ -46,3 +46,5 @@ jobs:
           )
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\update-latest-clean-old.ps1" -TargetComputer "DESKTOP-4K7IM13" -ExpectedMainSha "${{ github.sha }}"
           exit /b %ERRORLEVEL%
+
+# sc013-wait-response-recovery-redeploy: 2026-09-30T16:42Z
