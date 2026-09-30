@@ -79,3 +79,4 @@ try{
 } finally {
   await Promise.race([adapter.close().catch(()=>{}),new Promise(r=>setTimeout(r,1000))]).catch(()=>{});
 }
+process.exit(0);
