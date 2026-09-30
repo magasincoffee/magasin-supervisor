@@ -14,15 +14,17 @@ test("SC-013 live harness uses UI liveness before WAIT_RESPONSE stall failure", 
 
   const waitGuard = script.indexOf("$waitingForResponse");
   const probe = script.indexOf("sc013-wait-response-liveness.mjs");
-  const liveness = script.indexOf("SC013_LIVE_WAIT_RESPONSE_LIVENESS");
-  const progress = script.indexOf("$lastProgress=[DateTimeOffset]::UtcNow", liveness);
-  const stall = script.indexOf("SC013 no durable progress for $StallSeconds seconds", progress);
+  const active = script.indexOf("$uiActive=[bool]", waitGuard);
+  const progress = script.indexOf("$lastProgress=[DateTimeOffset]::UtcNow", active);
+  const liveness = script.indexOf("SC013_LIVE_WAIT_RESPONSE_LIVENESS", progress);
+  const stall = script.indexOf("SC013 no durable progress for $StallSeconds seconds", liveness);
 
   assert.ok(waitGuard >= 0);
   assert.ok(probe >= 0);
-  assert.ok(liveness > waitGuard);
-  assert.ok(progress > liveness);
-  assert.ok(stall > progress);
+  assert.ok(active > waitGuard);
+  assert.ok(progress > active);
+  assert.ok(liveness > progress);
+  assert.ok(stall > liveness);
 
   assert.match(helper, /SC013_UI_RESPONSE_RUNNING=/);
   assert.match(helper, /SC013_UI_ASSISTANT_BUSY=/);
