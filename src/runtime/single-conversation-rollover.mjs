@@ -97,7 +97,13 @@ async function persistRecoveryEvidence(statePath, {
       cmd_id: prior.cmd_id || null,
       baseline_user_turn_id: prior.baseline_user_turn_id || null,
       delivered_user_turn_id: prior.delivered_user_turn_id || null,
-      retry_count: Number(prior.retry_count || 0)
+      retry_count: Number(prior.retry_count || 0),
+      last_error_code: prior.last_error_code || null,
+      last_error_stage: prior.last_error_stage || null,
+      last_pre_actuation_error_code:
+        prior.last_pre_actuation_error_code || null,
+      last_pre_actuation_error_stage:
+        prior.last_pre_actuation_error_stage || null
     },
     rehydrated_generation: null,
     rehydrated_at: null
