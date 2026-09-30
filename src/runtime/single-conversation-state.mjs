@@ -7,6 +7,7 @@ export const SINGLE_CONVERSATION_MODE = "SINGLE_CONVERSATION_V1";
 export const SINGLE_CONVERSATION_STATE_SCHEMA = "single-conversation-state.v1";
 
 const PROJECT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/;
+const TASK_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/;
 const MESSAGE_STATES = new Set([
   "NONE",
   "PREPARED",
@@ -56,6 +57,7 @@ function blankOutbound() {
     message_id: null,
     message_digest: null,
     kind: null,
+    task_id: null,
     cmd_id: null,
     baseline_user_turn_id: null,
     delivered_user_turn_id: null,
@@ -197,6 +199,11 @@ export function assertSingleConversationState(value) {
     requireNullableString(value.outbound.message_digest, "outbound.message_digest", 128);
   value.outbound.kind =
     requireNullableString(value.outbound.kind, "outbound.kind", 80);
+  value.outbound.task_id =
+    requireNullableString(value.outbound.task_id, "outbound.task_id", 120);
+  if (value.outbound.task_id && !TASK_ID_RE.test(value.outbound.task_id)) {
+    throw new Error("invalid outbound.task_id");
+  }
   value.outbound.last_error_stage =
     requireNullableString(value.outbound.last_error_stage, "outbound.last_error_stage", 120);
   value.outbound.last_pre_actuation_error_code =

@@ -64,6 +64,7 @@ export async function prepareExactOnceOutbound(statePath, {
   messageId,
   message,
   kind,
+  taskId = null,
   baselineUserTurnId = null,
   initialRetryCount = 0,
   now = () => new Date().toISOString()
@@ -72,6 +73,7 @@ export async function prepareExactOnceOutbound(statePath, {
   const text = requireMessage(message);
   const digest = composerInstructionDigest(text);
   const outboundKind = String(kind || "SINGLE_CONVERSATION_MESSAGE").trim();
+  const outboundTaskId = String(taskId || "").trim() || null;
   const startingRetryCount = Number(initialRetryCount || 0);
   if (
     !Number.isInteger(startingRetryCount) ||
@@ -103,6 +105,7 @@ export async function prepareExactOnceOutbound(statePath, {
       message_id: id,
       message_digest: digest,
       kind: outboundKind.slice(0, 80),
+      task_id: outboundTaskId,
       cmd_id: null,
       baseline_user_turn_id: baselineUserTurnId || null,
       delivered_user_turn_id: null,

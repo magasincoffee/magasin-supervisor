@@ -289,6 +289,21 @@ test("SC-013 restart rebind permits only a durable ENQUEUED TASK_STATUS_CHECK ca
     reconstructPendingStatusCheckMessage(state, message),
     message
   );
+  const durable = {
+    ...state,
+    outbound: { ...state.outbound, task_id: taskId }
+  };
+  assert.equal(
+    reconstructPendingStatusCheckMessage(durable),
+    message
+  );
+  assert.equal(
+    reconstructPendingStatusCheckMessage({
+      ...durable,
+      outbound: { ...durable.outbound, task_id: "OPS-999" }
+    }),
+    null
+  );
   assert.equal(
     reconstructPendingStatusCheckMessage(
       state,

@@ -185,17 +185,20 @@ export function canRebindEnqueuedStatusCheck(state) {
   );
 }
 
-export function reconstructPendingStatusCheckMessage(state, evidenceText) {
+export function reconstructPendingStatusCheckMessage(state, evidenceText = null) {
   if (!canRebindEnqueuedStatusCheck(state)) return null;
-  const text = String(evidenceText || "").replace(/\r\n/g, "\n");
   const messageId = String(state.outbound.message_id || "").trim();
-  if (!text.includes("MAGASIN_CHECK_TASK_V1")) return null;
+  let taskId = String(state.outbound.task_id || "").trim();
 
-  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
-  if (!lines.includes(`id=${messageId}`)) return null;
-  const taskLine = lines.find((line) => line.startsWith("TASK_ID="));
-  const taskId = String(taskLine || "").slice("TASK_ID=".length).trim();
-  if (!taskId) return null;
+  if (!taskId) {
+    const text = String(evidenceText || "").replace(/\r\n/g, "\n");
+    if (!text.includes("MAGASIN_CHECK_TASK_V1")) return null;
+    const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+    if (!lines.includes(`id=${messageId}`)) return null;
+    const taskLine = lines.find((line) => line.startsWith("TASK_ID="));
+    taskId = String(taskLine || "").slice("TASK_ID=".length).trim();
+    if (!taskId) return null;
+  }
 
   let candidate = null;
   try {
@@ -235,16 +238,21 @@ async function resumeEnqueuedStatusCheckAfterRebind({
   const state = await readSingleConversationState(statePath);
   if (!canRebindEnqueuedStatusCheck(state)) return null;
 
-  const latestUser = await boundedRuntimeStep(
-    "RESTART_STATUS_CHECK_CAPTURE_USER",
-    () => captureLatestRoleTurn(page, "user"),
-    { timeoutMs: 10_000 }
-  ).catch((error) => {
-    if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
-    return null;
-  });
+  let message = reconstructPendingStatusCheckMessage(state);
+  let latestUser = null;
 
-  let message = reconstructPendingStatusCheckMessage(state, latestUser?.text);
+  if (!message) {
+    latestUser = await boundedRuntimeStep(
+      "RESTART_STATUS_CHECK_CAPTURE_USER",
+      () => captureLatestRoleTurn(page, "user"),
+      { timeoutMs: 10_000 }
+    ).catch((error) => {
+      if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+      return null;
+    });
+    message = reconstructPendingStatusCheckMessage(state, latestUser?.text);
+  }
+
   if (!message) {
     const draft = await boundedRuntimeStep(
       "RESTART_STATUS_CHECK_CAPTURE_DRAFT",
@@ -265,6 +273,21 @@ async function resumeEnqueuedStatusCheckAfterRebind({
       new Error("pending TASK_STATUS_CHECK has no exact restart evidence"),
       { code: "RUNTIME_RESTART_ENQUEUED_STATUS_CHECK_UNRESOLVED" }
     );
+  }
+
+  if (state.outbound.baseline_user_turn_id && !latestUser) {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      latestUser = await boundedRuntimeStep(
+        "RESTART_STATUS_CHECK_HYDRATE_USER",
+        () => captureLatestRoleTurn(page, "user"),
+        { timeoutMs: 2_000 }
+      ).catch((error) => {
+        if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+        return null;
+      });
+      if (latestUser) break;
+      await waitForNextCycleDelay(500);
+    }
   }
 
   const messageId = String(state.outbound.message_id);
@@ -468,6 +491,7 @@ async function sendProtocolMessage({
   message,
   messageId,
   kind,
+  taskId = null,
   responseTimeoutMs,
   pollMs,
   initialRetryCount = 0
@@ -479,6 +503,7 @@ async function sendProtocolMessage({
     messageId,
     message,
     kind,
+    taskId,
     baselineUserTurnId: baselineUser?.turn_id || null,
     initialRetryCount
   });
@@ -822,6 +847,7 @@ export async function runSingleConversationRuntime({
       message,
       messageId,
       kind: checkOnly ? "TASK_STATUS_CHECK" : "TASK_EXECUTION",
+      taskId,
       responseTimeoutMs,
       pollMs
     });
