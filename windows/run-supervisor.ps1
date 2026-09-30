@@ -86,17 +86,9 @@ function Resolve-LocalRuntimeMode {
         }
     } catch {}
 
-    # Planner/Executor remains rollback-compatible when no forward control
-    # record exists.
-    try {
-        if (Test-Path $plannerExecutorStateFile) {
-            $plannerExecutorState = Get-Content $plannerExecutorStateFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ([string]$plannerExecutorState.mode -eq 'PLANNER_EXECUTOR_V1') {
-                return 'PLANNER_EXECUTOR_V1'
-            }
-        }
-    } catch {}
-
+    # SC-013: Planner/Executor is superseded and must never be selected by
+    # production runtime resolution. Historical state files may remain for
+    # forensic/rollback reference, but they are not executable authority.
     # The standalone Supervisor owns platform-local orchestration truth.
     # A project adapter is optional for THREE_LANE_V1, so local mode
     # resolution must run whenever the adapter supplies no mode, not only
@@ -316,16 +308,21 @@ try {
             continue
         }
 
-        # Forward single-conversation and rollback Planner/Executor are both
-        # local runtime authorities. Only legacy modes consult project adapters.
+        # SINGLE_CONVERSATION_V1 is the only forward ChatGPT runtime
+        # authority. Superseded Planner/Executor state is intentionally ignored.
         $runtimeMode = Resolve-LocalRuntimeMode
-        if ($runtimeMode -notin @('SINGLE_CONVERSATION_V1','PLANNER_EXECUTOR_V1')) {
+        if ($runtimeMode -ne 'SINGLE_CONVERSATION_V1') {
             try {
                 $projectState = Read-ConfiguredProjectAdapterState
                 if ($projectState -and $projectState.supervisor_orchestration) {
                     $candidateMode = [string]$projectState.supervisor_orchestration.mode
-                    if (-not [string]::IsNullOrWhiteSpace($candidateMode)) {
+                    if (
+                        -not [string]::IsNullOrWhiteSpace($candidateMode) -and
+                        $candidateMode -ne 'PLANNER_EXECUTOR_V1'
+                    ) {
                         $runtimeMode = $candidateMode
+                    } elseif ($candidateMode -eq 'PLANNER_EXECUTOR_V1') {
+                        Write-Host 'LEGACY_PLANNER_EXECUTOR_SELECTION_IGNORED=True'
                     }
                 }
             } catch {
