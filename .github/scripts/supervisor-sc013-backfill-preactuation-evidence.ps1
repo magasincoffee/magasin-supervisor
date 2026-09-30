@@ -19,4 +19,4 @@ $statePath=Join-Path $root 'single-conversation-state.json'
 if(-not (Test-Path $runtime)){throw 'runtime missing'}
 if(-not (Test-Path $statePath)){throw 'state missing'}
 & node (Join-Path $env:GITHUB_WORKSPACE '.github\scripts\supervisor-sc013-backfill-preactuation-evidence.mjs') $runtime $statePath $ExpectedMessageId
-exit /b $LASTEXITCODE
+exit $LASTEXITCODE
