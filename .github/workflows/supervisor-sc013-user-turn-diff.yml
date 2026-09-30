@@ -1,4 +1,4 @@
-name: SC-013 User Turn Identity Diff
+name: SC-013 User Turn Diff
 on:
   push:
     branches: [sc011-production-runtime-diagnostic-20260929]
@@ -20,10 +20,10 @@ jobs:
     timeout-minutes: 4
     steps:
       - uses: actions/checkout@v4
-      - name: Compare live user turn identity
+      - name: Compare expected outbound with actual user turn
         shell: cmd
         run: |
           @echo off
-          echo TURNDIFF_SLOT=${{ matrix.slot }}
+          echo TURN_DIFF_SLOT=${{ matrix.slot }}
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc013-user-turn-diff.ps1" -TargetComputer "DESKTOP-4K7IM13" -NonTargetHoldSeconds 90
           exit /b %ERRORLEVEL%
