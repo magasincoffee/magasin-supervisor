@@ -256,7 +256,10 @@ while([DateTimeOffset]::UtcNow -lt $deadline){
     exit 0
   }
 
-  if(([DateTimeOffset]::UtcNow-$lastProgress).TotalSeconds -ge [Math]::Max(60,$StallSeconds)){
+  if(
+    -not $waitingForResponse -and
+    ([DateTimeOffset]::UtcNow-$lastProgress).TotalSeconds -ge [Math]::Max(60,$StallSeconds)
+  ){
     $failureStage=if($lastStage){$lastStage}else{
       switch($outbound){
         'PREPARED' {'PREPARED'}
