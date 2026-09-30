@@ -69,4 +69,4 @@ jobs:
           if(-not $qualified){throw 'SC-013 has no successful real-target production qualification.'}
           Write-Host 'SC013_QUALIFICATION_AUTHORITY=PASS'
 
-# rerun-candidate: H4_STOPPED_20260930_1503
+# rerun-candidate: abd27671a91ab674d97e387aa93248b4f4c767e0
