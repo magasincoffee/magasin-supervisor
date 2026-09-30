@@ -638,11 +638,41 @@ Completion evidence:
 
 ---
 
+### SC-013 — Legacy orchestration retirement and stuck composer recovery
+State: **IN PROGRESS**
+
+Owner-visible incident evidence:
+- on 2026-09-30, a real production run on `DESKTOP-4K7IM13` sent one message, then visibly populated the ChatGPT composer but did not submit it for more than 30 minutes;
+- live state inspection showed `conversation=ACTIVE`, `automation=BLOCKED`, `phase=SEND_WORK`, `outbound=ENQUEUED`, `delivered_at=null`, while the live ChatGPT page had an enabled composer containing 878 characters and an enabled `Gửi` button;
+- the submit diagnostic recorded `COMPOSER_NOT_READY` even though the live composer was editable and Send was enabled;
+- strict outbound digest and the contenteditable draft digest differed because ChatGPT ProseMirror can encode visible multiline paragraph boundaries structurally, so `textContent` can collapse rendered line boundaries and produce a false non-persistence result;
+- the same production merge automatically triggered obsolete Planner/Executor-era workflows on `main`, including PE-001, PE-007, and the legacy Brain submit diagnostic; these jobs consumed the real self-hosted target and interfered with forward production deployment/diagnostics.
+
+Canonical fix:
+1. forward production MUST use only `SINGLE_CONVERSATION_V1`; obsolete Planner/Executor/Brain/Bridge qualification or cutover workflows MUST NOT auto-run from `main` or consume the production target;
+2. legacy source may remain only as inert historical/rollback reference where still needed, but active GitHub Actions orchestration for the superseded architecture must be removed from `.github/workflows`;
+3. contenteditable composer verification MUST use rendered-equivalent text identity for current ChatGPT ProseMirror while retaining strict durable message digests for exact-once transaction authority;
+4. an `ENQUEUED` transaction with no delivered user turn may resume only when exact or rendered-equivalent evidence proves the live draft belongs to the same Robot message;
+5. successful safe reconciliation MUST clear transient `BLOCKED` state and return automation to `RUNNING`;
+6. final acceptance requires real target evidence on `DESKTOP-4K7IM13` that the blocked outbound is either safely delivered or safely reconstructed, a matching user turn appears, a response completes, and at least two subsequent task-control cycles continue in the same active conversation without duplicate sends or legacy workflow interference.
+
+DoD:
+- PE-001, PE-007, legacy Brain submit/repair, and superseded Bridge qualification/cutover workflows cannot auto-run on `main`;
+- current composer text is not falsely rejected solely because ProseMirror rewrites equivalent whitespace/paragraph structure;
+- exact-once protection still rejects a genuinely different draft;
+- the production target completes the previously stuck outbound without duplicate delivery;
+- the Robot continues for at least two additional bounded cycles in the same conversation with stable generation;
+- hosted tests/integrity/lifecycle/autostart gates pass;
+- production evidence is recorded before SC-013 is marked COMPLETE.
+
+---
+
 ## 11. Current implementation status
 
-As of 2026-09-29:
+As of 2026-09-30:
 
 - SC-001 through SC-012 are complete;
+- SC-013 is IN PROGRESS following a real production stuck-send incident and discovery of legacy Planner/Executor workflows still auto-running on main;
 - the canonical forward runtime is **SINGLE_CONVERSATION_V1**;
 - the Owner supplies the Source of Truth URL only; no historical ChatGPT conversation URL is required;
 - the forward Control Center and runtime use one disposable Robot-created ChatGPT conversation at a time;
@@ -652,7 +682,7 @@ As of 2026-09-29:
 - long-running 30-60 minute E2E/verification tasks are supported through durable RUNNING/CHECK polling, with a 90-minute direct response ceiling when no durable external job is available;
 - persistent Planner/Executor orchestration remains superseded and is legacy/rollback-only, not a forward production dependency.
 
-Under the acceptance rule below, **SINGLE_CONVERSATION_V1 is production-qualified for continuous unattended multi-cycle operation**.
+The forward architecture remains **SINGLE_CONVERSATION_V1**, but unattended production acceptance is temporarily **OPEN** until SC-013 closes the stuck-send and legacy-workflow interference regressions with new real-target evidence.
 
 ---
 
