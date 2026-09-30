@@ -80,6 +80,36 @@ try {
         return $null
     }
 
+    function New-UiProbeErrorResult([string]$Code) {
+        return [pscustomobject]@{
+            schema_version = 1
+            timestamp = [DateTimeOffset]::UtcNow.ToString('o')
+            expected_runtime_id_present = $false
+            page_count = 0
+            exact_runtime_match = $false
+            ui_state = 'UNAVAILABLE'
+            observation = 'UNAVAILABLE'
+            conversation_path = $false
+            composer_ready = $false
+            response_running = $false
+            assistant_busy = $false
+            login_required = $false
+            has_captcha = $false
+            has_network_error = $false
+            has_transient_error = $false
+            has_continue_control = $false
+            has_retry_control = $false
+            conversation_full = $false
+            conversation_missing = $false
+            conversation_access_denied = $false
+            draft_has_text = $false
+            draft_digest = $null
+            draft_rendered_digest = $null
+            draft_length = 0
+            probe_error = $Code
+        }
+    }
+
     function Invoke-ReadOnlyUiProbe([string]$CdpUrl) {
         if ([string]::IsNullOrWhiteSpace($CdpUrl)) { return $null }
         if (-not (Test-Path $probeCli -PathType Leaf)) { return $null }
@@ -97,29 +127,21 @@ try {
                 ('"' + $CdpUrl + '"')
             )
             $process = Start-Process node.exe -PassThru -WindowStyle Hidden -ArgumentList $arguments -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-            $finished = $process.WaitForExit(8000)
+            $finished = $process.WaitForExit(20000)
             if (-not $finished) {
                 Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-                return [pscustomobject]@{
-                    probe_error = 'UI_PROBE_TIMEOUT'
-                }
+                return (New-UiProbeErrorResult -Code 'UI_PROBE_TIMEOUT')
             }
             if ($process.ExitCode -ne 0 -or -not (Test-Path $stdout -PathType Leaf)) {
-                return [pscustomobject]@{
-                    probe_error = 'UI_PROBE_FAILED'
-                }
+                return (New-UiProbeErrorResult -Code 'UI_PROBE_FAILED')
             }
             $raw = Get-Content $stdout -Raw -Encoding UTF8
             if ([string]::IsNullOrWhiteSpace([string]$raw)) {
-                return [pscustomobject]@{
-                    probe_error = 'UI_PROBE_EMPTY'
-                }
+                return (New-UiProbeErrorResult -Code 'UI_PROBE_EMPTY')
             }
             return ([string]$raw | ConvertFrom-Json)
         } catch {
-            return [pscustomobject]@{
-                probe_error = 'UI_PROBE_EXCEPTION'
-            }
+            return (New-UiProbeErrorResult -Code 'UI_PROBE_EXCEPTION')
         } finally {
             Remove-Item $stdout,$stderr -Force -ErrorAction SilentlyContinue
         }
