@@ -18,6 +18,7 @@ $existing = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -Error
     Where-Object {
         $_.CommandLine -and
         $_.CommandLine -like '*local-watchdog.ps1*' -and
+        $_.CommandLine -notlike '*start-local-watchdog.ps1*' -and
         $_.CommandLine -like "*$root*"
     } |
     Select-Object -First 1
