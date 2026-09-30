@@ -1067,3 +1067,47 @@ test("SC-011 draft exposes rendered digest distinct from strict paragraph digest
     composerRenderedInstructionDigest(instruction)
   );
 });
+
+
+test("SC-013 rendered verification tolerates ProseMirror line break after SOT equals", async () => {
+  let clicks = 0;
+  const instruction = [
+    "MAGASIN_DISCOVER_TASK_V1",
+    "id=9dac7d14-b847-4f02-a4a6-2f96a410dba4",
+    "SOT=https://github.com/magasincoffee/example/blob/main/SOURCE_OF_TRUTH.md",
+    "Re-read SOT from the beginning."
+  ].join("\n");
+
+  const result = await sendComposerInstruction(
+    fakePage({
+      controls: [{ text: "", ariaLabel: "Gửi", testId: "send-button" }],
+      transformComposerText: (value) =>
+        value.replace("SOT=https://", "SOT=\nhttps://"),
+      transformInsertText: (value) =>
+        value.replace("SOT=https://", "SOT=\nhttps://"),
+      transformType: (value) =>
+        value.replace("SOT=https://", "SOT=\nhttps://"),
+      onClick: () => { clicks += 1; }
+    }),
+    instruction,
+    { dryRun: false }
+  );
+
+  assert.equal(result.executed, true);
+  assert.equal(clicks, 1);
+});
+
+test("SC-013 SOT URL normalization does not erase unrelated semantic whitespace", () => {
+  const canonical = "SOT=https://example.com/x";
+  const rendered = "SOT=\nhttps://example.com/x";
+  const unrelated = "TASK_ID= ABC";
+
+  assert.equal(
+    composerRenderedInstructionDigest(rendered),
+    composerRenderedInstructionDigest(canonical)
+  );
+  assert.notEqual(
+    composerRenderedInstructionDigest(unrelated),
+    composerRenderedInstructionDigest("TASK_ID=ABC")
+  );
+});

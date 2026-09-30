@@ -165,6 +165,11 @@ function normalizeRenderedInstructionText(value) {
   return normalizeComposerText(value)
     .replace(/\u00A0/g, " ")
     .replace(/\s+/gu, " ")
+    // Current ChatGPT ProseMirror can render an auto-linked SOT URL with a
+    // structural line break between the literal "SOT=" prefix and the URL.
+    // Treat only that known presentation artifact as equivalent; do not
+    // generally erase whitespace because other token boundaries are semantic.
+    .replace(/\bSOT=\s+(https?:\/\/)/giu, "SOT=$1")
     .trim();
 }
 
