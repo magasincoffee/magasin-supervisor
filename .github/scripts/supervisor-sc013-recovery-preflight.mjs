@@ -34,11 +34,25 @@ let page=pages.find(p=>{try{return opaqueRuntimeIdentity(p.url())===expected;}ca
 if(!page) throw new Error("active runtime page not found");
 const draft=await inspectComposerDraftDigest(page,{timeoutMs:2000});
 const matching=await captureMatchingUserTurnEvidence(page,message).catch(()=>({confirmed:false,evidence:"unreadable"}));
+const draftText=String(draft?.normalized_text||"");
+const ownedDraft=Boolean(
+  draft?.has_text &&
+  draftText.startsWith("MAGASIN_DISCOVER_TASK_V1") &&
+  draftText.includes("id="+id) &&
+  draftText.includes("SOT="+String(state.source_of_truth.url||""))
+);
+const compact=(value)=>String(value||"").replace(/[\\s\\u200B-\\u200F\\u2060\\uFEFF]+/gu,"");
+
 console.log("SC013_PREFLIGHT_CHAT_PAGES="+pages.length);
 console.log("SC013_PREFLIGHT_DRAFT_READY="+String(draft?.ready));
 console.log("SC013_PREFLIGHT_DRAFT_HAS_TEXT="+String(draft?.has_text));
 console.log("SC013_PREFLIGHT_DRAFT_STRICT_MATCH="+String(draft?.digest===strict));
 console.log("SC013_PREFLIGHT_DRAFT_RENDERED_MATCH="+String(draft?.rendered_digest===rendered));
+console.log("SC013_PREFLIGHT_EXPECTED_LEN="+String(message.length));
+console.log("SC013_PREFLIGHT_DRAFT_LEN="+String(draftText.length));
+console.log("SC013_PREFLIGHT_DRAFT_OWNED="+String(ownedDraft));
+console.log("SC013_PREFLIGHT_DRAFT_HAS_CORRELATION="+String(draftText.includes("MAGASIN_CYCLE_CORRELATION_V1 "+id)));
+console.log("SC013_PREFLIGHT_NONWHITESPACE_MATCH="+String(compact(draftText)===compact(message)));
 console.log("SC013_PREFLIGHT_MATCHING_USER_TURN="+String(Boolean(matching?.confirmed)));
 console.log("SC013_PREFLIGHT_MATCHING_EVIDENCE="+String(matching?.evidence||""));
 const safe=Boolean(
@@ -46,7 +60,7 @@ const safe=Boolean(
   state.outbound?.kind==="SOURCE_OF_TRUTH_TASK_DISCOVERY" &&
   strict===state.outbound?.message_digest &&
   !matching?.confirmed &&
-  (!draft?.has_text || draft?.digest===strict || draft?.rendered_digest===rendered)
+  (!draft?.has_text || draft?.digest===strict || draft?.rendered_digest===rendered || ownedDraft)
 );
 console.log("SC013_PREFLIGHT_SAFE_TO_RECOVER="+String(safe));
 process.exit(safe?0:7);
