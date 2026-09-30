@@ -5,7 +5,9 @@ import fs from "node:fs/promises";
 const retiredWorkflowPaths = [
   "../.github/workflows/live-brain-submit-diagnostic-20260926.yml",
   "../.github/workflows/repair-lane1-brain-target-20260926.yml",
+  "../.github/workflows/supervisor-mbv1-001-live-baseline.yml",
   "../.github/workflows/supervisor-mbv1-008-live-qualification.yml",
+  "../.github/workflows/supervisor-mbv1-008-production-cutover.yml",
   "../.github/workflows/supervisor-pe001-live-qualification.yml",
   "../.github/workflows/supervisor-pe007-live-qualification.yml",
   "../.github/workflows/supervisor-pe007-production-cutover.yml"
