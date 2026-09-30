@@ -93,7 +93,11 @@ if($enabledBefore -ne 0 -or $plannerExecutorActive -or $singleConversationActive
   $targetWrapper=Join-Path $runtime 'windows\run-supervisor.ps1'
   $sourceOpenChat=Join-Path $env:GITHUB_WORKSPACE 'windows\open-supervisor-chat.ps1'
   $targetOpenChat=Join-Path $runtime 'windows\open-supervisor-chat.ps1'
-  foreach($p in @($sourceSrc,$targetSrc,$sourcePackage,$targetPackage,$sourcePanel,$targetPanel,$sourceWrapper,$targetWrapper,$sourceOpenChat,$targetOpenChat)){
+  $sourceLocalWatchdog=Join-Path $env:GITHUB_WORKSPACE 'windows\local-watchdog.ps1'
+  $targetLocalWatchdog=Join-Path $runtime 'windows\local-watchdog.ps1'
+  $sourceLocalWatchdogStart=Join-Path $env:GITHUB_WORKSPACE 'windows\start-local-watchdog.ps1'
+  $targetLocalWatchdogStart=Join-Path $runtime 'windows\start-local-watchdog.ps1'
+  foreach($p in @($sourceSrc,$targetSrc,$sourcePackage,$targetPackage,$sourcePanel,$targetPanel,$sourceWrapper,$targetWrapper,$sourceOpenChat,$targetOpenChat,$sourceLocalWatchdog,$sourceLocalWatchdogStart)){
     if(-not (Test-Path $p)){throw "Active-lane hotpatch missing required path: $p"}
   }
 
@@ -105,11 +109,29 @@ if($enabledBefore -ne 0 -or $plannerExecutorActive -or $singleConversationActive
   }
 
   Write-Host 'ACTIVE_LANE_HOTPATCH_BEGIN=True'
+
+  Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.CommandLine -and
+      $_.CommandLine -like '*local-watchdog.ps1*' -and
+      $_.CommandLine -like "*$canonical*"
+    } |
+    ForEach-Object {
+      Stop-Process -Id ([int]$_.ProcessId) -Force -ErrorAction SilentlyContinue
+      Write-Host "HOTPATCH_OLD_LOCAL_WATCHDOG_STOPPED=$($_.ProcessId)"
+    }
+
   Copy-Item (Join-Path $sourceSrc '*') $targetSrc -Recurse -Force
   Copy-Item $sourcePanel $targetPanel -Force
   Copy-Item $sourceWrapper $targetWrapper -Force
   Copy-Item $sourceOpenChat $targetOpenChat -Force
+  Copy-Item $sourceLocalWatchdog $targetLocalWatchdog -Force
+  Copy-Item $sourceLocalWatchdogStart $targetLocalWatchdogStart -Force
   Write-Host 'HOTPATCH_WINDOWS_LAUNCHERS_REFRESHED=True'
+
+  & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $targetLocalWatchdogStart -WaitForHeartbeat
+  if($LASTEXITCODE -ne 0){throw 'Hotpatch local watchdog failed to publish a fresh heartbeat.'}
+  Write-Host 'HOTPATCH_LOCAL_WATCHDOG_RUNNING=True'
 
   # Windows PowerShell 5.1 decodes UTF-8 scripts without BOM as the active
   # ANSI code page. Re-encode the installed Control Panel exactly like the
