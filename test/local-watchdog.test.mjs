@@ -81,3 +81,14 @@ test("SC-013 watchdog signature construction is Windows PowerShell 5.1 parse-saf
   assert.match(source, /\$signatureError = if \(\$stateReadable\)/);
   assert.doesNotMatch(source, /\[string\]::Join\('~', @\([\s\S]*?,\s*if \(\$stateReadable\)/);
 });
+
+
+test("SC-013 local UI probe cannot block the 24/7 watchdog heartbeat", async () => {
+  const source = await read("windows/local-watchdog.ps1");
+  assert.match(source, /WaitForExit\(8000\)/);
+  assert.match(source, /UI_PROBE_TIMEOUT/);
+  assert.match(source, /RedirectStandardOutput/);
+  assert.match(source, /Stop-Process -Id \$process\.Id -Force/);
+  assert.match(source, /\$lastUiProbeAt = \[DateTimeOffset\]::UtcNow/);
+  assert.doesNotMatch(source, /\$raw = & node\.exe \$probeCli/);
+});

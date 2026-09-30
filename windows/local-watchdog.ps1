@@ -83,14 +83,45 @@ try {
     function Invoke-ReadOnlyUiProbe([string]$CdpUrl) {
         if ([string]::IsNullOrWhiteSpace($CdpUrl)) { return $null }
         if (-not (Test-Path $probeCli -PathType Leaf)) { return $null }
+
+        $stdout = Join-Path $root "local-watchdog-probe-$PID.out"
+        $stderr = Join-Path $root "local-watchdog-probe-$PID.err"
+        Remove-Item $stdout,$stderr -Force -ErrorAction SilentlyContinue
+
         try {
-            $raw = & node.exe $probeCli --state $statePath --cdp-url $CdpUrl 2>$null
-            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$raw)) {
-                return $null
+            $arguments = @(
+                ('"' + $probeCli + '"'),
+                '--state',
+                ('"' + $statePath + '"'),
+                '--cdp-url',
+                ('"' + $CdpUrl + '"')
+            )
+            $process = Start-Process node.exe -PassThru -WindowStyle Hidden -ArgumentList $arguments -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            $finished = $process.WaitForExit(8000)
+            if (-not $finished) {
+                Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+                return [pscustomobject]@{
+                    probe_error = 'UI_PROBE_TIMEOUT'
+                }
+            }
+            if ($process.ExitCode -ne 0 -or -not (Test-Path $stdout -PathType Leaf)) {
+                return [pscustomobject]@{
+                    probe_error = 'UI_PROBE_FAILED'
+                }
+            }
+            $raw = Get-Content $stdout -Raw -Encoding UTF8
+            if ([string]::IsNullOrWhiteSpace([string]$raw)) {
+                return [pscustomobject]@{
+                    probe_error = 'UI_PROBE_EMPTY'
+                }
             }
             return ([string]$raw | ConvertFrom-Json)
         } catch {
-            return $null
+            return [pscustomobject]@{
+                probe_error = 'UI_PROBE_EXCEPTION'
+            }
+        } finally {
+            Remove-Item $stdout,$stderr -Force -ErrorAction SilentlyContinue
         }
     }
 
@@ -157,7 +188,9 @@ try {
     $lastSignature = ''
     $lastFaultSignature = ''
     $lastFaultCaptureAt = [DateTimeOffset]::MinValue
-    $lastUiProbeAt = [DateTimeOffset]::MinValue
+    # Publish local runtime heartbeat immediately; the first heavier CDP/UI
+    # probe runs after one UiProbeSeconds interval and is separately bounded.
+    $lastUiProbeAt = [DateTimeOffset]::UtcNow
     $lastUiProbe = $null
     $runtimeDownSince = $null
     $cdpDownSince = $null
