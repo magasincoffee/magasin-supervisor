@@ -1,4 +1,5 @@
 name: SC-013 Local Watchdog Live Diagnostic
+# probe: 1790790787795
 
 on:
   push:
