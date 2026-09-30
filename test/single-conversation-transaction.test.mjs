@@ -590,3 +590,115 @@ test("SC-013 persists the first live composer failure stage without changing sen
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+
+test("SC-013 durable pre-actuation composer rejection permits one safe retry after restart", async () => {
+  const { root, statePath } = await makeState();
+  const message = "MAGASIN_DISCOVER_TASK_V1 id=pre-actuation-retry";
+  let sent = false;
+  try {
+    await prepareExactOnceOutbound(statePath, {
+      messageId: "pre-actuation-retry",
+      message,
+      kind: "SOURCE_OF_TRUTH_TASK_DISCOVERY",
+      baselineUserTurnId: null
+    });
+
+    await assert.rejects(
+      reconcileExactOnceOutbound({
+        statePath,
+        page: { async waitForTimeout() {} },
+        messageId: "pre-actuation-retry",
+        message,
+        reconciliationProbes: 1,
+        inspectDraft: async () => ({ ready: true, has_text: false, digest: null }),
+        captureTurn: async () => ({ turn_id: "older-user", text: "older turn" }),
+        sendInstruction: async () => ({
+          executed: false,
+          rejection_class: "COMPOSER_NOT_READY",
+          failure_stage: "SET_COMPOSER_TEXT",
+          reason: "composer never became sendable"
+        })
+      }),
+      (error) => error?.code === "COMPOSER_NOT_READY"
+    );
+
+    let durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "ENQUEUED");
+    assert.equal(durable.outbound.last_pre_actuation_error_code, "COMPOSER_NOT_READY");
+    assert.equal(durable.outbound.last_pre_actuation_error_stage, "SET_COMPOSER_TEXT");
+
+    // A read-only recovery probe can itself fail ambiguous before the new fix;
+    // preserving the durable pre-actuation evidence must still make one retry safe.
+    durable.outbound.last_error_code = "AMBIGUOUS_ENQUEUED_OUTCOME";
+    durable.outbound.last_error_stage = null;
+    const { writeSingleConversationState } = await import("../src/runtime/single-conversation-state.mjs");
+    await writeSingleConversationState(statePath, durable);
+
+    const result = await reconcileExactOnceOutbound({
+      statePath,
+      page: { async waitForTimeout() {} },
+      messageId: "pre-actuation-retry",
+      message,
+      reconciliationProbes: 1,
+      inspectDraft: async () => ({ ready: true, has_text: false, digest: null }),
+      captureTurn: async () => sent
+        ? { turn_id: "u-new", text: message }
+        : { turn_id: "older-user", text: "older turn" },
+      sendInstruction: async () => {
+        sent = true;
+        return { executed: true };
+      }
+    });
+
+    assert.equal(result.action, "SAFE_RETRY_SENT");
+    assert.equal(result.retry_count, 1);
+    durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "DELIVERED");
+    assert.equal(durable.outbound.last_pre_actuation_error_code, null);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("SC-013 post-send ambiguity still blocks even when older pre-actuation evidence exists", async () => {
+  const { root, statePath } = await makeState();
+  const message = "MAGASIN_DISCOVER_TASK_V1 id=post-send-still-blocked";
+  try {
+    await prepareExactOnceOutbound(statePath, {
+      messageId: "post-send-still-blocked",
+      message,
+      kind: "SOURCE_OF_TRUTH_TASK_DISCOVERY",
+      baselineUserTurnId: null
+    });
+    const { writeSingleConversationState } = await import("../src/runtime/single-conversation-state.mjs");
+    let durable = await readSingleConversationState(statePath);
+    durable.outbound.state = "ENQUEUED";
+    durable.outbound.cmd_id = "ui:post-send-still-blocked";
+    durable.outbound.last_error_code = "AMBIGUOUS_POST_SEND_DELIVERY";
+    durable.outbound.last_pre_actuation_error_code = "COMPOSER_NOT_READY";
+    durable.outbound.last_pre_actuation_error_stage = "SET_COMPOSER_TEXT";
+    await writeSingleConversationState(statePath, durable);
+
+    let sends = 0;
+    await assert.rejects(
+      reconcileExactOnceOutbound({
+        statePath,
+        page: { async waitForTimeout() {} },
+        messageId: "post-send-still-blocked",
+        message,
+        reconciliationProbes: 1,
+        inspectDraft: async () => ({ ready: true, has_text: false, digest: null }),
+        captureTurn: async () => ({ turn_id: "older-user", text: "older turn" }),
+        sendInstruction: async () => {
+          sends += 1;
+          return { executed: true };
+        }
+      }),
+      (error) => error?.code === "AMBIGUOUS_POST_SEND_DELIVERY"
+    );
+    assert.equal(sends, 0);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
