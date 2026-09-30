@@ -186,9 +186,12 @@ async function readComposerText(composer) {
         ) {
           return el.value;
         }
-        // textContent is the stable logical ProseMirror value on the current
-        // ChatGPT composer; innerText can inject layout-derived whitespace.
-        return el.textContent || el.innerText || "";
+        // For the current ChatGPT ProseMirror composer, block elements encode
+        // line boundaries structurally. textContent can concatenate adjacent
+        // paragraphs and make a visually correct multiline instruction look
+        // different. Prefer innerText for rendered-equivalent verification;
+        // normalizeRenderedInstructionText() removes layout-only whitespace.
+        return el.innerText || el.textContent || "";
       });
     } catch {}
   }
@@ -210,8 +213,19 @@ function normalizedComposerDigest(value) {
     .digest("hex");
 }
 
+function renderedComposerDigest(value) {
+  return crypto
+    .createHash("sha256")
+    .update(normalizeRenderedInstructionText(value), "utf8")
+    .digest("hex");
+}
+
 export function composerInstructionDigest(value) {
   return normalizedComposerDigest(value);
+}
+
+export function composerRenderedInstructionDigest(value) {
+  return renderedComposerDigest(value);
 }
 
 export async function inspectComposerDraftDigest(
@@ -251,6 +265,7 @@ export async function inspectComposerDraftDigest(
     ready: true,
     has_text: true,
     digest: normalizedComposerDigest(normalized),
+    rendered_digest: renderedComposerDigest(current),
     normalized_text: normalized
   };
 }
