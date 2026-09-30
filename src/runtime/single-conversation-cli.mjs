@@ -174,25 +174,38 @@ export function canResumePreActuationDiscovery(state) {
   );
 }
 
-export function canRebindEnqueuedStatusCheck(state) {
+export function canRebindEnqueuedTaskMessage(state) {
   const outbound = state?.outbound || {};
+  const kind = String(outbound.kind || "");
   return Boolean(
     String(state?.conversation?.status || "").toUpperCase() === "ACTIVE" &&
     String(outbound.state || "").toUpperCase() === "ENQUEUED" &&
-    String(outbound.kind || "") === "TASK_STATUS_CHECK" &&
+    ["TASK_STATUS_CHECK", "TASK_EXECUTION"].includes(kind) &&
     String(outbound.message_id || "").trim() &&
     String(outbound.message_digest || "").trim()
   );
 }
 
-export function reconstructPendingStatusCheckMessage(state, evidenceText = null) {
-  if (!canRebindEnqueuedStatusCheck(state)) return null;
+export function canRebindEnqueuedStatusCheck(state) {
+  return Boolean(
+    canRebindEnqueuedTaskMessage(state) &&
+    String(state?.outbound?.kind || "") === "TASK_STATUS_CHECK"
+  );
+}
+
+export function reconstructPendingTaskMessage(state, evidenceText = null) {
+  if (!canRebindEnqueuedTaskMessage(state)) return null;
   const messageId = String(state.outbound.message_id || "").trim();
+  const kind = String(state.outbound.kind || "");
+  const checkOnly = kind === "TASK_STATUS_CHECK";
+  const protocolHeader = checkOnly
+    ? "MAGASIN_CHECK_TASK_V1"
+    : "MAGASIN_EXECUTE_TASK_V1";
   let taskId = String(state.outbound.task_id || "").trim();
 
   if (!taskId) {
     const text = String(evidenceText || "").replace(/\r\n/g, "\n");
-    if (!text.includes("MAGASIN_CHECK_TASK_V1")) return null;
+    if (!text.includes(protocolHeader)) return null;
     const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
     if (!lines.includes(`id=${messageId}`)) return null;
     const taskLine = lines.find((line) => line.startsWith("TASK_ID="));
@@ -206,7 +219,7 @@ export function reconstructPendingStatusCheckMessage(state, evidenceText = null)
       sourceOfTruthUrl: state.source_of_truth?.url,
       taskId,
       messageId,
-      checkOnly: true
+      checkOnly
     });
   } catch {
     return null;
@@ -218,17 +231,22 @@ export function reconstructPendingStatusCheckMessage(state, evidenceText = null)
     : null;
 }
 
+export function reconstructPendingStatusCheckMessage(state, evidenceText = null) {
+  if (!canRebindEnqueuedStatusCheck(state)) return null;
+  return reconstructPendingTaskMessage(state, evidenceText);
+}
+
 function safeRebindOutboundState(state) {
   return (
     ["RESPONSE_COMPLETE", "VERIFIED"].includes(
       String(state?.outbound?.state || "").toUpperCase()
     ) ||
     canResumePreActuationDiscovery(state) ||
-    canRebindEnqueuedStatusCheck(state)
+    canRebindEnqueuedTaskMessage(state)
   );
 }
 
-async function resumeEnqueuedStatusCheckAfterRebind({
+async function resumeEnqueuedTaskMessageAfterRebind({
   adapter,
   page,
   statePath,
@@ -236,33 +254,35 @@ async function resumeEnqueuedStatusCheckAfterRebind({
   pollMs
 } = {}) {
   const state = await readSingleConversationState(statePath);
-  if (!canRebindEnqueuedStatusCheck(state)) return null;
+  if (!canRebindEnqueuedTaskMessage(state)) return null;
 
-  let message = reconstructPendingStatusCheckMessage(state);
+  const kind = String(state.outbound.kind || "");
+  const label = kind === "TASK_STATUS_CHECK" ? "STATUS_CHECK" : "TASK_EXECUTION";
+  let message = reconstructPendingTaskMessage(state);
   let latestUser = null;
 
   if (!message) {
     latestUser = await boundedRuntimeStep(
-      "RESTART_STATUS_CHECK_CAPTURE_USER",
+      `RESTART_${label}_CAPTURE_USER`,
       () => captureLatestRoleTurn(page, "user"),
       { timeoutMs: 10_000 }
     ).catch((error) => {
       if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
       return null;
     });
-    message = reconstructPendingStatusCheckMessage(state, latestUser?.text);
+    message = reconstructPendingTaskMessage(state, latestUser?.text);
   }
 
   if (!message) {
     const draft = await boundedRuntimeStep(
-      "RESTART_STATUS_CHECK_CAPTURE_DRAFT",
+      `RESTART_${label}_CAPTURE_DRAFT`,
       () => inspectComposerDraftDigest(page, { timeoutMs: 1_500 }),
       { timeoutMs: 5_000 }
     ).catch((error) => {
       if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
       return null;
     });
-    message = reconstructPendingStatusCheckMessage(
+    message = reconstructPendingTaskMessage(
       state,
       draft?.normalized_text
     );
@@ -270,15 +290,15 @@ async function resumeEnqueuedStatusCheckAfterRebind({
 
   if (!message) {
     throw Object.assign(
-      new Error("pending TASK_STATUS_CHECK has no exact restart evidence"),
-      { code: "RUNTIME_RESTART_ENQUEUED_STATUS_CHECK_UNRESOLVED" }
+      new Error(`pending ${kind} has no exact restart evidence`),
+      { code: "RUNTIME_RESTART_ENQUEUED_TASK_UNRESOLVED" }
     );
   }
 
   if (state.outbound.baseline_user_turn_id && !latestUser) {
     for (let attempt = 0; attempt < 20; attempt += 1) {
       latestUser = await boundedRuntimeStep(
-        "RESTART_STATUS_CHECK_HYDRATE_USER",
+        `RESTART_${label}_HYDRATE_USER`,
         () => captureLatestRoleTurn(page, "user"),
         { timeoutMs: 2_000 }
       ).catch((error) => {
@@ -302,8 +322,8 @@ async function resumeEnqueuedStatusCheckAfterRebind({
   });
   if (!["SEND", "SAFE_RETRY_SENT", "NO_SEND"].includes(delivery.action)) {
     throw Object.assign(
-      new Error("restart status-check reconciliation did not reach delivery evidence"),
-      { code: "RUNTIME_RESTART_STATUS_CHECK_RECONCILE_FAILED" }
+      new Error(`restart ${kind} reconciliation did not reach delivery evidence`),
+      { code: "RUNTIME_RESTART_ENQUEUED_TASK_RECONCILE_FAILED" }
     );
   }
 
@@ -622,8 +642,8 @@ export async function runSingleConversationRuntime({
     });
     if (rebound?.page) {
       page = rebound.page;
-      if (canRebindEnqueuedStatusCheck(current)) {
-        bootstrapResponse = await resumeEnqueuedStatusCheckAfterRebind({
+      if (canRebindEnqueuedTaskMessage(current)) {
+        bootstrapResponse = await resumeEnqueuedTaskMessageAfterRebind({
           adapter,
           page,
           statePath,
