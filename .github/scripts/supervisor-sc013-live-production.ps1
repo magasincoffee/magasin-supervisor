@@ -57,12 +57,14 @@ $baselineMessageId=if($baseline){[string]$baseline.outbound.message_id}else{''}
 $baselineOutbound=if($baseline){[string]$baseline.outbound.state}else{'ABSENT'}
 $baselineAutomation=if($baseline){[string]$baseline.automation.status}else{'ABSENT'}
 $baselinePhase=if($baseline){[string]$baseline.automation.phase}else{'ABSENT'}
+$baselinePreActuationCode=if($baseline -and $baseline.outbound.PSObject.Properties.Name -contains 'last_pre_actuation_error_code'){[string]$baseline.outbound.last_pre_actuation_error_code}else{''}
 
 Write-Host "SC013_LIVE_BASELINE_GENERATION=$baselineGeneration"
 Write-Host "SC013_LIVE_BASELINE_MESSAGE_ID=$baselineMessageId"
 Write-Host "SC013_LIVE_BASELINE_OUTBOUND=$baselineOutbound"
 Write-Host "SC013_LIVE_BASELINE_AUTOMATION=$baselineAutomation"
 Write-Host "SC013_LIVE_BASELINE_PHASE=$baselinePhase"
+Write-Host "SC013_LIVE_BASELINE_PRE_ACTUATION_CODE=$baselinePreActuationCode"
 
 $baselineNeedsRecovery=[bool](
   $baseline -and
@@ -79,7 +81,8 @@ Write-Host 'SC013_LIVE_OWNER_START_INVOKED=True'
 $deadline=[DateTimeOffset]::UtcNow.AddSeconds([Math]::Max(120,$MaxObserveSeconds))
 $lastProgress=[DateTimeOffset]::UtcNow
 $lastSignature=''
-$stableGeneration=$null
+$stableGeneration=if($baselineGeneration -ge 0){$baselineGeneration}else{$null}
+$replacementGenerationObserved=$false
 $recoveredBaseline=$false
 $verifiedAfterRecovery=New-Object 'System.Collections.Generic.HashSet[string]'
 $allVerified=New-Object 'System.Collections.Generic.HashSet[string]'
@@ -108,9 +111,23 @@ while([DateTimeOffset]::UtcNow -lt $deadline){
 
   if($null -eq $stableGeneration){$stableGeneration=$generation}
   if($generation -ne $stableGeneration){
-    Write-Host "SC013_LIVE_FIRST_FAILURE_CODE=GENERATION_CHANGED"
-    Write-Host "SC013_LIVE_FIRST_FAILURE_STAGE=CONVERSATION_CONTINUITY"
-    throw "SC013 conversation generation changed from $stableGeneration to $generation."
+    $allowedReplacement=[bool](
+      $baselineNeedsRecovery -and
+      -not $replacementGenerationObserved -and
+      $baselinePreActuationCode -eq 'COMPOSER_NOT_READY' -and
+      $generation -eq ($baselineGeneration + 1)
+    )
+    if($allowedReplacement){
+      $replacementGenerationObserved=$true
+      $stableGeneration=$generation
+      Write-Host "SC013_LIVE_REPLACEMENT_GENERATION=$generation"
+      Write-Host 'SC013_LIVE_GENERATION_ADVANCED_EXACTLY_ONCE=True'
+      $lastProgress=[DateTimeOffset]::UtcNow
+    }else{
+      Write-Host "SC013_LIVE_FIRST_FAILURE_CODE=GENERATION_CHANGED"
+      Write-Host "SC013_LIVE_FIRST_FAILURE_STAGE=CONVERSATION_CONTINUITY"
+      throw "SC013 unexpected conversation generation change to $generation."
+    }
   }
   if($retry -gt 1){
     Write-Host "SC013_LIVE_FIRST_FAILURE_CODE=RETRY_BUDGET_EXCEEDED"
