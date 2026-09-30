@@ -16,8 +16,7 @@ import {
   waitForSingleConversationResponse
 } from "./single-conversation-loop.mjs";
 import {
-  recoverDisposableConversationIfNeeded,
-  replaceDisposableConversation
+  recoverDisposableConversationIfNeeded
 } from "./single-conversation-rollover.mjs";
 import {
   ensureSingleConversationState,
@@ -204,7 +203,7 @@ async function recoverConversationFromRecentSidebar({
   adapter,
   expected,
   discoveryPage,
-  retries = 6,
+  retries = 60,
   pollMs = 500
 } = {}) {
   if (
@@ -244,7 +243,9 @@ async function recoverConversationFromRecentSidebar({
 
 export async function resumeExistingConversationPage({
   adapter,
-  state
+  state,
+  recoveryRetries = 60,
+  recoveryPollMs = 500
 } = {}) {
   if (!adapter || !state) return null;
   if (String(state?.conversation?.status || "").toUpperCase() !== "ACTIVE") {
@@ -278,7 +279,9 @@ export async function resumeExistingConversationPage({
     page = await recoverConversationFromRecentSidebar({
       adapter,
       expected,
-      discoveryPage
+      discoveryPage,
+      retries: recoveryRetries,
+      pollMs: recoveryPollMs
     });
     if (!page) return null;
     recoveredFrom = "RECENT_SIDEBAR";
@@ -454,19 +457,16 @@ export async function runSingleConversationRuntime({
     if (rebound?.page) {
       page = rebound.page;
     } else {
-      const replacement = await replaceDisposableConversation({
-        adapter,
-        page,
-        statePath,
-        reason: "RUNTIME_RESTART_IDENTITY_NOT_VERIFIED",
-        sourceOfTruthUrl,
-        projectId: "LIVE",
-        qualificationOnly,
-        timeoutMs: responseTimeoutMs,
-        pollMs: Math.min(750, Math.max(100, pollMs))
-      });
-      page = replacement.page;
-      bootstrapResponse = replacement.response;
+      // Restart continuity must fail closed. Missing runtime identity evidence
+      // is not proof that the active conversation is unusable, so never retire,
+      // close, or replace it merely because Chrome/sidebar recovery has not
+      // re-established the exact opaque identity yet. The wrapper may retry
+      // this read-only rebind path; replacement remains reserved for positive
+      // unusable/full/error evidence detected by the normal recovery probe.
+      throw Object.assign(
+        new Error("active conversation identity could not be verified after runtime restart"),
+        { code: "RUNTIME_RESTART_IDENTITY_NOT_VERIFIED" }
+      );
     }
   }
 
