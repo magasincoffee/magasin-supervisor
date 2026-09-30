@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 
-import { composerInstructionDigest } from "../ui/actions.mjs";
+import { composerInstructionDigest, inspectComposerDraftDigest } from "../ui/actions.mjs";
 import { ChatGptUiAdapter } from "../ui/playwright-adapter.mjs";
 import { captureLatestRoleTurn } from "../ui/latest-turn.mjs";
 import {
@@ -174,13 +174,126 @@ export function canResumePreActuationDiscovery(state) {
   );
 }
 
+export function canRebindEnqueuedStatusCheck(state) {
+  const outbound = state?.outbound || {};
+  return Boolean(
+    String(state?.conversation?.status || "").toUpperCase() === "ACTIVE" &&
+    String(outbound.state || "").toUpperCase() === "ENQUEUED" &&
+    String(outbound.kind || "") === "TASK_STATUS_CHECK" &&
+    String(outbound.message_id || "").trim() &&
+    String(outbound.message_digest || "").trim()
+  );
+}
+
+export function reconstructPendingStatusCheckMessage(state, evidenceText) {
+  if (!canRebindEnqueuedStatusCheck(state)) return null;
+  const text = String(evidenceText || "").replace(/\r\n/g, "\n");
+  const messageId = String(state.outbound.message_id || "").trim();
+  if (!text.includes("MAGASIN_CHECK_TASK_V1")) return null;
+
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  if (!lines.includes(`id=${messageId}`)) return null;
+  const taskLine = lines.find((line) => line.startsWith("TASK_ID="));
+  const taskId = String(taskLine || "").slice("TASK_ID=".length).trim();
+  if (!taskId) return null;
+
+  let candidate = null;
+  try {
+    candidate = buildSingleConversationTaskInstruction({
+      sourceOfTruthUrl: state.source_of_truth?.url,
+      taskId,
+      messageId,
+      checkOnly: true
+    });
+  } catch {
+    return null;
+  }
+
+  return composerInstructionDigest(candidate) ===
+    String(state.outbound.message_digest || "")
+    ? candidate
+    : null;
+}
+
 function safeRebindOutboundState(state) {
   return (
     ["RESPONSE_COMPLETE", "VERIFIED"].includes(
       String(state?.outbound?.state || "").toUpperCase()
     ) ||
-    canResumePreActuationDiscovery(state)
+    canResumePreActuationDiscovery(state) ||
+    canRebindEnqueuedStatusCheck(state)
   );
+}
+
+async function resumeEnqueuedStatusCheckAfterRebind({
+  adapter,
+  page,
+  statePath,
+  responseTimeoutMs,
+  pollMs
+} = {}) {
+  const state = await readSingleConversationState(statePath);
+  if (!canRebindEnqueuedStatusCheck(state)) return null;
+
+  const latestUser = await boundedRuntimeStep(
+    "RESTART_STATUS_CHECK_CAPTURE_USER",
+    () => captureLatestRoleTurn(page, "user"),
+    { timeoutMs: 10_000 }
+  ).catch((error) => {
+    if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+    return null;
+  });
+
+  let message = reconstructPendingStatusCheckMessage(state, latestUser?.text);
+  if (!message) {
+    const draft = await boundedRuntimeStep(
+      "RESTART_STATUS_CHECK_CAPTURE_DRAFT",
+      () => inspectComposerDraftDigest(page, { timeoutMs: 1_500 }),
+      { timeoutMs: 5_000 }
+    ).catch((error) => {
+      if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+      return null;
+    });
+    message = reconstructPendingStatusCheckMessage(
+      state,
+      draft?.normalized_text
+    );
+  }
+
+  if (!message) {
+    throw Object.assign(
+      new Error("pending TASK_STATUS_CHECK has no exact restart evidence"),
+      { code: "RUNTIME_RESTART_ENQUEUED_STATUS_CHECK_UNRESOLVED" }
+    );
+  }
+
+  const messageId = String(state.outbound.message_id);
+  const delivery = await reconcileExactOnceOutbound({
+    statePath,
+    page,
+    messageId,
+    message,
+    maxSafeRetries: 1,
+    reconciliationProbes: 4,
+    reconciliationPollMs: Math.min(500, Math.max(100, pollMs))
+  });
+  if (!["SEND", "SAFE_RETRY_SENT", "NO_SEND"].includes(delivery.action)) {
+    throw Object.assign(
+      new Error("restart status-check reconciliation did not reach delivery evidence"),
+      { code: "RUNTIME_RESTART_STATUS_CHECK_RECONCILE_FAILED" }
+    );
+  }
+
+  return settleTransactionResponse({
+    adapter,
+    page,
+    statePath,
+    messageId,
+    message,
+    baselineAssistantTurnId: null,
+    timeoutMs: responseTimeoutMs,
+    pollMs: Math.min(750, Math.max(100, pollMs))
+  });
 }
 
 async function probeReusableConversationPage(adapter, page) {
@@ -484,6 +597,16 @@ export async function runSingleConversationRuntime({
     });
     if (rebound?.page) {
       page = rebound.page;
+      if (canRebindEnqueuedStatusCheck(current)) {
+        bootstrapResponse = await resumeEnqueuedStatusCheckAfterRebind({
+          adapter,
+          page,
+          statePath,
+          responseTimeoutMs,
+          pollMs
+        });
+        current = await readSingleConversationState(statePath);
+      }
     } else if (pendingPreActuation) {
       // SC-013: the old chat identity is no longer verifiable, but durable
       // evidence proves this one task-discovery send failed before submit.
