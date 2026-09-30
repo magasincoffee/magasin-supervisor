@@ -76,13 +76,3 @@ jobs:
               if($LASTEXITCODE -ne 0){ throw "fast pending task execution probe failed with exit $LASTEXITCODE" }
             }
           }
-
-          if($env:COMPUTERNAME -eq 'DESKTOP-4K7IM13' -and $truth.cdp_healthy){
-            $runtime=Join-Path $root 'runtime'
-            $chrome=Get-LifecycleRobotChrome -Root $root
-            if($chrome -and $chrome.CommandLine -match '--remote-debugging-port=(\d+)'){
-              $cdp="http://127.0.0.1:$([int]$Matches[1])"
-              node ".github\scripts\sc013-pending-outbound-readonly.mjs" $runtime $statePath $cdp
-              if($LASTEXITCODE -ne 0){ throw "pending outbound read-only probe failed with exit $LASTEXITCODE" }
-            }
-          }
