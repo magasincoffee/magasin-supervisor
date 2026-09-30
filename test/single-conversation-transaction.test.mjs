@@ -549,3 +549,44 @@ test("SC-011 rendered-equivalent ENQUEUED draft permits one safe retry and clear
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+
+test("SC-013 persists the first live composer failure stage without changing send behavior", async () => {
+  const { root, statePath } = await makeState();
+  const message = "MAGASIN_EXECUTE_TASK_V1 id=stage-probe TASK_ID=SC-013";
+  try {
+    await prepareExactOnceOutbound(statePath, {
+      messageId: "stage-probe",
+      message,
+      kind: "TASK_EXECUTION",
+      baselineUserTurnId: "u0"
+    });
+
+    await assert.rejects(
+      reconcileExactOnceOutbound({
+        statePath,
+        page: { async waitForTimeout() {} },
+        messageId: "stage-probe",
+        message,
+        reconciliationProbes: 1,
+        inspectDraft: async () => ({ ready: true, has_text: false, digest: null }),
+        captureTurn: async () => ({ turn_id: "u0", text: "old" }),
+        sendInstruction: async () => ({
+          executed: false,
+          rejection_class: "COMPOSER_NOT_READY",
+          failure_stage: "SET_COMPOSER_TEXT",
+          reason: "production-like first-stage probe"
+        })
+      }),
+      (error) => error?.code === "COMPOSER_NOT_READY"
+    );
+
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "ENQUEUED");
+    assert.equal(durable.outbound.last_error_code, "COMPOSER_NOT_READY");
+    assert.equal(durable.outbound.last_error_stage, "SET_COMPOSER_TEXT");
+    assert.equal(durable.automation.status, "BLOCKED");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
