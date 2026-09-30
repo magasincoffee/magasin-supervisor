@@ -43,6 +43,7 @@ test("SC-006 persists PREPARED then ENQUEUED receipt before UI send", async () =
       messageId: "m1",
       message,
       kind: "NEXT",
+      taskId: "OPS-022",
       baselineUserTurnId: "u0"
     });
 
@@ -64,6 +65,7 @@ test("SC-006 persists PREPARED then ENQUEUED receipt before UI send", async () =
         durableAtSend = await readSingleConversationState(statePath);
         assert.equal(durableAtSend.outbound.state, "ENQUEUED");
         assert.equal(durableAtSend.outbound.cmd_id, "ui:m1");
+        assert.equal(durableAtSend.outbound.task_id, "OPS-022");
         return { executed: true };
       }
     });
@@ -73,6 +75,7 @@ test("SC-006 persists PREPARED then ENQUEUED receipt before UI send", async () =
     assert.equal(durable.outbound.state, "DELIVERED");
     assert.equal(durable.outbound.cmd_id, "ui:m1");
     assert.equal(durable.outbound.retry_count, 0);
+    assert.equal(durable.outbound.task_id, "OPS-022");
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
