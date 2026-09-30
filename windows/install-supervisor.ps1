@@ -28,6 +28,20 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Silen
     }
 Start-Sleep -Milliseconds 500
 
+# The local watchdog is independent from the Supervisor wrapper, but it reads
+# runtime scripts. Stop only that read-only observer before replacing runtime,
+# then restart it from the newly installed version after the upgrade.
+Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object {
+        $_.CommandLine -and
+        $_.CommandLine -like '*local-watchdog.ps1*' -and
+        $_.CommandLine -like "*$root*"
+    } |
+    ForEach-Object {
+        Write-Host "Stopping existing local watchdog PID $($_.ProcessId) before runtime upgrade."
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+
 # Stop every Supervisor wrapper that points at the installed local runtime.
 # A stale/missing pid file must not leave an orphaned loop alive during upgrade.
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
@@ -168,6 +182,16 @@ $shortcut.WorkingDirectory = $root
 $shortcut.Description = 'MAGASIN Supervisor Control Center V2'
 $shortcut.IconLocation = "$env:SystemRoot\System32\imageres.dll,72"
 $shortcut.Save()
+
+$startLocalWatchdog = Join-Path $runtime 'windows\start-local-watchdog.ps1'
+if (-not (Test-Path $startLocalWatchdog -PathType Leaf)) {
+    throw "Local watchdog launcher is missing from installed runtime: $startLocalWatchdog"
+}
+& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $startLocalWatchdog -WaitForHeartbeat
+if ($LASTEXITCODE -ne 0) {
+    throw "Local watchdog start failed with exit code $LASTEXITCODE."
+}
+Write-Host 'LOCAL_WATCHDOG_INSTALLED_RUNNING=True'
 
 Write-Host "Installed runtime: $runtime"
 Write-Host "Unified control panel: $shortcutPath"

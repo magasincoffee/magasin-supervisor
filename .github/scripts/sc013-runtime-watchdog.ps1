@@ -21,6 +21,7 @@ Write-Host 'SC013_WATCHDOG_TARGET_MATCH=True'
 
 $root=Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
 $statePath=Join-Path $root 'single-conversation-state.json'
+$localWatchdogStatusPath=Join-Path $root 'local-watchdog-status.json'
 $failures=New-Object 'System.Collections.Generic.HashSet[string]'
 
 try{
@@ -36,8 +37,37 @@ Write-Host "SC013_WATCHDOG_CDP_HEALTHY=$([bool]$truth.cdp_healthy)"
 Write-Host "SC013_WATCHDOG_RUNTIME_MODE=$([string]$truth.runtime_mode)"
 Write-Host "SC013_WATCHDOG_OWNER_STOP_BLOCKED=$([bool]$ownerStop.blocked)"
 
-# Explicit Owner STOP remains authoritative and is not an unattended fault.
+$localStatus=$null
+if(Test-Path $localWatchdogStatusPath -PathType Leaf){
+  try{
+    $localStatus=Get-Content $localWatchdogStatusPath -Raw -Encoding UTF8|ConvertFrom-Json
+    $localAge=[int]([DateTimeOffset]::UtcNow-[DateTimeOffset]::Parse([string]$localStatus.timestamp)).TotalSeconds
+    Write-Host "SC013_WATCHDOG_LOCAL_MODE=$([string]$localStatus.mode)"
+    Write-Host "SC013_WATCHDOG_LOCAL_AGE_SECONDS=$localAge"
+    Write-Host "SC013_WATCHDOG_LOCAL_PID=$([string]$localStatus.pid)"
+    if($localAge -gt 30){[void]$failures.Add("LOCAL_WATCHDOG_STALE:$localAge")}
+    if([string]$localStatus.mode -eq 'INTERNAL_ERROR'){[void]$failures.Add('LOCAL_WATCHDOG_INTERNAL_ERROR')}
+    if([string]$localStatus.mode -eq 'FAULT'){
+      foreach($localFault in @($localStatus.faults)){
+        if(-not [string]::IsNullOrWhiteSpace([string]$localFault)){
+          [void]$failures.Add("LOCAL:$([string]$localFault)")
+        }
+      }
+    }
+  }catch{
+    [void]$failures.Add('LOCAL_WATCHDOG_STATUS_UNREADABLE')
+  }
+}else{
+  [void]$failures.Add('LOCAL_WATCHDOG_STATUS_MISSING')
+}
+
+# Explicit Owner STOP remains authoritative and is not a Robot fault. The local
+# observer is still expected to publish a fresh heartbeat while STOP is active.
 if($ownerStop.blocked){
+  if($failures.Count -gt 0){
+    Write-Host "SC013_WATCHDOG_LOCAL_OBSERVER_FAILURES=$(($failures|Sort-Object)-join ',')"
+    exit 1
+  }
   Write-Host 'SC013_WATCHDOG_STATUS=OWNER_STOP'
   exit 0
 }

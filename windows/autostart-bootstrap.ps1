@@ -13,6 +13,7 @@ $stop = Join-Path $root 'STOP'
 $lifecycleScript = Join-Path $runtime 'windows\lifecycle-truth.ps1'
 $bootstrapLog = Join-Path $root 'autostart.log'
 $startSupervisor = Join-Path $runtime 'windows\start-supervisor.ps1'
+$startLocalWatchdog = Join-Path $runtime 'windows\start-local-watchdog.ps1'
 $runnerRoot = [string]$env:SUPERVISOR_RUNNER_ROOT
 if ([string]::IsNullOrWhiteSpace($runnerRoot)) {
     foreach ($candidate in @(
@@ -79,6 +80,22 @@ function Get-SupervisorWrapper {
 }
 
 Write-BootstrapLog 'AUTOSTART_BOOT' 'Business OS autostart bootstrap invoked.'
+
+# The local watchdog is read-only observation infrastructure. It must stay alive
+# even while Owner STOP suppresses Robot recovery, so start it before evaluating
+# lifecycle latches. DryRun remains process-free.
+if (-not $DryRun) {
+    if (Test-Path $startLocalWatchdog -PathType Leaf) {
+        & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $startLocalWatchdog -WaitForHeartbeat
+        if ($LASTEXITCODE -eq 0) {
+            Write-BootstrapLog 'LOCAL_WATCHDOG_ONLINE' 'Local watchdog is running.'
+        } else {
+            Write-BootstrapLog 'LOCAL_WATCHDOG_START_FAILED' "Local watchdog launcher exited with code $LASTEXITCODE."
+        }
+    } else {
+        Write-BootstrapLog 'LOCAL_WATCHDOG_MISSING' 'Local watchdog launcher is missing from installed runtime.'
+    }
+}
 
 $ownerStop = Get-LifecycleOwnerStopState -Root $root
 if ($ownerStop.blocked) {

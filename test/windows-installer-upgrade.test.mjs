@@ -78,3 +78,29 @@ test("dedicated Supervisor Chrome suppresses crash-restore bubble", async () => 
   );
   assert.match(source, /--hide-crash-restore-bubble/);
 });
+
+
+test("installer replaces and restarts the local watchdog independently from Robot state", async () => {
+  const source = await fs.readFile(
+    new URL("../windows/install-supervisor.ps1", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /Stopping existing local watchdog PID/);
+  assert.match(source, /start-local-watchdog\.ps1/);
+  assert.match(source, /WaitForHeartbeat/);
+  assert.match(source, /LOCAL_WATCHDOG_INSTALLED_RUNNING=True/);
+});
+
+test("active runtime hotpatch refreshes and restarts the local watchdog without project mutation", async () => {
+  const source = await fs.readFile(
+    new URL("../.github/scripts/update-latest-clean-old.ps1", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /sourceLocalWatchdog/);
+  assert.match(source, /targetLocalWatchdog/);
+  assert.match(source, /HOTPATCH_OLD_LOCAL_WATCHDOG_STOPPED/);
+  assert.match(source, /HOTPATCH_LOCAL_WATCHDOG_RUNNING=True/);
+  assert.match(source, /PROJECT_STATE_PRESERVED=True/);
+});
