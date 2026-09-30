@@ -734,3 +734,53 @@ test("SC-013 post-send ambiguity still blocks even when older pre-actuation evid
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+
+test("SC-013 PREPARED recovery may overwrite stale composer residue before first actuation", async () => {
+  const { root, statePath } = await makeState();
+  const message = "MAGASIN_CHECK_TASK_V1 id=prepared-stale-draft";
+  let sent = false;
+  try {
+    await prepareExactOnceOutbound(statePath, {
+      messageId: "prepared-stale-draft",
+      message,
+      kind: "TASK_STATUS_CHECK",
+      taskId: "OPS-033",
+      baselineUserTurnId: "u0"
+    });
+
+    const result = await reconcileExactOnceOutbound({
+      statePath,
+      page: { async waitForTimeout() {} },
+      messageId: "prepared-stale-draft",
+      message,
+      reconciliationProbes: 1,
+      inspectDraft: async () => ({
+        ready: true,
+        has_text: true,
+        digest: composerInstructionDigest("S"),
+        rendered_digest: composerRenderedInstructionDigest("S"),
+        normalized_text: "S"
+      }),
+      captureTurn: async () => sent
+        ? { turn_id: "u1", text: message }
+        : { turn_id: "u0", text: "older user turn" },
+      sendInstruction: async () => {
+        const durableAtSend = await readSingleConversationState(statePath);
+        assert.equal(durableAtSend.outbound.state, "ENQUEUED");
+        assert.equal(durableAtSend.outbound.retry_count, 0);
+        sent = true;
+        return { executed: true };
+      }
+    });
+
+    assert.equal(result.action, "SEND");
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "DELIVERED");
+    assert.equal(durable.outbound.retry_count, 0);
+    assert.equal(durable.automation.status, "RUNNING");
+    assert.equal(durable.outbound.last_error_code, null);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
