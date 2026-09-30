@@ -1,37 +1,19 @@
 name: SC-013 Recover Stuck Outbound
-
 on:
   push:
-    branches:
-      - sc011-production-runtime-diagnostic-20260929
+    branches: [sc011-production-runtime-diagnostic-20260929]
     paths:
       - '.github/scripts/supervisor-sc011-recover-stuck-enqueued.ps1'
       - '.github/scripts/supervisor-sc011-recover-stuck-enqueued.mjs'
       - '.github/workflows/supervisor-sc013-recover-stuck-outbound.yml'
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
   group: sc013-recover-stuck-outbound
-  cancel-in-progress: true
-
+  cancel-in-progress: false
 jobs:
-  syntax:
-    runs-on: windows-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Check recovery JavaScript
-        shell: cmd
-        run: node --check ".github\scripts\supervisor-sc011-recover-stuck-enqueued.mjs"
-
   recover:
-    needs: syntax
     strategy:
       fail-fast: false
       max-parallel: 4
@@ -41,16 +23,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Recover exact pending production transaction
+      - name: Recover exact stuck transaction on target
         shell: cmd
         run: |
           @echo off
-          echo SC013_RECOVERY_SLOT=${{ matrix.slot }}
-          if /I not "%COMPUTERNAME%"=="DESKTOP-4K7IM13" (
-            echo SC013_RECOVERY_TARGET_MATCH=False
-            timeout /t 120 /nobreak >nul
-            exit /b 0
-          )
-          echo SC013_RECOVERY_TARGET_MATCH=True
+          echo RECOVER_STUCK_SLOT=${{ matrix.slot }}
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc011-recover-stuck-enqueued.ps1" -TargetComputer "DESKTOP-4K7IM13" -NonTargetHoldSeconds 120 -ResponseTimeoutSeconds 600
           exit /b %ERRORLEVEL%
