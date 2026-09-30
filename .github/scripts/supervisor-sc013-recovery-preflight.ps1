@@ -17,3 +17,5 @@ if(-not $chrome -or -not $chrome.CommandLine -or $chrome.CommandLine -notmatch '
 $cdp="http://127.0.0.1:$([int]$Matches[1])"
 & node (Join-Path $env:GITHUB_WORKSPACE '.github\scripts\supervisor-sc013-recovery-preflight.mjs') $runtime $statePath $cdp
 exit /b $LASTEXITCODE
+
+# rerun after target runtime deploy
