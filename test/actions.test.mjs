@@ -1111,3 +1111,39 @@ test("SC-013 SOT URL normalization does not erase unrelated semantic whitespace"
     composerRenderedInstructionDigest("TASK_ID=ABC")
   );
 });
+
+
+test("SC-013 matching user-turn evidence accepts ProseMirror SOT URL line break", async () => {
+  const expected = [
+    "MAGASIN_DISCOVER_TASK_V1",
+    "id=9dac7d14-b847-4f02-a4a6-2f96a410dba4",
+    "SOT=https://github.com/magasincoffee/example/blob/main/SOURCE_OF_TRUTH.md",
+    "Re-read SOT from the beginning."
+  ].join("\n");
+  const rendered = expected.replace("SOT=https://", "SOT=\nhttps://");
+
+  const page = {
+    async evaluate(_fn, { expected: supplied }) {
+      const normalize = (value) => String(value || "")
+        .replace(/[\u200B-\u200F\u2060\uFEFF]/g, "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\u00A0/g, " ")
+        .replace(/\s+/gu, " ")
+        .replace(/\bSOT=\s+(https?:\/\/)/giu, "SOT=$1")
+        .trim();
+      assert.equal(normalize(rendered), normalize(supplied));
+      return {
+        readable: true,
+        totalCount: 2,
+        exactMatchCount: 1,
+        matchingTurnId: "modern-user-sot-wrap",
+        matchingEvidence: "exact-modern-user-turn"
+      };
+    }
+  };
+
+  const result = await captureMatchingUserTurnEvidence(page, expected);
+  assert.equal(result.confirmed, true);
+  assert.equal(result.turn_id, "modern-user-sot-wrap");
+  assert.equal(result.evidence, "exact-modern-user-turn");
+});
