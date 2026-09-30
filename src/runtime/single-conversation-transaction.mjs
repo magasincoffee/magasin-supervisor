@@ -65,12 +65,24 @@ export async function prepareExactOnceOutbound(statePath, {
   message,
   kind,
   baselineUserTurnId = null,
+  initialRetryCount = 0,
   now = () => new Date().toISOString()
 } = {}) {
   const id = requireMessageId(messageId);
   const text = requireMessage(message);
   const digest = composerInstructionDigest(text);
   const outboundKind = String(kind || "SINGLE_CONVERSATION_MESSAGE").trim();
+  const startingRetryCount = Number(initialRetryCount || 0);
+  if (
+    !Number.isInteger(startingRetryCount) ||
+    startingRetryCount < 0 ||
+    startingRetryCount > 1
+  ) {
+    throw Object.assign(
+      new Error("initial retry count must be 0 or 1"),
+      { code: "INVALID_INITIAL_RETRY_COUNT" }
+    );
+  }
 
   return mutateState(statePath, (state, at) => {
     const current = String(state.outbound?.state || "NONE").toUpperCase();
@@ -100,7 +112,7 @@ export async function prepareExactOnceOutbound(statePath, {
       response_running_at: null,
       response_complete_at: null,
       verified_at: null,
-      retry_count: 0,
+      retry_count: startingRetryCount,
       last_error_code: null,
       last_error_stage: null,
       last_pre_actuation_error_code: null,
