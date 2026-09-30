@@ -110,4 +110,8 @@ try {
   ]).catch(() => {});
 }
 
-process.stdout.write(JSON.stringify(result));
+// A CDP-attached Playwright browser transport can keep Node's event loop alive
+// even after all read-only observations have completed. Flush the single JSON
+// result, then terminate this disposable probe process explicitly. Do not
+// close the attached production browser or context from this observer.
+process.stdout.write(JSON.stringify(result), () => process.exit(0));

@@ -119,3 +119,11 @@ test("SC-013 local UI probe error results keep a complete StrictMode-safe shape"
   assert.match(source, /New-UiProbeErrorResult -Code 'UI_PROBE_EXCEPTION'/);
   assert.doesNotMatch(source, /WaitForExit\(8000\)/);
 });
+
+
+test("SC-013 disposable CDP probe flushes one result then exits without closing production Chrome", async () => {
+  const source = await read("src/runtime/local-watchdog-probe-cli.mjs");
+  assert.match(source, /process\.stdout\.write\(JSON\.stringify\(result\), \(\) => process\.exit\(0\)\)/);
+  assert.doesNotMatch(source, /browser\.close\(/);
+  assert.doesNotMatch(source, /context\.close\(/);
+});
