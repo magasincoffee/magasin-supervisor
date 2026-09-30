@@ -6,6 +6,7 @@ import { composerInstructionDigest, inspectComposerDraftDigest } from "../ui/act
 import { ChatGptUiAdapter } from "../ui/playwright-adapter.mjs";
 import { captureLatestRoleTurn } from "../ui/latest-turn.mjs";
 import {
+  buildSingleConversationBootstrap,
   createNewChatAndBootstrap,
   opaqueRuntimeIdentity
 } from "./single-conversation-bootstrap.mjs";
@@ -135,6 +136,7 @@ async function settleTransactionResponse({
   messageId,
   message,
   baselineAssistantTurnId,
+  expectedAssistantMarker = `MAGASIN_CYCLE_CORRELATION_V1 ${messageId}`,
   timeoutMs,
   pollMs
 }) {
@@ -143,7 +145,7 @@ async function settleTransactionResponse({
     page,
     statePath,
     baselineAssistantTurnId,
-    expectedAssistantMarker: `MAGASIN_CYCLE_CORRELATION_V1 ${messageId}`,
+    expectedAssistantMarker,
     timeoutMs,
     pollMs,
     maxContinueClicks: 8
@@ -193,8 +195,42 @@ export function canRebindEnqueuedStatusCheck(state) {
   );
 }
 
+const REBINDABLE_IN_FLIGHT_PROTOCOL_KINDS = new Set([
+  "SOURCE_OF_TRUTH_BOOTSTRAP",
+  "SOURCE_OF_TRUTH_TASK_DISCOVERY",
+  "SOURCE_OF_TRUTH_NEXT_WORK",
+  "TASK_STATUS_CHECK",
+  "TASK_EXECUTION"
+]);
+
+export function canRebindInFlightProtocolMessage(state) {
+  const outbound = state?.outbound || {};
+  const outboundState = String(outbound.state || "").toUpperCase();
+  const kind = String(outbound.kind || "");
+  return Boolean(
+    String(state?.conversation?.status || "").toUpperCase() === "ACTIVE" &&
+    ["DELIVERED", "RESPONSE_RUNNING"].includes(outboundState) &&
+    REBINDABLE_IN_FLIGHT_PROTOCOL_KINDS.has(kind) &&
+    String(outbound.message_id || "").trim() &&
+    String(outbound.message_digest || "").trim()
+  );
+}
+
+function canReconstructTaskMessage(state) {
+  const outbound = state?.outbound || {};
+  const kind = String(outbound.kind || "");
+  const outboundState = String(outbound.state || "").toUpperCase();
+  return Boolean(
+    String(state?.conversation?.status || "").toUpperCase() === "ACTIVE" &&
+    ["ENQUEUED", "DELIVERED", "RESPONSE_RUNNING"].includes(outboundState) &&
+    ["TASK_STATUS_CHECK", "TASK_EXECUTION"].includes(kind) &&
+    String(outbound.message_id || "").trim() &&
+    String(outbound.message_digest || "").trim()
+  );
+}
+
 export function reconstructPendingTaskMessage(state, evidenceText = null) {
-  if (!canRebindEnqueuedTaskMessage(state)) return null;
+  if (!canReconstructTaskMessage(state)) return null;
   const messageId = String(state.outbound.message_id || "").trim();
   const kind = String(state.outbound.kind || "");
   const checkOnly = kind === "TASK_STATUS_CHECK";
@@ -236,13 +272,69 @@ export function reconstructPendingStatusCheckMessage(state, evidenceText = null)
   return reconstructPendingTaskMessage(state, evidenceText);
 }
 
+export function reconstructPendingProtocolMessage(state, evidenceText = null) {
+  if (!canRebindInFlightProtocolMessage(state)) return null;
+
+  const outbound = state.outbound || {};
+  const kind = String(outbound.kind || "");
+  const messageId = String(outbound.message_id || "").trim();
+  const sourceOfTruthUrl = String(state?.source_of_truth?.url || "").trim();
+  const expectedDigest = String(outbound.message_digest || "").trim();
+  const candidates = [];
+
+  try {
+    if (kind === "SOURCE_OF_TRUTH_BOOTSTRAP") {
+      candidates.push(
+        buildSingleConversationBootstrap({
+          sourceOfTruthUrl,
+          messageId,
+          qualificationOnly: false
+        }),
+        buildSingleConversationBootstrap({
+          sourceOfTruthUrl,
+          messageId,
+          qualificationOnly: true
+        })
+      );
+    } else if (kind === "SOURCE_OF_TRUTH_TASK_DISCOVERY") {
+      candidates.push(buildSingleConversationTaskDiscoveryInstruction({
+        sourceOfTruthUrl,
+        messageId
+      }));
+    } else if (kind === "SOURCE_OF_TRUTH_NEXT_WORK") {
+      candidates.push(
+        buildSingleConversationNextInstruction({
+          sourceOfTruthUrl,
+          messageId,
+          qualificationOnly: false
+        }),
+        buildSingleConversationNextInstruction({
+          sourceOfTruthUrl,
+          messageId,
+          qualificationOnly: true
+        })
+      );
+    } else if (["TASK_STATUS_CHECK", "TASK_EXECUTION"].includes(kind)) {
+      const taskMessage = reconstructPendingTaskMessage(state, evidenceText);
+      if (taskMessage) candidates.push(taskMessage);
+    }
+  } catch {
+    return null;
+  }
+
+  return candidates.find(
+    (candidate) => composerInstructionDigest(candidate) === expectedDigest
+  ) || null;
+}
+
 function safeRebindOutboundState(state) {
   return (
     ["RESPONSE_COMPLETE", "VERIFIED"].includes(
       String(state?.outbound?.state || "").toUpperCase()
     ) ||
     canResumePreActuationDiscovery(state) ||
-    canRebindEnqueuedTaskMessage(state)
+    canRebindEnqueuedTaskMessage(state) ||
+    canRebindInFlightProtocolMessage(state)
   );
 }
 
@@ -334,6 +426,61 @@ async function resumeEnqueuedTaskMessageAfterRebind({
     messageId,
     message,
     baselineAssistantTurnId: null,
+    timeoutMs: responseTimeoutMs,
+    pollMs: Math.min(750, Math.max(100, pollMs))
+  });
+}
+
+async function resumeInFlightProtocolMessageAfterRebind({
+  adapter,
+  page,
+  statePath,
+  responseTimeoutMs,
+  pollMs
+} = {}) {
+  const state = await readSingleConversationState(statePath);
+  if (!canRebindInFlightProtocolMessage(state)) return null;
+
+  const kind = String(state.outbound.kind || "");
+  const messageId = String(state.outbound.message_id || "");
+  let message = reconstructPendingProtocolMessage(state);
+  let latestUser = null;
+
+  if (!message) {
+    latestUser = await boundedRuntimeStep(
+      "RESTART_WAIT_RESPONSE_CAPTURE_USER",
+      () => captureLatestRoleTurn(page, "user"),
+      { timeoutMs: 10_000 }
+    ).catch((error) => {
+      if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+      return null;
+    });
+    message = reconstructPendingProtocolMessage(state, latestUser?.text);
+  }
+
+  if (!message) {
+    throw Object.assign(
+      new Error(`pending ${kind} response has no exact restart reconstruction`),
+      { code: "RUNTIME_RESTART_WAIT_RESPONSE_UNRESOLVED" }
+    );
+  }
+
+  const expectedAssistantMarker =
+    kind === "SOURCE_OF_TRUTH_BOOTSTRAP"
+      ? `MAGASIN_BOOTSTRAP_CORRELATION_V1 ${messageId}`
+      : `MAGASIN_CYCLE_CORRELATION_V1 ${messageId}`;
+
+  // DELIVERED / RESPONSE_RUNNING already has durable positive send evidence.
+  // Restart recovery must never actuate the composer again. Rebind the exact
+  // conversation identity and only finish observing the existing response.
+  return settleTransactionResponse({
+    adapter,
+    page,
+    statePath,
+    messageId,
+    message,
+    baselineAssistantTurnId: null,
+    expectedAssistantMarker,
     timeoutMs: responseTimeoutMs,
     pollMs: Math.min(750, Math.max(100, pollMs))
   });
@@ -642,7 +789,16 @@ export async function runSingleConversationRuntime({
     });
     if (rebound?.page) {
       page = rebound.page;
-      if (canRebindEnqueuedTaskMessage(current)) {
+      if (canRebindInFlightProtocolMessage(current)) {
+        bootstrapResponse = await resumeInFlightProtocolMessageAfterRebind({
+          adapter,
+          page,
+          statePath,
+          responseTimeoutMs,
+          pollMs
+        });
+        current = await readSingleConversationState(statePath);
+      } else if (canRebindEnqueuedTaskMessage(current)) {
         bootstrapResponse = await resumeEnqueuedTaskMessageAfterRebind({
           adapter,
           page,
