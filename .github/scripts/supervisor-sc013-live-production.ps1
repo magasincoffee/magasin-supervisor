@@ -73,10 +73,19 @@ $baselineNeedsRecovery=[bool](
 )
 Write-Host "SC013_LIVE_BASELINE_NEEDS_RECOVERY=$baselineNeedsRecovery"
 
-# This invocation is explicit Owner START authority for the requested SC-013 continuation.
-& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $startScript -Hidden
-if($LASTEXITCODE -ne 0){throw "SC013 explicit Owner START failed with exit $LASTEXITCODE"}
-Write-Host 'SC013_LIVE_OWNER_START_INVOKED=True'
+# SC-013 acceptance must observe the real Owner-visible flow. The harness is
+# not Owner authority and must never clear STOP/AUTOSTART_DISABLED or start
+# the Robot on the Owner's behalf.
+$ownerStop=Get-LifecycleOwnerStopState -Root $root
+$truthBefore=Get-LifecycleProcessTruth -Root $root
+if($ownerStop.blocked -or -not $truthBefore.wrapper_alive){
+  Write-Host 'SC013_LIVE_OWNER_START_INVOKED=False'
+  Write-Host 'SC013_LIVE_FIRST_FAILURE_CODE=OWNER_START_REQUIRED'
+  Write-Host 'SC013_LIVE_FIRST_FAILURE_STAGE=OWNER_START'
+  throw 'SC013 requires Owner START from Control Center before live acceptance.'
+}
+Write-Host 'SC013_LIVE_OWNER_START_INVOKED=False'
+Write-Host 'SC013_LIVE_OWNER_STARTED_RUNTIME_OBSERVED=True'
 
 $deadline=[DateTimeOffset]::UtcNow.AddSeconds([Math]::Max(120,$MaxObserveSeconds))
 $lastProgress=[DateTimeOffset]::UtcNow
