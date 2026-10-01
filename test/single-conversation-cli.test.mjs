@@ -14,6 +14,7 @@ import {
   reconstructPendingProtocolMessage,
   reconstructPendingStatusCheckMessage,
   reconstructPendingTaskMessage,
+  replacementReasonForResponseWaitError,
   runSingleConversationRuntime,
   waitForNextCycleDelay
 } from "../src/runtime/single-conversation-cli.mjs";
@@ -567,4 +568,51 @@ test("SC-013 restart rejects a full chat and rolls over only settled outbound wo
   const failClosed = source.indexOf('code: "RUNTIME_RESTART_IDENTITY_NOT_VERIFIED"', replace);
   assert.ok(restart >= 0 && full > restart && settled > full && replace > settled && failClosed > replace);
   assert.match(source.slice(full, failClosed), /reason: "CONVERSATION_FULL"/);
+});
+
+
+test("SC-013 response-wait failure maps only repeated transient/network errors to rollover", () => {
+  assert.equal(
+    replacementReasonForResponseWaitError({ code: "TRANSIENT_ERROR" }),
+    "REPEATED_TRANSIENT_FAILURE"
+  );
+  assert.equal(
+    replacementReasonForResponseWaitError({ code: "NETWORK_ERROR" }),
+    "REPEATED_NETWORK_FAILURE"
+  );
+  assert.equal(
+    replacementReasonForResponseWaitError({ code: "AUTH_REQUIRED" }),
+    null
+  );
+  assert.equal(
+    replacementReasonForResponseWaitError({ code: "CONVERSATION_FULL" }),
+    null
+  );
+  assert.equal(replacementReasonForResponseWaitError(null), null);
+});
+
+test("SC-013 restart WAIT_RESPONSE repeated failure retires chat without resending prior task", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const active = source.indexOf("if (rebound?.page)");
+  const inFlight = source.indexOf("else if (canRebindInFlightProtocolMessage(current))", active);
+  const resume = source.indexOf("resumeInFlightProtocolMessageAfterRebind", inFlight);
+  const catchIndex = source.indexOf("replacementReasonForResponseWaitError(error)", resume);
+  const replace = source.indexOf("replaceDisposableConversation", catchIndex);
+  const enqueued = source.indexOf("else if (canRebindEnqueuedTaskMessage(current))", replace);
+  assert.ok(active >= 0);
+  assert.ok(inFlight > active);
+  assert.ok(resume > inFlight);
+  assert.ok(catchIndex > resume);
+  assert.ok(replace > catchIndex);
+  assert.ok(enqueued > replace);
+
+  const body = source.slice(catchIndex, enqueued);
+  assert.match(body, /reason: replacementReason/);
+  assert.match(body, /bootstrapResponse = replacement\.response/);
+  assert.match(body, /page = replacement\.page/);
+  assert.doesNotMatch(body, /sendProtocolMessage/);
+  assert.doesNotMatch(body, /reconcileExactOnceOutbound/);
 });
