@@ -91,6 +91,47 @@ try {
     emit("DIAG_HAS_CURRENT_SOT_URL",
       latestUserText.includes(String(state.source_of_truth.url || ""))
     );
+
+    const normalize = (value) => String(value || "")
+      .replace(/[\u200B-\u200F\u2060\uFEFF]/g, "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\u00A0/g, " ")
+      .replace(/\s+/gu, " ")
+      .replace(/\bSOT=\s+(https?:\/\/)/giu, "SOT=$1")
+      .trim();
+    const expectedNorm = normalize(instruction);
+    const actualNorm = normalize(latestUserText);
+    emit("DIAG_EXPECTED_NORM_LENGTH", expectedNorm.length);
+    emit("DIAG_ACTUAL_NORM_LENGTH", actualNorm.length);
+    let diff = -1;
+    const minLen = Math.min(expectedNorm.length, actualNorm.length);
+    for (let i = 0; i < minLen; i += 1) {
+      if (expectedNorm[i] !== actualNorm[i]) { diff = i; break; }
+    }
+    if (diff < 0 && expectedNorm.length !== actualNorm.length) diff = minLen;
+    emit("DIAG_FIRST_DIFF_INDEX", diff);
+    emit("DIAG_EXPECTED_DIFF_CODEPOINT",
+      diff >= 0 && diff < expectedNorm.length
+        ? expectedNorm.codePointAt(diff)
+        : -1
+    );
+    emit("DIAG_ACTUAL_DIFF_CODEPOINT",
+      diff >= 0 && diff < actualNorm.length
+        ? actualNorm.codePointAt(diff)
+        : -1
+    );
+    let actualMinusOneMatch = false;
+    let expectedMinusOneMatch = false;
+    if (diff >= 0 && diff < actualNorm.length) {
+      actualMinusOneMatch =
+        actualNorm.slice(0, diff) + actualNorm.slice(diff + 1) === expectedNorm;
+    }
+    if (diff >= 0 && diff < expectedNorm.length) {
+      expectedMinusOneMatch =
+        expectedNorm.slice(0, diff) + expectedNorm.slice(diff + 1) === actualNorm;
+    }
+    emit("DIAG_ACTUAL_MINUS_ONE_MATCH", actualMinusOneMatch);
+    emit("DIAG_EXPECTED_MINUS_ONE_MATCH", expectedMinusOneMatch);
     emit("DIAG_LATEST_ASSISTANT_PRESENT", Boolean(latestAssistant));
     emit("DIAG_LATEST_ASSISTANT_TURN_ID", latestAssistant?.turn_id || "");
     emit("DIAG_LATEST_ASSISTANT_CHAR_COUNT", String(latestAssistant?.text || "").length);
