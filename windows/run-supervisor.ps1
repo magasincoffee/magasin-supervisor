@@ -131,7 +131,11 @@ function Resolve-LocalRuntimeMode {
 
     return $null
 }
-$mutexName = 'Local\MAGASIN_BUSINESS_OS_SUPERVISOR'
+# SINGLE_CONVERSATION_V1 owns its own singleton namespace. The historical
+# MAGASIN_BUSINESS_OS_SUPERVISOR mutex is intentionally not reused because a
+# legacy process from the superseded architecture must never block the forward
+# wrapper from starting.
+$mutexName = 'Local\MAGASIN_SUPERVISOR_SINGLE_CONVERSATION_V1'
 $mutex = New-Object System.Threading.Mutex($false, $mutexName)
 $ownsMutex = $false
 
