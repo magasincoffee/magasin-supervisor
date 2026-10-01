@@ -316,9 +316,14 @@ test("SC-013 prepared bootstrap restart requires positive blank-home evidence be
   assert.match(helperBody, /safeBootstrapNonDeliverySnapshot/);
   assert.match(helperBody, /captureMatchingUserTurnEvidence/);
   assert.match(helperBody, /BOOTSTRAP_NON_DELIVERY_EXACT_TURN/);
-  assert.match(helperBody, /composerTextReadable === true/);
-  assert.match(helperBody, /composerHasText === false/);
   assert.doesNotMatch(helperBody, /BOOTSTRAP_NON_DELIVERY_DRAFT/);
+
+  const safeHelper = source.indexOf("export function safeBootstrapNonDeliverySnapshot");
+  const safeHelperEnd = source.indexOf("function logBootstrapNonDeliverySample", safeHelper);
+  assert.ok(safeHelper >= 0 && safeHelperEnd > safeHelper);
+  const safeBody = source.slice(safeHelper, safeHelperEnd);
+  assert.match(safeBody, /composerTextReadable === true/);
+  assert.match(safeBody, /composerHasText === false/);
   assert.doesNotMatch(helperBody, /Number\(snapshot\.userMessageCount/);
   assert.doesNotMatch(helperBody, /Number\(snapshot\.assistantMessageCount/);
   assert.match(helperBody, /stablePasses = 2/);
