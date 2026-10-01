@@ -57,7 +57,11 @@ jobs:
                 Write-Host "STATE_LAST_ERROR_STAGE=$($s.outbound.last_error_stage)"
                 Write-Host "STATE_PRE_ERROR_CODE=$($s.outbound.last_pre_actuation_error_code)"
                 Write-Host "STATE_PRE_ERROR_STAGE=$($s.outbound.last_pre_actuation_error_stage)"
-                Write-Host "STATE_RECOVERY_REASON=$($s.recovery.reason)"
+                if ($s.PSObject.Properties.Name -contains 'recovery') {
+                  Write-Host "STATE_RECOVERY_REASON=$($s.recovery.reason)"
+                } else {
+                  Write-Host "STATE_RECOVERY_REASON="
+                }
               } else {
                 Write-Host 'FILE_CONTENT_BEGIN'
                 Get-Content $p -Raw -ErrorAction SilentlyContinue
