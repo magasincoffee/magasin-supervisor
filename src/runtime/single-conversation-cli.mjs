@@ -6,6 +6,7 @@ import { composerInstructionDigest, inspectComposerDraftDigest } from "../ui/act
 import { ChatGptUiAdapter } from "../ui/playwright-adapter.mjs";
 import { captureLatestRoleTurn } from "../ui/latest-turn.mjs";
 import {
+  bootstrapFailureRecoveryReason,
   buildSingleConversationBootstrap,
   createNewChatAndBootstrap,
   opaqueRuntimeIdentity
@@ -135,6 +136,94 @@ export function replacementReasonForResponseWaitError(error) {
   if (code === "TRANSIENT_ERROR") return "REPEATED_TRANSIENT_FAILURE";
   if (code === "NETWORK_ERROR") return "REPEATED_NETWORK_FAILURE";
   return null;
+}
+
+export function bootstrapRecoveryReasonForState(state) {
+  const outbound = state?.outbound || {};
+  const outboundState = String(outbound.state || "").toUpperCase();
+  if (
+    String(state?.conversation?.status || "").toUpperCase() !== "ACTIVE" ||
+    String(outbound.kind || "") !== "SOURCE_OF_TRUTH_BOOTSTRAP" ||
+    !["DELIVERED", "RESPONSE_RUNNING"].includes(outboundState)
+  ) {
+    return null;
+  }
+
+  const code = String(outbound.last_error_code || "").toUpperCase();
+  const explicit = {
+    TRANSIENT_ERROR: "BOOTSTRAP_TRANSIENT_FAILURE",
+    NETWORK_ERROR: "BOOTSTRAP_NETWORK_FAILURE",
+    CONVERSATION_MISSING: "BOOTSTRAP_CONVERSATION_MISSING",
+    CONVERSATION_ACCESS_DENIED: "BOOTSTRAP_ACCESS_DENIED",
+    RESPONSE_TIMEOUT: "BOOTSTRAP_RESPONSE_TIMEOUT"
+  };
+  if (explicit[code]) return explicit[code];
+
+  // Compatibility with the production incident captured before bootstrap
+  // errors carried specific codes. At RESPONSE_RUNNING, the bootstrap user
+  // turn is already durably delivered and bootstrap performs no project work,
+  // so retiring that disposable chat is safe and cannot duplicate a project
+  // side effect.
+  if (
+    code === "BOOTSTRAP_FAILED" &&
+    String(state?.automation?.phase || "").toUpperCase() === "BOOTSTRAP_FAILED"
+  ) {
+    return "BOOTSTRAP_RESPONSE_SURFACE_FAILURE";
+  }
+  return null;
+}
+
+function recoverableBootstrapPage(adapter, state) {
+  const expected = String(state?.conversation?.runtime_id || "").trim();
+  const pages = adapter?.getChatGptPages?.() || [];
+  const exact = expected
+    ? pages.find((candidate) => runtimeIdMatchesPage(candidate, expected))
+    : null;
+  return exact || adapter?.getActivePage?.() || null;
+}
+
+async function createInitialBootstrapWithRecovery({
+  adapter,
+  statePath,
+  sourceOfTruthUrl,
+  qualificationOnly,
+  responseTimeoutMs,
+  pollMs
+} = {}) {
+  try {
+    return await createNewChatAndBootstrap({
+      adapter,
+      statePath,
+      sourceOfTruthUrl,
+      projectId: "LIVE",
+      qualificationOnly,
+      forceNewPage: true,
+      timeoutMs: responseTimeoutMs,
+      pollMs: Math.min(750, Math.max(100, pollMs))
+    });
+  } catch (error) {
+    const failed = await readSingleConversationState(statePath);
+    const reason =
+      bootstrapFailureRecoveryReason(error, failed) ||
+      bootstrapRecoveryReasonForState(failed);
+    if (!reason) throw error;
+
+    // One bounded immediate replacement prevents a single transient ChatGPT
+    // response-surface failure from becoming an Owner pause. If the replacement
+    // itself fails, its own durable state remains available for diagnosis
+    // instead of creating an unbounded replacement storm.
+    return replaceDisposableConversation({
+      adapter,
+      page: recoverableBootstrapPage(adapter, failed),
+      statePath,
+      reason,
+      sourceOfTruthUrl,
+      projectId: "LIVE",
+      qualificationOnly,
+      timeoutMs: responseTimeoutMs,
+      pollMs: Math.min(750, Math.max(100, pollMs))
+    });
+  }
 }
 
 async function settleTransactionResponse({
@@ -857,15 +946,13 @@ export async function runSingleConversationRuntime({
   let bootstrapResponse = null;
 
   if (current.conversation.status !== "ACTIVE") {
-    const bootstrap = await createNewChatAndBootstrap({
+    const bootstrap = await createInitialBootstrapWithRecovery({
       adapter,
       statePath,
       sourceOfTruthUrl,
-      projectId: "LIVE",
       qualificationOnly,
-      forceNewPage: true,
-      timeoutMs: responseTimeoutMs,
-      pollMs: Math.min(750, Math.max(100, pollMs))
+      responseTimeoutMs,
+      pollMs
     });
     page = bootstrap.page;
     bootstrapResponse = bootstrap.response;
@@ -877,6 +964,7 @@ export async function runSingleConversationRuntime({
           retry_count: Number(current.outbound.retry_count || 0)
         }
       : null;
+    const lostBootstrapRecoveryReason = bootstrapRecoveryReasonForState(current);
 
     const rebound = await resumeExistingConversationPage({
       adapter,
@@ -945,6 +1033,26 @@ export async function runSingleConversationRuntime({
         });
         current = await readSingleConversationState(statePath);
       }
+    } else if (lostBootstrapRecoveryReason) {
+      // Production SC-013 incident: ChatGPT replaced/errored the disposable
+      // bootstrap surface after delivery, so the persisted runtime identity no
+      // longer exists. Bootstrap has no project side effects; retire only that
+      // disposable chat and rehydrate from SOT instead of converting this into
+      // an Owner BLOCKED/STOP state.
+      const replacement = await replaceDisposableConversation({
+        adapter,
+        page: restartProbe?.page || recoverableBootstrapPage(adapter, current),
+        statePath,
+        reason: lostBootstrapRecoveryReason,
+        sourceOfTruthUrl,
+        projectId: "LIVE",
+        qualificationOnly,
+        timeoutMs: responseTimeoutMs,
+        pollMs: Math.min(750, Math.max(100, pollMs))
+      });
+      page = replacement.page;
+      bootstrapResponse = replacement.response;
+      current = await readSingleConversationState(statePath);
     } else if (
       restartProbe?.classification?.reason === "CONVERSATION_FULL" &&
       ["RESPONSE_COMPLETE", "VERIFIED"].includes(String(current.outbound?.state || "").toUpperCase())

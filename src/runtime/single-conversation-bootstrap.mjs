@@ -57,9 +57,46 @@ function safeErrorCode(error) {
   const message = String(error?.message || error || "");
   if (/login|required|auth/i.test(message)) return "AUTH_REQUIRED";
   if (/captcha|human/i.test(message)) return "CAPTCHA_REQUIRED";
+  if (/network error/i.test(message)) return "NETWORK_ERROR";
+  if (/transient error/i.test(message)) return "TRANSIENT_ERROR";
+  if (/conversation (?:is )?missing|surface is missing/i.test(message)) {
+    return "CONVERSATION_MISSING";
+  }
+  if (/access is denied/i.test(message)) return "CONVERSATION_ACCESS_DENIED";
   if (/composer/i.test(message)) return "COMPOSER_NOT_READY";
   if (/timeout/i.test(message)) return "RESPONSE_TIMEOUT";
   return "BOOTSTRAP_FAILED";
+}
+
+const RECOVERABLE_BOOTSTRAP_RESPONSE_CODES = new Set([
+  "TRANSIENT_ERROR",
+  "NETWORK_ERROR",
+  "CONVERSATION_MISSING",
+  "CONVERSATION_ACCESS_DENIED",
+  "RESPONSE_TIMEOUT"
+]);
+
+export function bootstrapFailureRecoveryReason(error, state) {
+  const outbound = state?.outbound || {};
+  const outboundState = String(outbound.state || "").toUpperCase();
+  if (
+    String(outbound.kind || "") !== "SOURCE_OF_TRUTH_BOOTSTRAP" ||
+    !["DELIVERED", "RESPONSE_RUNNING"].includes(outboundState)
+  ) {
+    return null;
+  }
+
+  const code = safeErrorCode(error);
+  if (!RECOVERABLE_BOOTSTRAP_RESPONSE_CODES.has(code)) return null;
+
+  const reasonByCode = {
+    TRANSIENT_ERROR: "BOOTSTRAP_TRANSIENT_FAILURE",
+    NETWORK_ERROR: "BOOTSTRAP_NETWORK_FAILURE",
+    CONVERSATION_MISSING: "BOOTSTRAP_CONVERSATION_MISSING",
+    CONVERSATION_ACCESS_DENIED: "BOOTSTRAP_ACCESS_DENIED",
+    RESPONSE_TIMEOUT: "BOOTSTRAP_RESPONSE_TIMEOUT"
+  };
+  return reasonByCode[code] || null;
 }
 
 export function buildSingleConversationBootstrap({
@@ -890,10 +927,22 @@ async function persistPreparedBootstrap(statePath, {
 async function persistBootstrapFailure(statePath, error, now) {
   const state = await readSingleConversationState(statePath);
   const at = nowIso(now);
-  state.outbound.last_error_code = safeErrorCode(error);
-  state.automation.status = "BLOCKED";
-  state.automation.phase = "BOOTSTRAP_FAILED";
-  state.automation.reason = state.outbound.last_error_code;
+  const errorCode = safeErrorCode(error);
+  const recoveryReason = bootstrapFailureRecoveryReason(error, state);
+  state.outbound.last_error_code = errorCode;
+  if (recoveryReason) {
+    // A bootstrap response-surface failure occurs after the Robot-authored
+    // bootstrap turn is already durably delivered. Bootstrap performs no
+    // project work, so transient/network/missing-chat failures are disposable
+    // chat recovery conditions, not Owner-blocking conditions.
+    state.automation.status = "RUNNING";
+    state.automation.phase = "BOOTSTRAP_RECOVERY_REQUIRED";
+    state.automation.reason = recoveryReason;
+  } else {
+    state.automation.status = "BLOCKED";
+    state.automation.phase = "BOOTSTRAP_FAILED";
+    state.automation.reason = errorCode;
+  }
   state.automation.updated_at = at;
   return writeSingleConversationState(statePath, state, { now });
 }
