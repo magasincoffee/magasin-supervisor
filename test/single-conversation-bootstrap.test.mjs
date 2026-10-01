@@ -6,6 +6,7 @@ import path from "node:path";
 
 import {
   acquireBlankNewChatSurface,
+  bootstrapFailureRecoveryReason,
   buildSingleConversationBootstrap,
   createNewChatAndBootstrap,
   sendFreshChatBootstrapInstruction,
@@ -867,4 +868,104 @@ test("SC-003 CLI requires Source of Truth/CDP but never a chat URL", async () =>
   assert.match(source, /--force-new-page/);
   assert.match(source, /SC003_CHAT_URL_REQUIRED=False/);
   assert.doesNotMatch(source, /--planner-url|--executor-url|--chat-url/);
+});
+
+
+test("SC-013 transient bootstrap response failure stays autonomous and requests disposable recovery", async () => {
+  const { root, statePath } = await tempStatePath();
+  const page = fakePage();
+  let sent = false;
+  const adapter = {
+    async open() {},
+    getActivePage() { return page; },
+    async newChatPage() { return page; },
+    async probePage() {
+      if (!sent) return { snapshot: blankSnapshot() };
+      return {
+        snapshot: blankSnapshot({
+          pathKind: "conversation",
+          conversationPath: true,
+          userMessageCount: 1,
+          hasTransientError: true,
+          responseRunning: false
+        })
+      };
+    }
+  };
+
+  try {
+    await assert.rejects(
+      createNewChatAndBootstrap({
+        adapter,
+        statePath,
+        sourceOfTruthUrl: "https://example.com/source",
+        messageId: "bootstrap-transient-recovery",
+        sendInstruction: async () => {
+          sent = true;
+          page.setUrl("https://chatgpt.com/c/bootstrap-transient");
+          return {
+            executed: true,
+            user_turn_id: "conversation-turn-user-1",
+            user_turn_evidence: "exact-fresh-conversation-turn",
+            conversation_turn_count: 1
+          };
+        },
+        timeoutMs: 100,
+        pollMs: 1
+      }),
+      /transient error during bootstrap/
+    );
+
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "DELIVERED");
+    assert.equal(durable.outbound.last_error_code, "TRANSIENT_ERROR");
+    assert.equal(durable.automation.status, "RUNNING");
+    assert.equal(durable.automation.phase, "BOOTSTRAP_RECOVERY_REQUIRED");
+    assert.equal(durable.automation.reason, "BOOTSTRAP_TRANSIENT_FAILURE");
+    assert.equal(
+      bootstrapFailureRecoveryReason(
+        Object.assign(new Error("ChatGPT transient error during bootstrap"), {
+          code: "TRANSIENT_ERROR"
+        }),
+        durable
+      ),
+      "BOOTSTRAP_TRANSIENT_FAILURE"
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("SC-013 bootstrap recovery remains fail-closed before delivery and for Owner auth", () => {
+  const preDelivery = {
+    outbound: {
+      state: "PREPARED",
+      kind: "SOURCE_OF_TRUTH_BOOTSTRAP"
+    }
+  };
+  assert.equal(
+    bootstrapFailureRecoveryReason(
+      Object.assign(new Error("ChatGPT transient error during bootstrap"), {
+        code: "TRANSIENT_ERROR"
+      }),
+      preDelivery
+    ),
+    null
+  );
+
+  const delivered = {
+    outbound: {
+      state: "DELIVERED",
+      kind: "SOURCE_OF_TRUTH_BOOTSTRAP"
+    }
+  };
+  assert.equal(
+    bootstrapFailureRecoveryReason(
+      Object.assign(new Error("ChatGPT login is required"), {
+        code: "AUTH_REQUIRED"
+      }),
+      delivered
+    ),
+    null
+  );
 });
