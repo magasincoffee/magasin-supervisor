@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "952da7b38990d1da2300b87612eedc12b3c9f311",
+  "requested_main_sha": "cab22c2b5a60e798000c1783b6c19ab7e13a8c36",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy SC-013 bounded stable bootstrap non-delivery recovery after PR #275 passed all required gates."
+  "reason": "Deploy SC-013 draft-timeout false-CDP fix and one-attempt observer cleanup from PR #276."
 }
