@@ -71,5 +71,9 @@ jobs:
               Write-Host 'DIRECT_UI_PROBE_BEGIN'
               & node.exe $runtimeProbe --state $statePath --cdp-url $cdp
               Write-Host 'DIRECT_UI_PROBE_END'
+              $exactProbe = Join-Path $env:GITHUB_WORKSPACE '.github\scripts\sc013-post279-exact-turn-temp.mjs'
+              Write-Host 'EXACT_TURN_PROBE_BEGIN'
+              & node.exe $exactProbe --runtime (Join-Path $root 'runtime') --state $statePath --cdp-url $cdp
+              Write-Host 'EXACT_TURN_PROBE_END'
             }
           }
