@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 
-import { composerInstructionDigest, inspectComposerDraftDigest } from "../ui/actions.mjs";
+import {
+  captureMatchingUserTurnEvidence,
+  composerInstructionDigest,
+  inspectComposerDraftDigest
+} from "../ui/actions.mjs";
 import { ChatGptUiAdapter } from "../ui/playwright-adapter.mjs";
 import { captureLatestRoleTurn } from "../ui/latest-turn.mjs";
 import {
@@ -190,7 +194,43 @@ export function canRecoverPreparedBootstrapNonDelivery(state) {
   );
 }
 
-async function hasPositiveBlankBootstrapNonDelivery(adapter, page) {
+export function preparedBootstrapIsStaleEnough(
+  state,
+  {
+    nowMs = Date.now(),
+    minimumAgeMs = 60_000
+  } = {}
+) {
+  const raw =
+    state?.outbound?.prepared_at ||
+    state?.updated_at ||
+    null;
+  const preparedAt = Date.parse(String(raw || ""));
+  if (!Number.isFinite(preparedAt)) return false;
+  return Number(nowMs) - preparedAt >= Math.max(0, Number(minimumAgeMs) || 0);
+}
+
+export function safeBootstrapNonDeliverySnapshot(snapshot = {}) {
+  return Boolean(
+    snapshot &&
+    !snapshot.loginRequired &&
+    !snapshot.hasCaptcha &&
+    !snapshot.hasNetworkError &&
+    !snapshot.hasTransientError &&
+    !snapshot.conversationMissing &&
+    !snapshot.conversationAccessDenied &&
+    !snapshot.conversationPath &&
+    !snapshot.responseRunning &&
+    snapshot.composerReady === true &&
+    Number(snapshot.conversationTurnElementCount || 0) === 0
+  );
+}
+
+async function hasPositiveBlankBootstrapNonDelivery(
+  adapter,
+  page,
+  { expectedInstruction = null } = {}
+) {
   if (!page || !isBlankHomePage(page)) return false;
 
   const probe = await boundedRuntimeStep(
@@ -202,19 +242,24 @@ async function hasPositiveBlankBootstrapNonDelivery(adapter, page) {
     return null;
   });
   const snapshot = probe?.snapshot || {};
+  if (!probe || !safeBootstrapNonDeliverySnapshot(snapshot)) {
+    return false;
+  }
+
+  const wanted = String(expectedInstruction || "");
+  if (!wanted) return false;
+  const exactTurn = await boundedRuntimeStep(
+    "BOOTSTRAP_NON_DELIVERY_EXACT_TURN",
+    () => captureMatchingUserTurnEvidence(page, wanted),
+    { timeoutMs: 5_000 }
+  ).catch((error) => {
+    if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+    return null;
+  });
   if (
-    !probe ||
-    snapshot.loginRequired ||
-    snapshot.hasCaptcha ||
-    snapshot.hasNetworkError ||
-    snapshot.hasTransientError ||
-    snapshot.conversationMissing ||
-    snapshot.conversationAccessDenied ||
-    snapshot.conversationPath ||
-    snapshot.responseRunning ||
-    snapshot.composerReady !== true ||
-    Number(snapshot.userMessageCount || 0) !== 0 ||
-    Number(snapshot.assistantMessageCount || 0) !== 0
+    !exactTurn ||
+    exactTurn.confirmed ||
+    exactTurn.evidence === "user-turn-state-unreadable"
   ) {
     return false;
   }
@@ -251,6 +296,7 @@ export async function waitForPositiveBlankBootstrapNonDelivery(
     pollMs = 750,
     stablePasses = 2,
     verify = hasPositiveBlankBootstrapNonDelivery,
+    expectedInstruction = null,
     now = () => Date.now(),
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
   } = {}
@@ -279,7 +325,7 @@ export async function waitForPositiveBlankBootstrapNonDelivery(
       null;
 
     const positive = candidate
-      ? await verify(adapter, candidate)
+      ? await verify(adapter, candidate, { expectedInstruction })
       : false;
 
     if (positive) {
@@ -1169,27 +1215,6 @@ export async function runSingleConversationRuntime({
       // current ChatGPT surface is still a blank home page with zero turns and
       // an empty composer. This is positive non-delivery evidence, not an
       // ambiguous resend authorization.
-      const candidatePage =
-        adapter.getActivePage?.() ||
-        adapter.getChatGptPages?.().find((candidate) => isBlankHomePage(candidate)) ||
-        null;
-      const verifiedNonDeliveryPage =
-        await waitForPositiveBlankBootstrapNonDelivery(
-          adapter,
-          candidatePage,
-          {
-            timeoutMs: 30_000,
-            pollMs: 750,
-            stablePasses: 2
-          }
-        );
-      if (!verifiedNonDeliveryPage) {
-        throw Object.assign(
-          new Error("prepared bootstrap non-delivery could not be positively verified"),
-          { code: "RUNTIME_RESTART_BOOTSTRAP_NON_DELIVERY_UNVERIFIED" }
-        );
-      }
-
       const retryMessageId = String(current.outbound.message_id || "").trim();
       const retryMessage = buildSingleConversationBootstrap({
         sourceOfTruthUrl,
@@ -1203,6 +1228,34 @@ export async function runSingleConversationRuntime({
         throw Object.assign(
           new Error("prepared bootstrap reconstruction digest mismatch"),
           { code: "OUTBOUND_DIGEST_MISMATCH" }
+        );
+      }
+      if (!preparedBootstrapIsStaleEnough(current)) {
+        throw Object.assign(
+          new Error("prepared bootstrap is not old enough for bounded non-delivery recovery"),
+          { code: "RUNTIME_RESTART_BOOTSTRAP_NON_DELIVERY_UNVERIFIED" }
+        );
+      }
+
+      const candidatePage =
+        adapter.getActivePage?.() ||
+        adapter.getChatGptPages?.().find((candidate) => isBlankHomePage(candidate)) ||
+        null;
+      const verifiedNonDeliveryPage =
+        await waitForPositiveBlankBootstrapNonDelivery(
+          adapter,
+          candidatePage,
+          {
+            timeoutMs: 30_000,
+            pollMs: 750,
+            stablePasses: 2,
+            expectedInstruction: retryMessage
+          }
+        );
+      if (!verifiedNonDeliveryPage) {
+        throw Object.assign(
+          new Error("prepared bootstrap non-delivery could not be positively verified"),
+          { code: "RUNTIME_RESTART_BOOTSTRAP_NON_DELIVERY_UNVERIFIED" }
         );
       }
 
