@@ -1,6 +1,11 @@
 name: SC-013 Runtime Watchdog
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/sc013-runtime-watchdog.yml
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
