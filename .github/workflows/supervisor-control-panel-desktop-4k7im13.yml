@@ -47,4 +47,16 @@ jobs:
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\update-latest-clean-old.ps1" -TargetComputer "DESKTOP-4K7IM13" -ExpectedMainSha "${{ github.sha }}"
           exit /b %ERRORLEVEL%
 
+      - name: Capture SC-013 read-only live diagnostic
+        shell: cmd
+        run: |
+          @echo off
+          if /I not "%COMPUTERNAME%"=="DESKTOP-4K7IM13" (
+            echo SC013_LIVE_DIAG_TARGET_MATCH=False
+            exit /b 0
+          )
+          echo SC013_LIVE_DIAG_TARGET_MATCH=True
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc013-rebind-diagnostic.ps1" -TargetComputer "DESKTOP-4K7IM13" -NonTargetHoldSeconds 0
+          exit /b %ERRORLEVEL%
+
 # sc013-wait-response-recovery-redeploy: 2026-09-30T16:42Z
