@@ -21,7 +21,9 @@ test("automatic Supervisor boot and CDP recovery keep the dedicated real Chrome 
   assert.doesNotMatch(run, /--headless/);
 
   assert.match(start, /\[switch\]\$Hidden/);
-  assert.match(start, /Start-Process powershell\.exe -WindowStyle Hidden/);
+  assert.match(start, /FilePath = 'powershell\.exe'/);
+  assert.match(start, /WindowStyle = 'Hidden'/);
+  assert.match(start, /Start-Process @startParams/);
   assert.match(bootstrap, /start-supervisor\.ps1/);
   assert.match(bootstrap, /-File \$startSupervisor -Hidden/);
 });
