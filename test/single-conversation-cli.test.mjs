@@ -340,7 +340,11 @@ test("SC-013 prepared bootstrap restart requires positive blank-home evidence be
   assert.doesNotMatch(helperBody, /Number\(snapshot\.userMessageCount/);
   assert.doesNotMatch(helperBody, /Number\(snapshot\.assistantMessageCount/);
   assert.match(helperBody, /stablePasses = 2/);
+  assert.match(helperBody, /timeoutMs = 90_000/);
   assert.match(helperBody, /passCount >= requiredPasses/);
+  assert.match(helperBody, /logBootstrapNonDeliverySample/);
+  assert.match(helperBody, /BOOTSTRAP_NON_DELIVERY_SETTLE_TIMEOUT/);
+  assert.match(body, /timeoutMs: 90_000/);
   assert.match(body, /page: verifiedNonDeliveryPage/);
 });
 
