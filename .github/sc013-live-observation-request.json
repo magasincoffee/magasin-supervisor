@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "requested_after_deploy_sha": "47b316e0e3c2551866c36fb9e681e1ae4eb1a3fb",
-  "purpose": "Owner-delegated overnight first-failure attempt after PR #279 DOM snapshot draft proof."
+  "requested_after_deploy_sha": "a3d4d1140715446ffeb4207aa3ac070ec45f8818",
+  "purpose": "Owner-delegated first-failure attempt after PR #280 correlated bootstrap delivery reconciliation."
 }
