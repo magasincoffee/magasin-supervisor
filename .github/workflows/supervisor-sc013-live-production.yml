@@ -25,5 +25,5 @@ jobs:
         shell: cmd
         run: |
           @echo off
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc013-live-production.ps1" -TargetComputer "DESKTOP-4K7IM13" -NonTargetHoldSeconds 150 -OwnerStartWaitSeconds 900 -MaxObserveSeconds 3600 -StallSeconds 240
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc013-live-production.ps1" -TargetComputer "DESKTOP-4K7IM13" -NonTargetHoldSeconds 150 -OwnerStartWaitSeconds 900 -BlockedGraceSeconds 150 -MaxObserveSeconds 3600 -StallSeconds 240
           exit /b %ERRORLEVEL%
