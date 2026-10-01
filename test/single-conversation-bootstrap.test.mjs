@@ -232,6 +232,52 @@ test("SC-010 retries explicit Send only after positive blank-home non-delivery e
   assert.match(source, /waitForExactFreshUserTurn\(page, instruction, \{\s*timeoutMs: 30_000/);
 });
 
+test("SC-013 bootstrap delegates to hardened sender only after positive fresh-chat non-delivery", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-bootstrap.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /captureMatchingUserTurnEvidence/);
+  assert.match(source, /sendComposerInstruction/);
+
+  const gate = source.indexOf(
+    "SC-013: the generic conversation sender has newer ChatGPT submit"
+  );
+  const positive = source.indexOf(
+    "finalStillHome &&",
+    gate
+  );
+  const zeroTurns = source.indexOf(
+    "finalTurnCount === 0",
+    positive
+  );
+  const zeroDirect = source.indexOf(
+    "finalDirectUserCount === 0",
+    zeroTurns
+  );
+  const sharedSend = source.indexOf(
+    "sendComposerInstruction(page, instruction",
+    zeroDirect
+  );
+  const exactTurn = source.indexOf(
+    "captureMatchingUserTurnEvidence(page, instruction)",
+    sharedSend
+  );
+
+  assert.ok(gate >= 0);
+  assert.ok(positive > gate);
+  assert.ok(zeroTurns > positive);
+  assert.ok(zeroDirect > zeroTurns);
+  assert.ok(sharedSend > zeroDirect);
+  assert.ok(exactTurn > sharedSend);
+
+  const body = source.slice(gate, exactTurn + 200);
+  assert.match(body, /dryRun: false/);
+  assert.match(body, /if \(shared\?\.executed\)/);
+  assert.match(body, /if \(exact\?\.confirmed\)/);
+});
+
 test("SC-008 fresh bootstrap reacquires composer when locator Enter detaches", async () => {
   const instruction = "MAGASIN_SINGLE_CONVERSATION_BOOTSTRAP_V1 id=cold-enter SOT=https://example.com/SOURCE_OF_TRUTH.md";
   let composerText = instruction;
