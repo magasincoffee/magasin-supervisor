@@ -130,6 +130,13 @@ async function boundedRuntimeCleanup(action, timeoutMs = 1_500) {
   }
 }
 
+export function replacementReasonForResponseWaitError(error) {
+  const code = String(error?.code || "").toUpperCase();
+  if (code === "TRANSIENT_ERROR") return "REPEATED_TRANSIENT_FAILURE";
+  if (code === "NETWORK_ERROR") return "REPEATED_NETWORK_FAILURE";
+  return null;
+}
+
 async function settleTransactionResponse({
   adapter,
   page,
@@ -897,13 +904,36 @@ export async function runSingleConversationRuntime({
         });
         current = await readSingleConversationState(statePath);
       } else if (canRebindInFlightProtocolMessage(current)) {
-        bootstrapResponse = await resumeInFlightProtocolMessageAfterRebind({
-          adapter,
-          page,
-          statePath,
-          responseTimeoutMs,
-          pollMs
-        });
+        try {
+          bootstrapResponse = await resumeInFlightProtocolMessageAfterRebind({
+            adapter,
+            page,
+            statePath,
+            responseTimeoutMs,
+            pollMs
+          });
+        } catch (error) {
+          const replacementReason = replacementReasonForResponseWaitError(error);
+          if (!replacementReason) throw error;
+
+          // The user turn is already durably delivered, so never actuate the
+          // old task again. Repeated response-surface failure retires only the
+          // disposable chat, records the prior outbound transaction as recovery
+          // evidence, then bootstraps a fresh generation from authoritative SOT.
+          const replacement = await replaceDisposableConversation({
+            adapter,
+            page,
+            statePath,
+            reason: replacementReason,
+            sourceOfTruthUrl,
+            projectId: "LIVE",
+            qualificationOnly,
+            timeoutMs: responseTimeoutMs,
+            pollMs: Math.min(750, Math.max(100, pollMs))
+          });
+          page = replacement.page;
+          bootstrapResponse = replacement.response;
+        }
         current = await readSingleConversationState(statePath);
       } else if (canRebindEnqueuedTaskMessage(current)) {
         bootstrapResponse = await resumeEnqueuedTaskMessageAfterRebind({
