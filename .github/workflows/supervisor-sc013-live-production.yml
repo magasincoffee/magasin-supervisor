@@ -29,7 +29,7 @@ jobs:
         shell: cmd
         run: |
           @echo off
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc013-live-production.ps1" -TargetComputer "DESKTOP-4K7IM13" -NonTargetHoldSeconds 150 -MaxObserveSeconds 3600 -StallSeconds 240
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc013-live-production.ps1" -TargetComputer "DESKTOP-4K7IM13" -NonTargetHoldSeconds 150 -OwnerStartWaitSeconds 900 -MaxObserveSeconds 3600 -StallSeconds 240
           exit /b %ERRORLEVEL%
 
   attempt-2:
@@ -45,7 +45,7 @@ jobs:
         shell: cmd
         run: |
           @echo off
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc013-live-production.ps1" -TargetComputer "DESKTOP-4K7IM13" -NonTargetHoldSeconds 150 -MaxObserveSeconds 3600 -StallSeconds 240
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc013-live-production.ps1" -TargetComputer "DESKTOP-4K7IM13" -NonTargetHoldSeconds 150 -OwnerStartWaitSeconds 900 -MaxObserveSeconds 3600 -StallSeconds 240
           exit /b %ERRORLEVEL%
 
   qualification-authority:
@@ -70,3 +70,5 @@ jobs:
           Write-Host 'SC013_QUALIFICATION_AUTHORITY=PASS'
 
 # rerun-candidate: f0e1b53e2b0a3ae7799bce2eee9f4213b7406321-stability-observation-2
+
+# owner-start-prearmed-observer: 2026-10-01T16:10Z
