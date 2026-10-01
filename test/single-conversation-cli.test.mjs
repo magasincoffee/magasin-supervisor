@@ -7,6 +7,7 @@ import path from "node:path";
 import {
   bootstrapRecoveryReasonForState,
   boundedRuntimeStep,
+  canRecoverPreparedBootstrapNonDelivery,
   canRebindEnqueuedStatusCheck,
   canRebindEnqueuedTaskMessage,
   canRebindInFlightProtocolMessage,
@@ -76,6 +77,87 @@ test("SC-013 restart rebind permits only proven pre-actuation task discovery rec
     }),
     false
   );
+});
+
+test("SC-013 restart allows one bootstrap retry only from proven SEND_NOT_ACTUATED PREPARED state", () => {
+  const candidate = {
+    conversation: { status: "ACTIVE", runtime_id: null },
+    automation: {
+      status: "BLOCKED",
+      phase: "BOOTSTRAP_FAILED",
+      reason: "SEND_NOT_ACTUATED"
+    },
+    outbound: {
+      state: "PREPARED",
+      kind: "SOURCE_OF_TRUTH_BOOTSTRAP",
+      message_id: "bootstrap-retry-1",
+      message_digest: "digest",
+      retry_count: 0,
+      last_error_code: "SEND_NOT_ACTUATED"
+    }
+  };
+
+  assert.equal(canRecoverPreparedBootstrapNonDelivery(candidate), true);
+  assert.equal(
+    canRecoverPreparedBootstrapNonDelivery({
+      ...candidate,
+      conversation: { ...candidate.conversation, runtime_id: "chat:known" }
+    }),
+    false
+  );
+  assert.equal(
+    canRecoverPreparedBootstrapNonDelivery({
+      ...candidate,
+      outbound: { ...candidate.outbound, retry_count: 1 }
+    }),
+    false
+  );
+  assert.equal(
+    canRecoverPreparedBootstrapNonDelivery({
+      ...candidate,
+      recovery: { reason: "BOOTSTRAP_POSITIVE_NON_DELIVERY_RETRY" }
+    }),
+    false
+  );
+  assert.equal(
+    canRecoverPreparedBootstrapNonDelivery({
+      ...candidate,
+      outbound: { ...candidate.outbound, last_error_code: "COMPOSER_NOT_READY" }
+    }),
+    false
+  );
+});
+
+test("SC-013 prepared bootstrap restart requires positive blank-home evidence before bounded replacement", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const gate = source.indexOf("canRecoverPreparedBootstrapNonDelivery(current)");
+  const verify = source.indexOf("hasPositiveBlankBootstrapNonDelivery", gate);
+  const digest = source.indexOf("prepared bootstrap reconstruction digest mismatch", verify);
+  const reason = source.indexOf("BOOTSTRAP_POSITIVE_NON_DELIVERY_RETRY", digest);
+  const replace = source.indexOf("replaceDisposableConversation", reason);
+  const lostBootstrap = source.indexOf("lostBootstrapRecoveryReason", replace);
+
+  assert.ok(gate >= 0);
+  assert.ok(verify > gate);
+  assert.ok(digest > verify);
+  assert.ok(reason > digest);
+  assert.ok(replace > reason);
+  assert.ok(lostBootstrap > replace);
+
+  const body = source.slice(gate, lostBootstrap);
+  assert.match(body, /messageId: retryMessageId/);
+  assert.match(body, /composerInstructionDigest\(retryMessage\)/);
+
+  const helper = source.indexOf("async function hasPositiveBlankBootstrapNonDelivery");
+  const helperEnd = source.indexOf("function recoverableBootstrapPage", helper);
+  assert.ok(helper >= 0 && helperEnd > helper);
+  const helperBody = source.slice(helper, helperEnd);
+  assert.match(helperBody, /userMessageCount/);
+  assert.match(helperBody, /assistantMessageCount/);
+  assert.match(helperBody, /draft\.has_text === false/);
 });
 
 test("SC-013 startup resumes the pending discovery before selecting new work", async () => {

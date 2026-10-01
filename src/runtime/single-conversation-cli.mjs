@@ -173,6 +173,70 @@ export function bootstrapRecoveryReasonForState(state) {
   return null;
 }
 
+
+export function canRecoverPreparedBootstrapNonDelivery(state) {
+  const outbound = state?.outbound || {};
+  return Boolean(
+    String(state?.conversation?.status || "").toUpperCase() === "ACTIVE" &&
+    !String(state?.conversation?.runtime_id || "").trim() &&
+    String(state?.automation?.status || "").toUpperCase() === "BLOCKED" &&
+    String(state?.automation?.phase || "").toUpperCase() === "BOOTSTRAP_FAILED" &&
+    String(outbound.state || "").toUpperCase() === "PREPARED" &&
+    String(outbound.kind || "") === "SOURCE_OF_TRUTH_BOOTSTRAP" &&
+    String(outbound.last_error_code || "").toUpperCase() === "SEND_NOT_ACTUATED" &&
+    Number(outbound.retry_count || 0) < 1 &&
+    String(outbound.message_id || "").trim() &&
+    String(outbound.message_digest || "").trim() &&
+    String(state?.recovery?.reason || "") !==
+      "BOOTSTRAP_POSITIVE_NON_DELIVERY_RETRY"
+  );
+}
+
+async function hasPositiveBlankBootstrapNonDelivery(adapter, page) {
+  if (!page || !isBlankHomePage(page)) return false;
+
+  const probe = await boundedRuntimeStep(
+    "BOOTSTRAP_NON_DELIVERY_PROBE",
+    () => adapter.probePage(page),
+    { timeoutMs: 10_000 }
+  ).catch((error) => {
+    if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+    return null;
+  });
+  const snapshot = probe?.snapshot || {};
+  if (
+    !probe ||
+    snapshot.loginRequired ||
+    snapshot.hasCaptcha ||
+    snapshot.hasNetworkError ||
+    snapshot.hasTransientError ||
+    snapshot.conversationMissing ||
+    snapshot.conversationAccessDenied ||
+    snapshot.conversationPath ||
+    snapshot.responseRunning ||
+    snapshot.composerReady !== true ||
+    Number(snapshot.userMessageCount || 0) !== 0 ||
+    Number(snapshot.assistantMessageCount || 0) !== 0
+  ) {
+    return false;
+  }
+
+  const draft = await boundedRuntimeStep(
+    "BOOTSTRAP_NON_DELIVERY_DRAFT",
+    () => inspectComposerDraftDigest(page, { timeoutMs: 1_500 }),
+    { timeoutMs: 5_000 }
+  ).catch((error) => {
+    if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+    return null;
+  });
+
+  return Boolean(
+    draft &&
+    draft.ready !== false &&
+    draft.has_text === false
+  );
+}
+
 function recoverableBootstrapPage(adapter, state) {
   const expected = String(state?.conversation?.runtime_id || "").trim();
   const pages = adapter?.getChatGptPages?.() || [];
@@ -1033,6 +1097,57 @@ export async function runSingleConversationRuntime({
         });
         current = await readSingleConversationState(statePath);
       }
+    } else if (canRecoverPreparedBootstrapNonDelivery(current)) {
+      // SC-013 production incident: the prior bootstrap submit returned
+      // SEND_NOT_ACTUATED and durable state never advanced beyond PREPARED.
+      // Retry exactly once only after fresh read-only evidence proves the
+      // current ChatGPT surface is still a blank home page with zero turns and
+      // an empty composer. This is positive non-delivery evidence, not an
+      // ambiguous resend authorization.
+      const candidatePage =
+        adapter.getActivePage?.() ||
+        adapter.getChatGptPages?.().find((candidate) => isBlankHomePage(candidate)) ||
+        null;
+      const positiveNonDelivery =
+        await hasPositiveBlankBootstrapNonDelivery(adapter, candidatePage);
+      if (!positiveNonDelivery) {
+        throw Object.assign(
+          new Error("prepared bootstrap non-delivery could not be positively verified"),
+          { code: "RUNTIME_RESTART_BOOTSTRAP_NON_DELIVERY_UNVERIFIED" }
+        );
+      }
+
+      const retryMessageId = String(current.outbound.message_id || "").trim();
+      const retryMessage = buildSingleConversationBootstrap({
+        sourceOfTruthUrl,
+        messageId: retryMessageId,
+        qualificationOnly
+      });
+      if (
+        composerInstructionDigest(retryMessage) !==
+        String(current.outbound.message_digest || "")
+      ) {
+        throw Object.assign(
+          new Error("prepared bootstrap reconstruction digest mismatch"),
+          { code: "OUTBOUND_DIGEST_MISMATCH" }
+        );
+      }
+
+      const replacement = await replaceDisposableConversation({
+        adapter,
+        page: candidatePage,
+        statePath,
+        reason: "BOOTSTRAP_POSITIVE_NON_DELIVERY_RETRY",
+        sourceOfTruthUrl,
+        projectId: "LIVE",
+        messageId: retryMessageId,
+        qualificationOnly,
+        timeoutMs: responseTimeoutMs,
+        pollMs: Math.min(750, Math.max(100, pollMs))
+      });
+      page = replacement.page;
+      bootstrapResponse = replacement.response;
+      current = await readSingleConversationState(statePath);
     } else if (lostBootstrapRecoveryReason) {
       // Production SC-013 incident: ChatGPT replaced/errored the disposable
       // bootstrap surface after delivery, so the persisted runtime identity no
