@@ -1,14 +1,5 @@
-import { ChatGptUiAdapter } from "../../src/ui/playwright-adapter.mjs";
-import {
-  captureMatchingUserTurnEvidence,
-  inspectComposerDraftDigest
-} from "../../src/ui/actions.mjs";
-import {
-  buildSingleConversationBootstrap
-} from "../../src/runtime/single-conversation-bootstrap.mjs";
-import {
-  readSingleConversationState
-} from "../../src/runtime/single-conversation-state.mjs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 function argValue(name) {
   const i = process.argv.indexOf(name);
@@ -17,11 +8,30 @@ function argValue(name) {
 
 const statePath = argValue("--state");
 const cdpUrl = argValue("--cdp-url");
-if (!statePath || !cdpUrl) throw new Error("state/cdp required");
+const runtimeRoot = argValue("--runtime");
+if (!statePath || !cdpUrl || !runtimeRoot) {
+  throw new Error("state/cdp/runtime required");
+}
+
+const mod = (rel) => pathToFileURL(path.join(runtimeRoot, rel)).href;
+const [{ ChatGptUiAdapter }, actions, bootstrap, stateModule] = await Promise.all([
+  import(mod("src/ui/playwright-adapter.mjs")),
+  import(mod("src/ui/actions.mjs")),
+  import(mod("src/runtime/single-conversation-bootstrap.mjs")),
+  import(mod("src/runtime/single-conversation-state.mjs"))
+]);
+
+const {
+  captureMatchingUserTurnEvidence,
+  inspectComposerDraftDigest
+} = actions;
+const { buildSingleConversationBootstrap } = bootstrap;
+const { readSingleConversationState } = stateModule;
 
 let adapter = null;
 const output = [];
 const emit = (value) => output.push(String(value));
+
 try {
   const state = await readSingleConversationState(statePath);
   const messageId = String(state?.outbound?.message_id || "").trim();
