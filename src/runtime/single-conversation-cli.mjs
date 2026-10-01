@@ -222,6 +222,8 @@ export function safeBootstrapNonDeliverySnapshot(snapshot = {}) {
     !snapshot.conversationPath &&
     !snapshot.responseRunning &&
     snapshot.composerReady === true &&
+    snapshot.composerTextReadable === true &&
+    snapshot.composerHasText === false &&
     Number(snapshot.conversationTurnElementCount || 0) === 0
   );
 }
@@ -270,7 +272,13 @@ async function hasPositiveBlankBootstrapNonDelivery(
       transient_error: Boolean(snapshot.hasTransientError),
       conversation_missing: Boolean(snapshot.conversationMissing),
       access_denied: Boolean(snapshot.conversationAccessDenied),
-      structured_turn_count: Number(snapshot.conversationTurnElementCount || 0)
+      structured_turn_count: Number(snapshot.conversationTurnElementCount || 0),
+      composer_text_readable: snapshot.composerTextReadable === true,
+      composer_has_text:
+        snapshot.composerHasText === null
+          ? null
+          : Boolean(snapshot.composerHasText),
+      composer_text_char_count: Number(snapshot.composerTextCharCount || 0)
     });
     return false;
   }
@@ -305,40 +313,10 @@ async function hasPositiveBlankBootstrapNonDelivery(
     return false;
   }
 
-  let draftError = null;
-  const draft = await boundedRuntimeStep(
-    "BOOTSTRAP_NON_DELIVERY_DRAFT",
-    () => inspectComposerDraftDigest(page, { timeoutMs: 1_500 }),
-    { timeoutMs: 5_000 }
-  ).catch((error) => {
-    if (error?.code === "CDP_RECOVERY_REQUIRED") {
-      // The safe page probe immediately above already proved the page/CDP
-      // surface was reachable. A timeout while reading the composer draft is
-      // therefore only an inconclusive non-delivery sample. Let the bounded
-      // settle window reacquire and probe again; a true CDP failure will be
-      // raised by the next page probe, while no resend authority is granted
-      // until an empty draft is positively observed.
-      draftError = "DRAFT_READ_TIMEOUT";
-      return null;
-    }
-    draftError = String(error?.code || error?.message || "DRAFT_READ_FAILED").slice(0, 120);
-    return null;
-  });
-
-  const positive = Boolean(
-    draft &&
-    draft.ready !== false &&
-    draft.has_text === false
-  );
-  if (!positive) {
-    logBootstrapNonDeliverySample("DRAFT_NOT_EMPTY_OR_UNREADABLE", {
-      draft_error: draftError,
-      draft_ready: draft?.ready !== false,
-      draft_has_text: Boolean(draft?.has_text)
-    });
-    return false;
-  }
-
+  // The same safe DOM snapshot already proved the active composer is ready,
+  // text-readable, and empty. Do not issue a second locator traversal here:
+  // on the production ChatGPT surface that redundant traversal can time out
+  // while the already-captured DOM evidence remains valid.
   logBootstrapNonDeliverySample("POSITIVE");
   return true;
 }
