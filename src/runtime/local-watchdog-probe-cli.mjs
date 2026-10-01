@@ -36,7 +36,8 @@ const result = {
   conversation_full: false,
   conversation_missing: false,
   conversation_access_denied: false,
-  draft_has_text: false,
+  draft_readable: false,
+  draft_has_text: null,
   draft_digest: null,
   draft_rendered_digest: null,
   draft_length: 0,
@@ -96,12 +97,23 @@ try {
     result.conversation_missing = Boolean(snapshot.conversationMissing);
     result.conversation_access_denied = Boolean(snapshot.conversationAccessDenied);
 
-    const draft = await inspectComposerDraftDigest(page, { timeoutMs: 1_000 })
-      .catch(() => null);
-    result.draft_has_text = Boolean(draft?.has_text);
-    result.draft_digest = draft?.digest || null;
-    result.draft_rendered_digest = draft?.rendered_digest || null;
-    result.draft_length = String(draft?.normalized_text || "").length;
+    result.draft_readable = snapshot.composerTextReadable === true;
+    result.draft_has_text = result.draft_readable
+      ? Boolean(snapshot.composerHasText)
+      : null;
+    result.draft_length = result.draft_readable
+      ? Number(snapshot.composerTextCharCount || 0)
+      : 0;
+
+    // Only perform the slower digest read when text is actually present.
+    // An empty draft is already proven by the same DOM snapshot that proved
+    // composer readiness; a timeout here must never be misreported as empty.
+    if (result.draft_has_text === true) {
+      const draft = await inspectComposerDraftDigest(page, { timeoutMs: 1_000 })
+        .catch(() => null);
+      result.draft_digest = draft?.digest || null;
+      result.draft_rendered_digest = draft?.rendered_digest || null;
+    }
   }
 } catch (error) {
   result.probe_error = String(error?.code || error?.message || "PROBE_FAILED").slice(0, 240);

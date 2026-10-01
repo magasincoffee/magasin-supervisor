@@ -142,6 +142,9 @@ test("SC-013 bootstrap non-delivery ignores heuristic message counts but rejects
     conversationPath: false,
     responseRunning: false,
     composerReady: true,
+    composerTextReadable: true,
+    composerHasText: false,
+    composerTextCharCount: 0,
     conversationTurnElementCount: 0,
     // Current ChatGPT home can expose text surfaces that resemble modern
     // user/assistant messages even when there is no persisted conversation.
@@ -168,6 +171,22 @@ test("SC-013 bootstrap non-delivery ignores heuristic message counts but rejects
     safeBootstrapNonDeliverySnapshot({
       ...base,
       responseRunning: true
+    }),
+    false
+  );
+  assert.equal(
+    safeBootstrapNonDeliverySnapshot({
+      ...base,
+      composerHasText: true,
+      composerTextCharCount: 12
+    }),
+    false
+  );
+  assert.equal(
+    safeBootstrapNonDeliverySnapshot({
+      ...base,
+      composerTextReadable: false,
+      composerHasText: null
     }),
     false
   );
@@ -260,45 +279,6 @@ test("SC-013 bootstrap non-delivery does not authorize retry from unstable evide
   assert.ok(checks >= 4);
 });
 
-test("SC-013 bootstrap draft-read timeout remains inconclusive until the next safe page probe", async () => {
-  const source = await fs.readFile(
-    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
-    "utf8"
-  );
-
-  const helper = source.indexOf("async function hasPositiveBlankBootstrapNonDelivery");
-  const probe = source.indexOf('"BOOTSTRAP_NON_DELIVERY_PROBE"', helper);
-  const draft = source.indexOf('"BOOTSTRAP_NON_DELIVERY_DRAFT"', probe);
-  const helperEnd = source.indexOf(
-    "export async function waitForPositiveBlankBootstrapNonDelivery",
-    draft
-  );
-
-  assert.ok(helper >= 0);
-  assert.ok(probe > helper);
-  assert.ok(draft > probe);
-  assert.ok(helperEnd > draft);
-
-  const probeBody = source.slice(probe, draft);
-  const draftBody = source.slice(draft, helperEnd);
-
-  // A page/CDP probe timeout still requires wrapper-level CDP recovery.
-  assert.match(
-    probeBody,
-    /error\?\.code === "CDP_RECOVERY_REQUIRED"\) throw error/
-  );
-
-  // A draft-read timeout after a successful page probe is only an
-  // inconclusive read-only sample; it must not authorize a send or kill the
-  // wrapper as though CDP were dead.
-  assert.match(draftBody, /inconclusive non-delivery sample/);
-  assert.match(draftBody, /return null/);
-  assert.doesNotMatch(
-    draftBody,
-    /error\?\.code === "CDP_RECOVERY_REQUIRED"\) throw error/
-  );
-});
-
 test("SC-013 prepared bootstrap restart requires positive blank-home evidence before bounded replacement", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
@@ -336,7 +316,14 @@ test("SC-013 prepared bootstrap restart requires positive blank-home evidence be
   assert.match(helperBody, /safeBootstrapNonDeliverySnapshot/);
   assert.match(helperBody, /captureMatchingUserTurnEvidence/);
   assert.match(helperBody, /BOOTSTRAP_NON_DELIVERY_EXACT_TURN/);
-  assert.match(helperBody, /draft\.has_text === false/);
+  assert.doesNotMatch(helperBody, /BOOTSTRAP_NON_DELIVERY_DRAFT/);
+
+  const safeHelper = source.indexOf("export function safeBootstrapNonDeliverySnapshot");
+  const safeHelperEnd = source.indexOf("function logBootstrapNonDeliverySample", safeHelper);
+  assert.ok(safeHelper >= 0 && safeHelperEnd > safeHelper);
+  const safeBody = source.slice(safeHelper, safeHelperEnd);
+  assert.match(safeBody, /composerTextReadable === true/);
+  assert.match(safeBody, /composerHasText === false/);
   assert.doesNotMatch(helperBody, /Number\(snapshot\.userMessageCount/);
   assert.doesNotMatch(helperBody, /Number\(snapshot\.assistantMessageCount/);
   assert.match(helperBody, /stablePasses = 2/);

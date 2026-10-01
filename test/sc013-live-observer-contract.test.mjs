@@ -21,6 +21,7 @@ test("SC-013 live first-failure observer is explicit, pre-armed, and single-atte
   assert.doesNotMatch(workflow, /matrix:/);
 
   assert.match(workflow, /-OwnerStartWaitSeconds 900/);
+  assert.match(workflow, /-BlockedGraceSeconds 150/);
   assert.match(workflow, /-MaxObserveSeconds 3600/);
   assert.match(workflow, /supervisor-sc013-live-production\.ps1/);
 });

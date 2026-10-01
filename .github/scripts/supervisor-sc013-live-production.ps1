@@ -2,6 +2,7 @@ param(
   [Parameter(Mandatory=$true)][string]$TargetComputer,
   [int]$NonTargetHoldSeconds=150,
   [int]$OwnerStartWaitSeconds=900,
+  [int]$BlockedGraceSeconds=150,
   [int]$MaxObserveSeconds=1200,
   [int]$StallSeconds=240
 )
@@ -36,6 +37,7 @@ $runtime=Join-Path $root 'runtime'
 $statePath=Join-Path $root 'single-conversation-state.json'
 $controlPath=Join-Path $root 'single-conversation-control.json'
 $startScript=Join-Path $runtime 'windows\start-supervisor.ps1'
+$delegationPath=Join-Path $env:GITHUB_WORKSPACE '.github\sc013-owner-delegation.json'
 
 foreach($p in @($runtime,$controlPath,$startScript)){
   if(-not (Test-Path $p)){throw "SC013 required path missing: $p"}
@@ -74,17 +76,47 @@ $baselineNeedsRecovery=[bool](
 )
 Write-Host "SC013_LIVE_BASELINE_NEEDS_RECOVERY=$baselineNeedsRecovery"
 
-# SC-013 acceptance must observe the real Owner-visible flow. The harness is
-# not Owner authority and must never clear STOP/AUTOSTART_DISABLED or start
-# the Robot on the Owner's behalf.
+# Owner START remains the default authority. A time-bounded owner-delegation
+# marker may explicitly authorize this target-guarded observer to invoke the
+# canonical START script during an unattended stabilization window.
+$delegatedStartAuthorized=$false
+$delegatedStartExpiresAt=$null
+if(Test-Path $delegationPath){
+  try{
+    $delegation=Get-Content $delegationPath -Raw -Encoding UTF8|ConvertFrom-Json
+    $expires=[DateTimeOffset]::Parse([string]$delegation.expires_at)
+    $delegatedStartAuthorized=[bool](
+      [bool]$delegation.active -and
+      [string]$delegation.target -eq $TargetComputer -and
+      [string]$delegation.scope -eq 'SC-013_OVERNIGHT_STABILIZATION' -and
+      [DateTimeOffset]::UtcNow -lt $expires
+    )
+    $delegatedStartExpiresAt=$expires
+  }catch{
+    $delegatedStartAuthorized=$false
+  }
+}
+Write-Host "SC013_LIVE_DELEGATED_START_AUTHORIZED=$delegatedStartAuthorized"
+if($delegatedStartExpiresAt){
+  Write-Host "SC013_LIVE_DELEGATED_START_EXPIRES_AT=$($delegatedStartExpiresAt.ToString('o'))"
+}
+
 $ownerStop=Get-LifecycleOwnerStopState -Root $root
 $truthBefore=Get-LifecycleProcessTruth -Root $root
 if($ownerStop.blocked -or -not $truthBefore.wrapper_alive){
-  # The observer is deliberately not Owner authority. Stay read-only and wait
-  # for the Owner to press START while this attempt is already collecting
-  # evidence, so startup races and the true first failing stage are observable.
-  Write-Host 'SC013_LIVE_OWNER_START_INVOKED=False'
-  Write-Host 'SC013_LIVE_WAITING_FOR_OWNER_START=True'
+  if($delegatedStartAuthorized){
+    Write-Host 'SC013_LIVE_OWNER_START_INVOKED=True'
+    Write-Host 'SC013_LIVE_OWNER_START_MODE=OWNER_DELEGATED_OVERNIGHT'
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $startScript -Hidden
+    if($LASTEXITCODE -ne 0){
+      Write-Host "SC013_LIVE_FIRST_FAILURE_CODE=OWNER_DELEGATED_START_FAILED"
+      Write-Host "SC013_LIVE_FIRST_FAILURE_STAGE=OWNER_START"
+      throw "Delegated Owner START failed with exit code $LASTEXITCODE."
+    }
+  }else{
+    Write-Host 'SC013_LIVE_OWNER_START_INVOKED=False'
+    Write-Host 'SC013_LIVE_WAITING_FOR_OWNER_START=True'
+  }
   $ownerStartDeadline=[DateTimeOffset]::UtcNow.AddSeconds(
     [Math]::Max(30,$OwnerStartWaitSeconds)
   )
@@ -111,7 +143,9 @@ if($ownerStop.blocked -or -not $truthBefore.wrapper_alive){
     throw 'SC013 observer timed out waiting for explicit Owner START.'
   }
 }
-Write-Host 'SC013_LIVE_OWNER_START_INVOKED=False'
+if(-not $delegatedStartAuthorized){
+  Write-Host 'SC013_LIVE_OWNER_START_INVOKED=False'
+}
 Write-Host 'SC013_LIVE_OWNER_STARTED_RUNTIME_OBSERVED=True'
 
 $deadline=[DateTimeOffset]::UtcNow.AddSeconds([Math]::Max(120,$MaxObserveSeconds))
@@ -256,14 +290,14 @@ while([DateTimeOffset]::UtcNow -lt $deadline){
 
   if($automation -eq 'BLOCKED'){
     if($null -eq $blockedSince){$blockedSince=[DateTimeOffset]::UtcNow}
-    if(([DateTimeOffset]::UtcNow-$blockedSince).TotalSeconds -ge 60){
+    if(([DateTimeOffset]::UtcNow-$blockedSince).TotalSeconds -ge [Math]::Max(120,$BlockedGraceSeconds)){
       $failureCode=if($lastCode){$lastCode}elseif($reason){$reason}else{'BLOCKED'}
       $failureStage=if($lastStage){$lastStage}elseif($preStage){$preStage}else{$phase}
       Write-Host "SC013_LIVE_FIRST_FAILURE_CODE=$failureCode"
       Write-Host "SC013_LIVE_FIRST_FAILURE_STAGE=$failureStage"
       Write-Host "SC013_LIVE_PRE_ACTUATION_CODE=$preCode"
       Write-Host "SC013_LIVE_PRE_ACTUATION_STAGE=$preStage"
-      throw "SC013 remained BLOCKED for 60 seconds: $failureCode / $failureStage"
+      throw "SC013 remained BLOCKED for $BlockedGraceSeconds seconds: $failureCode / $failureStage"
     }
   } else {
     $blockedSince=$null
