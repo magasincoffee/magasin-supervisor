@@ -305,16 +305,16 @@ test("SC-013 prepared bootstrap restart requires positive blank-home evidence be
     "utf8"
   );
   const gate = source.indexOf("canRecoverPreparedBootstrapNonDelivery(current)");
-  const verify = source.indexOf("waitForPositiveBlankBootstrapNonDelivery", gate);
-  const digest = source.indexOf("prepared bootstrap reconstruction digest mismatch", verify);
-  const reason = source.indexOf("BOOTSTRAP_POSITIVE_NON_DELIVERY_RETRY", digest);
+  const digest = source.indexOf("prepared bootstrap reconstruction digest mismatch", gate);
+  const verify = source.indexOf("waitForPositiveBlankBootstrapNonDelivery", digest);
+  const reason = source.indexOf("BOOTSTRAP_POSITIVE_NON_DELIVERY_RETRY", verify);
   const replace = source.indexOf("replaceDisposableConversation", reason);
   const lostBootstrap = source.indexOf("lostBootstrapRecoveryReason", replace);
 
   assert.ok(gate >= 0);
-  assert.ok(verify > gate);
-  assert.ok(digest > verify);
-  assert.ok(reason > digest);
+  assert.ok(digest > gate);
+  assert.ok(verify > digest);
+  assert.ok(reason > verify);
   assert.ok(replace > reason);
   assert.ok(lostBootstrap > replace);
 
