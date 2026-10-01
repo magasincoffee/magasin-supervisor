@@ -616,3 +616,23 @@ test("SC-013 restart WAIT_RESPONSE repeated failure retires chat without resendi
   assert.doesNotMatch(body, /sendProtocolMessage/);
   assert.doesNotMatch(body, /reconcileExactOnceOutbound/);
 });
+
+
+test("SC-013 completed bootstrap recovers malformed task-control without pausing wrapper", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const branch = source.indexOf("if (bootstrapResponse?.assistant_turn?.text)");
+  const parse = source.indexOf("parseTaskControl(bootstrapResponse.assistant_turn.text)", branch);
+  const invalid = source.indexOf('error?.code !== "TASK_PROTOCOL_INVALID"', parse);
+  const discovery = source.indexOf("control = await discoverTaskControl", invalid);
+  const fallbackElse = source.indexOf("} else {", discovery);
+
+  assert.ok(branch >= 0);
+  assert.ok(parse > branch);
+  assert.ok(invalid > parse);
+  assert.ok(discovery > invalid);
+  assert.ok(fallbackElse > discovery);
+  assert.match(source.slice(parse, fallbackElse), /cycles \+= 1/);
+});
