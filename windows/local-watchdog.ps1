@@ -132,14 +132,36 @@ try {
                 Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
                 return (New-UiProbeErrorResult -Code 'UI_PROBE_TIMEOUT')
             }
-            if ($process.ExitCode -ne 0 -or -not (Test-Path $stdout -PathType Leaf)) {
+            if (-not (Test-Path $stdout -PathType Leaf)) {
                 return (New-UiProbeErrorResult -Code 'UI_PROBE_FAILED')
             }
             $raw = Get-Content $stdout -Raw -Encoding UTF8
             if ([string]::IsNullOrWhiteSpace([string]$raw)) {
                 return (New-UiProbeErrorResult -Code 'UI_PROBE_EMPTY')
             }
-            return ([string]$raw | ConvertFrom-Json)
+
+            $parsed = $null
+            try {
+                $parsed = ([string]$raw | ConvertFrom-Json)
+            } catch {
+                return (New-UiProbeErrorResult -Code 'UI_PROBE_INVALID_JSON')
+            }
+
+            # On Windows PowerShell 5.1, Start-Process can report a blank
+            # ExitCode even after WaitForExit(timeout) returned true. A complete
+            # structured JSON result is stronger success evidence than a null
+            # process exit code, so only reject an explicit non-zero code.
+            $exitCode = $null
+            try {
+                if ($process.HasExited) {
+                    $process.Refresh()
+                    $exitCode = $process.ExitCode
+                }
+            } catch {}
+            if ($null -ne $exitCode -and [int]$exitCode -ne 0) {
+                return (New-UiProbeErrorResult -Code 'UI_PROBE_FAILED')
+            }
+            return $parsed
         } catch {
             return (New-UiProbeErrorResult -Code 'UI_PROBE_EXCEPTION')
         } finally {
