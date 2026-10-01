@@ -1196,7 +1196,6 @@ export async function runSingleConversationRuntime({
       return { page: oldPage, classification: classifyDisposableConversation(probe?.snapshot || {}) };
     })();
     const correlatedBootstrapRecovery =
-      !rebound?.page &&
       canRecoverCorrelatedPreparedBootstrapDelivery(current)
         ? await recoverCorrelatedPreparedBootstrapDelivery({
             adapter,

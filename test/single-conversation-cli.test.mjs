@@ -1019,3 +1019,15 @@ test("SC-013 cold bootstrap gets one bounded disposable retry on recoverable res
   assert.ok(runtimeStart > replace);
   assert.ok(helperCall > runtimeStart);
 });
+
+
+test("SC-013 correlated bootstrap recovery is evaluated even when a rebound page exists", async () => {
+  const source = await fs.readFile(new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url), "utf8");
+  const rebound = source.indexOf("const rebound = await resumeExistingConversationPage");
+  const recovery = source.indexOf("const correlatedBootstrapRecovery =", rebound);
+  const recovered = source.indexOf("if (correlatedBootstrapRecovery?.recovered)", recovery);
+  assert.ok(rebound >= 0 && recovery > rebound && recovered > recovery);
+  const gate = source.slice(recovery, recovered);
+  assert.match(gate, /canRecoverCorrelatedPreparedBootstrapDelivery\(current\)/);
+  assert.doesNotMatch(gate, /!rebound\?\.page\s*&&/);
+});
