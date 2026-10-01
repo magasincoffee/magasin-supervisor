@@ -70,3 +70,40 @@ jobs:
             Get-Content $events -ErrorAction SilentlyContinue | Select-Object -Last 160
             Write-Host 'EVENTS_TAIL_END'
           }
+
+          $failureDir = Join-Path $root 'local-watchdog-failures'
+          Write-Host 'FAILURE_SNAPSHOTS_BEGIN'
+          if (Test-Path $failureDir) {
+            Get-ChildItem $failureDir -Filter '*.json' |
+              Sort-Object LastWriteTimeUtc -Descending |
+              Select-Object -First 8 |
+              ForEach-Object {
+                Write-Host "FAILURE_FILE=$($_.Name)"
+                Write-Host "FAILURE_WRITE_UTC=$($_.LastWriteTimeUtc.ToString('o'))"
+                try {
+                  $j = Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+                  if ($j.ui) {
+                    Write-Host "UI_TIMESTAMP=$($j.ui.timestamp)"
+                    Write-Host "UI_PAGE_COUNT=$($j.ui.page_count)"
+                    Write-Host "UI_STATE=$($j.ui.ui_state)"
+                    Write-Host "UI_OBSERVATION=$($j.ui.observation)"
+                    Write-Host "UI_EXACT_RUNTIME_MATCH=$($j.ui.exact_runtime_match)"
+                    Write-Host "UI_CONVERSATION_PATH=$($j.ui.conversation_path)"
+                    Write-Host "UI_COMPOSER_READY=$($j.ui.composer_ready)"
+                    Write-Host "UI_RESPONSE_RUNNING=$($j.ui.response_running)"
+                    Write-Host "UI_LOGIN_REQUIRED=$($j.ui.login_required)"
+                    Write-Host "UI_CAPTCHA=$($j.ui.has_captcha)"
+                    Write-Host "UI_NETWORK_ERROR=$($j.ui.has_network_error)"
+                    Write-Host "UI_TRANSIENT_ERROR=$($j.ui.has_transient_error)"
+                    Write-Host "UI_DRAFT_HAS_TEXT=$($j.ui.draft_has_text)"
+                    Write-Host "UI_DRAFT_LENGTH=$($j.ui.draft_length)"
+                    Write-Host "UI_PROBE_ERROR=$($j.ui.probe_error)"
+                  } else {
+                    Write-Host 'UI_MISSING=True'
+                  }
+                } catch {
+                  Write-Host "FAILURE_PARSE_ERROR=$($_.Exception.Message)"
+                }
+              }
+          }
+          Write-Host 'FAILURE_SNAPSHOTS_END'
