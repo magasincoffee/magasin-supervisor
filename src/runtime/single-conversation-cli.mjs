@@ -224,7 +224,15 @@ async function hasPositiveBlankBootstrapNonDelivery(adapter, page) {
     () => inspectComposerDraftDigest(page, { timeoutMs: 1_500 }),
     { timeoutMs: 5_000 }
   ).catch((error) => {
-    if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+    if (error?.code === "CDP_RECOVERY_REQUIRED") {
+      // The safe page probe immediately above already proved the page/CDP
+      // surface was reachable. A timeout while reading the composer draft is
+      // therefore only an inconclusive non-delivery sample. Let the bounded
+      // settle window reacquire and probe again; a true CDP failure will be
+      // raised by the next page probe, while no resend authority is granted
+      // until an empty draft is positively observed.
+      return null;
+    }
     return null;
   });
 
