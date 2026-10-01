@@ -125,6 +125,24 @@ export async function collectSafeUiSnapshot(page) {
         )
       );
       const composerEnabled = Boolean(composer && !composerDisabled);
+      const composerRawText = composer
+        ? (
+            composer instanceof HTMLInputElement ||
+            composer instanceof HTMLTextAreaElement
+              ? String(composer.value || "")
+              : String(composer.innerText || composer.textContent || "")
+          )
+        : null;
+      const composerTextReadable = composerRawText !== null;
+      const composerNormalizedText = composerTextReadable
+        ? normalize(composerRawText)
+        : "";
+      const composerHasText = composerTextReadable
+        ? Boolean(composerNormalizedText)
+        : null;
+      const composerTextCharCount = composerTextReadable
+        ? composerNormalizedText.length
+        : 0;
 
       const frames = Array.from(document.querySelectorAll("iframe"))
         .map((el) => String(el.src || "").toLowerCase());
@@ -329,6 +347,9 @@ export async function collectSafeUiSnapshot(page) {
         composerReady: Boolean(composer),
         composerPresent: Boolean(composer),
         composerEnabled,
+        composerTextReadable,
+        composerHasText,
+        composerTextCharCount,
         composerCapacityBlocked,
         composerGenericBlocked,
         capacityExplicitFullUi: explicitFullLimitUi,
