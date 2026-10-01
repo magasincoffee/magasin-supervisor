@@ -18,6 +18,7 @@ import {
   waitForSingleConversationResponse
 } from "./single-conversation-loop.mjs";
 import {
+  classifyDisposableConversation,
   recoverDisposableConversationIfNeeded,
   replaceDisposableConversation
 } from "./single-conversation-rollover.mjs";
@@ -582,7 +583,8 @@ async function probeReusableConversationPage(adapter, page) {
     snapshot.hasCaptcha ||
     snapshot.conversationMissing ||
     snapshot.conversationAccessDenied ||
-    snapshot.pageClosed
+    snapshot.pageClosed ||
+    classifyDisposableConversation(snapshot).action !== "KEEP_CHAT"
   ) {
     return null;
   }
@@ -873,6 +875,16 @@ export async function runSingleConversationRuntime({
       adapter,
       state: current
     });
+    // A previously active conversation may now be full. Do not rebind it
+    // merely because its URL still matches the persisted runtime identity.
+    const restartProbe = rebound?.page ? null : await (async () => {
+      const oldPage = adapter.getChatGptPages?.().find((candidate) =>
+        runtimeIdMatchesPage(candidate, current.conversation.runtime_id)
+      );
+      if (!oldPage) return null;
+      const probe = await adapter.probePage(oldPage).catch(() => null);
+      return { page: oldPage, classification: classifyDisposableConversation(probe?.snapshot || {}) };
+    })();
     if (rebound?.page) {
       page = rebound.page;
       if (canRebindPreparedProtocolMessage(current)) {
@@ -903,6 +915,26 @@ export async function runSingleConversationRuntime({
         });
         current = await readSingleConversationState(statePath);
       }
+    } else if (
+      restartProbe?.classification?.reason === "CONVERSATION_FULL" &&
+      ["RESPONSE_COMPLETE", "VERIFIED"].includes(String(current.outbound?.state || "").toUpperCase())
+    ) {
+      // Only settled outbound work can roll over automatically. In-flight
+      // delivery remains fail-closed until its exact-once outcome is known.
+      const replacement = await replaceDisposableConversation({
+        adapter,
+        page: restartProbe.page,
+        statePath,
+        reason: "CONVERSATION_FULL",
+        sourceOfTruthUrl,
+        projectId: "LIVE",
+        qualificationOnly,
+        timeoutMs: responseTimeoutMs,
+        pollMs: Math.min(750, Math.max(100, pollMs))
+      });
+      page = replacement.page;
+      bootstrapResponse = replacement.response;
+      current = await readSingleConversationState(statePath);
     } else if (pendingPreActuation) {
       // SC-013: the old chat identity is no longer verifiable, but durable
       // evidence proves this one task-discovery send failed before submit.
