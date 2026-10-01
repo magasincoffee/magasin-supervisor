@@ -154,3 +154,19 @@ test("SC-013 rebind diagnostic captures direct local probe exit evidence", async
   assert.match(source, /WaitForExit\(25000\)/);
   assert.match(source, /Remove-Item \$probeOut,\$probeErr -Force/);
 });
+
+
+test("SC-013 local UI probe accepts valid JSON when Windows reports a null exit code", async () => {
+  const source = await read("windows/local-watchdog.ps1");
+  const rawIndex = source.indexOf("$raw = Get-Content $stdout -Raw -Encoding UTF8");
+  const parseIndex = source.indexOf("ConvertFrom-Json", rawIndex);
+  const exitIndex = source.indexOf("$exitCode = $null", parseIndex);
+  const explicitNonZeroIndex = source.indexOf("$null -ne $exitCode -and [int]$exitCode -ne 0", exitIndex);
+
+  assert.ok(rawIndex >= 0);
+  assert.ok(parseIndex > rawIndex);
+  assert.ok(exitIndex > parseIndex);
+  assert.ok(explicitNonZeroIndex > exitIndex);
+  assert.match(source, /UI_PROBE_INVALID_JSON/);
+  assert.doesNotMatch(source, /\$process\.ExitCode -ne 0 -or -not \(Test-Path \$stdout/);
+});
