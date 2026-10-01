@@ -1,0 +1,6 @@
+{
+  "schema_version": "sc013-live-observation-request.v1",
+  "target": "DESKTOP-4K7IM13",
+  "requested_after_deploy_sha": "4cbd3fed2a7bbe54267c6f5dac1dd8bc67638af5",
+  "purpose": "Pre-arm exactly one live first-failure attempt before Owner START after PR #276."
+}
