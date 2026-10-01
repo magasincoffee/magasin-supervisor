@@ -12,8 +12,10 @@ import { captureLatestRoleTurn } from "../ui/latest-turn.mjs";
 import {
   bootstrapFailureRecoveryReason,
   buildSingleConversationBootstrap,
+  canRecoverCorrelatedPreparedBootstrapDelivery,
   createNewChatAndBootstrap,
-  opaqueRuntimeIdentity
+  opaqueRuntimeIdentity,
+  recoverCorrelatedPreparedBootstrapDelivery
 } from "./single-conversation-bootstrap.mjs";
 import {
   buildSingleConversationNextInstruction,
@@ -1193,7 +1195,24 @@ export async function runSingleConversationRuntime({
       const probe = await adapter.probePage(oldPage).catch(() => null);
       return { page: oldPage, classification: classifyDisposableConversation(probe?.snapshot || {}) };
     })();
-    if (rebound?.page) {
+    const correlatedBootstrapRecovery =
+      !rebound?.page &&
+      canRecoverCorrelatedPreparedBootstrapDelivery(current)
+        ? await recoverCorrelatedPreparedBootstrapDelivery({
+            adapter,
+            statePath,
+            sourceOfTruthUrl,
+            qualificationOnly,
+            timeoutMs: responseTimeoutMs,
+            pollMs: Math.min(750, Math.max(100, pollMs))
+          })
+        : null;
+
+    if (correlatedBootstrapRecovery?.recovered) {
+      page = correlatedBootstrapRecovery.page;
+      bootstrapResponse = correlatedBootstrapRecovery.response;
+      current = await readSingleConversationState(statePath);
+    } else if (rebound?.page) {
       page = rebound.page;
       if (canRebindPreparedProtocolMessage(current)) {
         bootstrapResponse = await resumePreparedProtocolMessageAfterRebind({
