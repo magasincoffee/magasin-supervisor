@@ -42,5 +42,8 @@ test("safe snapshot recognizes modern ChatGPT user and assistant message DOM", a
   assert.match(source, /conversationMessages\.length/);
   assert.match(source, /conversationTurnElementCount = turnOrdinals\.length/);
   assert.match(source, /conversationTurnElementCount,/);
+  assert.match(source, /composerTextReadable/);
+  assert.match(source, /composerHasText/);
+  assert.match(source, /composerTextCharCount/);
 });
 
