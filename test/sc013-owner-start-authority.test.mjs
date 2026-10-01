@@ -8,7 +8,9 @@ test("SC-013 live acceptance preserves Owner START authority", async () => {
     "utf8"
   );
 
-  assert.match(script, /SC013_LIVE_FIRST_FAILURE_CODE=OWNER_START_REQUIRED/);
+  assert.match(script, /SC013_LIVE_WAITING_FOR_OWNER_START=True/);
+  assert.match(script, /SC013_LIVE_OWNER_WAIT owner_stop=/);
+  assert.match(script, /SC013_LIVE_FIRST_FAILURE_CODE=OWNER_START_TIMEOUT/);
   assert.match(script, /SC013_LIVE_OWNER_STARTED_RUNTIME_OBSERVED=True/);
   assert.doesNotMatch(
     script,
