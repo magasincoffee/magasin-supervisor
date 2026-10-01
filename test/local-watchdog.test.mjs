@@ -127,3 +127,19 @@ test("SC-013 disposable CDP probe flushes one result then exits without closing 
   assert.doesNotMatch(source, /browser\.close\(/);
   assert.doesNotMatch(source, /context\.close\(/);
 });
+
+
+test("SC-013 local UI probe contains state read inside structured result handling", async () => {
+  const source = await read("src/runtime/local-watchdog-probe-cli.mjs");
+  const resultIndex = source.indexOf("const result =");
+  const tryIndex = source.indexOf("try {", resultIndex);
+  const readIndex = source.indexOf("await readSingleConversationState(statePath)", resultIndex);
+
+  assert.ok(resultIndex >= 0);
+  assert.ok(tryIndex > resultIndex);
+  assert.ok(readIndex > tryIndex);
+  assert.doesNotMatch(source.slice(0, tryIndex), /await readSingleConversationState\(statePath\)/);
+  assert.match(source, /let adapter = null/);
+  assert.match(source, /if \(adapter\)/);
+  assert.match(source, /process\.stdout\.write\(JSON\.stringify\(result\), \(\) => process\.exit\(0\)\)/);
+});
