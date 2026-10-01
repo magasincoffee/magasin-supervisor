@@ -54,3 +54,50 @@ if(Test-Path $supervisorLog){
   Write-Host '--- SC013 supervisor.log tail ---'
   Get-Content $supervisorLog -Tail 80 -Encoding UTF8 | ForEach-Object { Write-Host ("SC013_LOG " + $_) }
 }
+
+
+Write-Host '--- SC013 direct local watchdog UI probe ---'
+$probeCli=Join-Path $runtime 'src\runtime\local-watchdog-probe-cli.mjs'
+if(Test-Path $probeCli -PathType Leaf){
+  $probeOut=Join-Path $root ("sc013-direct-probe-" + $PID + ".out")
+  $probeErr=Join-Path $root ("sc013-direct-probe-" + $PID + ".err")
+  Remove-Item $probeOut,$probeErr -Force -ErrorAction SilentlyContinue
+  try{
+    $probeArgs=@(
+      ('"' + $probeCli + '"'),
+      '--state',
+      ('"' + $state + '"'),
+      '--cdp-url',
+      ('"' + $cdp + '"')
+    )
+    $probeProcess=Start-Process node.exe -PassThru -WindowStyle Hidden -ArgumentList $probeArgs -RedirectStandardOutput $probeOut -RedirectStandardError $probeErr
+    $probeFinished=$probeProcess.WaitForExit(25000)
+    if(-not $probeFinished){
+      Stop-Process -Id $probeProcess.Id -Force -ErrorAction SilentlyContinue
+      Write-Host 'SC013_DIAG_DIRECT_PROBE_TIMEOUT=True'
+    }else{
+      Write-Host 'SC013_DIAG_DIRECT_PROBE_TIMEOUT=False'
+      Write-Host "SC013_DIAG_DIRECT_PROBE_EXIT=$($probeProcess.ExitCode)"
+    }
+    if(Test-Path $probeOut -PathType Leaf){
+      $probeStdout=Get-Content $probeOut -Raw -Encoding UTF8
+      if(-not [string]::IsNullOrWhiteSpace([string]$probeStdout)){
+        Write-Host ("SC013_DIAG_DIRECT_PROBE_STDOUT=" + ([string]$probeStdout).Trim())
+      }
+    }
+    if(Test-Path $probeErr -PathType Leaf){
+      $probeStderr=Get-Content $probeErr -Raw -Encoding UTF8
+      if(-not [string]::IsNullOrWhiteSpace([string]$probeStderr)){
+        $safeProbeStderr=([string]$probeStderr).Trim()
+        if($safeProbeStderr.Length -gt 2000){$safeProbeStderr=$safeProbeStderr.Substring(0,2000)}
+        Write-Host ("SC013_DIAG_DIRECT_PROBE_STDERR=" + $safeProbeStderr)
+      }
+    }
+  }catch{
+    Write-Host "SC013_DIAG_DIRECT_PROBE_EXCEPTION=$($_.Exception.Message)"
+  }finally{
+    Remove-Item $probeOut,$probeErr -Force -ErrorAction SilentlyContinue
+  }
+}else{
+  Write-Host 'SC013_DIAG_DIRECT_PROBE_MISSING=True'
+}
