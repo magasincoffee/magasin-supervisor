@@ -17,6 +17,8 @@ import {
   reconstructPendingStatusCheckMessage,
   reconstructPendingTaskMessage,
   replacementReasonForResponseWaitError,
+  preparedBootstrapIsStaleEnough,
+  safeBootstrapNonDeliverySnapshot,
   runSingleConversationRuntime,
   waitForNextCycleDelay,
   waitForPositiveBlankBootstrapNonDelivery
@@ -124,6 +126,71 @@ test("SC-013 restart allows one bootstrap retry only from proven SEND_NOT_ACTUAT
     canRecoverPreparedBootstrapNonDelivery({
       ...candidate,
       outbound: { ...candidate.outbound, last_error_code: "COMPOSER_NOT_READY" }
+    }),
+    false
+  );
+});
+
+test("SC-013 bootstrap non-delivery ignores heuristic message counts but rejects structured turns", () => {
+  const base = {
+    loginRequired: false,
+    hasCaptcha: false,
+    hasNetworkError: false,
+    hasTransientError: false,
+    conversationMissing: false,
+    conversationAccessDenied: false,
+    conversationPath: false,
+    responseRunning: false,
+    composerReady: true,
+    conversationTurnElementCount: 0,
+    // Current ChatGPT home can expose text surfaces that resemble modern
+    // user/assistant messages even when there is no persisted conversation.
+    userMessageCount: 4,
+    assistantMessageCount: 3
+  };
+
+  assert.equal(safeBootstrapNonDeliverySnapshot(base), true);
+  assert.equal(
+    safeBootstrapNonDeliverySnapshot({
+      ...base,
+      conversationTurnElementCount: 1
+    }),
+    false
+  );
+  assert.equal(
+    safeBootstrapNonDeliverySnapshot({
+      ...base,
+      conversationPath: true
+    }),
+    false
+  );
+  assert.equal(
+    safeBootstrapNonDeliverySnapshot({
+      ...base,
+      responseRunning: true
+    }),
+    false
+  );
+});
+
+test("SC-013 bootstrap retry requires stale PREPARED evidence before exact-turn absence can authorize recovery", () => {
+  const state = {
+    updated_at: "2026-10-01T10:00:00.000Z",
+    outbound: {
+      prepared_at: "2026-10-01T10:00:00.000Z"
+    }
+  };
+  assert.equal(
+    preparedBootstrapIsStaleEnough(state, {
+      nowMs: Date.parse("2026-10-01T10:01:00.000Z"),
+      minimumAgeMs: 60_000
+    }),
+    true
+  );
+  assert.equal(
+    preparedBootstrapIsStaleEnough(state, {
+      nowMs: Date.parse("2026-10-01T10:00:59.999Z"),
+      minimumAgeMs: 60_000
     }),
     false
   );
@@ -258,15 +325,20 @@ test("SC-013 prepared bootstrap restart requires positive blank-home evidence be
     body,
     /initialRetryCount: Number\(current\.outbound\.retry_count \|\| 0\) \+ 1/
   );
+  assert.match(body, /preparedBootstrapIsStaleEnough\(current\)/);
+  assert.match(body, /expectedInstruction: retryMessage/);
 
   const helper = source.indexOf("async function hasPositiveBlankBootstrapNonDelivery");
   const settle = source.indexOf("export async function waitForPositiveBlankBootstrapNonDelivery", helper);
   const helperEnd = source.indexOf("function recoverableBootstrapPage", settle);
   assert.ok(helper >= 0 && settle > helper && helperEnd > settle);
   const helperBody = source.slice(helper, helperEnd);
-  assert.match(helperBody, /userMessageCount/);
-  assert.match(helperBody, /assistantMessageCount/);
+  assert.match(helperBody, /safeBootstrapNonDeliverySnapshot/);
+  assert.match(helperBody, /captureMatchingUserTurnEvidence/);
+  assert.match(helperBody, /BOOTSTRAP_NON_DELIVERY_EXACT_TURN/);
   assert.match(helperBody, /draft\.has_text === false/);
+  assert.doesNotMatch(helperBody, /Number\(snapshot\.userMessageCount/);
+  assert.doesNotMatch(helperBody, /Number\(snapshot\.assistantMessageCount/);
   assert.match(helperBody, /stablePasses = 2/);
   assert.match(helperBody, /passCount >= requiredPasses/);
   assert.match(body, /page: verifiedNonDeliveryPage/);
