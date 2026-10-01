@@ -33,6 +33,9 @@ test("SC-013 local ChatGPT probe never navigates or sends and persists no conver
   assert.match(source, /probePage\(page\)/);
   assert.match(source, /inspectComposerDraftDigest/);
   assert.match(source, /exact_runtime_match/);
+  assert.match(source, /draft_readable/);
+  assert.match(source, /snapshot\.composerTextReadable/);
+  assert.match(source, /snapshot\.composerHasText/);
   assert.match(source, /draft_digest/);
   assert.doesNotMatch(source, /reopenTargetPage/);
   assert.doesNotMatch(source, /resumeExistingConversationPage/);
