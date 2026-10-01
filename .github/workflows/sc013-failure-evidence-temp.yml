@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: sc013-live-production-first-failure
+  cancel-in-progress: true
+
 jobs:
   evidence:
     runs-on: self-hosted
