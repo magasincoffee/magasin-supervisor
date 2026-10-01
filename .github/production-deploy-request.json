@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "063ed0615325bcf6a7d86dc4ee625e8d9d2ef6da",
+  "requested_main_sha": "61431e99fae7f2c2998260917cdc308f7c238462",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy SC-013 startup settle race fix from PR #278 after all mandatory gates passed."
+  "reason": "Deploy PR #279: DOM snapshot draft proof, watchdog evidence fix, observer grace alignment, and time-bounded Owner-delegated overnight START."
 }
