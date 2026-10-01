@@ -1,6 +1,10 @@
 import crypto, { randomUUID } from "node:crypto";
 
-import { composerInstructionDigest } from "../ui/actions.mjs";
+import {
+  captureMatchingUserTurnEvidence,
+  composerInstructionDigest,
+  sendComposerInstruction
+} from "../ui/actions.mjs";
 import { captureLatestRoleTurn } from "../ui/latest-turn.mjs";
 import { isChatGptUrl } from "../ui/playwright-adapter.mjs";
 import {
@@ -778,6 +782,77 @@ export async function sendFreshChatBootstrapInstruction(
         }
       }
     }
+  }
+
+  // SC-013: the generic conversation sender has newer ChatGPT submit
+  // compatibility (composer-form targeting, geometric Send discovery,
+  // DOM/force click fallback, rendered-text verification, and bounded Enter
+  // recovery) than the original cold-bootstrap sender. Use it only after
+  // positive non-delivery evidence proves the bootstrap has not become a user
+  // turn: still on blank home, zero conversation turns, and zero direct user
+  // nodes. This keeps exact-once authority unchanged while avoiding a
+  // bootstrap-only submit implementation from lagging behind the hardened
+  // production sender.
+  if (
+    finalStillHome &&
+    finalTurnCount === 0 &&
+    finalDirectUserCount === 0
+  ) {
+    const shared = await sendComposerInstruction(page, instruction, {
+      dryRun: false
+    }).catch((error) => ({
+      executed: false,
+      rejection_class: error?.code || "SEND_NOT_ACTUATED",
+      reason: String(error?.message || error || "shared bootstrap send failed"),
+      send_method: null,
+      send_selector: null,
+      send_scope: null
+    }));
+
+    if (shared?.executed) {
+      const exact = await captureMatchingUserTurnEvidence(page, instruction)
+        .catch(() => null);
+      if (exact?.confirmed) {
+        return {
+          executed: true,
+          input_method: shared.input_method || inputMethod,
+          send_method: `shared-${shared.send_method || "composer-send"}`,
+          send_selector: shared.send_selector || null,
+          send_scope: shared.send_scope || null,
+          user_turn_evidence:
+            exact.evidence || shared.user_turn_evidence || "matching-user-turn-observed",
+          user_turn_id: exact.turn_id || null,
+          conversation_turn_count:
+            Math.max(
+              Number(proof?.conversation_turn_count || 0),
+              Number(exact.totalCount || 0)
+            )
+        };
+      }
+    }
+
+    return {
+      executed: false,
+      rejection_class: "SEND_NOT_ACTUATED",
+      reason:
+        shared?.reason ||
+        "shared bootstrap submit fallback did not yield exact fresh user turn",
+      input_method: shared?.input_method || inputMethod,
+      send_method:
+        shared?.send_method
+          ? `composer-enter+shared-${shared.send_method}`
+          : "composer-enter+shared-fallback",
+      send_selector: shared?.send_selector || null,
+      send_scope: shared?.send_scope || null,
+      user_turn_evidence:
+        shared?.user_turn_evidence || proof?.evidence || "unreadable",
+      conversation_turn_count:
+        Number(proof?.conversation_turn_count || 0),
+      after_enter: afterEnterEvidence,
+      shared_submit_evidence: shared?.submit_evidence || null,
+      shared_primary_submit_evidence:
+        shared?.primary_submit_evidence || null
+    };
   }
 
   return {
