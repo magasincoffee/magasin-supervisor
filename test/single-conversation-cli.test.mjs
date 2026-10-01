@@ -193,6 +193,45 @@ test("SC-013 bootstrap non-delivery does not authorize retry from unstable evide
   assert.ok(checks >= 4);
 });
 
+test("SC-013 bootstrap draft-read timeout remains inconclusive until the next safe page probe", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  const helper = source.indexOf("async function hasPositiveBlankBootstrapNonDelivery");
+  const probe = source.indexOf('"BOOTSTRAP_NON_DELIVERY_PROBE"', helper);
+  const draft = source.indexOf('"BOOTSTRAP_NON_DELIVERY_DRAFT"', probe);
+  const helperEnd = source.indexOf(
+    "export async function waitForPositiveBlankBootstrapNonDelivery",
+    draft
+  );
+
+  assert.ok(helper >= 0);
+  assert.ok(probe > helper);
+  assert.ok(draft > probe);
+  assert.ok(helperEnd > draft);
+
+  const probeBody = source.slice(probe, draft);
+  const draftBody = source.slice(draft, helperEnd);
+
+  // A page/CDP probe timeout still requires wrapper-level CDP recovery.
+  assert.match(
+    probeBody,
+    /error\?\.code === "CDP_RECOVERY_REQUIRED"\) throw error/
+  );
+
+  // A draft-read timeout after a successful page probe is only an
+  // inconclusive read-only sample; it must not authorize a send or kill the
+  // wrapper as though CDP were dead.
+  assert.match(draftBody, /inconclusive non-delivery sample/);
+  assert.match(draftBody, /return null/);
+  assert.doesNotMatch(
+    draftBody,
+    /error\?\.code === "CDP_RECOVERY_REQUIRED"\) throw error/
+  );
+});
+
 test("SC-013 prepared bootstrap restart requires positive blank-home evidence before bounded replacement", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
