@@ -226,34 +226,69 @@ export function safeBootstrapNonDeliverySnapshot(snapshot = {}) {
   );
 }
 
+function logBootstrapNonDeliverySample(reason, details = {}) {
+  const safe = {
+    reason: String(reason || "UNKNOWN"),
+    ...details
+  };
+  console.log(
+    "BOOTSTRAP_NON_DELIVERY_SAMPLE=" +
+      JSON.stringify(safe)
+  );
+}
+
 async function hasPositiveBlankBootstrapNonDelivery(
   adapter,
   page,
   { expectedInstruction = null } = {}
 ) {
-  if (!page || !isBlankHomePage(page)) return false;
+  if (!page || !isBlankHomePage(page)) {
+    logBootstrapNonDeliverySample("NOT_BLANK_HOME");
+    return false;
+  }
 
+  let probeError = null;
   const probe = await boundedRuntimeStep(
     "BOOTSTRAP_NON_DELIVERY_PROBE",
     () => adapter.probePage(page),
     { timeoutMs: 10_000 }
   ).catch((error) => {
     if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+    probeError = String(error?.code || error?.message || "PROBE_FAILED").slice(0, 120);
     return null;
   });
   const snapshot = probe?.snapshot || {};
   if (!probe || !safeBootstrapNonDeliverySnapshot(snapshot)) {
+    logBootstrapNonDeliverySample("SAFE_SNAPSHOT_NOT_READY", {
+      probe_error: probeError,
+      conversation_path: Boolean(snapshot.conversationPath),
+      composer_ready: snapshot.composerReady === true,
+      response_running: Boolean(snapshot.responseRunning),
+      login_required: Boolean(snapshot.loginRequired),
+      captcha: Boolean(snapshot.hasCaptcha),
+      network_error: Boolean(snapshot.hasNetworkError),
+      transient_error: Boolean(snapshot.hasTransientError),
+      conversation_missing: Boolean(snapshot.conversationMissing),
+      access_denied: Boolean(snapshot.conversationAccessDenied),
+      structured_turn_count: Number(snapshot.conversationTurnElementCount || 0)
+    });
     return false;
   }
 
   const wanted = String(expectedInstruction || "");
-  if (!wanted) return false;
+  if (!wanted) {
+    logBootstrapNonDeliverySample("EXPECTED_INSTRUCTION_MISSING");
+    return false;
+  }
+
+  let exactTurnError = null;
   const exactTurn = await boundedRuntimeStep(
     "BOOTSTRAP_NON_DELIVERY_EXACT_TURN",
     () => captureMatchingUserTurnEvidence(page, wanted),
     { timeoutMs: 5_000 }
   ).catch((error) => {
     if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+    exactTurnError = String(error?.code || error?.message || "EXACT_TURN_FAILED").slice(0, 120);
     return null;
   });
   if (
@@ -261,9 +296,16 @@ async function hasPositiveBlankBootstrapNonDelivery(
     exactTurn.confirmed ||
     exactTurn.evidence === "user-turn-state-unreadable"
   ) {
+    logBootstrapNonDeliverySample("EXACT_TURN_NOT_SAFE", {
+      exact_error: exactTurnError,
+      confirmed: Boolean(exactTurn?.confirmed),
+      evidence: String(exactTurn?.evidence || ""),
+      total_count: Number(exactTurn?.totalCount || 0)
+    });
     return false;
   }
 
+  let draftError = null;
   const draft = await boundedRuntimeStep(
     "BOOTSTRAP_NON_DELIVERY_DRAFT",
     () => inspectComposerDraftDigest(page, { timeoutMs: 1_500 }),
@@ -276,23 +318,36 @@ async function hasPositiveBlankBootstrapNonDelivery(
       // settle window reacquire and probe again; a true CDP failure will be
       // raised by the next page probe, while no resend authority is granted
       // until an empty draft is positively observed.
+      draftError = "DRAFT_READ_TIMEOUT";
       return null;
     }
+    draftError = String(error?.code || error?.message || "DRAFT_READ_FAILED").slice(0, 120);
     return null;
   });
 
-  return Boolean(
+  const positive = Boolean(
     draft &&
     draft.ready !== false &&
     draft.has_text === false
   );
+  if (!positive) {
+    logBootstrapNonDeliverySample("DRAFT_NOT_EMPTY_OR_UNREADABLE", {
+      draft_error: draftError,
+      draft_ready: draft?.ready !== false,
+      draft_has_text: Boolean(draft?.has_text)
+    });
+    return false;
+  }
+
+  logBootstrapNonDeliverySample("POSITIVE");
+  return true;
 }
 
 export async function waitForPositiveBlankBootstrapNonDelivery(
   adapter,
   initialPage = null,
   {
-    timeoutMs = 30_000,
+    timeoutMs = 90_000,
     pollMs = 750,
     stablePasses = 2,
     verify = hasPositiveBlankBootstrapNonDelivery,
@@ -335,6 +390,10 @@ export async function waitForPositiveBlankBootstrapNonDelivery(
         stablePage = candidate;
         passCount = 1;
       }
+      console.log(
+        "BOOTSTRAP_NON_DELIVERY_STABLE_PASS=" +
+          passCount + "/" + requiredPasses
+      );
       if (passCount >= requiredPasses) return candidate;
     } else {
       stablePage = null;
@@ -345,6 +404,7 @@ export async function waitForPositiveBlankBootstrapNonDelivery(
     await sleep(Math.max(0, Number(pollMs) || 0));
   }
 
+  console.log("BOOTSTRAP_NON_DELIVERY_SETTLE_TIMEOUT=True");
   return null;
 }
 
@@ -1246,7 +1306,7 @@ export async function runSingleConversationRuntime({
           adapter,
           candidatePage,
           {
-            timeoutMs: 30_000,
+            timeoutMs: 90_000,
             pollMs: 750,
             stablePasses: 2,
             expectedInstruction: retryMessage
