@@ -1,15 +1,16 @@
 name: Supervisor Control Panel Deploy DESKTOP-4K7IM13
 
+# SC-013 production boundary:
+# ordinary source/test/windows merges are CI only and must never replace a live
+# production runtime. Production installation requires an explicit dispatch or
+# a dedicated deploy-request marker commit.
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
     paths:
-      - src/**
-      - windows/**
-      - package.json
-      - .github/workflows/supervisor-control-panel-desktop-4k7im13.yml
-      - .github/scripts/update-latest-clean-old.ps1
+      - '.github/production-deploy-request.json'
 
 concurrency:
   group: supervisor-live-target-deploy-desktop-4k7im13
@@ -20,11 +21,6 @@ permissions:
 
 jobs:
   deploy-panel:
-    strategy:
-      fail-fast: false
-      max-parallel: 2
-      matrix:
-        slot: [1, 2]
     runs-on: self-hosted
     timeout-minutes: 15
     steps:
@@ -33,30 +29,23 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Update current version on DESKTOP-4K7IM13
+      - name: Deploy exact main to DESKTOP-4K7IM13
         shell: cmd
         run: |
           @echo off
-          echo DEPLOY_SLOT=${{ matrix.slot }}
           echo DEPLOY_MACHINE=%COMPUTERNAME%
+          echo DEPLOY_TRIGGER=${{ github.event_name }}
+          echo DEPLOY_SHA=${{ github.sha }}
           if /I not "%COMPUTERNAME%"=="DESKTOP-4K7IM13" (
             echo TARGET_MATCH=False
-            echo TARGET_SKIP_SAFE=True
-            exit /b 0
+            echo TARGET_MUTATION_SKIPPED=True
+            echo ERROR=Explicit production deploy landed on a non-target runner.
+            exit /b 1
           )
+          echo TARGET_MATCH=True
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\update-latest-clean-old.ps1" -TargetComputer "DESKTOP-4K7IM13" -ExpectedMainSha "${{ github.sha }}"
           exit /b %ERRORLEVEL%
 
-      - name: Capture SC-013 read-only live diagnostic
-        shell: cmd
-        run: |
-          @echo off
-          if /I not "%COMPUTERNAME%"=="DESKTOP-4K7IM13" (
-            echo SC013_LIVE_DIAG_TARGET_MATCH=False
-            exit /b 0
-          )
-          echo SC013_LIVE_DIAG_TARGET_MATCH=True
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\supervisor-sc013-rebind-diagnostic.ps1" -TargetComputer "DESKTOP-4K7IM13" -NonTargetHoldSeconds 0
-          exit /b %ERRORLEVEL%
-
-# sc013-wait-response-recovery-redeploy: 2026-09-30T16:42Z
+# Read-only SC-013 diagnostics are intentionally separate from deployment.
+# update-latest-clean-old.ps1 can close the dedicated Chrome during installation,
+# so an immediate CDP diagnostic here would create a false deployment failure.
