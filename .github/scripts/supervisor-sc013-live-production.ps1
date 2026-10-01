@@ -1,6 +1,7 @@
 param(
   [Parameter(Mandatory=$true)][string]$TargetComputer,
   [int]$NonTargetHoldSeconds=150,
+  [int]$OwnerStartWaitSeconds=900,
   [int]$MaxObserveSeconds=1200,
   [int]$StallSeconds=240
 )
@@ -79,10 +80,36 @@ Write-Host "SC013_LIVE_BASELINE_NEEDS_RECOVERY=$baselineNeedsRecovery"
 $ownerStop=Get-LifecycleOwnerStopState -Root $root
 $truthBefore=Get-LifecycleProcessTruth -Root $root
 if($ownerStop.blocked -or -not $truthBefore.wrapper_alive){
+  # The observer is deliberately not Owner authority. Stay read-only and wait
+  # for the Owner to press START while this attempt is already collecting
+  # evidence, so startup races and the true first failing stage are observable.
   Write-Host 'SC013_LIVE_OWNER_START_INVOKED=False'
-  Write-Host 'SC013_LIVE_FIRST_FAILURE_CODE=OWNER_START_REQUIRED'
-  Write-Host 'SC013_LIVE_FIRST_FAILURE_STAGE=OWNER_START'
-  throw 'SC013 requires Owner START from Control Center before live acceptance.'
+  Write-Host 'SC013_LIVE_WAITING_FOR_OWNER_START=True'
+  $ownerStartDeadline=[DateTimeOffset]::UtcNow.AddSeconds(
+    [Math]::Max(30,$OwnerStartWaitSeconds)
+  )
+  $lastOwnerWaitSignature=''
+  while([DateTimeOffset]::UtcNow -lt $ownerStartDeadline){
+    $ownerStop=Get-LifecycleOwnerStopState -Root $root
+    $truthBefore=Get-LifecycleProcessTruth -Root $root
+    $ownerWaitSignature="$([bool]$ownerStop.blocked)|$([bool]$truthBefore.wrapper_alive)|$([bool]$truthBefore.cdp_healthy)"
+    if($ownerWaitSignature -ne $lastOwnerWaitSignature){
+      Write-Host "SC013_LIVE_OWNER_WAIT owner_stop=$([bool]$ownerStop.blocked) wrapper=$([bool]$truthBefore.wrapper_alive) cdp=$([bool]$truthBefore.cdp_healthy)"
+      $lastOwnerWaitSignature=$ownerWaitSignature
+    }
+    if(-not $ownerStop.blocked -and $truthBefore.wrapper_alive){
+      break
+    }
+    Start-Sleep -Seconds 2
+  }
+
+  $ownerStop=Get-LifecycleOwnerStopState -Root $root
+  $truthBefore=Get-LifecycleProcessTruth -Root $root
+  if($ownerStop.blocked -or -not $truthBefore.wrapper_alive){
+    Write-Host 'SC013_LIVE_FIRST_FAILURE_CODE=OWNER_START_TIMEOUT'
+    Write-Host 'SC013_LIVE_FIRST_FAILURE_STAGE=OWNER_START'
+    throw 'SC013 observer timed out waiting for explicit Owner START.'
+  }
 }
 Write-Host 'SC013_LIVE_OWNER_START_INVOKED=False'
 Write-Host 'SC013_LIVE_OWNER_STARTED_RUNTIME_OBSERVED=True'
