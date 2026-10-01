@@ -8,14 +8,18 @@ import {
   acquireBlankNewChatSurface,
   bootstrapFailureRecoveryReason,
   buildSingleConversationBootstrap,
+  canRecoverCorrelatedPreparedBootstrapDelivery,
   createNewChatAndBootstrap,
+  recoverCorrelatedPreparedBootstrapDelivery,
   sendFreshChatBootstrapInstruction,
   waitForBootstrapResponse
 } from "../src/runtime/single-conversation-bootstrap.mjs";
 import {
   ensureSingleConversationState,
-  readSingleConversationState
+  readSingleConversationState,
+  writeSingleConversationState
 } from "../src/runtime/single-conversation-state.mjs";
+import { composerInstructionDigest } from "../src/ui/actions.mjs";
 
 async function tempStatePath() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "magasin-sc003-"));
@@ -52,6 +56,144 @@ function fakePage(initialUrl = "https://chatgpt.com/") {
     async waitForTimeout() {}
   };
 }
+
+test("SC-013 correlated PREPARED bootstrap delivery reconciles without resend", async () => {
+  const { root, statePath } = await tempStatePath();
+  const sourceOfTruthUrl = "https://example.com/SOURCE_OF_TRUTH.md";
+  const messageId = "bootstrap-correlation-recovery";
+  const message = buildSingleConversationBootstrap({
+    sourceOfTruthUrl,
+    messageId
+  });
+  const page = fakePage("https://chatgpt.com/c/correlated-bootstrap");
+  let correlationChecks = 0;
+  let responseWaits = 0;
+
+  try {
+    await ensureSingleConversationState(statePath, {
+      sourceOfTruthUrl,
+      projectId: "LIVE",
+      sessionId: "correlated-bootstrap-test"
+    });
+    const state = await readSingleConversationState(statePath);
+    state.conversation = {
+      ...state.conversation,
+      generation: 2,
+      status: "ACTIVE",
+      runtime_id: null,
+      created_at: state.updated_at,
+      last_seen_at: state.updated_at
+    };
+    state.outbound = {
+      ...state.outbound,
+      state: "PREPARED",
+      kind: "SOURCE_OF_TRUTH_BOOTSTRAP",
+      message_id: messageId,
+      message_digest: composerInstructionDigest(message),
+      retry_count: 1,
+      last_error_code: "SEND_NOT_ACTUATED",
+      prepared_at: state.updated_at
+    };
+    state.automation.status = "BLOCKED";
+    state.automation.phase = "BOOTSTRAP_FAILED";
+    state.automation.reason = "SEND_NOT_ACTUATED";
+    await writeSingleConversationState(statePath, state);
+
+    assert.equal(canRecoverCorrelatedPreparedBootstrapDelivery(state), true);
+
+    const adapter = {
+      getActivePage: () => page,
+      getChatGptPages: () => [page],
+      async probePage() {
+        return {
+          snapshot: {
+            conversationPath: true,
+            loginRequired: false,
+            hasCaptcha: false,
+            hasNetworkError: false,
+            hasTransientError: false,
+            conversationMissing: false,
+            conversationAccessDenied: false
+          }
+        };
+      }
+    };
+
+    const result = await recoverCorrelatedPreparedBootstrapDelivery({
+      adapter,
+      statePath,
+      sourceOfTruthUrl,
+      captureCorrelation: async () => {
+        correlationChecks += 1;
+        return {
+          confirmed: true,
+          turn_id: "user:correlated-bootstrap",
+          evidence: "correlated-modern-bootstrap-user-turn",
+          match_count: 1,
+          total_count: 1
+        };
+      },
+      waitForResponse: async () => {
+        responseWaits += 1;
+        const delivered = await readSingleConversationState(statePath);
+        assert.equal(delivered.outbound.state, "DELIVERED");
+        assert.equal(delivered.automation.status, "RUNNING");
+        assert.equal(delivered.automation.phase, "WAIT_RESPONSE");
+        assert.equal(delivered.automation.reason, null);
+        assert.equal(delivered.outbound.retry_count, 1);
+        assert.ok(delivered.conversation.runtime_id);
+        return {
+          status: "RESPONSE_COMPLETE",
+          assistant_turn: {
+            turn_id: "assistant:correlated-bootstrap",
+            text: "ready"
+          }
+        };
+      }
+    });
+
+    assert.equal(result.recovered, true);
+    assert.equal(result.user_turn_evidence, "correlated-modern-bootstrap-user-turn");
+    assert.equal(correlationChecks, 1);
+    assert.equal(responseWaits, 1);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("SC-013 correlated bootstrap recovery remains fail-closed without a unique correlated turn", async () => {
+  const candidate = {
+    conversation: { status: "ACTIVE" },
+    automation: {
+      status: "BLOCKED",
+      phase: "BOOTSTRAP_FAILED",
+      reason: "SEND_NOT_ACTUATED"
+    },
+    outbound: {
+      state: "PREPARED",
+      kind: "SOURCE_OF_TRUTH_BOOTSTRAP",
+      message_id: "bootstrap-correlation-candidate",
+      message_digest: "digest",
+      retry_count: 1,
+      last_error_code: "SEND_NOT_ACTUATED"
+    }
+  };
+  assert.equal(canRecoverCorrelatedPreparedBootstrapDelivery(candidate), true);
+  assert.equal(
+    canRecoverCorrelatedPreparedBootstrapDelivery({
+      ...candidate,
+      outbound: { ...candidate.outbound, retry_count: 2 }
+    }),
+    false
+  );
+  assert.equal(
+    canRecoverCorrelatedPreparedBootstrapDelivery({
+      ...candidate,
+      outbound: { ...candidate.outbound, kind: "TASK_EXECUTION" }
+    }),
+    false
+  );
+});
 
 test("SC-003 bootstrap prompt carries sole Source of Truth and unique correlation", () => {
   const message = buildSingleConversationBootstrap({
@@ -230,6 +372,29 @@ test("SC-010 retries explicit Send only after positive blank-home non-delivery e
   assert.match(source, /finalDirectUserCount === 0/);
   assert.match(source, /composer-enter\+restored-safe-direct-control/);
   assert.match(source, /waitForExactFreshUserTurn\(page, instruction, \{\s*timeoutMs: 30_000/);
+});
+
+test("SC-013 bootstrap send checks correlation identity before SEND_NOT_ACTUATED failure", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-bootstrap.mjs", import.meta.url),
+    "utf8"
+  );
+  const send = source.indexOf("let sendResult = await sendInstruction");
+  const correlate = source.indexOf(
+    "captureCorrelatedBootstrapUserTurnEvidence",
+    send
+  );
+  const throwGate = source.indexOf(
+    "bootstrap send was not confirmed",
+    correlate
+  );
+
+  assert.ok(send >= 0);
+  assert.ok(correlate > send);
+  assert.ok(throwGate > correlate);
+  const body = source.slice(send, throwGate);
+  assert.match(body, /correlation_reconciled: true/);
+  assert.match(body, /user_turn_id: correlated\.turn_id/);
 });
 
 test("SC-013 bootstrap delegates to hardened sender only after positive fresh-chat non-delivery", async () => {

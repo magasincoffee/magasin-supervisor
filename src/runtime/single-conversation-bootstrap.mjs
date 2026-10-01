@@ -103,6 +103,121 @@ export function bootstrapFailureRecoveryReason(error, state) {
   return reasonByCode[code] || null;
 }
 
+export function canRecoverCorrelatedPreparedBootstrapDelivery(state) {
+  const outbound = state?.outbound || {};
+  return Boolean(
+    String(state?.conversation?.status || "").toUpperCase() === "ACTIVE" &&
+    String(state?.automation?.status || "").toUpperCase() === "BLOCKED" &&
+    String(state?.automation?.phase || "").toUpperCase() === "BOOTSTRAP_FAILED" &&
+    String(outbound.state || "").toUpperCase() === "PREPARED" &&
+    String(outbound.kind || "") === "SOURCE_OF_TRUTH_BOOTSTRAP" &&
+    String(outbound.last_error_code || "").toUpperCase() === "SEND_NOT_ACTUATED" &&
+    Number(outbound.retry_count || 0) <= 1 &&
+    Boolean(String(outbound.message_id || "").trim()) &&
+    Boolean(String(outbound.message_digest || "").trim())
+  );
+}
+
+export async function captureCorrelatedBootstrapUserTurnEvidence(
+  page,
+  { messageId, sourceOfTruthUrl } = {}
+) {
+  const id = String(messageId || "").trim();
+  const source = String(sourceOfTruthUrl || "").trim();
+  if (!page || typeof page.evaluate !== "function" || !id || !source) {
+    return {
+      confirmed: false,
+      turn_id: null,
+      evidence: "bootstrap-correlation-input-unavailable",
+      match_count: 0,
+      total_count: 0
+    };
+  }
+
+  return page.evaluate(({ id, source }) => {
+    const visible = (node) => {
+      if (!node || !(node instanceof Element)) return false;
+      const style = getComputedStyle(node);
+      const box = node.getBoundingClientRect();
+      return style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        box.width > 0 &&
+        box.height > 0;
+    };
+    const normalize = (value) => String(value || "")
+      .replace(/[\u200B-\u200F\u2060\uFEFF]/g, "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\u00A0/g, " ")
+      .replace(/\s+/gu, " ")
+      .trim();
+
+    const candidates = [
+      ...document.querySelectorAll('main [data-message-author-role="user"]'),
+      ...document.querySelectorAll("main .text-size-chat.whitespace-pre-wrap")
+    ];
+    const seen = new Set();
+    const turns = [];
+    for (const node of candidates) {
+      if (!node || seen.has(node) || !visible(node)) continue;
+      seen.add(node);
+      if (
+        node.matches?.("#prompt-textarea,textarea,[contenteditable='true'],[contenteditable='plaintext-only']") ||
+        node.closest?.("#prompt-textarea")
+      ) {
+        continue;
+      }
+      turns.push(node);
+    }
+
+    const matches = [];
+    for (let index = 0; index < turns.length; index += 1) {
+      const node = turns[index];
+      const text = normalize(node.innerText || node.textContent || "");
+      const correlated =
+        text.includes("MAGASIN_SINGLE_CONVERSATION_BOOTSTRAP_V1") &&
+        text.includes(`id=${id}`) &&
+        text.includes(source);
+      if (!correlated) continue;
+
+      const container = node.closest?.("[data-testid^='conversation-turn-']");
+      matches.push({
+        turn_id:
+          String(container?.getAttribute?.("data-testid") || "").trim() ||
+          `correlated-bootstrap-user-${index}`,
+        evidence: node.matches?.('[data-message-author-role="user"]')
+          ? "correlated-semantic-bootstrap-user-turn"
+          : "correlated-modern-bootstrap-user-turn"
+      });
+    }
+
+    if (matches.length !== 1) {
+      return {
+        confirmed: false,
+        turn_id: null,
+        evidence: matches.length > 1
+          ? "multiple-correlated-bootstrap-user-turns"
+          : "correlated-bootstrap-user-turn-not-observed",
+        match_count: matches.length,
+        total_count: turns.length
+      };
+    }
+
+    return {
+      confirmed: true,
+      turn_id: matches[0].turn_id,
+      evidence: matches[0].evidence,
+      match_count: 1,
+      total_count: turns.length
+    };
+  }, { id, source }).catch(() => ({
+    confirmed: false,
+    turn_id: null,
+    evidence: "bootstrap-correlation-state-unreadable",
+    match_count: 0,
+    total_count: 0
+  }));
+}
+
 export function buildSingleConversationBootstrap({
   sourceOfTruthUrl,
   messageId = randomUUID(),
@@ -1036,7 +1151,9 @@ async function persistDelivered(statePath, {
   state.outbound.last_error_code = null;
   state.conversation.runtime_id = runtimeId || state.conversation.runtime_id || null;
   state.conversation.last_seen_at = at;
+  state.automation.status = "RUNNING";
   state.automation.phase = "WAIT_RESPONSE";
+  state.automation.reason = null;
   state.automation.updated_at = at;
   return writeSingleConversationState(statePath, state, { now });
 }
@@ -1265,6 +1382,126 @@ export async function waitForBootstrapResponse({
   });
 }
 
+export async function recoverCorrelatedPreparedBootstrapDelivery({
+  adapter,
+  statePath,
+  sourceOfTruthUrl,
+  qualificationOnly = false,
+  timeoutMs = 180_000,
+  pollMs = 750,
+  now = () => new Date().toISOString(),
+  captureCorrelation = captureCorrelatedBootstrapUserTurnEvidence,
+  waitForResponse = waitForBootstrapResponse
+} = {}) {
+  if (!adapter) throw new Error("adapter is required");
+  if (!statePath) throw new Error("statePath is required");
+
+  const state = await readSingleConversationState(statePath);
+  if (!canRecoverCorrelatedPreparedBootstrapDelivery(state)) {
+    return { recovered: false, evidence: "state-not-candidate" };
+  }
+
+  const source = String(
+    state?.source_of_truth?.url || sourceOfTruthUrl || ""
+  ).trim();
+  const messageId = String(state?.outbound?.message_id || "").trim();
+  const message = buildSingleConversationBootstrap({
+    sourceOfTruthUrl: source,
+    messageId,
+    qualificationOnly
+  });
+  if (
+    composerInstructionDigest(message) !==
+    String(state?.outbound?.message_digest || "")
+  ) {
+    throw Object.assign(
+      new Error("correlated bootstrap reconstruction digest mismatch"),
+      { code: "OUTBOUND_DIGEST_MISMATCH" }
+    );
+  }
+
+  const pages = typeof adapter.getChatGptPages === "function"
+    ? adapter.getChatGptPages()
+    : [];
+  const active = typeof adapter.getActivePage === "function"
+    ? adapter.getActivePage()
+    : null;
+  const candidates = [];
+  for (const page of [active, ...pages]) {
+    if (!page || candidates.includes(page)) continue;
+    if (!opaqueRuntimeIdentity(pageUrl(page))) continue;
+    candidates.push(page);
+  }
+
+  const matches = [];
+  for (const page of candidates) {
+    const evidence = await captureCorrelation(page, {
+      messageId,
+      sourceOfTruthUrl: source
+    }).catch(() => null);
+    if (!evidence?.confirmed) continue;
+
+    const probe = await adapter.probePage(page).catch(() => null);
+    const snapshot = probe?.snapshot || {};
+    if (
+      !probe ||
+      !snapshot.conversationPath ||
+      snapshot.loginRequired ||
+      snapshot.hasCaptcha ||
+      snapshot.hasNetworkError ||
+      snapshot.hasTransientError ||
+      snapshot.conversationMissing ||
+      snapshot.conversationAccessDenied
+    ) {
+      continue;
+    }
+
+    matches.push({ page, evidence });
+  }
+
+  if (matches.length !== 1) {
+    return {
+      recovered: false,
+      evidence: matches.length > 1
+        ? "multiple-correlated-bootstrap-conversations"
+        : "correlated-bootstrap-conversation-not-observed",
+      match_count: matches.length
+    };
+  }
+
+  const match = matches[0];
+  const runtimeId = opaqueRuntimeIdentity(pageUrl(match.page));
+  await persistDelivered(statePath, {
+    userTurnId:
+      match.evidence.turn_id ||
+      `correlated-bootstrap:${messageId}`,
+    runtimeId,
+    now
+  });
+
+  const response = await waitForResponse({
+    adapter,
+    page: match.page,
+    statePath,
+    baselineAssistantTurnId: null,
+    expectedAssistantMarker:
+      `MAGASIN_BOOTSTRAP_CORRELATION_V1 ${messageId}`,
+    timeoutMs,
+    pollMs,
+    now
+  });
+
+  return {
+    recovered: true,
+    page: match.page,
+    message_id: messageId,
+    message,
+    response,
+    user_turn_evidence: match.evidence.evidence,
+    runtime_id: runtimeId
+  };
+}
+
 export async function createNewChatAndBootstrap({
   adapter,
   statePath,
@@ -1340,7 +1577,7 @@ export async function createNewChatAndBootstrap({
     });
 
     await stage("SEND_BEGIN");
-    const sendResult = await sendInstruction(page, message, { dryRun: false });
+    let sendResult = await sendInstruction(page, message, { dryRun: false });
     await stage("SEND_RETURNED", {
       executed: Boolean(sendResult?.executed),
       input_method: sendResult?.input_method || null,
@@ -1354,6 +1591,31 @@ export async function createNewChatAndBootstrap({
       mismatch: sendResult?.mismatch || null,
       after_enter: sendResult?.after_enter || null
     });
+    if (!sendResult?.executed) {
+      const correlated = await captureCorrelatedBootstrapUserTurnEvidence(
+        page,
+        {
+          messageId,
+          sourceOfTruthUrl: state.source_of_truth.url
+        }
+      ).catch(() => null);
+      if (correlated?.confirmed) {
+        sendResult = {
+          ...sendResult,
+          executed: true,
+          rejection_class: null,
+          user_turn_id: correlated.turn_id,
+          user_turn_evidence: correlated.evidence,
+          conversation_turn_count:
+            Number(correlated.total_count || 0),
+          correlation_reconciled: true
+        };
+        await stage("SEND_CORRELATION_RECONCILED", {
+          user_turn_evidence: correlated.evidence
+        });
+      }
+    }
+
     if (!sendResult?.executed) {
       throw Object.assign(
         new Error(sendResult?.reason || "bootstrap send was not confirmed"),
