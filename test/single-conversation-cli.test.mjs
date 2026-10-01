@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  bootstrapRecoveryReasonForState,
   boundedRuntimeStep,
   canRebindEnqueuedStatusCheck,
   canRebindEnqueuedTaskMessage,
@@ -635,4 +636,102 @@ test("SC-013 completed bootstrap recovers malformed task-control without pausing
   assert.ok(discovery > invalid);
   assert.ok(fallbackElse > discovery);
   assert.match(source.slice(parse, fallbackElse), /cycles \+= 1/);
+});
+
+
+test("SC-013 restart classifies lost delivered bootstrap as disposable recovery, not Owner block", () => {
+  const legacyIncident = {
+    conversation: {
+      status: "ACTIVE",
+      runtime_id: "chat:expected"
+    },
+    automation: {
+      status: "BLOCKED",
+      phase: "BOOTSTRAP_FAILED",
+      reason: "BOOTSTRAP_FAILED"
+    },
+    outbound: {
+      state: "RESPONSE_RUNNING",
+      kind: "SOURCE_OF_TRUTH_BOOTSTRAP",
+      message_id: "bootstrap-1",
+      message_digest: "digest",
+      last_error_code: "BOOTSTRAP_FAILED"
+    }
+  };
+
+  assert.equal(
+    bootstrapRecoveryReasonForState(legacyIncident),
+    "BOOTSTRAP_RESPONSE_SURFACE_FAILURE"
+  );
+  assert.equal(
+    bootstrapRecoveryReasonForState({
+      ...legacyIncident,
+      outbound: {
+        ...legacyIncident.outbound,
+        last_error_code: "AUTH_REQUIRED"
+      }
+    }),
+    null
+  );
+  assert.equal(
+    bootstrapRecoveryReasonForState({
+      ...legacyIncident,
+      outbound: {
+        ...legacyIncident.outbound,
+        kind: "TASK_EXECUTION"
+      }
+    }),
+    null
+  );
+});
+
+test("SC-013 runtime replaces a lost bootstrap chat before fail-closed restart handling", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  const classify = source.indexOf(
+    "const lostBootstrapRecoveryReason = bootstrapRecoveryReasonForState(current)"
+  );
+  const branch = source.indexOf("} else if (lostBootstrapRecoveryReason)", classify);
+  const replace = source.indexOf("replaceDisposableConversation", branch);
+  const fullChat = source.indexOf(
+    'restartProbe?.classification?.reason === "CONVERSATION_FULL"',
+    replace
+  );
+  const failClosed = source.indexOf(
+    'code: "RUNTIME_RESTART_IDENTITY_NOT_VERIFIED"',
+    fullChat
+  );
+
+  assert.ok(classify >= 0);
+  assert.ok(branch > classify);
+  assert.ok(replace > branch);
+  assert.ok(fullChat > replace);
+  assert.ok(failClosed > fullChat);
+  assert.match(
+    source.slice(branch, fullChat),
+    /BOOTSTRAP.*no project side effects|bootstrap.*no project side effects/i
+  );
+});
+
+test("SC-013 cold bootstrap gets one bounded disposable retry on recoverable response failure", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const helper = source.indexOf("async function createInitialBootstrapWithRecovery");
+  const create = source.indexOf("createNewChatAndBootstrap", helper);
+  const classify = source.indexOf("bootstrapFailureRecoveryReason", create);
+  const replace = source.indexOf("replaceDisposableConversation", classify);
+  const runtimeStart = source.indexOf("if (current.conversation.status !== \"ACTIVE\")");
+  const helperCall = source.indexOf("createInitialBootstrapWithRecovery", runtimeStart);
+
+  assert.ok(helper >= 0);
+  assert.ok(create > helper);
+  assert.ok(classify > create);
+  assert.ok(replace > classify);
+  assert.ok(runtimeStart > replace);
+  assert.ok(helperCall > runtimeStart);
 });
