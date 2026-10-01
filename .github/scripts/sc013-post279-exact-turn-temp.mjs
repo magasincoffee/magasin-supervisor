@@ -76,11 +76,11 @@ try {
     emit("DIAG_EXPECTED_CHAR_COUNT", instruction.length);
     emit("DIAG_STRICT_DIGEST_MATCH",
       Boolean(latestUserText) &&
-      composerInstructionDigest(latestUserText) === composerInstructionDigest(instruction)
+      actions.composerInstructionDigest(latestUserText) === actions.composerInstructionDigest(instruction)
     );
     emit("DIAG_RENDERED_DIGEST_MATCH",
       Boolean(latestUserText) &&
-      composerRenderedInstructionDigest(latestUserText) === composerRenderedInstructionDigest(instruction)
+      actions.composerRenderedInstructionDigest(latestUserText) === actions.composerRenderedInstructionDigest(instruction)
     );
     emit("DIAG_HAS_BOOTSTRAP_MARKER",
       latestUserText.includes("MAGASIN_SINGLE_CONVERSATION_BOOTSTRAP_V1")
