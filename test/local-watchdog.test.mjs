@@ -143,3 +143,14 @@ test("SC-013 local UI probe contains state read inside structured result handlin
   assert.match(source, /if \(adapter\)/);
   assert.match(source, /process\.stdout\.write\(JSON\.stringify\(result\), \(\) => process\.exit\(0\)\)/);
 });
+
+
+test("SC-013 rebind diagnostic captures direct local probe exit evidence", async () => {
+  const source = await read(".github/scripts/supervisor-sc013-rebind-diagnostic.ps1");
+  assert.match(source, /local-watchdog-probe-cli\.mjs/);
+  assert.match(source, /SC013_DIAG_DIRECT_PROBE_EXIT=/);
+  assert.match(source, /SC013_DIAG_DIRECT_PROBE_STDOUT=/);
+  assert.match(source, /SC013_DIAG_DIRECT_PROBE_STDERR=/);
+  assert.match(source, /WaitForExit\(25000\)/);
+  assert.match(source, /Remove-Item \$probeOut,\$probeErr -Force/);
+});
