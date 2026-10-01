@@ -1093,7 +1093,24 @@ export async function runSingleConversationRuntime({
 
   let control = null;
   if (bootstrapResponse?.assistant_turn?.text) {
-    control = parseTaskControl(bootstrapResponse.assistant_turn.text);
+    try {
+      control = parseTaskControl(bootstrapResponse.assistant_turn.text);
+    } catch (error) {
+      if (error?.code !== "TASK_PROTOCOL_INVALID") throw error;
+      // A completed bootstrap is not a terminal Owner pause merely because
+      // ChatGPT omitted or malformed the machine task-control block. The
+      // bootstrap itself performs no project work, so safely re-read SOT in
+      // the same fresh conversation and ask only for authoritative task control.
+      control = await discoverTaskControl({
+        adapter,
+        page,
+        statePath,
+        sourceOfTruthUrl,
+        responseTimeoutMs,
+        pollMs
+      });
+      cycles += 1;
+    }
   } else {
     const latestAssistant = await captureLatestRoleTurn(page, "assistant")
       .catch(() => null);
