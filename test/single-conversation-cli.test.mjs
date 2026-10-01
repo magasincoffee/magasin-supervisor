@@ -150,9 +150,14 @@ test("SC-013 prepared bootstrap restart requires positive blank-home evidence be
   const body = source.slice(gate, lostBootstrap);
   assert.match(body, /messageId: retryMessageId/);
   assert.match(body, /composerInstructionDigest\(retryMessage\)/);
-  assert.match(body, /userMessageCount/);
-  assert.match(body, /assistantMessageCount/);
-  assert.match(body, /draft\.has_text === false/);
+
+  const helper = source.indexOf("async function hasPositiveBlankBootstrapNonDelivery");
+  const helperEnd = source.indexOf("function recoverableBootstrapPage", helper);
+  assert.ok(helper >= 0 && helperEnd > helper);
+  const helperBody = source.slice(helper, helperEnd);
+  assert.match(helperBody, /userMessageCount/);
+  assert.match(helperBody, /assistantMessageCount/);
+  assert.match(helperBody, /draft\.has_text === false/);
 });
 
 test("SC-013 startup resumes the pending discovery before selecting new work", async () => {
