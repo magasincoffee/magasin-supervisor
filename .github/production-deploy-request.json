@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "df580b9d3cff539fa993f0121b9798f7bf1e4fe9",
+  "requested_main_sha": "063ed0615325bcf6a7d86dc4ee625e8d9d2ef6da",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy SC-013 exact bootstrap non-delivery proof from PR #277 after all mandatory gates passed."
+  "reason": "Deploy SC-013 startup settle race fix from PR #278 after all mandatory gates passed."
 }
