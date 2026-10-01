@@ -36,4 +36,7 @@ jobs:
             throw 'CDP port unavailable'
           }
           $cdp = "http://127.0.0.1:$($matches[1])"
-          node ".github\scripts\sc013-post277-gate-diagnostic-temp.mjs" --state (Join-Path $root 'single-conversation-state.json') --cdp-url $cdp
+          $runtime = Join-Path $root 'runtime'
+          $runtimeCli = Join-Path $runtime 'src\runtime\single-conversation-cli.mjs'
+          Write-Host "DIAG_RUNTIME_HAS_EXACT_PROOF=$([bool](Select-String -Path $runtimeCli -Pattern 'BOOTSTRAP_NON_DELIVERY_EXACT_TURN' -Quiet))"
+          node ".github\scripts\sc013-post277-gate-diagnostic-temp.mjs" --state (Join-Path $root 'single-conversation-state.json') --cdp-url $cdp --runtime $runtime
