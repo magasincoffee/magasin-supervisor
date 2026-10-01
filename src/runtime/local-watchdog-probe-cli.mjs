@@ -14,20 +14,11 @@ const cdpUrl = argValue("--cdp-url");
 if (!statePath) throw new Error("--state is required");
 if (!cdpUrl) throw new Error("--cdp-url is required");
 
-const state = await readSingleConversationState(statePath);
-const expectedRuntimeId = String(state?.conversation?.runtime_id || "").trim();
-
-const adapter = new ChatGptUiAdapter({
-  cdpUrl,
-  settleMs: 50,
-  actionTimeoutMs: 2_000,
-  timeoutMs: 5_000
-});
-
+let adapter = null;
 const result = {
   schema_version: 1,
   timestamp: new Date().toISOString(),
-  expected_runtime_id_present: Boolean(expectedRuntimeId),
+  expected_runtime_id_present: false,
   page_count: 0,
   exact_runtime_match: false,
   ui_state: "UNAVAILABLE",
@@ -53,6 +44,17 @@ const result = {
 };
 
 try {
+  const state = await readSingleConversationState(statePath);
+  const expectedRuntimeId = String(state?.conversation?.runtime_id || "").trim();
+  result.expected_runtime_id_present = Boolean(expectedRuntimeId);
+
+  adapter = new ChatGptUiAdapter({
+    cdpUrl,
+    settleMs: 50,
+    actionTimeoutMs: 2_000,
+    timeoutMs: 5_000
+  });
+
   await adapter.open();
   const pages = adapter.getChatGptPages();
   result.page_count = pages.length;
@@ -104,10 +106,12 @@ try {
 } catch (error) {
   result.probe_error = String(error?.code || error?.message || "PROBE_FAILED").slice(0, 240);
 } finally {
-  await Promise.race([
-    adapter.close().catch(() => {}),
-    new Promise((resolve) => setTimeout(resolve, 1_000))
-  ]).catch(() => {});
+  if (adapter) {
+    await Promise.race([
+      adapter.close().catch(() => {}),
+      new Promise((resolve) => setTimeout(resolve, 1_000))
+    ]).catch(() => {});
+  }
 }
 
 // A CDP-attached Playwright browser transport can keep Node's event loop alive
