@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "requested_after_deploy_sha": "b455874148a3038334dbbbce79e4166fed2f7a8e",
-  "purpose": "Pre-arm exactly one live first-failure attempt after PR #278 startup settle race fix."
+  "requested_after_deploy_sha": "47b316e0e3c2551866c36fb9e681e1ae4eb1a3fb",
+  "purpose": "Owner-delegated overnight first-failure attempt after PR #279 DOM snapshot draft proof."
 }
