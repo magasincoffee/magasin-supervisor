@@ -186,9 +186,7 @@ export function canRecoverPreparedBootstrapNonDelivery(state) {
     String(outbound.last_error_code || "").toUpperCase() === "SEND_NOT_ACTUATED" &&
     Number(outbound.retry_count || 0) < 1 &&
     String(outbound.message_id || "").trim() &&
-    String(outbound.message_digest || "").trim() &&
-    String(state?.recovery?.reason || "") !==
-      "BOOTSTRAP_POSITIVE_NON_DELIVERY_RETRY"
+    String(outbound.message_digest || "").trim()
   );
 }
 
@@ -1141,6 +1139,7 @@ export async function runSingleConversationRuntime({
         sourceOfTruthUrl,
         projectId: "LIVE",
         messageId: retryMessageId,
+        initialRetryCount: Number(current.outbound.retry_count || 0) + 1,
         qualificationOnly,
         timeoutMs: responseTimeoutMs,
         pollMs: Math.min(750, Math.max(100, pollMs))
