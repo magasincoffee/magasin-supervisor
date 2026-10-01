@@ -14,11 +14,12 @@ if (!statePath || !cdpUrl || !runtimeRoot) {
 }
 
 const mod = (rel) => pathToFileURL(path.join(runtimeRoot, rel)).href;
-const [{ ChatGptUiAdapter }, actions, bootstrap, stateModule] = await Promise.all([
+const [{ ChatGptUiAdapter }, actions, bootstrap, stateModule, cli] = await Promise.all([
   import(mod("src/ui/playwright-adapter.mjs")),
   import(mod("src/ui/actions.mjs")),
   import(mod("src/runtime/single-conversation-bootstrap.mjs")),
-  import(mod("src/runtime/single-conversation-state.mjs"))
+  import(mod("src/runtime/single-conversation-state.mjs")),
+  import(mod("src/runtime/single-conversation-cli.mjs"))
 ]);
 
 const {
@@ -27,6 +28,10 @@ const {
 } = actions;
 const { buildSingleConversationBootstrap } = bootstrap;
 const { readSingleConversationState } = stateModule;
+const {
+  preparedBootstrapIsStaleEnough,
+  waitForPositiveBlankBootstrapNonDelivery
+} = cli;
 
 let adapter = null;
 const output = [];
@@ -48,6 +53,25 @@ try {
     timeoutMs: 5_000
   });
   await adapter.open();
+
+  emit("DIAG_PREPARED_STALE_ENOUGH=" + preparedBootstrapIsStaleEnough(state));
+  const helperStarted = Date.now();
+  const helperPage = await waitForPositiveBlankBootstrapNonDelivery(
+    adapter,
+    adapter.getActivePage(),
+    {
+      timeoutMs: 30_000,
+      pollMs: 750,
+      stablePasses: 2,
+      expectedInstruction: message
+    }
+  ).catch((e) => {
+    emit("DIAG_HELPER_ERROR=" + String(e?.code || e?.message || e));
+    emit("DIAG_HELPER_ERROR_STAGE=" + String(e?.runtime_stage || ""));
+    return null;
+  });
+  emit("DIAG_HELPER_RESULT=" + Boolean(helperPage));
+  emit("DIAG_HELPER_ELAPSED_MS=" + (Date.now() - helperStarted));
 
   const pages = adapter.getChatGptPages();
   emit("DIAG_PAGE_COUNT=" + pages.length);
