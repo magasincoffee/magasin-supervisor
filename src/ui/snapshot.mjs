@@ -240,6 +240,7 @@ export async function collectSafeUiSnapshot(page) {
         })
         .filter((value) => Number.isFinite(value));
 
+      const conversationTurnElementCount = turnOrdinals.length;
       const maxConversationTurnOrdinal =
         turnOrdinals.length
           ? Math.max(...turnOrdinals)
@@ -347,6 +348,7 @@ export async function collectSafeUiSnapshot(page) {
         hasCaptcha,
         responseRunning,
         hasStopControl,
+        conversationTurnElementCount,
         maxConversationTurnOrdinal,
         assistantBusy,
         modelSwitching,
