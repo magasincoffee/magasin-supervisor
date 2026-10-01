@@ -20,6 +20,8 @@ const cdpUrl = argValue("--cdp-url");
 if (!statePath || !cdpUrl) throw new Error("state/cdp required");
 
 let adapter = null;
+const output = [];
+const emit = (value) => output.push(String(value));
 try {
   const state = await readSingleConversationState(statePath);
   const messageId = String(state?.outbound?.message_id || "").trim();
@@ -38,45 +40,45 @@ try {
   await adapter.open();
 
   const pages = adapter.getChatGptPages();
-  console.log("DIAG_PAGE_COUNT=" + pages.length);
+  emit("DIAG_PAGE_COUNT=" + pages.length);
   for (let i = 0; i < pages.length; i += 1) {
     const page = pages[i];
-    console.log("DIAG_PAGE_INDEX=" + i);
-    console.log("DIAG_PAGE_URL=" + page.url());
+    emit("DIAG_PAGE_INDEX=" + i);
+    emit("DIAG_PAGE_URL=" + page.url());
     const probe = await adapter.probePage(page).catch((e) => ({ error: e }));
     if (probe?.error) {
-      console.log("DIAG_PROBE_ERROR=" + String(probe.error?.code || probe.error?.message || probe.error));
+      emit("DIAG_PROBE_ERROR=" + String(probe.error?.code || probe.error?.message || probe.error));
       continue;
     }
     const s = probe.snapshot || {};
-    console.log("DIAG_CONVERSATION_PATH=" + Boolean(s.conversationPath));
-    console.log("DIAG_COMPOSER_READY=" + Boolean(s.composerReady));
-    console.log("DIAG_RESPONSE_RUNNING=" + Boolean(s.responseRunning));
-    console.log("DIAG_LOGIN_REQUIRED=" + Boolean(s.loginRequired));
-    console.log("DIAG_CAPTCHA=" + Boolean(s.hasCaptcha));
-    console.log("DIAG_NETWORK_ERROR=" + Boolean(s.hasNetworkError));
-    console.log("DIAG_TRANSIENT_ERROR=" + Boolean(s.hasTransientError));
-    console.log("DIAG_CONVERSATION_MISSING=" + Boolean(s.conversationMissing));
-    console.log("DIAG_ACCESS_DENIED=" + Boolean(s.conversationAccessDenied));
-    console.log("DIAG_STRUCTURED_TURN_COUNT=" + Number(s.conversationTurnElementCount || 0));
-    console.log("DIAG_USER_MESSAGE_COUNT=" + Number(s.userMessageCount || 0));
-    console.log("DIAG_ASSISTANT_MESSAGE_COUNT=" + Number(s.assistantMessageCount || 0));
+    emit("DIAG_CONVERSATION_PATH=" + Boolean(s.conversationPath));
+    emit("DIAG_COMPOSER_READY=" + Boolean(s.composerReady));
+    emit("DIAG_RESPONSE_RUNNING=" + Boolean(s.responseRunning));
+    emit("DIAG_LOGIN_REQUIRED=" + Boolean(s.loginRequired));
+    emit("DIAG_CAPTCHA=" + Boolean(s.hasCaptcha));
+    emit("DIAG_NETWORK_ERROR=" + Boolean(s.hasNetworkError));
+    emit("DIAG_TRANSIENT_ERROR=" + Boolean(s.hasTransientError));
+    emit("DIAG_CONVERSATION_MISSING=" + Boolean(s.conversationMissing));
+    emit("DIAG_ACCESS_DENIED=" + Boolean(s.conversationAccessDenied));
+    emit("DIAG_STRUCTURED_TURN_COUNT=" + Number(s.conversationTurnElementCount || 0));
+    emit("DIAG_USER_MESSAGE_COUNT=" + Number(s.userMessageCount || 0));
+    emit("DIAG_ASSISTANT_MESSAGE_COUNT=" + Number(s.assistantMessageCount || 0));
 
     const exact = await captureMatchingUserTurnEvidence(page, message).catch((e) => ({
       error: String(e?.code || e?.message || e)
     }));
-    console.log("DIAG_EXACT_CONFIRMED=" + Boolean(exact?.confirmed));
-    console.log("DIAG_EXACT_EVIDENCE=" + String(exact?.evidence || ""));
-    console.log("DIAG_EXACT_TOTAL_COUNT=" + Number(exact?.totalCount || 0));
-    console.log("DIAG_EXACT_ERROR=" + String(exact?.error || ""));
+    emit("DIAG_EXACT_CONFIRMED=" + Boolean(exact?.confirmed));
+    emit("DIAG_EXACT_EVIDENCE=" + String(exact?.evidence || ""));
+    emit("DIAG_EXACT_TOTAL_COUNT=" + Number(exact?.totalCount || 0));
+    emit("DIAG_EXACT_ERROR=" + String(exact?.error || ""));
 
     const draft = await inspectComposerDraftDigest(page, { timeoutMs: 1_500 }).catch((e) => ({
       error: String(e?.code || e?.message || e)
     }));
-    console.log("DIAG_DRAFT_READY=" + String(draft?.ready));
-    console.log("DIAG_DRAFT_HAS_TEXT=" + String(draft?.has_text));
-    console.log("DIAG_DRAFT_LENGTH=" + String(draft?.normalized_text || "").length);
-    console.log("DIAG_DRAFT_ERROR=" + String(draft?.error || ""));
+    emit("DIAG_DRAFT_READY=" + String(draft?.ready));
+    emit("DIAG_DRAFT_HAS_TEXT=" + String(draft?.has_text));
+    emit("DIAG_DRAFT_LENGTH=" + String(draft?.normalized_text || "").length);
+    emit("DIAG_DRAFT_ERROR=" + String(draft?.error || ""));
   }
 } finally {
   if (adapter) {
@@ -85,5 +87,5 @@ try {
       new Promise((resolve) => setTimeout(resolve, 1000))
     ]).catch(() => {});
   }
-  process.exit(0);
+  process.stdout.write(output.join("\n") + "\n", () => process.exit(0));
 }
