@@ -875,6 +875,45 @@ test("SC-003 confirmed-send failure is persisted as bounded bootstrap failure", 
   }
 });
 
+test("SC-013 bootstrap recovery persists consumed retry budget before submit", async () => {
+  const { root, statePath } = await tempStatePath();
+  const page = fakePage();
+  const adapter = {
+    async open() {},
+    getActivePage() { return page; },
+    async newChatPage() { return page; },
+    async probePage() { return { snapshot: blankSnapshot() }; }
+  };
+
+  try {
+    await assert.rejects(
+      createNewChatAndBootstrap({
+        adapter,
+        statePath,
+        sourceOfTruthUrl: "https://example.com/source",
+        messageId: "bootstrap-retry-budget",
+        initialRetryCount: 1,
+        captureTurn: async () => null,
+        sendInstruction: async () => ({
+          executed: false,
+          reason: "retry submit did not actuate",
+          rejection_class: "SEND_NOT_ACTUATED"
+        }),
+        timeoutMs: 100,
+        pollMs: 1
+      }),
+      /retry submit did not actuate/
+    );
+
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "PREPARED");
+    assert.equal(durable.outbound.retry_count, 1);
+    assert.equal(durable.outbound.last_error_code, "SEND_NOT_ACTUATED");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("SC-003 live qualification bounds CDP cleanup and exits explicitly", async () => {
   const source = await fs.readFile(
     new URL("../.github/scripts/supervisor-sc003-live-qualification.mjs", import.meta.url),

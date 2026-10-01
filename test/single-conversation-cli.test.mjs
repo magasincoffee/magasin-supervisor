@@ -117,7 +117,7 @@ test("SC-013 restart allows one bootstrap retry only from proven SEND_NOT_ACTUAT
       ...candidate,
       recovery: { reason: "BOOTSTRAP_POSITIVE_NON_DELIVERY_RETRY" }
     }),
-    false
+    true
   );
   assert.equal(
     canRecoverPreparedBootstrapNonDelivery({
@@ -150,6 +150,10 @@ test("SC-013 prepared bootstrap restart requires positive blank-home evidence be
   const body = source.slice(gate, lostBootstrap);
   assert.match(body, /messageId: retryMessageId/);
   assert.match(body, /composerInstructionDigest\(retryMessage\)/);
+  assert.match(
+    body,
+    /initialRetryCount: Number\(current\.outbound\.retry_count \|\| 0\) \+ 1/
+  );
 
   const helper = source.indexOf("async function hasPositiveBlankBootstrapNonDelivery");
   const helperEnd = source.indexOf("function recoverableBootstrapPage", helper);

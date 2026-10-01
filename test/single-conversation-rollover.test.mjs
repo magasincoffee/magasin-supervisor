@@ -411,6 +411,19 @@ test("SC-005 recovery helper replaces a missing conversation automatically", asy
 });
 
 
+test("SC-013 replacement forwards bootstrap retry budget into fresh generation", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-rollover.mjs", import.meta.url),
+    "utf8"
+  );
+  const signature = source.indexOf("export async function replaceDisposableConversation");
+  const create = source.indexOf("createNewChatAndBootstrap({", signature);
+  const forwarded = source.indexOf("initialRetryCount,", create);
+  assert.ok(signature >= 0);
+  assert.ok(create > signature);
+  assert.ok(forwarded > create);
+});
+
 test("SC-010 converts probe-close race into disposable rollover", async () => {
   const { root, statePath } = await tempState();
   let closed = false;
