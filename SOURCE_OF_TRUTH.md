@@ -647,6 +647,7 @@ Owner-visible incident evidence:
 - the submit diagnostic recorded `COMPOSER_NOT_READY` even though the live composer was editable and Send was enabled;
 - strict outbound digest and the contenteditable draft digest differed because ChatGPT ProseMirror can encode visible multiline paragraph boundaries structurally, so `textContent` can collapse rendered line boundaries and produce a false non-persistence result;
 - the same production merge automatically triggered obsolete Planner/Executor-era workflows on `main`, including PE-001, PE-007, and the legacy Brain submit diagnostic; these jobs consumed the real self-hosted target and interfered with forward production deployment/diagnostics.
+- on 2026-10-01, repeated SC-013 source fixes exposed a second production-interference path: ordinary `src/**` / `windows/**` merges auto-triggered `Supervisor Control Panel Deploy DESKTOP-4K7IM13`; live run #36885671987 on `DESKTOP-4K7IM13` stopped the dedicated Chrome process group and an existing PowerShell control/runtime process before replacing the canonical runtime, after which the same deploy job immediately reported `Dedicated Chrome/CDP unavailable`; this proves code inspection/fix merges were able to interrupt an otherwise long-running Robot session.
 
 Canonical fix:
 1. forward production MUST use only `SINGLE_CONVERSATION_V1`; obsolete Planner/Executor/Brain/Bridge qualification or cutover workflows MUST NOT auto-run from `main` or consume the production target;
@@ -655,6 +656,9 @@ Canonical fix:
 4. an `ENQUEUED` transaction with no delivered user turn may resume only when exact or rendered-equivalent evidence proves the live draft belongs to the same Robot message;
 5. successful safe reconciliation MUST clear transient `BLOCKED` state and return automation to `RUNNING`;
 6. final acceptance requires real target evidence on `DESKTOP-4K7IM13` that the blocked outbound is either safely delivered or safely reconstructed, a matching user turn appears, a response completes, and at least two subsequent task-control cycles continue in the same active conversation without duplicate sends or legacy workflow interference.
+7. ordinary source, test, documentation, or Windows launcher merges MUST be CI-only and MUST NOT automatically replace the installed production runtime, stop the dedicated Chrome, stop the wrapper, or restart the Control Center;
+8. production deployment to `DESKTOP-4K7IM13` MUST require explicit release authority through `workflow_dispatch` or a dedicated `.github/production-deploy-request.json` marker commit; one deploy request creates one target-guarded deploy job, and a non-target runner must fail without mutation rather than report a false deployment success;
+9. deployment and read-only diagnosis are separate lifecycle operations: because installation may intentionally close dedicated Chrome, the deploy workflow MUST NOT immediately run a CDP-dependent SC-013 diagnostic and misclassify the expected post-install browser absence as a deployment failure.
 
 ### SC-013 live first-failure progression rule
 
@@ -680,10 +684,13 @@ While SC-013 remains IN PROGRESS, production evidence collection is unattended:
 - `.github/workflows/sc013-runtime-watchdog.yml` independently samples the real target every five minutes, verifies that the local heartbeat is fresh, and surfaces local ChatGPT/runtime fault codes into GitHub Actions evidence;
 - when a non-Owner fault is detected and CDP remains reachable, the local observer captures the exact active-runtime match, safe UI classification, composer readiness/digest/length, and ChatGPT error controls without navigating, typing, submitting, retrying, or repairing;
 - neither watchdog may repair or send by itself; repair still follows the SC-013 first-failure rule, with tests and exact-main deployment before the production rerun;
+- watchdog/diagnostic workflows are observation-only and MUST NOT be used as an implicit deployment trigger; code review, CI, and read-only inspection must leave the installed production runtime and live Robot session untouched;
 - SC-013 remains IN PROGRESS until the required same-conversation multi-cycle production evidence is sustained without BLOCKED state, duplicate sends, or legacy workflow interference.
 
 DoD:
 - PE-001, PE-007, legacy Brain submit/repair, and superseded Bridge qualification/cutover workflows cannot auto-run on `main`;
+- ordinary `src/**`, `windows/**`, test, or documentation merges cannot auto-deploy to `DESKTOP-4K7IM13`; production replacement requires explicit deploy authority and exactly one target-guarded deploy attempt;
+- deployment success is not coupled to an immediate CDP diagnostic after the installer has intentionally closed Chrome;
 - current composer text is not falsely rejected solely because ProseMirror rewrites equivalent whitespace/paragraph structure;
 - exact-once protection still rejects a genuinely different draft;
 - the production target completes the previously stuck outbound without duplicate delivery;
