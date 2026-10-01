@@ -71,7 +71,26 @@ try {
     const latestAssistant = await latestTurn.captureLatestRoleTurn(page, "assistant").catch(() => null);
     emit("DIAG_LATEST_USER_PRESENT", Boolean(latestUser));
     emit("DIAG_LATEST_USER_TURN_ID", latestUser?.turn_id || "");
-    emit("DIAG_LATEST_USER_CHAR_COUNT", String(latestUser?.text || "").length);
+    const latestUserText = String(latestUser?.text || "");
+    emit("DIAG_LATEST_USER_CHAR_COUNT", latestUserText.length);
+    emit("DIAG_EXPECTED_CHAR_COUNT", instruction.length);
+    emit("DIAG_STRICT_DIGEST_MATCH",
+      Boolean(latestUserText) &&
+      composerInstructionDigest(latestUserText) === composerInstructionDigest(instruction)
+    );
+    emit("DIAG_RENDERED_DIGEST_MATCH",
+      Boolean(latestUserText) &&
+      composerRenderedInstructionDigest(latestUserText) === composerRenderedInstructionDigest(instruction)
+    );
+    emit("DIAG_HAS_BOOTSTRAP_MARKER",
+      latestUserText.includes("MAGASIN_SINGLE_CONVERSATION_BOOTSTRAP_V1")
+    );
+    emit("DIAG_HAS_CURRENT_MESSAGE_ID",
+      latestUserText.includes(String(state.outbound.message_id || ""))
+    );
+    emit("DIAG_HAS_CURRENT_SOT_URL",
+      latestUserText.includes(String(state.source_of_truth.url || ""))
+    );
     emit("DIAG_LATEST_ASSISTANT_PRESENT", Boolean(latestAssistant));
     emit("DIAG_LATEST_ASSISTANT_TURN_ID", latestAssistant?.turn_id || "");
     emit("DIAG_LATEST_ASSISTANT_CHAR_COUNT", String(latestAssistant?.text || "").length);
