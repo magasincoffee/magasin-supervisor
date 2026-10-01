@@ -235,6 +235,65 @@ async function hasPositiveBlankBootstrapNonDelivery(adapter, page) {
   );
 }
 
+export async function waitForPositiveBlankBootstrapNonDelivery(
+  adapter,
+  initialPage = null,
+  {
+    timeoutMs = 30_000,
+    pollMs = 750,
+    stablePasses = 2,
+    verify = hasPositiveBlankBootstrapNonDelivery,
+    now = () => Date.now(),
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+  } = {}
+) {
+  if (!adapter) throw new TypeError("adapter is required");
+  if (typeof verify !== "function") throw new TypeError("verify is required");
+
+  const requiredPasses = Math.max(1, Number(stablePasses) || 1);
+  const deadline = Number(now()) + Math.max(1, Number(timeoutMs) || 1);
+  let stablePage = null;
+  let passCount = 0;
+
+  while (Number(now()) <= deadline) {
+    const active = adapter.getActivePage?.() || null;
+    const pages = adapter.getChatGptPages?.() || [];
+    const candidates = [];
+    for (const candidate of [initialPage, active, ...pages]) {
+      if (!candidate || candidates.includes(candidate)) continue;
+      if (candidate.isClosed?.()) continue;
+      candidates.push(candidate);
+    }
+
+    const candidate =
+      candidates.find((page) => isBlankHomePage(page)) ||
+      candidates[0] ||
+      null;
+
+    const positive = candidate
+      ? await verify(adapter, candidate)
+      : false;
+
+    if (positive) {
+      if (stablePage === candidate) {
+        passCount += 1;
+      } else {
+        stablePage = candidate;
+        passCount = 1;
+      }
+      if (passCount >= requiredPasses) return candidate;
+    } else {
+      stablePage = null;
+      passCount = 0;
+    }
+
+    if (Number(now()) >= deadline) break;
+    await sleep(Math.max(0, Number(pollMs) || 0));
+  }
+
+  return null;
+}
+
 function recoverableBootstrapPage(adapter, state) {
   const expected = String(state?.conversation?.runtime_id || "").trim();
   const pages = adapter?.getChatGptPages?.() || [];
@@ -1106,9 +1165,17 @@ export async function runSingleConversationRuntime({
         adapter.getActivePage?.() ||
         adapter.getChatGptPages?.().find((candidate) => isBlankHomePage(candidate)) ||
         null;
-      const positiveNonDelivery =
-        await hasPositiveBlankBootstrapNonDelivery(adapter, candidatePage);
-      if (!positiveNonDelivery) {
+      const verifiedNonDeliveryPage =
+        await waitForPositiveBlankBootstrapNonDelivery(
+          adapter,
+          candidatePage,
+          {
+            timeoutMs: 30_000,
+            pollMs: 750,
+            stablePasses: 2
+          }
+        );
+      if (!verifiedNonDeliveryPage) {
         throw Object.assign(
           new Error("prepared bootstrap non-delivery could not be positively verified"),
           { code: "RUNTIME_RESTART_BOOTSTRAP_NON_DELIVERY_UNVERIFIED" }
@@ -1133,7 +1200,7 @@ export async function runSingleConversationRuntime({
 
       const replacement = await replaceDisposableConversation({
         adapter,
-        page: candidatePage,
+        page: verifiedNonDeliveryPage,
         statePath,
         reason: "BOOTSTRAP_POSITIVE_NON_DELIVERY_RETRY",
         sourceOfTruthUrl,

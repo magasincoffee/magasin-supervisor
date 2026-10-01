@@ -18,7 +18,8 @@ import {
   reconstructPendingTaskMessage,
   replacementReasonForResponseWaitError,
   runSingleConversationRuntime,
-  waitForNextCycleDelay
+  waitForNextCycleDelay,
+  waitForPositiveBlankBootstrapNonDelivery
 } from "../src/runtime/single-conversation-cli.mjs";
 import { composerInstructionDigest } from "../src/ui/actions.mjs";
 import { buildSingleConversationTaskInstruction } from "../src/runtime/single-conversation-loop.mjs";
@@ -128,13 +129,77 @@ test("SC-013 restart allows one bootstrap retry only from proven SEND_NOT_ACTUAT
   );
 });
 
+test("SC-013 bootstrap non-delivery waits for two stable positive observations", async () => {
+  const page = {
+    url: () => "https://chatgpt.com/",
+    isClosed: () => false
+  };
+  const adapter = {
+    getActivePage: () => page,
+    getChatGptPages: () => [page]
+  };
+
+  let tick = 0;
+  let checks = 0;
+  const verified = await waitForPositiveBlankBootstrapNonDelivery(
+    adapter,
+    page,
+    {
+      timeoutMs: 10_000,
+      pollMs: 100,
+      stablePasses: 2,
+      now: () => tick,
+      sleep: async (ms) => { tick += ms; },
+      verify: async () => {
+        checks += 1;
+        return checks >= 2;
+      }
+    }
+  );
+
+  assert.equal(verified, page);
+  assert.equal(checks, 3);
+});
+
+test("SC-013 bootstrap non-delivery does not authorize retry from unstable evidence", async () => {
+  const page = {
+    url: () => "https://chatgpt.com/",
+    isClosed: () => false
+  };
+  const adapter = {
+    getActivePage: () => page,
+    getChatGptPages: () => [page]
+  };
+
+  let tick = 0;
+  let checks = 0;
+  const verified = await waitForPositiveBlankBootstrapNonDelivery(
+    adapter,
+    page,
+    {
+      timeoutMs: 500,
+      pollMs: 100,
+      stablePasses: 2,
+      now: () => tick,
+      sleep: async (ms) => { tick += ms; },
+      verify: async () => {
+        checks += 1;
+        return checks % 2 === 0;
+      }
+    }
+  );
+
+  assert.equal(verified, null);
+  assert.ok(checks >= 4);
+});
+
 test("SC-013 prepared bootstrap restart requires positive blank-home evidence before bounded replacement", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
     "utf8"
   );
   const gate = source.indexOf("canRecoverPreparedBootstrapNonDelivery(current)");
-  const verify = source.indexOf("hasPositiveBlankBootstrapNonDelivery", gate);
+  const verify = source.indexOf("waitForPositiveBlankBootstrapNonDelivery", gate);
   const digest = source.indexOf("prepared bootstrap reconstruction digest mismatch", verify);
   const reason = source.indexOf("BOOTSTRAP_POSITIVE_NON_DELIVERY_RETRY", digest);
   const replace = source.indexOf("replaceDisposableConversation", reason);
@@ -156,12 +221,16 @@ test("SC-013 prepared bootstrap restart requires positive blank-home evidence be
   );
 
   const helper = source.indexOf("async function hasPositiveBlankBootstrapNonDelivery");
-  const helperEnd = source.indexOf("function recoverableBootstrapPage", helper);
-  assert.ok(helper >= 0 && helperEnd > helper);
+  const settle = source.indexOf("export async function waitForPositiveBlankBootstrapNonDelivery", helper);
+  const helperEnd = source.indexOf("function recoverableBootstrapPage", settle);
+  assert.ok(helper >= 0 && settle > helper && helperEnd > settle);
   const helperBody = source.slice(helper, helperEnd);
   assert.match(helperBody, /userMessageCount/);
   assert.match(helperBody, /assistantMessageCount/);
   assert.match(helperBody, /draft\.has_text === false/);
+  assert.match(helperBody, /stablePasses = 2/);
+  assert.match(helperBody, /passCount >= requiredPasses/);
+  assert.match(body, /page: verifiedNonDeliveryPage/);
 });
 
 test("SC-013 startup resumes the pending discovery before selecting new work", async () => {
