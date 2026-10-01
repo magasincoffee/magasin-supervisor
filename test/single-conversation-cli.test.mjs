@@ -82,6 +82,33 @@ test("SC-013 restart rebind permits only proven pre-actuation task discovery rec
   );
 });
 
+test("SC-013 startup reconciles correlated bootstrap delivery before any resend recovery", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const correlated = source.indexOf(
+    "canRecoverCorrelatedPreparedBootstrapDelivery(current)"
+  );
+  const recover = source.indexOf(
+    "recoverCorrelatedPreparedBootstrapDelivery",
+    correlated
+  );
+  const branch = source.indexOf(
+    "correlatedBootstrapRecovery?.recovered",
+    recover
+  );
+  const retry = source.indexOf(
+    "canRecoverPreparedBootstrapNonDelivery(current)",
+    branch
+  );
+
+  assert.ok(correlated >= 0);
+  assert.ok(recover > correlated);
+  assert.ok(branch > recover);
+  assert.ok(retry > branch);
+});
+
 test("SC-013 restart allows one bootstrap retry only from proven SEND_NOT_ACTUATED PREPARED state", () => {
   const candidate = {
     conversation: { status: "ACTIVE", runtime_id: null },
