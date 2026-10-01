@@ -970,6 +970,7 @@ async function persistPreparedBootstrap(statePath, {
   messageId,
   message,
   baselineUserTurnId,
+  initialRetryCount = 0,
   now
 }) {
   const state = await readSingleConversationState(statePath);
@@ -989,7 +990,7 @@ async function persistPreparedBootstrap(statePath, {
     response_running_at: null,
     response_complete_at: null,
     verified_at: null,
-    retry_count: 0,
+    retry_count: Math.max(0, Number(initialRetryCount) || 0),
     last_error_code: null
   };
   state.automation.status = "RUNNING";
@@ -1272,6 +1273,7 @@ export async function createNewChatAndBootstrap({
   messageId = randomUUID(),
   qualificationOnly = false,
   forceNewPage = false,
+  initialRetryCount = 0,
   sendInstruction = sendFreshChatBootstrapInstruction,
   captureTurn = captureLatestRoleTurn,
   timeoutMs = 180_000,
@@ -1330,6 +1332,7 @@ export async function createNewChatAndBootstrap({
       messageId,
       message,
       baselineUserTurnId: baselineUser?.turn_id || null,
+      initialRetryCount,
       now
     });
     await stage("BOOTSTRAP_PREPARED", {
