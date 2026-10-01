@@ -176,8 +176,7 @@ export async function captureCorrelatedBootstrapUserTurnEvidence(
       const correlated =
         text.includes("MAGASIN_SINGLE_CONVERSATION_BOOTSTRAP_V1") &&
         text.includes(`id=${id}`) &&
-        text.includes(source) &&
-        text.includes("MAGASIN_BOOTSTRAP_CORRELATION_V1");
+        text.includes(source);
       if (!correlated) continue;
 
       const container = node.closest?.("[data-testid^='conversation-turn-']");
