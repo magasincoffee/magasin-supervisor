@@ -550,3 +550,21 @@ test("SC-013 startup prioritizes PREPARED recovery before in-flight and ENQUEUED
   assert.ok(inFlight > preparedResume);
   assert.ok(enqueued > inFlight);
 });
+
+
+test("SC-013 restart rejects a full chat and rolls over only settled outbound work", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const probe = source.indexOf("async function probeReusableConversationPage");
+  const rebind = source.indexOf("export async function resumeExistingConversationPage", probe);
+  assert.match(source.slice(probe, rebind), /classifyDisposableConversation\(snapshot\)\.action !== "KEEP_CHAT"/);
+  const restart = source.indexOf("const restartProbe = rebound?.page");
+  const full = source.indexOf('restartProbe?.classification?.reason === "CONVERSATION_FULL"', restart);
+  const settled = source.indexOf('["RESPONSE_COMPLETE", "VERIFIED"]', full);
+  const replace = source.indexOf("const replacement = await replaceDisposableConversation", settled);
+  const failClosed = source.indexOf('code: "RUNTIME_RESTART_IDENTITY_NOT_VERIFIED"', replace);
+  assert.ok(restart >= 0 && full > restart && settled > full && replace > settled && failClosed > replace);
+  assert.match(source.slice(full, failClosed), /reason: "CONVERSATION_FULL"/);
+});
