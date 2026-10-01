@@ -144,6 +144,24 @@ test("stale PID reuse cannot bypass latch authority or kill unrelated process", 
   assert.doesNotMatch(pidBranch, /Stop-Process|taskkill\.exe/);
 });
 
+test("SC-013 forward wrapper uses a single-conversation mutex namespace, not legacy Business OS", async () => {
+  const wrapper = await read("../windows/run-supervisor.ps1");
+  assert.match(wrapper, /Local\\MAGASIN_SUPERVISOR_SINGLE_CONVERSATION_V1/);
+  assert.doesNotMatch(wrapper, /Local\\MAGASIN_BUSINESS_OS_SUPERVISOR/);
+});
+
+test("SC-013 Owner START persists wrapper launch evidence and detects silent early exit", async () => {
+  const start = await read("../windows/start-supervisor.ps1");
+  assert.match(start, /start-attempt-status\.json/);
+  assert.match(start, /wrapper-startup\.stdout\.log/);
+  assert.match(start, /wrapper-startup\.stderr\.log/);
+  assert.match(start, /PROCESS_CREATED/);
+  assert.match(start, /WRAPPER_OBSERVED/);
+  assert.match(start, /EXITED_EARLY/);
+  assert.match(start, /Get-LifecycleSupervisorWrapper -Root \$root/);
+  assert.match(start, /RedirectStandardError/);
+});
+
 test("STOP classifies taskkill child-exit race by root process truth and refuses false success", async () => {
   const stop = await read("../windows/stop-supervisor.ps1");
   assert.match(stop, /function Stop-DedicatedProcessTree/);

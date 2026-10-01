@@ -15,6 +15,30 @@ $lifecycleScript = Join-Path $runtime 'windows\lifecycle-truth.ps1'
 $pidFile = Join-Path $root 'supervisor.pid'
 $stop = Join-Path $root 'STOP'
 $autostartDisabled = Join-Path $root 'AUTOSTART_DISABLED'
+$startStatusFile = Join-Path $root 'start-attempt-status.json'
+$wrapperStdoutLog = Join-Path $root 'wrapper-startup.stdout.log'
+$wrapperStderrLog = Join-Path $root 'wrapper-startup.stderr.log'
+
+function Write-StartAttemptStatus(
+    [string]$Status,
+    [int]$ProcessId = 0,
+    [string]$Reason = ''
+) {
+    $payload = [ordered]@{
+        schema_version = 'supervisor-start-attempt.v1'
+        status = $Status
+        process_id = $ProcessId
+        reason = $Reason
+        recovery = [bool]$Recovery
+        recorded_at = [DateTimeOffset]::UtcNow.ToString('o')
+    }
+    $json = $payload | ConvertTo-Json -Depth 4
+    [System.IO.File]::WriteAllText(
+        $startStatusFile,
+        $json + [Environment]::NewLine,
+        (New-Object System.Text.UTF8Encoding($false))
+    )
+}
 
 if (-not (Test-Path $runScript)) {
     throw "Supervisor runtime is not installed: $runScript"
@@ -111,8 +135,53 @@ $args = @(
 if ($DryRun) { $args += '-DryRun' }
 
 if ($Hidden) {
-    Start-Process powershell.exe -WindowStyle Hidden -ArgumentList $args
-    Write-Host 'MAGASIN Supervisor started in background mode.'
+    Remove-Item $wrapperStdoutLog -Force -ErrorAction SilentlyContinue
+    Remove-Item $wrapperStderrLog -Force -ErrorAction SilentlyContinue
+    Write-StartAttemptStatus -Status 'LAUNCH_REQUESTED'
+
+    $startParams = @{
+        FilePath = 'powershell.exe'
+        WindowStyle = 'Hidden'
+        ArgumentList = $args
+        PassThru = $true
+        RedirectStandardOutput = $wrapperStdoutLog
+        RedirectStandardError = $wrapperStderrLog
+    }
+    $started = Start-Process @startParams
+    Write-StartAttemptStatus -Status 'PROCESS_CREATED' -ProcessId ([int]$started.Id)
+
+    # START must never silently succeed if the wrapper dies before lifecycle
+    # truth can observe it. Give the shell a short bounded window to acquire the
+    # canonical mutex and become the authoritative wrapper.
+    $observedWrapper = $null
+    for ($attempt = 0; $attempt -lt 10; $attempt++) {
+        Start-Sleep -Milliseconds 150
+        $observedWrapper = Get-LifecycleSupervisorWrapper -Root $root
+        if ($observedWrapper) { break }
+        if (-not (Get-Process -Id $started.Id -ErrorAction SilentlyContinue)) {
+            break
+        }
+    }
+
+    if ($observedWrapper) {
+        Set-Content -Path $pidFile -Value $observedWrapper.ProcessId -Encoding ascii
+        Write-StartAttemptStatus -Status 'WRAPPER_OBSERVED' -ProcessId ([int]$observedWrapper.ProcessId)
+        Write-Host "MAGASIN Supervisor started in background mode (PID $($observedWrapper.ProcessId))."
+    } elseif (-not (Get-Process -Id $started.Id -ErrorAction SilentlyContinue)) {
+        $stderrTail = ''
+        if (Test-Path $wrapperStderrLog) {
+            $stderrTail = (
+                Get-Content $wrapperStderrLog -ErrorAction SilentlyContinue |
+                Select-Object -Last 8
+            ) -join ' | '
+        }
+        $reason = if ($stderrTail) { $stderrTail } else { 'wrapper exited before lifecycle observation' }
+        Write-StartAttemptStatus -Status 'EXITED_EARLY' -ProcessId ([int]$started.Id) -Reason $reason
+        throw "Supervisor wrapper exited during START: $reason"
+    } else {
+        Write-StartAttemptStatus -Status 'PROCESS_ALIVE_WRAPPER_PENDING' -ProcessId ([int]$started.Id)
+        Write-Host "MAGASIN Supervisor process created; wrapper observation is pending (PID $($started.Id))."
+    }
 } else {
     $visibleArgs = @('-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $runScript + '"'))
     if ($DryRun) { $visibleArgs += '-DryRun' }

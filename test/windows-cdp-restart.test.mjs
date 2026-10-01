@@ -38,7 +38,8 @@ test("Windows wrapper owns a named singleton mutex", async () => {
     "utf8"
   );
 
-  assert.match(source, /Local\\MAGASIN_BUSINESS_OS_SUPERVISOR/);
+  assert.match(source, /Local\\MAGASIN_SUPERVISOR_SINGLE_CONVERSATION_V1/);
+  assert.doesNotMatch(source, /Local\\MAGASIN_BUSINESS_OS_SUPERVISOR/);
   assert.match(source, /WaitOne\(0, \$false\)/);
   assert.match(source, /ReleaseMutex/);
   assert.match(source, /Another MAGASIN Supervisor wrapper already owns the singleton mutex/);
