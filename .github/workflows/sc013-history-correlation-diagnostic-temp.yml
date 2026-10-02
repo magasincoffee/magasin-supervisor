@@ -55,9 +55,9 @@ jobs:
           Copy-Item $history $copy -Force
           $candidates = Join-Path $env:RUNNER_TEMP 'sc013-history-candidates.json'
 
-          python ".github\scripts\sc013-history-candidates-temp.py" $copy $candidates
+          python ".github\scripts\sc013-history-candidates-temp.py" $copy $candidates "2026-10-01T17:20:00Z" "2026-10-01T17:32:00Z"
           if ($LASTEXITCODE -ne 0) {
-            py -3 ".github\scripts\sc013-history-candidates-temp.py" $copy $candidates
+            py -3 ".github\scripts\sc013-history-candidates-temp.py" $copy $candidates "2026-10-01T17:20:00Z" "2026-10-01T17:32:00Z"
           }
           if ($LASTEXITCODE -ne 0) {
             throw 'Python history extraction failed'
