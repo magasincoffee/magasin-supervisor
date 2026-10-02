@@ -47,6 +47,10 @@ try {
 
   const urls = await adapter.listRecentConversationUrls(original, { limit: 50 }).catch(() => []);
   emit("DIAG_RECENT_COUNT", urls.length);
+  const targetRuntimeId = "chat:0a2e510ffd86a7df06fa7ff81a7cd572";
+  const runtimeMatches = urls.filter((url) => opaqueRuntimeIdentity(url) === targetRuntimeId);
+  emit("DIAG_TARGET_RUNTIME_PRESENT", runtimeMatches.length === 1);
+  emit("DIAG_TARGET_RUNTIME_MATCH_COUNT", runtimeMatches.length);
 
   let matchCount = 0;
   let matchedRuntimeId = "";
