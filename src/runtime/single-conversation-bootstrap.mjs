@@ -1509,43 +1509,60 @@ export async function recoverCorrelatedPreparedBootstrapDelivery({
     typeof adapter.reopenTargetPage === "function"
   ) {
     const discoveryPage = active || pages.at(-1) || null;
-    const recentUrls = discoveryPage
-      ? await adapter
-          .listRecentConversationUrls(discoveryPage, { limit: 50 })
-          .catch(() => [])
-      : [];
-
-    const openRuntimeIds = new Set(
+    const seenRecentRuntimeIds = new Set(
       candidates
         .map((page) => opaqueRuntimeIdentity(pageUrl(page)))
         .filter(Boolean)
     );
+    const passes = Math.max(1, Number(recentDiscoveryPasses) || 1);
 
-    for (const url of Array.isArray(recentUrls) ? recentUrls : []) {
-      const runtimeId = opaqueRuntimeIdentity(url);
-      if (!runtimeId || openRuntimeIds.has(runtimeId)) continue;
+    for (let pass = 0; pass < passes; pass += 1) {
+      const recentUrls = discoveryPage
+        ? await adapter
+            .listRecentConversationUrls(discoveryPage, { limit: 50 })
+            .catch(() => [])
+        : [];
+      let newCount = 0;
 
-      let page = null;
-      let matched = false;
-      try {
-        page = await adapter.reopenTargetPage(url).catch(() => null);
-        if (!page) continue;
-        matched = await inspectCandidate(page, { allowHydration: true });
-      } finally {
-        if (
-          page &&
-          !matched &&
-          !initiallyOpen.has(page)
-        ) {
-          if (typeof adapter.invalidateTargetRecoveryPage === "function") {
-            await adapter.invalidateTargetRecoveryPage(url, {
-              page,
-              close: true
-            }).catch(() => {});
-          } else if (typeof adapter.closePage === "function") {
-            await adapter.closePage(page).catch(() => {});
+      for (const url of Array.isArray(recentUrls) ? recentUrls : []) {
+        const runtimeId = opaqueRuntimeIdentity(url);
+        if (!runtimeId || seenRecentRuntimeIds.has(runtimeId)) continue;
+        seenRecentRuntimeIds.add(runtimeId);
+        newCount += 1;
+
+        let page = null;
+        let matched = false;
+        try {
+          page = await adapter.reopenTargetPage(url).catch(() => null);
+          if (!page) continue;
+          matched = await inspectCandidate(page, { allowHydration: true });
+        } finally {
+          if (page && !matched && !initiallyOpen.has(page)) {
+            if (typeof adapter.invalidateTargetRecoveryPage === "function") {
+              await adapter.invalidateTargetRecoveryPage(url, {
+                page,
+                close: true
+              }).catch(() => {});
+            } else if (typeof adapter.closePage === "function") {
+              await adapter.closePage(page).catch(() => {});
+            }
           }
         }
+      }
+
+      console.log(
+        "BOOTSTRAP_CORRELATION_RECENT_PASS=" +
+          JSON.stringify({
+            pass: pass + 1,
+            recent_count: Array.isArray(recentUrls) ? recentUrls.length : 0,
+            new_count: newCount,
+            match_count: matches.length
+          })
+      );
+
+      if (matches.length > 1) break;
+      if (pass + 1 < passes) {
+        await sleep(Math.max(0, Number(recentDiscoveryPollMs) || 0));
       }
     }
   }
