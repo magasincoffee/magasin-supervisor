@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "requested_after_deploy_sha": "00f18d431b4e9a1b9b92f4dc16be878c13fefce6",
-  "purpose": "Owner-delegated unattended stabilization rerun after post-282 ambiguity evidence; observer must START canonically, capture first failure, and hand off to the SC-013 Overnight Stabilizer."
+  "requested_after_cleanup_sha": "761cca3127f686c02836b641aad9badb06c698bf",
+  "purpose": "Single-lane post-cleanup first-failure attempt with pre-start read-only recovery evidence."
 }
