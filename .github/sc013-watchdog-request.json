@@ -1,0 +1,6 @@
+{
+  "schema_version": "sc013-watchdog-request.v1",
+  "requested_at": "2026-10-02T16:48:00Z",
+  "target": "DESKTOP-4K7IM13",
+  "reason": "Capture wrapper exit evidence for current technical STOP with CDP down."
+}
