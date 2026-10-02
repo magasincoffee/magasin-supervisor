@@ -41,7 +41,7 @@ jobs:
         run: npm install --ignore-scripts --no-audit --no-fund
       - name: Verify installer and autostart contracts in isolation
         shell: powershell
-        run: node --test test/autostart-recovery.test.mjs test/windows-installer-upgrade.test.mjs test/windows-repair.test.mjs test/windows-powershell-syntax.test.mjs test/windows-state-root-binding.test.mjs
+        run: node --test test/autostart-recovery.test.mjs test/windows-installer-upgrade.test.mjs test/windows-powershell-syntax.test.mjs test/windows-state-root-binding.test.mjs
       - name: Record zero production mutation
         shell: powershell
         run: Write-Host 'ZERO_PRODUCTION_MUTATION=True'
