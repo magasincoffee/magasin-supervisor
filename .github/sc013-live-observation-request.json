@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "requested_after_cleanup_sha": "d2cae3ba6b3a5654a80ea5ff1e5bb8e923663f2a",
-  "purpose": "Re-arm first-failure observer after PR #292 proof-gated false-delivery rewind; supersede stale WAIT_RESPONSE observer."
+  "requested_after_cleanup_sha": "999d035410cd02c39eeb60b7ae3247cb63408867",
+  "purpose": "Continue first-failure observation after independent watchdog snapshot of PR #292 rewind outcome."
 }
