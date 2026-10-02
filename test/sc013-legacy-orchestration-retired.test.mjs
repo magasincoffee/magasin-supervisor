@@ -2,22 +2,33 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 
-const retiredWorkflowPaths = [
-  "../.github/workflows/live-brain-submit-diagnostic-20260926.yml",
-  "../.github/workflows/repair-lane1-brain-target-20260926.yml",
-  "../.github/workflows/supervisor-mbv1-001-live-baseline.yml",
-  "../.github/workflows/supervisor-mbv1-008-live-qualification.yml",
-  "../.github/workflows/supervisor-mbv1-008-production-cutover.yml",
-  "../.github/workflows/supervisor-pe001-live-qualification.yml",
-  "../.github/workflows/supervisor-pe007-live-qualification.yml",
-  "../.github/workflows/supervisor-pe007-production-cutover.yml"
-];
+const allowed = new Set([
+  "supervisor-control-panel-desktop-4k7im13.yml",
+  "supervisor-integrity.yml",
+  "supervisor-sc013-live-production.yml",
+  "supervisor-tests.yml"
+]);
 
-test("SC-013 retired legacy orchestration workflows stay out of active GitHub Actions", async () => {
-  for (const relative of retiredWorkflowPaths) {
-    const url = new URL(relative, import.meta.url);
+test("SC-013 GitHub Actions contains only the four canonical workflows", async () => {
+  const dir = new URL("../.github/workflows/", import.meta.url);
+  const names = (await fs.readdir(dir)).sort();
+
+  assert.deepEqual(names, [...allowed].sort());
+});
+
+test("SC-013 legacy orchestration scripts are physically absent", async () => {
+  const retired = [
+    "../src/runtime/three-lane-cli.mjs",
+    "../src/runtime/planner-executor-cli.mjs",
+    "../src/runtime/brain-worker-cli.mjs",
+    "../src/runtime/supervisor-loop-cli.mjs",
+    "../windows/chatgpt-bridge-runtime.ps1",
+    "../windows/set-planner-executor-transport.ps1"
+  ];
+
+  for (const relative of retired) {
     await assert.rejects(
-      fs.access(url),
+      fs.access(new URL(relative, import.meta.url)),
       (error) => error?.code === "ENOENT",
       relative
     );
