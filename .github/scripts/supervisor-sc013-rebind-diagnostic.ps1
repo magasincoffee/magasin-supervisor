@@ -55,6 +55,16 @@ if(Test-Path $supervisorLog){
   Get-Content $supervisorLog -Tail 80 -Encoding UTF8 | ForEach-Object { Write-Host ("SC013_LOG " + $_) }
 }
 
+foreach($wrapperLogName in @('wrapper-startup.stdout.log','wrapper-startup.stderr.log')){
+  $wrapperLog=Join-Path $root $wrapperLogName
+  if(Test-Path $wrapperLog){
+    Write-Host ("--- SC013 " + $wrapperLogName + " tail ---")
+    Get-Content $wrapperLog -Tail 180 -Encoding UTF8 | ForEach-Object {
+      Write-Host ("SC013_WRAPPER_LOG " + $_)
+    }
+  }
+}
+
 
 Write-Host '--- SC013 direct local watchdog UI probe ---'
 $probeCli=Join-Path $runtime 'src\runtime\local-watchdog-probe-cli.mjs'
