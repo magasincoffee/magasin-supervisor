@@ -2,10 +2,12 @@ name: SC-013 History Correlation Diagnostic TEMP
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
       - '.github/workflows/sc013-history-correlation-diagnostic-temp.yml'
       - '.github/scripts/sc013-history-correlation-diagnostic-temp.mjs'
+      - '.github/scripts/sc013-history-candidates-temp.py'
 
 permissions:
   contents: read
@@ -26,11 +28,13 @@ jobs:
             exit 0
           }
           Write-Host 'DIAG_TARGET_MATCH=True'
+
           . '.\windows\state-root.ps1'
           . '.\windows\lifecycle-truth.ps1'
           $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
           $truth = Get-LifecycleProcessTruth -Root $root
           Write-Host "DIAG_CDP_HEALTHY=$([bool]$truth.cdp_healthy)"
+
           $chrome = Get-LifecycleRobotChrome -Root $root
           if (-not $chrome -or [string]$chrome.CommandLine -notmatch '--remote-debugging-port=(\d+)') {
             throw 'CDP port unavailable'
@@ -50,28 +54,14 @@ jobs:
           $copy = Join-Path $env:RUNNER_TEMP 'sc013-history-copy.sqlite'
           Copy-Item $history $copy -Force
           $candidates = Join-Path $env:RUNNER_TEMP 'sc013-history-candidates.json'
-          @'
-import json, sqlite3, sys
-db, out = sys.argv[1], sys.argv[2]
-con = sqlite3.connect(db)
-rows = con.execute("""
-  SELECT url
-  FROM urls
-  WHERE url LIKE 'https://chatgpt.com/c/%'
-     OR url LIKE 'https://chatgpt.com/g/%'
-     OR url LIKE 'https://chatgpt.com/project/%'
-  ORDER BY last_visit_time DESC
-  LIMIT 100
-""").fetchall()
-seen=[]
-for (url,) in rows:
-    url=str(url).split('#',1)[0].split('?',1)[0]
-    if url not in seen:
-        seen.append(url)
-with open(out,'w',encoding='utf-8') as f:
-    json.dump(seen,f)
-print("DIAG_HISTORY_URL_COUNT="+str(len(seen)))
-'@ | python - $copy $candidates
+
+          python ".github\scripts\sc013-history-candidates-temp.py" $copy $candidates
+          if ($LASTEXITCODE -ne 0) {
+            py -3 ".github\scripts\sc013-history-candidates-temp.py" $copy $candidates
+          }
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Python history extraction failed'
+          }
 
           $runtime = Join-Path $root 'runtime'
           node ".github\scripts\sc013-history-correlation-diagnostic-temp.mjs" --state (Join-Path $root 'single-conversation-state.json') --cdp-url $cdp --runtime $runtime --candidates $candidates
