@@ -17,13 +17,15 @@ $runtime=Join-Path $root 'runtime'
 $state=Join-Path $root 'single-conversation-state.json'
 if(-not (Test-Path $state)){throw 'single-conversation-state.json missing'}
 $chrome=Get-LifecycleRobotChrome -Root $root
-if(-not $chrome -or -not $chrome.CommandLine -or $chrome.CommandLine -notmatch '--remote-debugging-port=(\d+)'){
-  throw 'Dedicated Chrome/CDP unavailable'
+$cdp=$null
+if($chrome -and $chrome.CommandLine -and $chrome.CommandLine -match '--remote-debugging-port=(\d+)'){
+  $cdp="http://127.0.0.1:$([int]$Matches[1])"
+  Write-Host "SC013_DIAG_CDP=$cdp"
+  & node (Join-Path $env:GITHUB_WORKSPACE '.github\scripts\supervisor-sc013-rebind-diagnostic.mjs') $runtime $state $cdp
+  Write-Host "SC013_DIAG_REBIND_SCRIPT_EXIT=$LASTEXITCODE"
+}else{
+  Write-Host 'SC013_DIAG_CDP_UNAVAILABLE=True'
 }
-$cdp="http://127.0.0.1:$([int]$Matches[1])"
-Write-Host "SC013_DIAG_CDP=$cdp"
-& node (Join-Path $env:GITHUB_WORKSPACE '.github\scripts\supervisor-sc013-rebind-diagnostic.mjs') $runtime $state $cdp
-if($LASTEXITCODE -ne 0){throw "SC013 rebind diagnostic failed with exit $LASTEXITCODE"}
 
 
 Write-Host '--- SC013 current durable state ---'
@@ -68,7 +70,7 @@ foreach($wrapperLogName in @('wrapper-startup.stdout.log','wrapper-startup.stder
 
 Write-Host '--- SC013 direct local watchdog UI probe ---'
 $probeCli=Join-Path $runtime 'src\runtime\local-watchdog-probe-cli.mjs'
-if(Test-Path $probeCli -PathType Leaf){
+if($cdp -and (Test-Path $probeCli -PathType Leaf)){
   $probeOut=Join-Path $root ("sc013-direct-probe-" + $PID + ".out")
   $probeErr=Join-Path $root ("sc013-direct-probe-" + $PID + ".err")
   Remove-Item $probeOut,$probeErr -Force -ErrorAction SilentlyContinue
@@ -108,6 +110,8 @@ if(Test-Path $probeCli -PathType Leaf){
   }finally{
     Remove-Item $probeOut,$probeErr -Force -ErrorAction SilentlyContinue
   }
+}elseif(-not $cdp){
+  Write-Host 'SC013_DIAG_DIRECT_PROBE_SKIPPED_NO_CDP=True'
 }else{
   Write-Host 'SC013_DIAG_DIRECT_PROBE_MISSING=True'
 }
