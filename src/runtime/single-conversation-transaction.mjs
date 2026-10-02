@@ -261,6 +261,19 @@ function baselineStillCurrent(turn, baselineUserTurnId) {
   return String(turn?.turn_id || "") === baseline;
 }
 
+function matchingEvidenceIsLatestUserTurn(matching, latestUser, digest) {
+  if (latestTurnMatchesMessage(latestUser, digest)) return true;
+  if (!matching?.confirmed) return false;
+
+  const matchingTurnId = String(matching?.turn_id || "").trim();
+  const latestTurnId = String(latestUser?.turn_id || "").trim();
+  return Boolean(
+    matchingTurnId &&
+    latestTurnId &&
+    matchingTurnId === latestTurnId
+  );
+}
+
 export async function reconcileExactOnceOutbound({
   statePath,
   page,
@@ -309,8 +322,7 @@ export async function reconcileExactOnceOutbound({
       const matching = await captureMatchingTurn(page, text).catch(() => null);
       latestUser = await captureTurn(page, "user").catch(() => null);
       if (
-        matching?.confirmed ||
-        latestTurnMatchesMessage(latestUser, digest)
+        matchingEvidenceIsLatestUserTurn(matching, latestUser, digest)
       ) {
         if (current === "PREPARED") {
           await markExactOnceEnqueued(statePath, {
