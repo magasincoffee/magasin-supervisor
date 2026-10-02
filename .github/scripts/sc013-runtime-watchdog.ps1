@@ -132,9 +132,9 @@ if($failures.Count -gt 0){
   $codes=($failures | Sort-Object) -join ','
   Write-Host "SC013_WATCHDOG_FAILURES=$codes"
 
-  # When the automation browser is still reachable, capture the live page,
-  # exact runtime identity, outbound state, and composer draft without sending.
-  if($truth.cdp_healthy -and (Test-Path $statePath -PathType Leaf)){
+  # Always capture durable state and wrapper log tails on failure. When CDP is
+  # reachable the same diagnostic also captures the live UI read-only.
+  if(Test-Path $statePath -PathType Leaf){
     try{
       & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $env:GITHUB_WORKSPACE '.github\scripts\supervisor-sc013-rebind-diagnostic.ps1') -TargetComputer $TargetComputer -NonTargetHoldSeconds 0
       Write-Host "SC013_WATCHDOG_READONLY_CHATGPT_DIAGNOSTIC_EXIT=$LASTEXITCODE"
