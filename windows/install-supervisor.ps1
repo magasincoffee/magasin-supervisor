@@ -1,199 +1,94 @@
-param(
-    [string]$SourceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-)
+param([string]$SourceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path)
 
-$ErrorActionPreference = 'Stop'
-
+$ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'state-root.ps1')
-$root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
-$root = Set-SupervisorStateRootBinding -Root $root
-$runtime = Join-Path $root 'runtime'
-$pidFile = Join-Path $root 'supervisor.pid'
-$stopFile = Join-Path $root 'STOP'
-$autostartDisabled = Join-Path $root 'AUTOSTART_DISABLED'
-$plannerExecutorTransportFile = Join-Path $root 'planner-executor-transport.json'
-$ownerStopWasPresent = [bool]((Test-Path $stopFile) -or (Test-Path $autostartDisabled))
-$desktop = [Environment]::GetFolderPath('Desktop')
-
+$root=Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
+$root=Set-SupervisorStateRootBinding -Root $root
+$runtime=Join-Path $root 'runtime'
+$pidFile=Join-Path $root 'supervisor.pid'
+$stopFile=Join-Path $root 'STOP'
+$disabledFile=Join-Path $root 'AUTOSTART_DISABLED'
+$ownerStopWasPresent=[bool]((Test-Path $stopFile)-or(Test-Path $disabledFile))
+$desktop=[Environment]::GetFolderPath('Desktop')
 New-Item -ItemType Directory -Force -Path $root | Out-Null
 
-# Close any existing control-panel process before replacing the runtime. The
-# desktop shortcut used to set runtime as its working directory, which keeps
-# that directory locked on Windows even after the Supervisor itself stops.
+# Stop only the active SINGLE_CONVERSATION_V1 process tree and read-only local watchdog.
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like '*control-panel.ps1*' } |
-    ForEach-Object {
-        Write-Host "Stopping existing control panel PID $($_.ProcessId) before runtime upgrade."
-        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-    }
-Start-Sleep -Milliseconds 500
-
-# The local watchdog is independent from the Supervisor wrapper, but it reads
-# runtime scripts. Stop only that read-only observer before replacing runtime,
-# then restart it from the newly installed version after the upgrade.
+  Where-Object {$_.CommandLine -and $_.CommandLine -like '*control-panel.ps1*'} |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-    Where-Object {
-        $_.CommandLine -and
-        $_.CommandLine -like '*local-watchdog.ps1*' -and
-        $_.CommandLine -notlike '*start-local-watchdog.ps1*' -and
-        $_.CommandLine -like "*$root*"
-    } |
-    ForEach-Object {
-        Write-Host "Stopping existing local watchdog PID $($_.ProcessId) before runtime upgrade."
-        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-    }
-
-# Stop every Supervisor wrapper that points at the installed local runtime.
-# A stale/missing pid file must not leave an orphaned loop alive during upgrade.
+  Where-Object {$_.CommandLine -and $_.CommandLine -like '*local-watchdog.ps1*' -and $_.CommandLine -notlike '*start-local-watchdog.ps1*' -and $_.CommandLine -like "*$root*"} |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-    Where-Object {
-        $_.CommandLine -and
-        $_.CommandLine -like '*run-supervisor.ps1*' -and
-        $_.CommandLine -like "*$root*"
-    } |
-    ForEach-Object {
-        Write-Host "Stopping orphaned Supervisor wrapper PID $($_.ProcessId) before runtime upgrade."
-        & taskkill.exe /PID $_.ProcessId /T /F | Out-Host
-    }
-
+  Where-Object {$_.CommandLine -and $_.CommandLine -like '*run-supervisor.ps1*' -and $_.CommandLine -like "*$root*"} |
+  ForEach-Object { & taskkill.exe /PID $_.ProcessId /T /F | Out-Null }
 Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -and $_.CommandLine -match '(supervisor-loop-cli|brain-worker-cli|three-lane-cli|planner-executor-cli|planner-executor-bridge-cli)\.mjs' } |
-    ForEach-Object {
-        Write-Host "Stopping orphaned Supervisor Node PID $($_.ProcessId) before runtime upgrade."
-        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-    }
-
-Start-Sleep -Milliseconds 500
-
-# Upgrades are allowed only after stopping the dedicated Supervisor process.
-if (Test-Path $pidFile) {
-    $pidValue = Get-Content $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($pidValue -and (Get-Process -Id $pidValue -ErrorAction SilentlyContinue)) {
-        Write-Host "Stopping existing Supervisor PID $pidValue before runtime upgrade."
-        & taskkill.exe /PID $pidValue /T /F | Out-Host
-        Start-Sleep -Seconds 1
-    }
-}
+  Where-Object {$_.CommandLine -and $_.CommandLine -like '*single-conversation-cli.mjs*'} |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-# Installation is process replacement, not an Owner START. Preserve STOP/AUTOSTART_DISABLED exactly as found.
-if ($ownerStopWasPresent) { Write-Host 'OWNER_STOP_PRESERVED_DURING_INSTALL=True' }
+if($ownerStopWasPresent){Write-Host 'OWNER_STOP_PRESERVED_DURING_INSTALL=True'}
 
-$runtimeOverlayFallback = $false
-if (Test-Path $runtime) {
-    $removed = $false
-    for ($i = 0; $i -lt 8; $i++) {
-        try {
-            Remove-Item $runtime -Recurse -Force -ErrorAction Stop
-            $removed = $true
-            break
-        } catch {
-            if ($i -ge 7) {
-                # Some Windows processes can keep the runtime directory itself
-                # locked as a working directory even after the Supervisor and
-                # Control Panel are stopped. Do not leave the installation
-                # half-deleted: fall back to an in-place overlay repair.
-                $runtimeOverlayFallback = $true
-                Write-Host "RUNTIME_REMOVE_LOCKED=True"
-                Write-Host "RUNTIME_OVERLAY_REPAIR=True"
-                break
-            }
-            Start-Sleep -Milliseconds 750
-        }
-    }
+Start-Sleep -Milliseconds 400
+$overlay=$false
+if(Test-Path $runtime){
+  try{Remove-Item $runtime -Recurse -Force -ErrorAction Stop}catch{$overlay=$true}
 }
-
 New-Item -ItemType Directory -Force -Path $runtime | Out-Null
-
 Copy-Item (Join-Path $SourceRoot 'src') (Join-Path $runtime 'src') -Recurse -Force
 Copy-Item (Join-Path $SourceRoot 'windows') (Join-Path $runtime 'windows') -Recurse -Force
 Copy-Item (Join-Path $SourceRoot 'package.json') (Join-Path $runtime 'package.json') -Force
-if ($runtimeOverlayFallback) {
-    Write-Host "RUNTIME_OVERLAY_SOURCE_REFRESH=PASS"
-}
+if($overlay){Write-Host 'RUNTIME_OVERLAY_REPAIR=True'}
 
 Push-Location $runtime
-try {
-    npm install --omit=dev --ignore-scripts --no-audit --no-fund
-    if ($LASTEXITCODE -ne 0) { throw 'npm install failed' }
-} finally {
-    Pop-Location
+try{
+  npm install --omit=dev --ignore-scripts --no-audit --no-fund
+  if($LASTEXITCODE -ne 0){throw 'npm install failed'}
+}finally{Pop-Location}
+
+# Purge superseded orchestration state. Durable SINGLE_CONVERSATION_V1 state is preserved.
+foreach($legacyName in @(
+  'lanes.json','lane-registry.json','lane-status.json','lane-events.ndjson',
+  'planner-executor-state.json','planner-executor-status.json','planner-executor-transport.json',
+  'planner-executor-startup-failure.json','planner-executor-projects.json',
+  'orchestration.json','runtime-status.json','target.json'
+)){
+  $p=Join-Path $root $legacyName
+  if(Test-Path $p){Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue;Write-Host "LEGACY_STATE_DELETED=$legacyName"}
 }
 
-# Bridge dependencies are infrastructure, not project/session state. Install
-# them only when the persistent transport selector says Bridge is primary.
-if (Test-Path $plannerExecutorTransportFile -PathType Leaf) {
-    $transportConfig = Get-Content $plannerExecutorTransportFile -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ([string]$transportConfig.primary -eq 'CHATGPT_BRIDGE_V1') {
-        . (Join-Path $SourceRoot 'windows\chatgpt-bridge-runtime.ps1')
-        Write-Host 'CHATGPT_BRIDGE_INSTALL_REQUESTED=True'
-        [void](Install-ChatGptBridgeRuntime -Root $root)
-    }
+$panel=Join-Path $runtime 'windows\control-panel.ps1'
+if(-not(Test-Path $panel)){throw 'Installed control panel missing.'}
+$panelText=Get-Content $panel -Raw -Encoding UTF8
+[System.IO.File]::WriteAllText($panel,$panelText,(New-Object System.Text.UTF8Encoding($true)))
+$parseErrors=$null
+[System.Management.Automation.Language.Parser]::ParseFile($panel,[ref]$null,[ref]$parseErrors)|Out-Null
+if($parseErrors.Count -gt 0){throw 'Control panel PowerShell syntax invalid.'}
+
+foreach($oldName in @(
+  'START_MAGASIN_SUPERVISOR.cmd','STOP_MAGASIN_SUPERVISOR.cmd',
+  'START_MAGASIN_SUPERVISOR.lnk','STOP_MAGASIN_SUPERVISOR.lnk',
+  'SAYDI CONTROL.lnk','MAGASIN BUSINESS OS CONTROL.lnk'
+)){
+  $old=Join-Path $desktop $oldName
+  if(Test-Path $old){Remove-Item $old -Force -ErrorAction SilentlyContinue}
 }
 
+$shortcutName='MAGASIN SUPERVISOR '+[char]0x2014+' CONTROL CENTER.lnk'
+$shortcutPath=Join-Path $desktop $shortcutName
+$wsh=New-Object -ComObject WScript.Shell
+$sc=$wsh.CreateShortcut($shortcutPath)
+$sc.TargetPath='powershell.exe'
+$sc.Arguments='-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "'+$panel+'"'
+$sc.WorkingDirectory=$root
+$sc.Description='MAGASIN Supervisor SINGLE_CONVERSATION_V1'
+$sc.IconLocation="$env:SystemRoot\System32\imageres.dll,72"
+$sc.Save()
 
-$panelTarget = Join-Path $runtime 'windows\control-panel.ps1'
-if (-not (Test-Path $panelTarget)) {
-    throw "Control panel is missing from installed runtime: $panelTarget"
-}
-
-# Windows PowerShell 5.1 treats UTF-8 files without BOM as the active ANSI
-# code page. The panel contains Vietnamese UI text, so normalize it to UTF-8
-# with BOM before PowerShell executes it.
-$panelText = Get-Content $panelTarget -Raw -Encoding UTF8
-$utf8Bom = New-Object System.Text.UTF8Encoding($true)
-[System.IO.File]::WriteAllText($panelTarget, $panelText, $utf8Bom)
-
-# Fail installation instead of leaving a desktop shortcut to a broken script.
-$parseErrors = $null
-[System.Management.Automation.Language.Parser]::ParseFile(
-    $panelTarget,
-    [ref]$null,
-    [ref]$parseErrors
-) | Out-Null
-if ($parseErrors.Count -gt 0) {
-    $summary = ($parseErrors | ForEach-Object {
-        "$($_.Message) at line $($_.Extent.StartLineNumber)"
-    }) -join '; '
-    throw "Control panel PowerShell syntax check failed: $summary"
-}
-
-# The unified control panel replaces old separate START/STOP launchers and the
-# unrelated SAYDI panel that may have been installed by another repository.
-@(
-    'START_MAGASIN_SUPERVISOR.cmd',
-    'STOP_MAGASIN_SUPERVISOR.cmd',
-    'START_MAGASIN_SUPERVISOR.lnk',
-    'STOP_MAGASIN_SUPERVISOR.lnk',
-    'SAYDI CONTROL.lnk',
-    'MAGASIN BUSINESS OS CONTROL.lnk'
-) | ForEach-Object {
-    $old = Join-Path $desktop $_
-    if (Test-Path $old) {
-        Remove-Item $old -Force -ErrorAction SilentlyContinue
-    }
-}
-
-$shortcutDisplayName = 'MAGASIN SUPERVISOR ' + [char]0x2014 + ' CONTROL CENTER.lnk'
-$shortcutPath = Join-Path $desktop $shortcutDisplayName
-$wsh = New-Object -ComObject WScript.Shell
-$shortcut = $wsh.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = 'powershell.exe'
-$shortcut.Arguments = '-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $panelTarget + '"'
-$shortcut.WorkingDirectory = $root
-$shortcut.Description = 'MAGASIN Supervisor Control Center V2'
-$shortcut.IconLocation = "$env:SystemRoot\System32\imageres.dll,72"
-$shortcut.Save()
-
-$startLocalWatchdog = Join-Path $runtime 'windows\start-local-watchdog.ps1'
-if (-not (Test-Path $startLocalWatchdog -PathType Leaf)) {
-    throw "Local watchdog launcher is missing from installed runtime: $startLocalWatchdog"
-}
-& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $startLocalWatchdog -WaitForHeartbeat
-if ($LASTEXITCODE -ne 0) {
-    throw "Local watchdog start failed with exit code $LASTEXITCODE."
-}
+$startWatchdog=Join-Path $runtime 'windows\start-local-watchdog.ps1'
+if(-not(Test-Path $startWatchdog)){throw 'Local watchdog launcher missing.'}
+& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $startWatchdog -WaitForHeartbeat
+if($LASTEXITCODE -ne 0){throw 'Local watchdog failed to start.'}
 Write-Host 'LOCAL_WATCHDOG_INSTALLED_RUNNING=True'
-
+Write-Host 'SINGLE_CONVERSATION_RUNTIME_INSTALLED=True'
 Write-Host "Installed runtime: $runtime"
 Write-Host "Unified control panel: $shortcutPath"
-Write-Host 'Old separate START/STOP and unrelated SAYDI desktop shortcuts were removed when present.'
