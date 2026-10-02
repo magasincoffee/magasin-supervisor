@@ -54,15 +54,26 @@ try {
     let page = null;
     try {
       page = await adapter.reopenTargetPage(url);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      const probe = await adapter.probePage(page).catch(() => null);
-      const snapshot = probe?.snapshot || {};
+      let evidence = null;
+      let snapshot = {};
+      for (let attempt = 0; attempt < 16; attempt += 1) {
+        const probe = await adapter.probePage(page).catch(() => null);
+        snapshot = probe?.snapshot || {};
+        if (
+          snapshot.conversationPath &&
+          !snapshot.loginRequired &&
+          !snapshot.hasCaptcha
+        ) {
+          evidence = await captureCorrelatedBootstrapUserTurnEvidence(page, {
+            messageId,
+            sourceOfTruthUrl: source
+          }).catch(() => null);
+          if (evidence?.confirmed) break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
       if (!snapshot.conversationPath || snapshot.loginRequired || snapshot.hasCaptcha) continue;
       checked += 1;
-      const evidence = await captureCorrelatedBootstrapUserTurnEvidence(page, {
-        messageId,
-        sourceOfTruthUrl: source
-      }).catch(() => null);
       if (evidence?.confirmed) {
         matchCount += 1;
         matchedRuntime = opaqueRuntimeIdentity(page.url()) || "";
