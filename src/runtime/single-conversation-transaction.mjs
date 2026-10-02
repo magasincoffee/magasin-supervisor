@@ -187,6 +187,65 @@ export async function markExactOnceDelivered(statePath, {
   }, now);
 }
 
+export async function rewindFalseHistoricalDiscoveryDelivery(statePath, {
+  messageId,
+  message,
+  latestUserTurnId,
+  composerReady,
+  composerHasText,
+  now = () => new Date().toISOString()
+} = {}) {
+  const latestId = String(latestUserTurnId || "").trim();
+  if (!latestId) {
+    throw Object.assign(new Error("latest user turn id is required for false-delivery rewind"), {
+      code: "FALSE_DELIVERY_REWIND_UNVERIFIED"
+    });
+  }
+  if (composerReady !== true || composerHasText !== false) {
+    throw Object.assign(new Error("composer must be readable and empty for false-delivery rewind"), {
+      code: "FALSE_DELIVERY_REWIND_UNVERIFIED"
+    });
+  }
+
+  return mutateState(statePath, (state, at) => {
+    assertSameTransaction(state, messageId, message);
+    const outbound = state.outbound || {};
+    const current = String(outbound.state || "").toUpperCase();
+    const baselineId = String(outbound.baseline_user_turn_id || "").trim();
+    const deliveredId = String(outbound.delivered_user_turn_id || "").trim();
+
+    const provenFalseHistoricalDelivery = Boolean(
+      String(state?.conversation?.status || "").toUpperCase() === "ACTIVE" &&
+      ["DELIVERED", "RESPONSE_RUNNING"].includes(current) &&
+      String(outbound.kind || "") === "SOURCE_OF_TRUTH_TASK_DISCOVERY" &&
+      Number(outbound.retry_count || 0) === 0 &&
+      baselineId &&
+      deliveredId &&
+      deliveredId !== baselineId &&
+      latestId === baselineId
+    );
+
+    if (!provenFalseHistoricalDelivery) {
+      throw Object.assign(new Error("false historical delivery could not be positively proven"), {
+        code: "FALSE_DELIVERY_REWIND_UNVERIFIED"
+      });
+    }
+
+    state.outbound.state = "ENQUEUED";
+    state.outbound.delivered_user_turn_id = null;
+    state.outbound.delivered_at = null;
+    state.outbound.response_running_at = null;
+    state.outbound.response_complete_at = null;
+    state.outbound.verified_at = null;
+    state.outbound.last_error_code = "SEND_NOT_ACTUATED";
+    state.outbound.last_error_stage = "HISTORICAL_USER_TURN_FALSE_DELIVERY";
+    state.automation.status = "RUNNING";
+    state.automation.phase = "SEND_WORK";
+    state.automation.reason = null;
+    state.automation.updated_at = at;
+  }, now);
+}
+
 export async function markExactOnceResponseComplete(statePath, {
   messageId,
   message,
