@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "requested_after_cleanup_sha": "dbbdcda256068dce83aba4213070204f5af056fa",
-  "purpose": "Re-arm after PR #293 safe-snapshot false-delivery rewind; supersede prior CDP-loop observer."
+  "requested_after_cleanup_sha": "bd407271929f06d4e14a9d57cc2985b547771f10",
+  "purpose": "Continue first-failure observation after independent watchdog verification of PR #293."
 }
