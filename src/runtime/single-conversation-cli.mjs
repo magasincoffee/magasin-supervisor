@@ -213,6 +213,22 @@ export function preparedBootstrapIsStaleEnough(
   return Number(nowMs) - preparedAt >= Math.max(0, Number(minimumAgeMs) || 0);
 }
 
+export function safeFalseHistoricalDeliverySnapshot(snapshot = {}) {
+  return Boolean(
+    snapshot &&
+    !snapshot.loginRequired &&
+    !snapshot.hasCaptcha &&
+    !snapshot.hasNetworkError &&
+    !snapshot.hasTransientError &&
+    !snapshot.conversationMissing &&
+    !snapshot.conversationAccessDenied &&
+    snapshot.responseRunning === false &&
+    snapshot.composerReady === true &&
+    snapshot.composerTextReadable === true &&
+    snapshot.composerHasText === false
+  );
+}
+
 export function safeBootstrapNonDeliverySnapshot(snapshot = {}) {
   return Boolean(
     snapshot &&
@@ -947,25 +963,30 @@ async function resumeInFlightProtocolMessageAfterRebind({
       });
     }
 
-    const draft = await boundedRuntimeStep(
-      "RESTART_FALSE_DELIVERY_CAPTURE_DRAFT",
-      () => inspectComposerDraftDigest(page, { timeoutMs: 1_500 }),
-      { timeoutMs: 5_000 }
+    const safeProbe = await boundedRuntimeStep(
+      "RESTART_FALSE_DELIVERY_SAFE_PROBE",
+      () => adapter.probePage(page),
+      { timeoutMs: 10_000 }
     ).catch((error) => {
       if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
       return null;
     });
+    const safeSnapshot = safeProbe?.snapshot || {};
 
-    const rewound = await rewindFalseHistoricalDiscoveryDelivery(statePath, {
-      messageId,
-      message,
-      latestUserTurnId: latestUser?.turn_id || null,
-      composerReady: draft?.ready === true,
-      composerHasText: draft?.has_text
-    }).then(() => true).catch((error) => {
-      if (error?.code === "FALSE_DELIVERY_REWIND_UNVERIFIED") return false;
-      throw error;
-    });
+    const rewound = safeFalseHistoricalDeliverySnapshot(safeSnapshot)
+      ? await rewindFalseHistoricalDiscoveryDelivery(statePath, {
+          messageId,
+          message,
+          latestUserTurnId: latestUser?.turn_id || null,
+          composerReady: safeSnapshot.composerReady === true,
+          composerReadable: safeSnapshot.composerTextReadable === true,
+          composerHasText: safeSnapshot.composerHasText,
+          responseRunning: Boolean(safeSnapshot.responseRunning)
+        }).then(() => true).catch((error) => {
+          if (error?.code === "FALSE_DELIVERY_REWIND_UNVERIFIED") return false;
+          throw error;
+        })
+      : false;
 
     if (rewound) {
       return resumeEnqueuedTaskDiscoveryAfterRebind({
