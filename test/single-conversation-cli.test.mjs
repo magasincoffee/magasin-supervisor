@@ -19,6 +19,7 @@ import {
   replacementReasonForResponseWaitError,
   preparedBootstrapIsStaleEnough,
   safeBootstrapNonDeliverySnapshot,
+  safeFalseHistoricalDeliverySnapshot,
   runSingleConversationRuntime,
   waitForNextCycleDelay,
   waitForPositiveBlankBootstrapNonDelivery
@@ -1065,6 +1066,39 @@ test("SC-013 in-flight discovery restart attempts proof-gated false-delivery rew
   assert.ok(settle > resumeEnqueued);
   assert.match(body, /SOURCE_OF_TRUTH_TASK_DISCOVERY/);
   assert.match(body, /retry_count/);
-  assert.match(body, /composerHasText:\s*draft\?\.has_text/);
+  assert.match(body, /RESTART_FALSE_DELIVERY_SAFE_PROBE/);
+  assert.match(body, /safeFalseHistoricalDeliverySnapshot/);
+  assert.match(body, /composerReadable:\s*safeSnapshot\.composerTextReadable/);
+  assert.match(body, /responseRunning:\s*Boolean\(safeSnapshot\.responseRunning\)/);
+  assert.doesNotMatch(body, /RESTART_FALSE_DELIVERY_CAPTURE_DRAFT/);
   assert.match(body, /FALSE_DELIVERY_REWIND_UNVERIFIED/);
+});
+
+
+test("SC-013 false-delivery safe snapshot requires one idle readable empty-composer DOM sample", () => {
+  const safe = {
+    loginRequired: false,
+    hasCaptcha: false,
+    hasNetworkError: false,
+    hasTransientError: false,
+    conversationMissing: false,
+    conversationAccessDenied: false,
+    responseRunning: false,
+    composerReady: true,
+    composerTextReadable: true,
+    composerHasText: false
+  };
+  assert.equal(safeFalseHistoricalDeliverySnapshot(safe), true);
+  assert.equal(
+    safeFalseHistoricalDeliverySnapshot({ ...safe, composerTextReadable: false }),
+    false
+  );
+  assert.equal(
+    safeFalseHistoricalDeliverySnapshot({ ...safe, responseRunning: true }),
+    false
+  );
+  assert.equal(
+    safeFalseHistoricalDeliverySnapshot({ ...safe, hasNetworkError: true }),
+    false
+  );
 });
