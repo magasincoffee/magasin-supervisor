@@ -4,13 +4,17 @@ import { pathToFileURL } from "node:url";
 const [runtimeRoot,statePath,cdpUrl]=process.argv.slice(2);
 const mod=(rel)=>import(pathToFileURL(path.join(runtimeRoot,...rel.split("/"))).href);
 const {ChatGptUiAdapter}=await mod("src/ui/playwright-adapter.mjs");
-const {opaqueRuntimeIdentity}=await mod("src/runtime/single-conversation-bootstrap.mjs");
+const {
+  opaqueRuntimeIdentity,
+  captureCorrelatedBootstrapUserTurnEvidence
+}=await mod("src/runtime/single-conversation-bootstrap.mjs");
 const {
   canResumePreActuationDiscovery,
   resumeExistingConversationPage
 }=await mod("src/runtime/single-conversation-cli.mjs");
 const {readSingleConversationState}=await mod("src/runtime/single-conversation-state.mjs");
 const {inspectComposerDraftDigest}=await mod("src/ui/actions.mjs");
+const {captureLatestRoleTurn}=await mod("src/ui/latest-turn.mjs");
 
 const bounded=async(label,promise,ms)=>{
   let timer;
@@ -40,12 +44,31 @@ try{
   const expected=String(state.conversation?.runtime_id||"");
   const pages=adapter.getChatGptPages();
   console.log("SC013_DIAG_PAGE_COUNT="+String(pages.length));
+  const messageId=String(state.outbound?.message_id||"");
+  const sourceOfTruthUrl=String(state.source_of_truth?.url||"");
   for(let i=0;i<pages.length;i+=1){
-    const url=String(pages[i].url?.()||"");
+    const page=pages[i];
+    const url=String(page.url?.()||"");
     let id="";
     try{id=opaqueRuntimeIdentity(url)||"";}catch{}
     console.log("SC013_DIAG_PAGE_"+i+"_URL="+url);
     console.log("SC013_DIAG_PAGE_"+i+"_RUNTIME_ID="+id);
+
+    const corr=await captureCorrelatedBootstrapUserTurnEvidence(page,{
+      messageId,
+      sourceOfTruthUrl
+    }).catch(()=>null);
+    console.log("SC013_DIAG_PAGE_"+i+"_BOOTSTRAP_CORRELATED="+String(Boolean(corr?.confirmed)));
+    console.log("SC013_DIAG_PAGE_"+i+"_BOOTSTRAP_EVIDENCE="+String(corr?.evidence||""));
+    console.log("SC013_DIAG_PAGE_"+i+"_BOOTSTRAP_MATCH_COUNT="+String(Number(corr?.match_count||0)));
+    console.log("SC013_DIAG_PAGE_"+i+"_USER_TURN_COUNT="+String(Number(corr?.total_count||0)));
+
+    const assistant=await captureLatestRoleTurn(page,"assistant").catch(()=>null);
+    const assistantText=String(assistant?.text||"");
+    const expectedMarker="MAGASIN_BOOTSTRAP_CORRELATION_V1 "+messageId;
+    console.log("SC013_DIAG_PAGE_"+i+"_ASSISTANT_PRESENT="+String(Boolean(assistant?.turn_id||assistantText)));
+    console.log("SC013_DIAG_PAGE_"+i+"_ASSISTANT_MARKER="+String(assistantText.includes(expectedMarker)));
+    console.log("SC013_DIAG_PAGE_"+i+"_ASSISTANT_CHARS="+String(assistantText.length));
   }
 
   const discovery=adapter.getActivePage()||pages.at(-1)||null;
