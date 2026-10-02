@@ -79,7 +79,7 @@ function Get-SupervisorWrapper {
         Select-Object -First 1
 }
 
-Write-BootstrapLog 'AUTOSTART_BOOT' 'Business OS autostart bootstrap invoked.'
+Write-BootstrapLog 'AUTOSTART_BOOT' 'SINGLE_CONVERSATION_V1 autostart bootstrap invoked.'
 
 # The local watchdog is read-only observation infrastructure. It must stay alive
 # even while Owner STOP suppresses Robot recovery, so start it before evaluating
@@ -103,9 +103,9 @@ if ($ownerStop.blocked) {
     exit 0
 }
 
-$enabledLaneCount = Get-EnabledLaneCount -Root $root
-if ($enabledLaneCount -lt 1) {
-    Write-BootstrapLog 'AUTOSTART_ALL_LANES_DISABLED' 'No enabled lane exists; automatic Supervisor startup is not required.'
+$singleControl = Get-LifecycleSingleConversationControl -Root $root
+if (-not $singleControl) {
+    Write-BootstrapLog 'AUTOSTART_UNCONFIGURED' 'No valid SINGLE_CONVERSATION_V1 control record exists.'
     exit 0
 }
 
@@ -165,7 +165,7 @@ for ($i = 0; $i -lt 20; $i++) {
 }
 
 if ($supervisor) {
-    Write-BootstrapLog 'SUPERVISOR_ONLINE' 'Supervisor wrapper is online and may recover the dedicated Business OS Chrome session.'
+    Write-BootstrapLog 'SUPERVISOR_ONLINE' 'Supervisor wrapper is online and may recover the dedicated SINGLE_CONVERSATION_V1 Chrome session.'
     exit 0
 }
 
