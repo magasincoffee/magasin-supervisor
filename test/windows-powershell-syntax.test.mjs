@@ -7,16 +7,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scripts = [
-  "../windows/run-supervisor.ps1",
-  "../windows/start-supervisor.ps1",
-  "../windows/stop-supervisor.ps1",
-  "../windows/lifecycle-truth.ps1",
+  "../windows/autostart-bootstrap.ps1",
+  "../windows/install-autostart.ps1",
   "../windows/install-supervisor.ps1",
-  "../windows/repair-supervisor.ps1",
-  "../windows/control-panel.ps1",
-  "../windows/reset-all-projects.ps1",
+  "../windows/lifecycle-truth.ps1",
+  "../windows/local-watchdog.ps1",
   "../windows/open-supervisor-chat.ps1",
-  "../windows/collect-supervisor-diagnostics.ps1"
+  "../windows/run-supervisor.ps1",
+  "../windows/start-local-watchdog.ps1",
+  "../windows/start-supervisor.ps1",
+  "../windows/state-root.ps1",
+  "../windows/stop-supervisor.ps1",
+  "../windows/control-panel.ps1"
 ];
 
 for (const relative of scripts) {
