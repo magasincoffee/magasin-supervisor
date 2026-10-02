@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "8cd08fa2de24720ed382a67d5fbfbb05bb6fb2cd",
+  "requested_main_sha": "b387236a5873f4d05256b92fa31e3b4f5207ed7b",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy SC-013 Recent/Sidebar correlated bootstrap recovery from PR #281 after all mandatory gates passed."
+  "reason": "Deploy SC-013 cold Recent re-enumeration fix from PR #282 after all mandatory gates passed."
 }
