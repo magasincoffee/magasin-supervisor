@@ -250,3 +250,42 @@ test("SC-013 Recent recovery uses stable Open sidebar locator before history sca
   assert.equal(evaluateFallbackCalls, 0);
   assert.equal(scanCalls, 2);
 });
+
+
+test("SC-013 browser history fallback reads ChatGPT URLs through recursive history page scan", async () => {
+  const adapter = new ChatGptUiAdapter({
+    chromeExecutable: "fake-chrome",
+    settleMs: 0,
+    timeoutMs: 2_000
+  });
+  const historyUrls = [
+    "https://chatgpt.com/c/history-match",
+    "https://chatgpt.com/g/g-p-project/c/history-project"
+  ];
+  let closed = 0;
+  let gotoUrl = "";
+  const historyPage = {
+    isClosed() { return false; },
+    async goto(url, options) {
+      gotoUrl = url;
+      assert.equal(options.waitUntil, "commit");
+    },
+    async waitForTimeout() {},
+    async evaluate(_fn, arg) {
+      assert.equal(arg, 200);
+      return historyUrls;
+    },
+    async close() {
+      closed += 1;
+    }
+  };
+  adapter.context = {
+    async newPage() { return historyPage; }
+  };
+
+  const urls = await adapter.listBrowserHistoryChatGptUrls({ limit: 200 });
+
+  assert.deepEqual(urls, historyUrls);
+  assert.equal(gotoUrl, "chrome://history/?q=chatgpt.com");
+  assert.equal(closed, 1);
+});

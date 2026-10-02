@@ -1019,3 +1019,28 @@ test("SC-013 cold bootstrap gets one bounded disposable retry on recoverable res
   assert.ok(runtimeStart > replace);
   assert.ok(helperCall > runtimeStart);
 });
+
+
+test("SC-013 restart falls back from Recent to exact Chrome history identity without resend", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const recent = source.indexOf("recoverConversationFromRecentSidebar");
+  const historyHelper = source.indexOf("recoverConversationFromBrowserHistory");
+  const resume = source.indexOf("export async function resumeExistingConversationPage");
+  const recentCall = source.indexOf("page = await recoverConversationFromRecentSidebar", resume);
+  const historyCall = source.indexOf("page = await recoverConversationFromBrowserHistory", recentCall);
+  const recoveredFrom = source.indexOf('recoveredFrom = "BROWSER_HISTORY"', historyCall);
+
+  assert.ok(recent >= 0);
+  assert.ok(historyHelper > recent);
+  assert.ok(resume > historyHelper);
+  assert.ok(recentCall > resume);
+  assert.ok(historyCall > recentCall);
+  assert.ok(recoveredFrom > historyCall);
+
+  const body = source.slice(historyCall, recoveredFrom + 80);
+  assert.match(body, /expected/);
+  assert.doesNotMatch(body, /sendProtocolMessage|reconcileExactOnceOutbound/);
+});
