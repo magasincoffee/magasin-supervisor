@@ -5,132 +5,29 @@ param(
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'state-root.ps1')
-. (Join-Path $PSScriptRoot 'chatgpt-bridge-runtime.ps1')
 $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
 $runtime = Join-Path $root 'runtime'
 $env:SUPERVISOR_STATE_ROOT = $root
 $profile = Join-Path $root 'browser_profile'
-$target = Join-Path $root 'target.json'
-$stop = Join-Path $root 'STOP'
-$autostartDisabled = Join-Path $root 'AUTOSTART_DISABLED'
-$pidFile = Join-Path $root 'supervisor.pid'
-$registryFile = Join-Path $root 'orchestration.json'
-$runtimeStatusFile = Join-Path $root 'runtime-status.json'
-$laneConfigFile = Join-Path $root 'lanes.json'
-$laneStatusFile = Join-Path $root 'lane-status.json'
-$plannerExecutorStateFile = Join-Path $root 'planner-executor-state.json'
-$plannerExecutorTransportFile = Join-Path $root 'planner-executor-transport.json'
 $singleConversationControlFile = Join-Path $root 'single-conversation-control.json'
 $singleConversationStateFile = Join-Path $root 'single-conversation-state.json'
-$projectAdapterPath = [string]$env:SUPERVISOR_PROJECT_ADAPTER_PATH
-$projectAdapterUrl = [string]$env:SUPERVISOR_PROJECT_ADAPTER_URL
-if (-not [string]::IsNullOrWhiteSpace($projectAdapterPath) -and -not [string]::IsNullOrWhiteSpace($projectAdapterUrl)) {
-    throw 'Configure exactly one project adapter source: SUPERVISOR_PROJECT_ADAPTER_PATH or SUPERVISOR_PROJECT_ADAPTER_URL.'
-}
-
-function Read-ConfiguredProjectAdapterState {
-    $adapter = $null
-    if (-not [string]::IsNullOrWhiteSpace($projectAdapterPath)) {
-        if (-not (Test-Path $projectAdapterPath)) { throw "Configured project adapter file is missing: $projectAdapterPath" }
-        $adapter = Get-Content $projectAdapterPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    } elseif (-not [string]::IsNullOrWhiteSpace($projectAdapterUrl)) {
-        $adapter = Invoke-RestMethod -Uri $projectAdapterUrl -TimeoutSec 4 -Headers @{ 'Cache-Control'='no-cache' }
-    } else {
-        return $null
-    }
-
-    if ([string]$adapter.schema_version -ne 'supervisor-project-adapter.v1' -or -not $adapter.project_state) {
-        throw 'Configured project adapter does not satisfy supervisor-project-adapter.v1.'
-    }
-    return $adapter.project_state
-}
-
-function Get-PlannerExecutorPrimaryTransport {
-    if (-not (Test-Path $plannerExecutorTransportFile -PathType Leaf)) {
-        return 'DIRECT_DOM_V1'
-    }
-    try {
-        $transport = Get-Content $plannerExecutorTransportFile -Raw -Encoding UTF8 | ConvertFrom-Json
-        if ([string]$transport.schema_version -ne 'planner-executor-transport.v1') {
-            throw 'Unsupported Planner/Executor transport config schema.'
-        }
-        $primary = [string]$transport.primary
-        if ($primary -notin @('DIRECT_DOM_V1','CHATGPT_BRIDGE_V1')) {
-            throw "Unsupported Planner/Executor primary transport: $primary"
-        }
-        if (
-            $primary -eq 'CHATGPT_BRIDGE_V1' -and
-            [string]$transport.bridge_upstream_commit -ne $script:ChatGptBridgePinnedCommit
-        ) {
-            throw 'Planner/Executor Bridge transport pin mismatch.'
-        }
-        return $primary
-    } catch {
-        throw "Planner/Executor transport config is invalid: $($_.Exception.Message)"
-    }
-}
-
 function Resolve-LocalRuntimeMode {
-    # SINGLE_CONVERSATION_V1 is the forward runtime authority once the
-    # Control Center persists a Source-of-Truth-only control record.
     try {
-        if (Test-Path $singleConversationControlFile) {
-            $singleControl = Get-Content $singleConversationControlFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            if (
-                [string]$singleControl.schema_version -eq 'single-conversation-control.v1' -and
-                [string]$singleControl.mode -eq 'SINGLE_CONVERSATION_V1' -and
-                -not [string]::IsNullOrWhiteSpace([string]$singleControl.source_of_truth_url)
-            ) {
-                return 'SINGLE_CONVERSATION_V1'
-            }
+        if (-not (Test-Path $singleConversationControlFile -PathType Leaf)) {
+            return $null
+        }
+        $singleControl = Get-Content $singleConversationControlFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (
+            [string]$singleControl.schema_version -eq 'single-conversation-control.v1' -and
+            [string]$singleControl.mode -eq 'SINGLE_CONVERSATION_V1' -and
+            -not [string]::IsNullOrWhiteSpace([string]$singleControl.source_of_truth_url)
+        ) {
+            return 'SINGLE_CONVERSATION_V1'
         }
     } catch {}
-
-    # SC-013: Planner/Executor is superseded and must never be selected by
-    # production runtime resolution. Historical state files may remain for
-    # forensic/rollback reference, but they are not executable authority.
-    # The standalone Supervisor owns platform-local orchestration truth.
-    # A project adapter is optional for THREE_LANE_V1, so local mode
-    # resolution must run whenever the adapter supplies no mode, not only
-    # when adapter access throws.
-    try {
-        if (Test-Path $laneStatusFile) {
-            $laneStatus = Get-Content $laneStatusFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ([string]$laneStatus.mode -eq 'THREE_LANE_V1') {
-                return 'THREE_LANE_V1'
-            }
-        }
-    } catch {}
-
-    try {
-        if (Test-Path $laneConfigFile) {
-            $laneConfig = Get-Content $laneConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ([string]$laneConfig.mode -eq 'THREE_LANE_V1') {
-                return 'THREE_LANE_V1'
-            }
-        }
-    } catch {}
-
-    try {
-        if (Test-Path $registryFile) {
-            $registry = Get-Content $registryFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ([string]$registry.mode -eq 'BRAIN_WORKER_V1') {
-                return 'BRAIN_WORKER_V1'
-            }
-        }
-    } catch {}
-
-    try {
-        if (Test-Path $runtimeStatusFile) {
-            $runtimeStatus = Get-Content $runtimeStatusFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ([string]$runtimeStatus.orchestration_mode -eq 'BRAIN_WORKER_V1') {
-                return 'BRAIN_WORKER_V1'
-            }
-        }
-    } catch {}
-
     return $null
 }
+
 # SINGLE_CONVERSATION_V1 owns its own singleton namespace. The historical
 # MAGASIN_BUSINESS_OS_SUPERVISOR mutex is intentionally not reused because a
 # legacy process from the superseded architecture must never block the forward
@@ -155,11 +52,11 @@ try {
     throw
 }
 
-function Get-ThreeLaneProcesses {
+function Get-SingleConversationProcesses {
     return @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
         Where-Object {
             $_.CommandLine -and
-            $_.CommandLine -match '(three-lane-cli|planner-executor-cli|planner-executor-bridge-cli|single-conversation-cli)\.mjs'
+            $_.CommandLine -match 'single-conversation-cli\.mjs'
         })
 }
 
@@ -173,22 +70,22 @@ function Test-WrapperProcessForCurrentRoot($Process) {
     )
 }
 
-function Stop-OrphanedThreeLaneProcesses {
-    foreach ($nodeProcess in (Get-ThreeLaneProcesses)) {
+function Stop-OrphanedSingleConversationProcesses {
+    foreach ($nodeProcess in (Get-SingleConversationProcesses)) {
         $parent = Get-CimInstance Win32_Process -Filter "ProcessId=$($nodeProcess.ParentProcessId)" -ErrorAction SilentlyContinue |
             Select-Object -First 1
         if (-not (Test-WrapperProcessForCurrentRoot $parent)) {
-            Write-Host "Stopping orphaned Three-Lane Node PID $($nodeProcess.ProcessId) (parent $($nodeProcess.ParentProcessId))."
+            Write-Host "Stopping orphaned Single-Conversation Node PID $($nodeProcess.ProcessId) (parent $($nodeProcess.ParentProcessId))."
             Stop-Process -Id ([int]$nodeProcess.ProcessId) -Force -ErrorAction SilentlyContinue
         }
     }
 }
 
-function Stop-CurrentWrapperThreeLaneChildren {
-    Get-ThreeLaneProcesses |
+function Stop-CurrentWrapperSingleConversationChildren {
+    Get-SingleConversationProcesses |
         Where-Object { [int]$_.ParentProcessId -eq [int]$PID } |
         ForEach-Object {
-            Write-Host "Stopping Three-Lane child PID $($_.ProcessId) owned by wrapper $PID."
+            Write-Host "Stopping Single-Conversation child PID $($_.ProcessId) owned by wrapper $PID."
             Stop-Process -Id ([int]$_.ProcessId) -Force -ErrorAction SilentlyContinue
         }
 }
@@ -196,7 +93,7 @@ function Stop-CurrentWrapperThreeLaneChildren {
 # A wrapper crash/forced restart can orphan Node on Windows. Reclaim stale
 # children before this wrapper becomes authoritative, so exactly one writer
 # can own lane-registry/lane-status at a time.
-Stop-OrphanedThreeLaneProcesses
+Stop-OrphanedSingleConversationProcesses
 
 function Get-DedicatedChromeProcesses {
     return @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
@@ -312,136 +209,44 @@ try {
             continue
         }
 
-        # SINGLE_CONVERSATION_V1 is the only forward ChatGPT runtime
-        # authority. Superseded Planner/Executor state is intentionally ignored.
         $runtimeMode = Resolve-LocalRuntimeMode
         if ($runtimeMode -ne 'SINGLE_CONVERSATION_V1') {
-            try {
-                $projectState = Read-ConfiguredProjectAdapterState
-                if ($projectState -and $projectState.supervisor_orchestration) {
-                    $candidateMode = [string]$projectState.supervisor_orchestration.mode
-                    if (
-                        -not [string]::IsNullOrWhiteSpace($candidateMode) -and
-                        $candidateMode -ne 'PLANNER_EXECUTOR_V1'
-                    ) {
-                        $runtimeMode = $candidateMode
-                    } elseif ($candidateMode -eq 'PLANNER_EXECUTOR_V1') {
-                        Write-Host 'LEGACY_PLANNER_EXECUTOR_SELECTION_IGNORED=True'
-                    }
-                }
-            } catch {
-                # Adapter failure is not authority to downgrade. Keep local
-                # platform truth when available.
-            }
-        }
-
-        if (-not $runtimeMode) {
-            Write-Host 'No authoritative runtime mode is available; preserving wrapper and retrying fail-closed.'
+            Write-Host 'SINGLE_CONVERSATION_CONTROL_REQUIRED=True'
+            Write-Host 'No valid SINGLE_CONVERSATION_V1 control record is available; waiting fail-closed.'
             Start-Sleep -Seconds 5
             continue
         }
 
-        $plannerExecutorTransport = if ($runtimeMode -eq 'PLANNER_EXECUTOR_V1') {
-            Get-PlannerExecutorPrimaryTransport
-        } else {
-            $null
-        }
-
-        $entryPoint = switch ($runtimeMode) {
-            'SINGLE_CONVERSATION_V1' { 'src/runtime/single-conversation-cli.mjs' }
-            'PLANNER_EXECUTOR_V1' {
-                if ($plannerExecutorTransport -eq 'CHATGPT_BRIDGE_V1') {
-                    'src/runtime/planner-executor-bridge-cli.mjs'
-                } else {
-                    'src/runtime/planner-executor-cli.mjs'
-                }
-            }
-            'THREE_LANE_V1' { 'src/runtime/three-lane-cli.mjs' }
-            'BRAIN_WORKER_V1' { 'src/runtime/brain-worker-cli.mjs' }
-            default { 'src/runtime/supervisor-loop-cli.mjs' }
-        }
-
-        # target.json belongs only to legacy target-bound runtimes.
-        # SINGLE_CONVERSATION_V1 is Source-of-Truth-only and MUST proceed when
-        # target.json is absent.
-        if ($runtimeMode -notin @('SINGLE_CONVERSATION_V1','PLANNER_EXECUTOR_V1','THREE_LANE_V1','BRAIN_WORKER_V1') -and -not (Test-Path $target)) {
-            Write-Host 'Legacy mode was explicitly selected but no legacy target exists; waiting for authoritative project state instead of terminating.'
-            Start-Sleep -Seconds 5
-            continue
-        }
-
+        $entryPoint = 'src/runtime/single-conversation-cli.mjs'
         Write-Host "Supervisor entry point: $entryPoint"
-        if ($runtimeMode -eq 'PLANNER_EXECUTOR_V1') {
-            Write-Host "Planner/Executor transport: $plannerExecutorTransport"
-        }
-
-        $bridgeBackendProcess = $null
-        if ($entryPoint -eq 'src/runtime/planner-executor-bridge-cli.mjs') {
-            $bridgeInfo = Assert-ChatGptBridgePinnedInstall -Root $root
-            $bridgeBackendProcess = Start-ChatGptBridgeBackend -Root $root
-            $env:SUPERVISOR_CHATGPT_BRIDGE_ROOT = $bridgeInfo.RepoRoot
-        }
 
         Push-Location $runtime
         try {
-            $pollMs = if ($env:SUPERVISOR_THREE_LANE_POLL_MS) {
-                [string]$env:SUPERVISOR_THREE_LANE_POLL_MS
+            $pollMs = if ($env:SUPERVISOR_SINGLE_CONVERSATION_POLL_MS) {
+                [string]$env:SUPERVISOR_SINGLE_CONVERSATION_POLL_MS
             } else {
                 '2000'
             }
-            $pageBudget = if ($env:SUPERVISOR_CHATGPT_PAGE_BUDGET) {
-                [string]$env:SUPERVISOR_CHATGPT_PAGE_BUDGET
-            } else {
-                '4'
+
+            $singleControl = Get-Content $singleConversationControlFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            $sourceOfTruth = [string]$singleControl.source_of_truth_url
+            if ([string]::IsNullOrWhiteSpace($sourceOfTruth)) {
+                throw 'SINGLE_CONVERSATION_V1 control record has no Source of Truth.'
             }
 
-            $nodeArgs = @($entryPoint, '--cdp-url', $cdpBaseUrl, '--poll-ms', $pollMs)
-            if ($entryPoint -eq 'src/runtime/single-conversation-cli.mjs') {
-                $singleControl = Get-Content $singleConversationControlFile -Raw -Encoding UTF8 | ConvertFrom-Json
-                $sourceOfTruth = [string]$singleControl.source_of_truth_url
-                if ([string]::IsNullOrWhiteSpace($sourceOfTruth)) {
-                    throw 'SINGLE_CONVERSATION_V1 control record has no Source of Truth.'
-                }
-                $nodeArgs += @(
-                    '--state', $singleConversationStateFile,
-                    '--source-of-truth', $sourceOfTruth
-                )
-            }
-            if ($entryPoint -in @('src/runtime/planner-executor-cli.mjs','src/runtime/planner-executor-bridge-cli.mjs')) {
-                $nodeArgs += @('--state', $plannerExecutorStateFile)
-            }
-            if ($entryPoint -eq 'src/runtime/planner-executor-bridge-cli.mjs') {
-                $nodeArgs += @(
-                    '--bridge-url', 'http://127.0.0.1:5000',
-                    '--bridge-root', [string]$env:SUPERVISOR_CHATGPT_BRIDGE_ROOT
-                )
-            }
-            if ($entryPoint -eq 'src/runtime/three-lane-cli.mjs') {
-                $nodeArgs += @(
-                    '--wrapper-pid', [string]$PID,
-                    '--page-budget', $pageBudget
-                )
-            }
-            if ($entryPoint -in @('src/runtime/brain-worker-cli.mjs','src/runtime/supervisor-loop-cli.mjs')) {
-                if (-not [string]::IsNullOrWhiteSpace($projectAdapterPath)) {
-                    $nodeArgs += @('--project-adapter', $projectAdapterPath)
-                } elseif (-not [string]::IsNullOrWhiteSpace($projectAdapterUrl)) {
-                    $nodeArgs += @('--project-adapter-url', $projectAdapterUrl)
-                } else {
-                    Write-Host 'Project adapter is required for legacy/brain-worker mode; waiting fail-closed.'
-                    Start-Sleep -Seconds 5
-                    continue
-                }
-            }
+            $nodeArgs = @(
+                $entryPoint,
+                '--cdp-url', $cdpBaseUrl,
+                '--poll-ms', $pollMs,
+                '--state', $singleConversationStateFile,
+                '--source-of-truth', $sourceOfTruth
+            )
             if (-not $DryRun) { $nodeArgs += '--execute' }
+
             & node @nodeArgs
             $nodeExitCode = $LASTEXITCODE
         } finally {
             Pop-Location
-            if ($bridgeBackendProcess) {
-                Stop-ChatGptBridgeBackend -Process $bridgeBackendProcess
-                $bridgeBackendProcess = $null
-            }
         }
 
         # SC-012: a durable BLOCKED single-conversation state is a
@@ -492,7 +297,7 @@ try {
         }
     }
 } finally {
-    Stop-CurrentWrapperThreeLaneChildren
+    Stop-CurrentWrapperSingleConversationChildren
     Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
     if ($ownsMutex) {
         try { $mutex.ReleaseMutex() } catch {}
