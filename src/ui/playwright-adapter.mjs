@@ -273,40 +273,69 @@ export class ChatGptUiAdapter {
     if (!page || page.isClosed()) return false;
     if (this.recentNavigationHydratedPages.has(page)) return false;
 
-    const clicked = await page.evaluate(() => {
-      const visible = (node) => {
-        if (!(node instanceof Element)) return false;
-        const style = getComputedStyle(node);
-        const box = node.getBoundingClientRect();
-        return style.display !== "none" &&
-          style.visibility !== "hidden" &&
-          box.width > 0 &&
-          box.height > 0;
-      };
-      const controls = [...document.querySelectorAll('button,[role="button"]')];
-      const wanted = /(sidebar|side bar|navigation|chat history|recent chats?|thanh bên|thanh điều hướng|lịch sử trò chuyện)/i;
-      const reject = /(new chat|new conversation|temporary chat|settings|profile|account|share|voice|attach|upload|send|trò chuyện mới|cài đặt|tài khoản|gửi)/i;
+    const selectors = [
+      'button[aria-label="Open sidebar"]',
+      '[role="button"][aria-label="Open sidebar"]',
+      'button[aria-label*="sidebar" i]',
+      '[role="button"][aria-label*="sidebar" i]',
+      'button[title*="sidebar" i]',
+      '[role="button"][title*="sidebar" i]',
+      'button[aria-label*="thanh bên" i]',
+      '[role="button"][aria-label*="thanh bên" i]',
+      'button[title*="thanh bên" i]',
+      '[role="button"][title*="thanh bên" i]'
+    ];
 
-      const candidate = controls.find((node) => {
-        if (!visible(node)) return false;
-        const descriptor = [
-          node.getAttribute("aria-label"),
-          node.getAttribute("title"),
-          node.getAttribute("data-testid"),
-          node.textContent
-        ].filter(Boolean).join(" ").trim();
-        return descriptor && wanted.test(descriptor) && !reject.test(descriptor);
-      });
-      if (!candidate) return false;
-      candidate.click();
-      return true;
-    }).catch(() => false);
+    let clicked = false;
+    if (typeof page.locator === "function") {
+      for (const selector of selectors) {
+        const locator = page.locator(selector).first();
+        const count = await locator.count().catch(() => 0);
+        if (count < 1) continue;
+        clicked = await locator.click({
+          timeout: Math.max(500, Math.min(2_000, Number(this.actionTimeoutMs) || 1_500)),
+          force: true
+        }).then(() => true).catch(() => false);
+        if (clicked) break;
+      }
+    }
+
+    if (!clicked) {
+      clicked = await page.evaluate(() => {
+        const controls = [...document.querySelectorAll('button,[role="button"]')];
+        const wanted = /(sidebar|side bar|navigation|chat history|recent chats?|thanh bên|thanh điều hướng|lịch sử trò chuyện)/i;
+        const reject = /(new chat|new conversation|temporary chat|settings|profile|account|share|voice|attach|upload|send|trò chuyện mới|cài đặt|tài khoản|gửi)/i;
+        const candidate = controls.find((node) => {
+          const descriptor = [
+            node.getAttribute("aria-label"),
+            node.getAttribute("title"),
+            node.getAttribute("data-testid"),
+            node.textContent
+          ].filter(Boolean).join(" ").trim();
+          return descriptor && wanted.test(descriptor) && !reject.test(descriptor);
+        });
+        if (!candidate) return false;
+        candidate.click();
+        return true;
+      }).catch(() => false);
+    }
 
     if (!clicked) return false;
     this.recentNavigationHydratedPages.add(page);
-    await page.waitForTimeout(
-      Math.max(100, Math.min(1_000, Number(this.settleMs) || 250))
-    ).catch(() => {});
+
+    if (typeof page.waitForSelector === "function") {
+      await page.waitForSelector(
+        '#history a[href], a[href^="/c/"], a[href^="/g/"], a[href^="/project/"]',
+        {
+          state: "attached",
+          timeout: Math.max(500, Math.min(4_000, Number(this.actionTimeoutMs) || 3_000))
+        }
+      ).catch(() => {});
+    } else {
+      await page.waitForTimeout(
+        Math.max(100, Math.min(1_000, Number(this.settleMs) || 250))
+      ).catch(() => {});
+    }
     return true;
   }
 

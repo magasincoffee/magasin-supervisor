@@ -200,3 +200,53 @@ test("SC-013 Recent recovery reveals cold sidebar once before re-listing convers
   assert.equal(waits, 1);
   assert.equal(scanCalls, 3);
 });
+
+
+test("SC-013 Recent recovery uses stable Open sidebar locator before history scan", async () => {
+  const adapter = new ChatGptUiAdapter({
+    chromeExecutable: "fake-chrome",
+    settleMs: 0,
+    actionTimeoutMs: 1_000
+  });
+  const recoveredUrl = "https://chatgpt.com/c/recovered-via-sidebar";
+  let scanCalls = 0;
+  let clickCalls = 0;
+  let historyWaits = 0;
+  let evaluateFallbackCalls = 0;
+
+  const page = {
+    isClosed() { return false; },
+    locator(selector) {
+      return {
+        first() { return this; },
+        async count() {
+          return selector === 'button[aria-label="Open sidebar"]' ? 1 : 0;
+        },
+        async click(options) {
+          clickCalls += 1;
+          assert.equal(options.force, true);
+        }
+      };
+    },
+    async waitForSelector(selector) {
+      historyWaits += 1;
+      assert.match(selector, /#history/);
+    },
+    async evaluate(_fn, arg) {
+      if (typeof arg === "number") {
+        scanCalls += 1;
+        return scanCalls === 1 ? [] : [recoveredUrl];
+      }
+      evaluateFallbackCalls += 1;
+      return false;
+    }
+  };
+
+  const urls = await adapter.listRecentConversationUrls(page, { limit: 50 });
+
+  assert.deepEqual(urls, [recoveredUrl]);
+  assert.equal(clickCalls, 1);
+  assert.equal(historyWaits, 1);
+  assert.equal(evaluateFallbackCalls, 0);
+  assert.equal(scanCalls, 2);
+});
