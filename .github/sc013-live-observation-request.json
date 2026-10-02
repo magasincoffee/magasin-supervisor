@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "requested_after_deploy_sha": "a3d4d1140715446ffeb4207aa3ac070ec45f8818",
-  "purpose": "Owner-delegated first-failure attempt after PR #280 correlated bootstrap delivery reconciliation."
+  "requested_after_deploy_sha": "0d6827c54ebe0c06f2e04883f9988e355e0b5efa",
+  "purpose": "Delegated post-281 live first-failure attempt for Recent/Sidebar correlated bootstrap recovery."
 }
