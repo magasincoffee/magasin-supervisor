@@ -295,3 +295,32 @@ test("SC-011 restart identity uncertainty stays fail closed outside the SC-013 p
   assert.match(fallback, /code: "RUNTIME_RESTART_IDENTITY_NOT_VERIFIED"/);
   assert.doesNotMatch(fallback, /replaceDisposableConversation/);
 });
+
+
+test("SC-013 parses READY control when ChatGPT DOM collapses visible line breaks to whitespace", () => {
+  const parsed = parseTaskControl(
+    "Theo SOT hien tai, SCHED-UI-006 la task duy nhat READY. " +
+    "MAGASIN_TASK_CONTROL_V1 " +
+    "STATUS=READY TASK_ID=NONE NEXT_TASK_ID=SCHED-UI-006 CHECK_AFTER_SECONDS=0 " +
+    "END_MAGASIN_TASK_CONTROL_V1 " +
+    "MAGASIN_CYCLE_CORRELATION_V1 5f02196a-d9b6-40fd-a30f-3719fd45409a"
+  );
+
+  assert.deepEqual(parsed, {
+    status: "READY",
+    task_id: null,
+    next_task_id: "SCHED-UI-006",
+    check_after_seconds: 0
+  });
+});
+
+test("SC-013 rendered-whitespace fallback rejects prose inside the machine block", () => {
+  assert.throws(
+    () => parseTaskControl(
+      "MAGASIN_TASK_CONTROL_V1 STATUS=READY unexpected-prose " +
+      "TASK_ID=NONE NEXT_TASK_ID=SCHED-UI-006 CHECK_AFTER_SECONDS=0 " +
+      "END_MAGASIN_TASK_CONTROL_V1"
+    ),
+    (error) => error?.code === "TASK_PROTOCOL_INVALID"
+  );
+});
