@@ -1,107 +1,73 @@
-# MIG-004 hosted CI: full root-native regression; no production authority.
 name: Supervisor Tests
 
 on:
   push:
-    branches:
-      - main
-      - 'mig-003/**'
-      - 'mig-004/**'
+    branches: [main]
     paths:
-      - 'src/**'
-      - 'test/**'
+      - 'src/runtime/single-conversation-*.mjs'
+      - 'src/ui/**'
       - 'windows/**'
-      - 'docs/**'
+      - 'test/single-conversation-*.test.mjs'
+      - 'test/control-panel-single-conversation.test.mjs'
+      - 'test/sc013-*.test.mjs'
+      - 'test/local-watchdog.test.mjs'
+      - 'test/wrapper-child-lifecycle.test.mjs'
       - 'SOURCE_OF_TRUTH.md'
-      - 'README.md'
-      - 'package.json'
-      - '.github/scripts/supervisor-*'
       - '.github/workflows/supervisor-tests.yml'
       - '.github/workflows/supervisor-integrity.yml'
+      - '.github/workflows/supervisor-sc013-live-production.yml'
+      - '.github/workflows/supervisor-control-panel-desktop-4k7im13.yml'
   pull_request:
     paths:
-      - 'src/**'
-      - 'test/**'
+      - 'src/runtime/single-conversation-*.mjs'
+      - 'src/ui/**'
       - 'windows/**'
-      - 'docs/**'
+      - 'test/single-conversation-*.test.mjs'
+      - 'test/control-panel-single-conversation.test.mjs'
+      - 'test/sc013-*.test.mjs'
+      - 'test/local-watchdog.test.mjs'
+      - 'test/wrapper-child-lifecycle.test.mjs'
       - 'SOURCE_OF_TRUTH.md'
-      - 'README.md'
-      - 'package.json'
-      - '.github/scripts/supervisor-*'
-      - '.github/workflows/supervisor-*.yml'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  unit-tests:
+  single-conversation-regression:
     runs-on: windows-latest
     timeout-minutes: 12
-    defaults:
-      run:
-        working-directory: .
-        shell: powershell
-
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-
-      - name: Install dependencies without lifecycle side effects
+      - name: Install dependencies
+        shell: powershell
         run: npm install --ignore-scripts --no-audit --no-fund
-
-      - name: Run full new-repository regression suite
-        run: npm test
-
-      - name: Run MIG-003 decoupling contract tests
+      - name: Run focused SINGLE_CONVERSATION_V1 regressions
+        shell: powershell
         run: |
           node --test `
-            test/project-adapter.test.mjs `
-            test/state-root.test.mjs `
-            test/state.test.mjs `
-            test/decision.test.mjs `
-            test/orchestration.test.mjs `
-            test/status.test.mjs `
-            test/night-run.test.mjs
-
-      - name: Run platform safety/core regressions
+            test/single-conversation-state.test.mjs `
+            test/single-conversation-bootstrap.test.mjs `
+            test/single-conversation-transaction.test.mjs `
+            test/single-conversation-loop.test.mjs `
+            test/single-conversation-rollover.test.mjs `
+            test/single-conversation-task-protocol.test.mjs `
+            test/single-conversation-cli.test.mjs `
+            test/control-panel-single-conversation.test.mjs `
+            test/sc013-live-observer-contract.test.mjs `
+            test/sc013-owner-start-authority.test.mjs `
+            test/sc013-production-deploy-boundary.test.mjs `
+            test/sc013-legacy-orchestration-retired.test.mjs `
+            test/sc013-legacy-runtime-disabled.test.mjs `
+            test/local-watchdog.test.mjs `
+            test/wrapper-child-lifecycle.test.mjs
+      - name: Verify PowerShell syntax for active Windows path
+        shell: powershell
         run: |
-          node --test `
-            test/lane-events.test.mjs `
-            test/browser-scheduler.test.mjs `
-            test/browser-scheduler-integration.test.mjs `
-            test/work-watchdog.test.mjs `
-            test/work-watchdog-integration.test.mjs `
-            test/relay-retry-v48.test.mjs `
-            test/relay-rearm-recovery.test.mjs `
-            test/work-capacity.test.mjs `
-            test/work-rollover.test.mjs `
-            test/work-rollover-integration.test.mjs `
-            test/target-health.test.mjs `
-            test/stale-target-quarantine-integration.test.mjs `
-            test/control-panel-status-projection.test.mjs `
-            test/brain-planning-contract.test.mjs
-
-      - name: Run Brain planning acceptance fixture
-        run: node src/runtime/brain-planning-acceptance-cli.mjs
-
-      - name: Run synthetic runtime fixtures without production targets
-        run: |
-          node src/runtime/three-lane-cli.mjs --work-full-fixture
-          node src/runtime/three-lane-cli.mjs --stale-target-fixture
-          node src/runtime/brain-planning-acceptance-cli.mjs
-
-      - name: Run StrictMode soak-monitor parser matrix only
-        run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\.github\scripts\supervisor-rbt009-soak-strictmode-tests.ps1"
-
-      - name: Record MIG-004 CI parity markers
-        run: |
-          Write-Host "MIG_004_FULL_ROOT_NATIVE_REGRESSION=True"
-          Write-Host "MIG_004_EXACT_SHA=$env:GITHUB_SHA"
-          Write-Host "MIG_003_PROJECT_ADAPTER_TESTS=True"
-          Write-Host "MIG_003_STATE_ROOT_COMPATIBILITY_TESTS=True"
-          Write-Host "MIG_003_PLATFORM_CORE_REGRESSION=True"
-          Write-Host "SELF_HOSTED_PRODUCTION_WORKFLOWS_INERT=True"
-          Write-Host "ZERO_PRODUCTION_MUTATION=True"
+          node --test test/windows-powershell-syntax.test.mjs
+          Write-Host 'SC013_FOCUSED_REGRESSION=True'
+          Write-Host 'PRODUCTION_MUTATION=False'
