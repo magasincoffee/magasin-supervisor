@@ -870,7 +870,9 @@ test("SC-013 proof-gated rewind repairs a historical false delivery only when la
       message,
       latestUserTurnId: "manual-baseline",
       composerReady: true,
-      composerHasText: false
+      composerReadable: true,
+      composerHasText: false,
+      responseRunning: false
     });
 
     const durable = await readSingleConversationState(statePath);
@@ -913,7 +915,9 @@ test("SC-013 false-delivery rewind remains fail-closed without baseline-current 
         message,
         latestUserTurnId: "newer-manual-turn",
         composerReady: true,
-        composerHasText: false
+        composerReadable: true,
+        composerHasText: false,
+        responseRunning: false
       }),
       (error) => error?.code === "FALSE_DELIVERY_REWIND_UNVERIFIED"
     );
@@ -924,7 +928,9 @@ test("SC-013 false-delivery rewind remains fail-closed without baseline-current 
         message,
         latestUserTurnId: "manual-baseline",
         composerReady: true,
-        composerHasText: true
+        composerReadable: true,
+        composerHasText: true,
+        responseRunning: false
       }),
       (error) => error?.code === "FALSE_DELIVERY_REWIND_UNVERIFIED"
     );
@@ -932,6 +938,57 @@ test("SC-013 false-delivery rewind remains fail-closed without baseline-current 
     const durable = await readSingleConversationState(statePath);
     assert.equal(durable.outbound.state, "DELIVERED");
     assert.equal(durable.outbound.delivered_user_turn_id, "historical-discovery-turn");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test("SC-013 false-delivery rewind rejects unreadable composer or live response snapshot", async () => {
+  const { root, statePath } = await makeState();
+  const message = "MAGASIN_DISCOVER_TASK_V1 id=false-delivery-snapshot-unsafe";
+  try {
+    await prepareExactOnceOutbound(statePath, {
+      messageId: "false-delivery-snapshot-unsafe",
+      message,
+      kind: "SOURCE_OF_TRUTH_TASK_DISCOVERY",
+      baselineUserTurnId: "manual-baseline"
+    });
+    await markExactOnceEnqueued(statePath, {
+      messageId: "false-delivery-snapshot-unsafe",
+      message
+    });
+    await markExactOnceDelivered(statePath, {
+      messageId: "false-delivery-snapshot-unsafe",
+      message,
+      userTurnId: "historical-discovery-turn"
+    });
+
+    await assert.rejects(
+      rewindFalseHistoricalDiscoveryDelivery(statePath, {
+        messageId: "false-delivery-snapshot-unsafe",
+        message,
+        latestUserTurnId: "manual-baseline",
+        composerReady: true,
+        composerReadable: false,
+        composerHasText: false,
+        responseRunning: false
+      }),
+      (error) => error?.code === "FALSE_DELIVERY_REWIND_UNVERIFIED"
+    );
+
+    await assert.rejects(
+      rewindFalseHistoricalDiscoveryDelivery(statePath, {
+        messageId: "false-delivery-snapshot-unsafe",
+        message,
+        latestUserTurnId: "manual-baseline",
+        composerReady: true,
+        composerReadable: true,
+        composerHasText: false,
+        responseRunning: true
+      }),
+      (error) => error?.code === "FALSE_DELIVERY_REWIND_UNVERIFIED"
+    );
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

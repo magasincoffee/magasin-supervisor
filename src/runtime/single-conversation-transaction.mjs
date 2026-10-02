@@ -192,7 +192,9 @@ export async function rewindFalseHistoricalDiscoveryDelivery(statePath, {
   message,
   latestUserTurnId,
   composerReady,
+  composerReadable,
   composerHasText,
+  responseRunning,
   now = () => new Date().toISOString()
 } = {}) {
   const latestId = String(latestUserTurnId || "").trim();
@@ -201,8 +203,13 @@ export async function rewindFalseHistoricalDiscoveryDelivery(statePath, {
       code: "FALSE_DELIVERY_REWIND_UNVERIFIED"
     });
   }
-  if (composerReady !== true || composerHasText !== false) {
-    throw Object.assign(new Error("composer must be readable and empty for false-delivery rewind"), {
+  if (
+    composerReady !== true ||
+    composerReadable !== true ||
+    composerHasText !== false ||
+    responseRunning !== false
+  ) {
+    throw Object.assign(new Error("safe idle empty-composer proof is required for false-delivery rewind"), {
       code: "FALSE_DELIVERY_REWIND_UNVERIFIED"
     });
   }
