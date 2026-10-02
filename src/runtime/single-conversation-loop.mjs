@@ -95,7 +95,9 @@ export function parseTaskControl(text) {
   for (const rawLine of rawFields) {
     const line = rawLine.trim();
     if (!line) continue;
-    const fieldMatch = /^([A-Z_]+)=(\S*)$/.exec(line);
+    const fieldMatch = renderedWhitespaceFallback
+      ? /^([A-Z_]+)=(\S*)$/.exec(line)
+      : /^([A-Z_]+)=(.*)$/.exec(line);
     if (!fieldMatch) {
       throw Object.assign(new Error("malformed task-control line"), {
         code: "TASK_PROTOCOL_INVALID"
