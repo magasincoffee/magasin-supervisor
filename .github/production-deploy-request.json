@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "9bd8b823aaeb1dcf64dab11fd8d051fc62c27afc",
+  "requested_main_sha": "50349f142381f9db3ae8c3f45f43286fa33577b6",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy SC-013 historical-user-turn false-delivery fix from PR #291 after all mandatory gates passed."
+  "reason": "Deploy SC-013 proof-gated false historical delivery rewind from PR #292 after all mandatory gates passed."
 }
