@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: sc013-history-correlation-diagnostic-temp
+  cancel-in-progress: true
+
 jobs:
   diagnostic:
     runs-on: self-hosted
