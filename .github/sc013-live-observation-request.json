@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "requested_after_cleanup_sha": "3df8fb63a3f405ea339bb9a9f68e6e90dce400bb",
-  "purpose": "First-failure live rerun after PR #290 ENQUEUED discovery restart-rebind fix; observe from Owner START without mutating before START."
+  "requested_after_cleanup_sha": "4219fb752ee0e5b523be5dc6d0370198e6250768",
+  "purpose": "Re-arm first-failure observer after PR #291 current-turn delivery authority fix; supersede the stale WAIT_RESPONSE observer."
 }
