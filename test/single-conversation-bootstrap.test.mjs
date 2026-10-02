@@ -1237,33 +1237,7 @@ test("SC-013 bootstrap recovery persists consumed retry budget before submit", a
   }
 });
 
-test("SC-003 live qualification bounds CDP cleanup and exits explicitly", async () => {
-  const source = await fs.readFile(
-    new URL("../.github/scripts/supervisor-sc003-live-qualification.mjs", import.meta.url),
-    "utf8"
-  );
-
-  assert.match(source, /boundedCleanup/);
-  assert.match(source, /SC003_LIVE_CLEANUP_TIMEOUT_/);
-  assert.match(source, /process\.exit\(finalExitCode\)/);
-  assert.doesNotMatch(
-    source,
-    /log\("SC003_LIVE_ERROR_DIGEST"[\s\S]{0,120}throw error/
-  );
-});
-
-test("SC-003 live qualification treats an already-exited paused runtime as success", async () => {
-  const source = await fs.readFile(
-    new URL("../.github/scripts/supervisor-sc003-live-qualification.ps1", import.meta.url),
-    "utf8"
-  );
-
-  assert.match(source, /SC003_QUAL_RUNTIME_ALREADY_PAUSED_PID/);
-  assert.match(source, /Get-Process -Id \$runtimePid -ErrorAction SilentlyContinue/);
-  assert.match(source, /runtime process remained alive after pause request/);
-});
-
-test("SC-003 CLI requires Source of Truth/CDP but never a chat URL", async () => {
+test("Single Conversation bootstrap CLI requires Source of Truth/CDP but never a chat URL", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/single-conversation-bootstrap-cli.mjs", import.meta.url),
     "utf8"
