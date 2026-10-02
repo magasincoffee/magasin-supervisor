@@ -4,8 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "test": "node --test",
-    "probe": "node src/ui/probe-cli.mjs"
+    "test": "node --test"
   },
   "engines": {
     "node": ">=20"
