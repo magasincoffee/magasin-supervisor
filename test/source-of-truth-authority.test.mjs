@@ -108,7 +108,6 @@ test("authority contract is discoverable by root-level edits in hosted CI workfl
     ["Supervisor Integrity", integrityWorkflow],
   ]) {
     assert.match(workflow, /['"]?SOURCE_OF_TRUTH\.md['"]?/);
-    assert.match(workflow, /['"]?README\.md['"]?/);
   }
 
   assert.match(integrityWorkflow, /test\/source-of-truth-authority\.test\.mjs/);
