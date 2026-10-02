@@ -8,7 +8,10 @@ import {
   parseTaskControl
 } from "../src/runtime/single-conversation-loop.mjs";
 import { opaqueRuntimeIdentity } from "../src/runtime/single-conversation-bootstrap.mjs";
-import { resumeExistingConversationPage } from "../src/runtime/single-conversation-cli.mjs";
+import {
+  canRebindEnqueuedTaskDiscovery,
+  resumeExistingConversationPage
+} from "../src/runtime/single-conversation-cli.mjs";
 
 test("SC-011 parses authoritative READY task id", () => {
   const parsed = parseTaskControl(`
@@ -323,4 +326,100 @@ test("SC-013 rendered-whitespace fallback rejects prose inside the machine block
     ),
     (error) => error?.code === "TASK_PROTOCOL_INVALID"
   );
+});
+
+
+test("SC-013 restart permits exact identity rebind for ENQUEUED discovery after SEND_NOT_ACTUATED", async () => {
+  const targetUrl = "https://chatgpt.com/c/discovery-rebind";
+  const home = {
+    isClosed: () => false,
+    url: () => "https://chatgpt.com/"
+  };
+  const recoveredPage = {
+    isClosed: () => false,
+    url: () => targetUrl
+  };
+  let reopenedUrl = null;
+  const state = {
+    conversation: {
+      status: "ACTIVE",
+      generation: 1,
+      runtime_id: opaqueRuntimeIdentity(targetUrl)
+    },
+    outbound: {
+      state: "ENQUEUED",
+      kind: "SOURCE_OF_TRUTH_TASK_DISCOVERY",
+      message_id: "3f968d68-bab1-46c5-9d25-d77de7524ad2",
+      message_digest: "a".repeat(64),
+      retry_count: 0,
+      last_error_code: "SEND_NOT_ACTUATED"
+    }
+  };
+  const adapter = {
+    getChatGptPages: () => [home],
+    getActivePage: () => home,
+    listRecentConversationUrls: async () => [],
+    listBrowserHistoryChatGptUrls: async () => [targetUrl],
+    reopenTargetPage: async (url) => {
+      reopenedUrl = url;
+      return recoveredPage;
+    },
+    setActivePage: (page) => page,
+    closePage: async () => true,
+    probePage: async () => ({
+      snapshot: {
+        composerReady: true,
+        loginRequired: false,
+        hasCaptcha: false,
+        conversationMissing: false,
+        conversationAccessDenied: false,
+        pageClosed: false
+      }
+    })
+  };
+
+  assert.equal(canRebindEnqueuedTaskDiscovery(state), true);
+  const rebound = await resumeExistingConversationPage({
+    adapter,
+    state,
+    recoveryRetries: 1,
+    recoveryPollMs: 0
+  });
+  assert.equal(reopenedUrl, targetUrl);
+  assert.equal(rebound?.runtime_id, state.conversation.runtime_id);
+  assert.equal(rebound?.recovered_from, "BROWSER_HISTORY");
+
+  const unsafe = structuredClone(state);
+  unsafe.outbound.last_error_code = "AMBIGUOUS_ENQUEUED_OUTCOME";
+  assert.equal(canRebindEnqueuedTaskDiscovery(unsafe), false);
+  assert.equal(
+    await resumeExistingConversationPage({
+      adapter,
+      state: unsafe,
+      recoveryRetries: 1,
+      recoveryPollMs: 0
+    }),
+    null
+  );
+});
+
+test("SC-013 startup routes rebound ENQUEUED discovery through exact-once reconciliation", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const predicate = source.indexOf("canRebindEnqueuedTaskDiscovery(current)");
+  const resume = source.indexOf("resumeEnqueuedTaskDiscoveryAfterRebind({", predicate);
+  const reconciler = source.indexOf("reconcileExactOnceOutbound({", source.indexOf("async function resumeEnqueuedTaskDiscoveryAfterRebind"));
+
+  assert.ok(predicate >= 0);
+  assert.ok(resume > predicate);
+  assert.ok(reconciler >= 0);
+  const helper = source.slice(
+    source.indexOf("async function resumeEnqueuedTaskDiscoveryAfterRebind"),
+    source.indexOf("async function resumeEnqueuedTaskMessageAfterRebind")
+  );
+  assert.match(helper, /maxSafeRetries:\s*1/);
+  assert.match(helper, /SAFE_RETRY_SENT/);
+  assert.doesNotMatch(helper, /sendComposerInstruction\(/);
 });

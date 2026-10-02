@@ -500,6 +500,19 @@ export function canRebindEnqueuedTaskMessage(state) {
   );
 }
 
+export function canRebindEnqueuedTaskDiscovery(state) {
+  const outbound = state?.outbound || {};
+  return Boolean(
+    String(state?.conversation?.status || "").toUpperCase() === "ACTIVE" &&
+    String(outbound.state || "").toUpperCase() === "ENQUEUED" &&
+    String(outbound.kind || "") === "SOURCE_OF_TRUTH_TASK_DISCOVERY" &&
+    String(outbound.last_error_code || "") === "SEND_NOT_ACTUATED" &&
+    Number(outbound.retry_count || 0) < 1 &&
+    String(outbound.message_id || "").trim() &&
+    String(outbound.message_digest || "").trim()
+  );
+}
+
 export function canRebindEnqueuedStatusCheck(state) {
   return Boolean(
     canRebindEnqueuedTaskMessage(state) &&
@@ -604,7 +617,8 @@ export function reconstructPendingStatusCheckMessage(state, evidenceText = null)
 export function reconstructPendingProtocolMessage(state, evidenceText = null) {
   if (
     !canRebindPreparedProtocolMessage(state) &&
-    !canRebindInFlightProtocolMessage(state)
+    !canRebindInFlightProtocolMessage(state) &&
+    !canRebindEnqueuedTaskDiscovery(state)
   ) return null;
 
   const outbound = state.outbound || {};
@@ -666,6 +680,7 @@ function safeRebindOutboundState(state) {
     ) ||
     canResumePreActuationDiscovery(state) ||
     canRebindPreparedProtocolMessage(state) ||
+    canRebindEnqueuedTaskDiscovery(state) ||
     canRebindEnqueuedTaskMessage(state) ||
     canRebindInFlightProtocolMessage(state)
   );
@@ -721,6 +736,56 @@ async function resumePreparedProtocolMessageAfterRebind({
     throw Object.assign(
       new Error(`restart PREPARED ${kind} did not reach first-send evidence`),
       { code: "RUNTIME_RESTART_PREPARED_RECONCILE_FAILED" }
+    );
+  }
+
+  return settleTransactionResponse({
+    adapter,
+    page,
+    statePath,
+    messageId,
+    message,
+    baselineAssistantTurnId: null,
+    timeoutMs: responseTimeoutMs,
+    pollMs: Math.min(750, Math.max(100, pollMs))
+  });
+}
+
+async function resumeEnqueuedTaskDiscoveryAfterRebind({
+  adapter,
+  page,
+  statePath,
+  responseTimeoutMs,
+  pollMs
+} = {}) {
+  const state = await readSingleConversationState(statePath);
+  if (!canRebindEnqueuedTaskDiscovery(state)) return null;
+
+  const messageId = String(state.outbound.message_id || "");
+  const message = reconstructPendingProtocolMessage(state);
+  if (!message) {
+    throw Object.assign(
+      new Error("pending SOURCE_OF_TRUTH_TASK_DISCOVERY has no exact restart reconstruction"),
+      { code: "RUNTIME_RESTART_ENQUEUED_DISCOVERY_UNRESOLVED" }
+    );
+  }
+
+  // This path only rebinds the exact prior conversation. It does not authorize
+  // a resend by itself. The existing exact-once reconciler must prove either
+  // delivery or positive non-delivery before any browser actuation.
+  const delivery = await reconcileExactOnceOutbound({
+    statePath,
+    page,
+    messageId,
+    message,
+    maxSafeRetries: 1,
+    reconciliationProbes: 4,
+    reconciliationPollMs: Math.min(500, Math.max(100, pollMs))
+  });
+  if (!["SEND", "SAFE_RETRY_SENT", "NO_SEND"].includes(delivery.action)) {
+    throw Object.assign(
+      new Error("restart SOURCE_OF_TRUTH_TASK_DISCOVERY reconciliation did not reach delivery evidence"),
+      { code: "RUNTIME_RESTART_ENQUEUED_DISCOVERY_RECONCILE_FAILED" }
     );
   }
 
@@ -1288,6 +1353,15 @@ export async function runSingleConversationRuntime({
           page = replacement.page;
           bootstrapResponse = replacement.response;
         }
+        current = await readSingleConversationState(statePath);
+      } else if (canRebindEnqueuedTaskDiscovery(current)) {
+        bootstrapResponse = await resumeEnqueuedTaskDiscoveryAfterRebind({
+          adapter,
+          page,
+          statePath,
+          responseTimeoutMs,
+          pollMs
+        });
         current = await readSingleConversationState(statePath);
       } else if (canRebindEnqueuedTaskMessage(current)) {
         bootstrapResponse = await resumeEnqueuedTaskMessageAfterRebind({

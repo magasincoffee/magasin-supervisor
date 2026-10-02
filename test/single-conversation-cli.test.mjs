@@ -810,7 +810,7 @@ test("SC-013 PREPARED restart recovery reconciles exactly once and is not treate
     "utf8"
   );
   const helper = source.indexOf("async function resumePreparedProtocolMessageAfterRebind");
-  const helperEnd = source.indexOf("async function resumeEnqueuedTaskMessageAfterRebind", helper);
+  const helperEnd = source.indexOf("async function resumeEnqueuedTaskDiscoveryAfterRebind", helper);
   assert.ok(helper >= 0 && helperEnd > helper);
   const body = source.slice(helper, helperEnd);
   assert.match(body, /PREPARED is durable proof that browser actuation has not yet started/);
