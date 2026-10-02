@@ -714,6 +714,37 @@ Mandatory execution rules:
 11. **NO CHAT-HISTORY AUTHORITY** — future chats MUST derive this process from this Source of Truth. Old chat summaries, remembered workarounds, stale screenshots, or historical recovery patches are not authority when they conflict with current SOT/runtime evidence.
 12. **REMOVE OBSOLETE REPAIRS WHEN PROVEN** — if a newer proven fix makes an older recovery path, diagnostic workflow, temporary observer, or compatibility latch unnecessary or conflicting, remove it with regression protection rather than keeping stacked recovery logic indefinitely.
 
+### SC-013 SINGLE ACTIVE LANE / CLEAN REPOSITORY RULE
+
+The production control plane is intentionally minimal. There is exactly one Robot production lane and no parallel qualification/test/diagnostic lane is allowed to compete for the self-hosted runner.
+
+Active workflow allowlist under `.github/workflows/`:
+- `supervisor-sc013-live-production.yml` — the only Robot production/first-failure lane;
+- `sc013-runtime-watchdog.yml` — the only GitHub read-only runtime observer, one job, no matrix;
+- `supervisor-control-panel-desktop-4k7im13.yml` — the only explicit production deploy lane;
+- `supervisor-tests.yml` — hosted CI only;
+- `supervisor-integrity.yml` — hosted CI/integrity only;
+- `supervisor-lifecycle-acceptance.yml` — hosted lifecycle-contract CI only;
+- `supervisor-autostart-install.yml` — hosted installer-contract CI only.
+
+Active script allowlist under `.github/scripts/`:
+- `supervisor-sc013-live-production.ps1`;
+- `sc013-wait-response-liveness.mjs`;
+- `sc013-runtime-watchdog.ps1`;
+- `supervisor-sc013-rebind-diagnostic.ps1`;
+- `supervisor-sc013-rebind-diagnostic.mjs`;
+- `update-latest-clean-old.ps1`.
+
+All former PE/MBV/MIG/RBT/SC003-SC012 qualification, soak, path-diagnostic, state-maintenance, alternate-deploy, temporary-cleanup, stale-run, and control-panel diagnostic workflows/scripts were removed from the active GitHub control plane on 2026-10-02. Historical runtime source may remain inert where still needed for migration/rollback context, but it has no active GitHub Actions authority.
+
+Mandatory rules:
+1. no new self-hosted workflow may be added merely to diagnose a failure; use the single live lane, the single watchdog, or local read-only evidence;
+2. no matrix/multi-slot production or watchdog job is allowed;
+3. unit/regression tests run only on hosted runners and cannot START/STOP/deploy/mutate production;
+4. a production failure is diagnosed from the single live lane's earliest failure plus local watchdog evidence;
+5. temporary diagnostic code must not be left in the active control plane after the evidence is captured;
+6. if a future change requires a new active workflow or script outside these allowlists, the SOT must be explicitly revised first.
+
 Operational phases:
 
 - **Phase A — Iterative recovery:** repeat first-failure repair iterations until the complete live flow passes.
@@ -748,6 +779,7 @@ While SC-013 remains IN PROGRESS, production evidence collection is unattended:
 - SC-013 remains IN PROGRESS until the required same-conversation multi-cycle production evidence is sustained without BLOCKED state, duplicate sends, or legacy workflow interference.
 
 DoD:
+- the active GitHub control plane matches the exact SC-013 workflow/script allowlists above; PE/MBV/MIG/RBT/SC003-SC012 qualification/soak/diagnostic lanes are absent from active workflows/scripts and cannot consume the production runner;
 - PE-001, PE-007, legacy Brain submit/repair, and superseded Bridge qualification/cutover workflows cannot auto-run on `main`;
 - ordinary `src/**`, `windows/**`, test, or documentation merges cannot auto-deploy to `DESKTOP-4K7IM13`; production replacement requires explicit deploy authority and exactly one target-guarded deploy attempt;
 - deployment success is not coupled to an immediate CDP diagnostic after the installer has intentionally closed Chrome;
