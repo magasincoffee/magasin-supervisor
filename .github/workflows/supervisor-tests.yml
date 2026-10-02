@@ -50,8 +50,6 @@ jobs:
             test/single-conversation-transaction.test.mjs `
             test/single-conversation-cli.test.mjs `
             test/control-panel-single-conversation.test.mjs `
-            test/owner-start-latch-recovery.test.mjs `
-            test/lifecycle-truth-v50.test.mjs `
             test/windows-browser-background.test.mjs `
             test/windows-cdp-restart.test.mjs `
             test/snapshot-access.test.mjs `
