@@ -1,0 +1,77 @@
+name: SC-013 History Correlation Diagnostic TEMP
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sc013-history-correlation-diagnostic-temp.yml'
+      - '.github/scripts/sc013-history-correlation-diagnostic-temp.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan Chrome history for correlated bootstrap conversation
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "DIAG_MACHINE=$env:COMPUTERNAME"
+          if ($env:COMPUTERNAME -ne 'DESKTOP-4K7IM13') {
+            Write-Host 'DIAG_TARGET_MATCH=False'
+            exit 0
+          }
+          Write-Host 'DIAG_TARGET_MATCH=True'
+          . '.\windows\state-root.ps1'
+          . '.\windows\lifecycle-truth.ps1'
+          $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
+          $truth = Get-LifecycleProcessTruth -Root $root
+          Write-Host "DIAG_CDP_HEALTHY=$([bool]$truth.cdp_healthy)"
+          $chrome = Get-LifecycleRobotChrome -Root $root
+          if (-not $chrome -or [string]$chrome.CommandLine -notmatch '--remote-debugging-port=(\d+)') {
+            throw 'CDP port unavailable'
+          }
+          $cdp = "http://127.0.0.1:$($matches[1])"
+
+          $profileRoot = Join-Path $root 'browser_profile'
+          $history = Join-Path $profileRoot 'Default\History'
+          if (-not (Test-Path $history)) {
+            $history = Get-ChildItem $profileRoot -Recurse -Filter History -File -ErrorAction SilentlyContinue |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $history -or -not (Test-Path $history)) {
+            throw 'Chrome History database not found'
+          }
+
+          $copy = Join-Path $env:RUNNER_TEMP 'sc013-history-copy.sqlite'
+          Copy-Item $history $copy -Force
+          $candidates = Join-Path $env:RUNNER_TEMP 'sc013-history-candidates.json'
+          @'
+import json, sqlite3, sys
+db, out = sys.argv[1], sys.argv[2]
+con = sqlite3.connect(db)
+rows = con.execute("""
+  SELECT url
+  FROM urls
+  WHERE url LIKE 'https://chatgpt.com/c/%'
+     OR url LIKE 'https://chatgpt.com/g/%'
+     OR url LIKE 'https://chatgpt.com/project/%'
+  ORDER BY last_visit_time DESC
+  LIMIT 100
+""").fetchall()
+seen=[]
+for (url,) in rows:
+    url=str(url).split('#',1)[0].split('?',1)[0]
+    if url not in seen:
+        seen.append(url)
+with open(out,'w',encoding='utf-8') as f:
+    json.dump(seen,f)
+print("DIAG_HISTORY_URL_COUNT="+str(len(seen)))
+'@ | python - $copy $candidates
+
+          $runtime = Join-Path $root 'runtime'
+          node ".github\scripts\sc013-history-correlation-diagnostic-temp.mjs" --state (Join-Path $root 'single-conversation-state.json') --cdp-url $cdp --runtime $runtime --candidates $candidates
