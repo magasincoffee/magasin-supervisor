@@ -1457,6 +1457,14 @@ export async function recoverCorrelatedPreparedBootstrapDelivery({
       }).catch(() => null);
 
       if (evidence?.confirmed) break;
+      if (
+        evidence &&
+        evidence.confirmed === false &&
+        Number(evidence.total_count || 0) > 0 &&
+        evidence.evidence !== "bootstrap-correlation-state-unreadable"
+      ) {
+        return false;
+      }
       if (attempt + 1 < attempts) {
         await sleep(Math.max(0, Number(recentHydrationPollMs) || 0));
       }
