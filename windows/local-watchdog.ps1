@@ -102,7 +102,8 @@ try {
             conversation_full = $false
             conversation_missing = $false
             conversation_access_denied = $false
-            draft_has_text = $false
+            draft_readable = $false
+            draft_has_text = $null
             draft_digest = $null
             draft_rendered_digest = $null
             draft_length = 0
