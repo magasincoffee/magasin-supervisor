@@ -62,3 +62,33 @@ test("ordinary source changes cannot deploy or start production", async () => {
   assert.doesNotMatch(live, /- src\/\*\*/);
   assert.doesNotMatch(live, /- windows\/\*\*/);
 });
+
+
+test("production wrapper, lifecycle, deploy and panel contain no legacy runtime selector", async () => {
+  const paths = [
+    "windows/run-supervisor.ps1",
+    "windows/lifecycle-truth.ps1",
+    "windows/control-panel.ps1",
+    ".github/scripts/update-latest-clean-old.ps1"
+  ];
+
+  for (const rel of paths) {
+    const source = await fs.readFile(path.join(root, rel), "utf8");
+    assert.doesNotMatch(source, /THREE_LANE_V1/);
+    assert.doesNotMatch(source, /PLANNER_EXECUTOR_V1/);
+    assert.doesNotMatch(source, /BRAIN_WORKER_V1/);
+    assert.doesNotMatch(source, /three-lane-cli\.mjs/);
+    assert.doesNotMatch(source, /planner-executor(?:-bridge)?-cli\.mjs/);
+    assert.doesNotMatch(source, /brain-worker-cli\.mjs/);
+  }
+});
+
+test("active GitHub scripts are exactly deploy, live observer and watchdog", async () => {
+  const scriptDir = path.join(root, ".github", "scripts");
+  const files = (await fs.readdir(scriptDir)).sort();
+  assert.deepEqual(files, [
+    "sc013-runtime-watchdog.ps1",
+    "supervisor-sc013-live-production.ps1",
+    "update-latest-clean-old.ps1"
+  ]);
+});
