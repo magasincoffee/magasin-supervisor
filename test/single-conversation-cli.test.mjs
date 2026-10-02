@@ -1044,3 +1044,27 @@ test("SC-013 restart falls back from Recent to exact Chrome history identity wit
   assert.match(body, /expected/);
   assert.doesNotMatch(body, /sendProtocolMessage|reconcileExactOnceOutbound/);
 });
+
+
+test("SC-013 in-flight discovery restart attempts proof-gated false-delivery rewind before waiting for response", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const helper = source.indexOf("async function resumeInFlightProtocolMessageAfterRebind");
+  const helperEnd = source.indexOf("async function probeReusableConversationPage", helper);
+  assert.ok(helper >= 0 && helperEnd > helper);
+  const body = source.slice(helper, helperEnd);
+
+  const rewind = body.indexOf("rewindFalseHistoricalDiscoveryDelivery");
+  const resumeEnqueued = body.indexOf("resumeEnqueuedTaskDiscoveryAfterRebind", rewind);
+  const settle = body.indexOf("settleTransactionResponse", resumeEnqueued);
+
+  assert.ok(rewind >= 0);
+  assert.ok(resumeEnqueued > rewind);
+  assert.ok(settle > resumeEnqueued);
+  assert.match(body, /SOURCE_OF_TRUTH_TASK_DISCOVERY/);
+  assert.match(body, /retry_count/);
+  assert.match(body, /composerHasText:\s*draft\?\.has_text/);
+  assert.match(body, /FALSE_DELIVERY_REWIND_UNVERIFIED/);
+});
