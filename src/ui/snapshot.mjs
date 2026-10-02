@@ -125,6 +125,15 @@ export async function collectSafeUiSnapshot(page) {
         )
       );
       const composerEnabled = Boolean(composer && !composerDisabled);
+      const composerText = composer
+        ? normalize(
+            "value" in composer
+              ? composer.value
+              : (composer.innerText || composer.textContent || "")
+          )
+        : "";
+      const composerHasText = Boolean(composerText);
+      const composerTextCharCount = composerText.length;
       const composerRawText = composer
         ? (
             composer instanceof HTMLInputElement ||
@@ -347,6 +356,8 @@ export async function collectSafeUiSnapshot(page) {
         composerReady: Boolean(composer),
         composerPresent: Boolean(composer),
         composerEnabled,
+        composerHasText,
+        composerTextCharCount,
         composerTextReadable,
         composerHasText,
         composerTextCharCount,
