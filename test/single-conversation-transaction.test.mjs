@@ -5,11 +5,13 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  markExactOnceDelivered,
   markExactOnceEnqueued,
   markExactOnceResponseComplete,
   markExactOnceVerified,
   prepareExactOnceOutbound,
-  reconcileExactOnceOutbound
+  reconcileExactOnceOutbound,
+  rewindFalseHistoricalDiscoveryDelivery
 } from "../src/runtime/single-conversation-transaction.mjs";
 import {
   beginConversationGeneration,
@@ -837,6 +839,99 @@ test("SC-013 ENQUEUED recovery ignores historical matching prompt and performs o
     assert.equal(durable.outbound.state, "DELIVERED");
     assert.equal(durable.outbound.retry_count, 1);
     assert.equal(durable.outbound.delivered_user_turn_id, "new-discovery-turn");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test("SC-013 proof-gated rewind repairs a historical false delivery only when latest user is still baseline", async () => {
+  const { root, statePath } = await makeState();
+  const message = "MAGASIN_DISCOVER_TASK_V1 id=false-delivery-rewind";
+  try {
+    await prepareExactOnceOutbound(statePath, {
+      messageId: "false-delivery-rewind",
+      message,
+      kind: "SOURCE_OF_TRUTH_TASK_DISCOVERY",
+      baselineUserTurnId: "manual-baseline"
+    });
+    await markExactOnceEnqueued(statePath, {
+      messageId: "false-delivery-rewind",
+      message
+    });
+    await markExactOnceDelivered(statePath, {
+      messageId: "false-delivery-rewind",
+      message,
+      userTurnId: "historical-discovery-turn"
+    });
+
+    await rewindFalseHistoricalDiscoveryDelivery(statePath, {
+      messageId: "false-delivery-rewind",
+      message,
+      latestUserTurnId: "manual-baseline",
+      composerReady: true,
+      composerHasText: false
+    });
+
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "ENQUEUED");
+    assert.equal(durable.outbound.delivered_user_turn_id, null);
+    assert.equal(durable.outbound.delivered_at, null);
+    assert.equal(durable.outbound.retry_count, 0);
+    assert.equal(durable.outbound.last_error_code, "SEND_NOT_ACTUATED");
+    assert.equal(durable.outbound.last_error_stage, "HISTORICAL_USER_TURN_FALSE_DELIVERY");
+    assert.equal(durable.automation.status, "RUNNING");
+    assert.equal(durable.automation.phase, "SEND_WORK");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("SC-013 false-delivery rewind remains fail-closed without baseline-current and empty-composer proof", async () => {
+  const { root, statePath } = await makeState();
+  const message = "MAGASIN_DISCOVER_TASK_V1 id=false-delivery-no-proof";
+  try {
+    await prepareExactOnceOutbound(statePath, {
+      messageId: "false-delivery-no-proof",
+      message,
+      kind: "SOURCE_OF_TRUTH_TASK_DISCOVERY",
+      baselineUserTurnId: "manual-baseline"
+    });
+    await markExactOnceEnqueued(statePath, {
+      messageId: "false-delivery-no-proof",
+      message
+    });
+    await markExactOnceDelivered(statePath, {
+      messageId: "false-delivery-no-proof",
+      message,
+      userTurnId: "historical-discovery-turn"
+    });
+
+    await assert.rejects(
+      rewindFalseHistoricalDiscoveryDelivery(statePath, {
+        messageId: "false-delivery-no-proof",
+        message,
+        latestUserTurnId: "newer-manual-turn",
+        composerReady: true,
+        composerHasText: false
+      }),
+      (error) => error?.code === "FALSE_DELIVERY_REWIND_UNVERIFIED"
+    );
+
+    await assert.rejects(
+      rewindFalseHistoricalDiscoveryDelivery(statePath, {
+        messageId: "false-delivery-no-proof",
+        message,
+        latestUserTurnId: "manual-baseline",
+        composerReady: true,
+        composerHasText: true
+      }),
+      (error) => error?.code === "FALSE_DELIVERY_REWIND_UNVERIFIED"
+    );
+
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "DELIVERED");
+    assert.equal(durable.outbound.delivered_user_turn_id, "historical-discovery-turn");
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

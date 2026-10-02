@@ -37,7 +37,8 @@ import {
   markExactOnceResponseComplete,
   markExactOnceVerified,
   prepareExactOnceOutbound,
-  reconcileExactOnceOutbound
+  reconcileExactOnceOutbound,
+  rewindFalseHistoricalDiscoveryDelivery
 } from "./single-conversation-transaction.mjs";
 
 function parseArgs(argv) {
@@ -926,6 +927,55 @@ async function resumeInFlightProtocolMessageAfterRebind({
       new Error(`pending ${kind} response has no exact restart reconstruction`),
       { code: "RUNTIME_RESTART_WAIT_RESPONSE_UNRESOLVED" }
     );
+  }
+
+  if (
+    kind === "SOURCE_OF_TRUTH_TASK_DISCOVERY" &&
+    ["DELIVERED", "RESPONSE_RUNNING"].includes(
+      String(state.outbound.state || "").toUpperCase()
+    ) &&
+    Number(state.outbound.retry_count || 0) === 0
+  ) {
+    if (!latestUser) {
+      latestUser = await boundedRuntimeStep(
+        "RESTART_FALSE_DELIVERY_CAPTURE_USER",
+        () => captureLatestRoleTurn(page, "user"),
+        { timeoutMs: 10_000 }
+      ).catch((error) => {
+        if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+        return null;
+      });
+    }
+
+    const draft = await boundedRuntimeStep(
+      "RESTART_FALSE_DELIVERY_CAPTURE_DRAFT",
+      () => inspectComposerDraftDigest(page, { timeoutMs: 1_500 }),
+      { timeoutMs: 5_000 }
+    ).catch((error) => {
+      if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+      return null;
+    });
+
+    const rewound = await rewindFalseHistoricalDiscoveryDelivery(statePath, {
+      messageId,
+      message,
+      latestUserTurnId: latestUser?.turn_id || null,
+      composerReady: draft?.ready === true,
+      composerHasText: draft?.has_text
+    }).then(() => true).catch((error) => {
+      if (error?.code === "FALSE_DELIVERY_REWIND_UNVERIFIED") return false;
+      throw error;
+    });
+
+    if (rewound) {
+      return resumeEnqueuedTaskDiscoveryAfterRebind({
+        adapter,
+        page,
+        statePath,
+        responseTimeoutMs,
+        pollMs
+      });
+    }
   }
 
   const expectedAssistantMarker =
