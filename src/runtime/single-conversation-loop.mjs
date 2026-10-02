@@ -60,11 +60,26 @@ function normalizeTaskId(value) {
 
 export function parseTaskControl(text) {
   const source = String(text || "").replace(/\r\n/g, "\n");
-  const pattern = /(?:^|\n)MAGASIN_TASK_CONTROL_V1\n([\s\S]*?)\nEND_MAGASIN_TASK_CONTROL_V1(?=\n|$)/g;
+  const canonicalPattern = /(?:^|\n)MAGASIN_TASK_CONTROL_V1\n([\s\S]*?)\nEND_MAGASIN_TASK_CONTROL_V1(?=\n|$)/g;
   let match = null;
-  for (const candidate of source.matchAll(pattern)) {
+  let renderedWhitespaceFallback = false;
+  for (const candidate of source.matchAll(canonicalPattern)) {
     match = candidate;
   }
+
+  // Current ChatGPT Markdown rendering can preserve the visible line layout
+  // while exposing soft line breaks through innerText as ordinary whitespace.
+  // Accept that presentation-only mutation without weakening the machine
+  // contract: the fallback body must still consist exclusively of KEY=VALUE
+  // tokens bounded by the exact header/footer.
+  if (!match) {
+    const renderedPattern = /(?:^|\s)MAGASIN_TASK_CONTROL_V1\s+([\s\S]*?)\s+END_MAGASIN_TASK_CONTROL_V1(?=\s|$)/g;
+    for (const candidate of source.matchAll(renderedPattern)) {
+      match = candidate;
+    }
+    renderedWhitespaceFallback = Boolean(match);
+  }
+
   if (!match) {
     throw Object.assign(new Error("complete task-control block is missing"), {
       code: "TASK_PROTOCOL_INVALID"
@@ -73,16 +88,20 @@ export function parseTaskControl(text) {
 
   const body = match[1];
   const fields = new Map();
-  for (const rawLine of body.split(/\r?\n/)) {
+  const rawFields = renderedWhitespaceFallback
+    ? body.trim().split(/\s+/)
+    : body.split(/\r?\n/);
+
+  for (const rawLine of rawFields) {
     const line = rawLine.trim();
     if (!line) continue;
-    const match = /^([A-Z_]+)=(.*)$/.exec(line);
-    if (!match) {
+    const fieldMatch = /^([A-Z_]+)=(\S*)$/.exec(line);
+    if (!fieldMatch) {
       throw Object.assign(new Error("malformed task-control line"), {
         code: "TASK_PROTOCOL_INVALID"
       });
     }
-    fields.set(match[1], match[2].trim());
+    fields.set(fieldMatch[1], fieldMatch[2].trim());
   }
 
   const status = String(fields.get("STATUS") || "").toUpperCase();
