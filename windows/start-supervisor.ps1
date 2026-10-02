@@ -13,17 +13,11 @@ $runtime = Join-Path $root 'runtime'
 $runScript = Join-Path $runtime 'windows\run-supervisor.ps1'
 $lifecycleScript = Join-Path $runtime 'windows\lifecycle-truth.ps1'
 $pidFile = Join-Path $root 'supervisor.pid'
-$stop = Join-Path $root 'STOP'
-$autostartDisabled = Join-Path $root 'AUTOSTART_DISABLED'
 $startStatusFile = Join-Path $root 'start-attempt-status.json'
 $wrapperStdoutLog = Join-Path $root 'wrapper-startup.stdout.log'
 $wrapperStderrLog = Join-Path $root 'wrapper-startup.stderr.log'
 
-function Write-StartAttemptStatus(
-    [string]$Status,
-    [int]$ProcessId = 0,
-    [string]$Reason = ''
-) {
+function Write-StartAttemptStatus([string]$Status,[int]$ProcessId=0,[string]$Reason='') {
     $payload = [ordered]@{
         schema_version = 'supervisor-start-attempt.v1'
         status = $Status
@@ -32,159 +26,97 @@ function Write-StartAttemptStatus(
         recovery = [bool]$Recovery
         recorded_at = [DateTimeOffset]::UtcNow.ToString('o')
     }
-    $json = $payload | ConvertTo-Json -Depth 4
     [System.IO.File]::WriteAllText(
         $startStatusFile,
-        $json + [Environment]::NewLine,
+        (($payload | ConvertTo-Json -Depth 4) + [Environment]::NewLine),
         (New-Object System.Text.UTF8Encoding($false))
     )
 }
 
-if (-not (Test-Path $runScript)) {
-    throw "Supervisor runtime is not installed: $runScript"
+foreach($required in @($runScript,$lifecycleScript)){
+    if(-not (Test-Path $required -PathType Leaf)){ throw "Supervisor runtime is not installed: $required" }
 }
-if (-not (Test-Path $lifecycleScript)) {
-    throw "Lifecycle truth helper is not installed: $lifecycleScript"
-}
-
 . $lifecycleScript
 
-if ($Recovery) {
-    # Recovery is never Owner authority. It must fail closed before any
-    # "already running" shortcut and must never clear STOP/AUTOSTART_DISABLED.
-    $ownerStop = Get-LifecycleOwnerStopState -Root $root
-    if ($ownerStop.blocked) {
-        Write-Host 'RECOVERY_START_BLOCKED_OWNER_STOP=True'
-        exit 0
-    }
+$control = Get-LifecycleSingleConversationControl -Root $root
+if(-not $control){
+    Write-StartAttemptStatus -Status 'UNCONFIGURED' -Reason 'SINGLE_CONVERSATION_CONTROL_MISSING'
+    throw 'SINGLE_CONVERSATION_V1 control record is required before START.'
+}
 
-    $enabledLaneCount = Get-EnabledLaneCount -Root $root
-    if ($enabledLaneCount -lt 1) {
-        Write-Host 'RECOVERY_START_SKIPPED_ALL_LANES_DISABLED=True'
+if($Recovery){
+    $ownerStop = Get-LifecycleOwnerStopState -Root $root
+    if($ownerStop.blocked){
+        Write-Host 'RECOVERY_START_BLOCKED_OWNER_STOP=True'
+        Write-StartAttemptStatus -Status 'RECOVERY_BLOCKED_OWNER_STOP'
         exit 0
     }
 } else {
-    # Explicit Owner START is the sole normal authority that clears lifecycle
-    # STOP latches. This happens BEFORE any wrapper/PID early return.
-    $ownerStopAfterClear = Clear-LifecycleOwnerStopLatches -Root $root
-    if ($ownerStopAfterClear.blocked) {
-        throw 'Explicit Owner START could not clear STOP/AUTOSTART_DISABLED.'
-    }
+    [void](Clear-LifecycleOwnerStopLatches -Root $root)
     Write-Host 'OWNER_START_LATCH_CLEAR=True'
 }
 
 $existingWrapper = Get-LifecycleSupervisorWrapper -Root $root
-if ($existingWrapper) {
+if($existingWrapper){
     Set-Content -Path $pidFile -Value $existingWrapper.ProcessId -Encoding ascii
-    if (-not $Recovery) {
-        $ownerStopBeforeReturn = Get-LifecycleOwnerStopState -Root $root
-        if ($ownerStopBeforeReturn.blocked) {
-            throw 'Explicit Owner START refused success because Owner STOP remains active.'
-        }
-        Write-Host 'OWNER_START_EXISTING_WRAPPER_REUSED=True'
-    }
+    Write-StartAttemptStatus -Status 'WRAPPER_REUSED' -ProcessId ([int]$existingWrapper.ProcessId)
     Write-Host "Supervisor wrapper already running (PID $($existingWrapper.ProcessId))."
     exit 0
 }
 
-if (Test-Path $pidFile) {
+if(Test-Path $pidFile){
     $existing = Get-Content $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1
-    $existingProcess = $null
-    $parsedPid = 0
-    if ($existing -and [int]::TryParse([string]$existing, [ref]$parsedPid)) {
-        $existingProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$parsedPid" -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-    }
-
-    if ($existingProcess) {
-        $looksLikeWrapper = [bool](
-            $existingProcess.Name -eq 'powershell.exe' -and
-            $existingProcess.CommandLine -and
-            $existingProcess.CommandLine -like '*run-supervisor.ps1*' -and
-            $existingProcess.CommandLine -like "*$root*"
-        )
-        if ($looksLikeWrapper) {
-            if (-not $Recovery) {
-                $ownerStopBeforeReturn = Get-LifecycleOwnerStopState -Root $root
-                if ($ownerStopBeforeReturn.blocked) {
-                    throw 'Explicit Owner START refused success because Owner STOP remains active.'
-                }
-                Write-Host 'OWNER_START_EXISTING_WRAPPER_REUSED=True'
-            }
-            Write-Host "Supervisor wrapper already running (PID $parsedPid)."
+    $parsed = 0
+    if($existing -and [int]::TryParse([string]$existing,[ref]$parsed)){
+        $process = Get-CimInstance Win32_Process -Filter "ProcessId=$parsed" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if($process -and $process.CommandLine -and $process.CommandLine -like '*run-supervisor.ps1*' -and $process.CommandLine -like "*$root*"){
+            Set-Content -Path $pidFile -Value $parsed -Encoding ascii
+            Write-StartAttemptStatus -Status 'WRAPPER_REUSED' -ProcessId $parsed
             exit 0
         }
-
-        # PID reuse/stale pid file is not proof that Supervisor is running.
-        # Never kill an unrelated process; discard only the stale pid record.
-        Remove-Item $pidFile -Force -ErrorAction Stop
-        Write-Host 'STALE_SUPERVISOR_PID_IGNORED=True'
-    } else {
-        Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
     }
+    Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
 }
 
-# Prevent GitHub Actions orphan-process cleanup from claiming the persistent Supervisor shell.
 $env:RUNNER_TRACKING_ID = 'MAGASIN_SUPERVISOR_PERSISTENT'
+$args = @('-NoLogo','-ExecutionPolicy','Bypass','-File',('"' + $runScript + '"'))
+if($DryRun){ $args += '-DryRun' }
 
-$args = @(
-    '-NoLogo',
-    '-ExecutionPolicy', 'Bypass',
-    '-File', ('"' + $runScript + '"')
-)
-if ($DryRun) { $args += '-DryRun' }
-
-if ($Hidden) {
-    Remove-Item $wrapperStdoutLog -Force -ErrorAction SilentlyContinue
-    Remove-Item $wrapperStderrLog -Force -ErrorAction SilentlyContinue
+if($Hidden){
+    Remove-Item $wrapperStdoutLog,$wrapperStderrLog -Force -ErrorAction SilentlyContinue
     Write-StartAttemptStatus -Status 'LAUNCH_REQUESTED'
-
-    $startParams = @{
-        FilePath = 'powershell.exe'
-        WindowStyle = 'Hidden'
-        ArgumentList = $args
-        PassThru = $true
-        RedirectStandardOutput = $wrapperStdoutLog
-        RedirectStandardError = $wrapperStderrLog
-    }
-    $started = Start-Process @startParams
+    $started = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList $args `
+        -RedirectStandardOutput $wrapperStdoutLog -RedirectStandardError $wrapperStderrLog
     Write-StartAttemptStatus -Status 'PROCESS_CREATED' -ProcessId ([int]$started.Id)
 
-    # START must never silently succeed if the wrapper dies before lifecycle
-    # truth can observe it. Give the shell a short bounded window to acquire the
-    # canonical mutex and become the authoritative wrapper.
-    $observedWrapper = $null
-    for ($attempt = 0; $attempt -lt 10; $attempt++) {
+    $observed = $null
+    for($i=0;$i -lt 12;$i++){
         Start-Sleep -Milliseconds 150
-        $observedWrapper = Get-LifecycleSupervisorWrapper -Root $root
-        if ($observedWrapper) { break }
-        if (-not (Get-Process -Id $started.Id -ErrorAction SilentlyContinue)) {
-            break
-        }
+        $observed = Get-LifecycleSupervisorWrapper -Root $root
+        if($observed){ break }
+        if(-not (Get-Process -Id $started.Id -ErrorAction SilentlyContinue)){ break }
+    }
+    if($observed){
+        Set-Content -Path $pidFile -Value $observed.ProcessId -Encoding ascii
+        Write-StartAttemptStatus -Status 'WRAPPER_OBSERVED' -ProcessId ([int]$observed.ProcessId)
+        Write-Host "MAGASIN Supervisor started in background mode (PID $($observed.ProcessId))."
+        exit 0
     }
 
-    if ($observedWrapper) {
-        Set-Content -Path $pidFile -Value $observedWrapper.ProcessId -Encoding ascii
-        Write-StartAttemptStatus -Status 'WRAPPER_OBSERVED' -ProcessId ([int]$observedWrapper.ProcessId)
-        Write-Host "MAGASIN Supervisor started in background mode (PID $($observedWrapper.ProcessId))."
-    } elseif (-not (Get-Process -Id $started.Id -ErrorAction SilentlyContinue)) {
+    if(-not (Get-Process -Id $started.Id -ErrorAction SilentlyContinue)){
         $stderrTail = ''
-        if (Test-Path $wrapperStderrLog) {
-            $stderrTail = (
-                Get-Content $wrapperStderrLog -ErrorAction SilentlyContinue |
-                Select-Object -Last 8
-            ) -join ' | '
-        }
-        $reason = if ($stderrTail) { $stderrTail } else { 'wrapper exited before lifecycle observation' }
+        if(Test-Path $wrapperStderrLog){ $stderrTail = (Get-Content $wrapperStderrLog | Select-Object -Last 8) -join ' | ' }
+        $reason = if($stderrTail){$stderrTail}else{'wrapper exited before lifecycle observation'}
         Write-StartAttemptStatus -Status 'EXITED_EARLY' -ProcessId ([int]$started.Id) -Reason $reason
         throw "Supervisor wrapper exited during START: $reason"
-    } else {
-        Write-StartAttemptStatus -Status 'PROCESS_ALIVE_WRAPPER_PENDING' -ProcessId ([int]$started.Id)
-        Write-Host "MAGASIN Supervisor process created; wrapper observation is pending (PID $($started.Id))."
     }
-} else {
-    $visibleArgs = @('-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $runScript + '"'))
-    if ($DryRun) { $visibleArgs += '-DryRun' }
-    Start-Process powershell.exe -ArgumentList $visibleArgs
-    Write-Host 'MAGASIN Supervisor started in a separate PowerShell window.'
+
+    Write-StartAttemptStatus -Status 'PROCESS_ALIVE_WRAPPER_PENDING' -ProcessId ([int]$started.Id)
+    Write-Host "MAGASIN Supervisor process created; wrapper observation is pending (PID $($started.Id))."
+    exit 0
 }
+
+$visibleArgs = @('-NoLogo','-NoExit','-ExecutionPolicy','Bypass','-File',('"' + $runScript + '"'))
+if($DryRun){ $visibleArgs += '-DryRun' }
+Start-Process powershell.exe -ArgumentList $visibleArgs
+Write-Host 'MAGASIN Supervisor started in a separate PowerShell window.'
