@@ -161,7 +161,7 @@ test("SC-013 correlated PREPARED bootstrap delivery reconciles without resend", 
   }
 });
 
-test("SC-013 correlated bootstrap recovery searches Recent sidebar after open-tab miss", async () => {
+test("SC-013 correlated bootstrap recovery re-lists cold Recent until target appears", async () => {
   const { root, statePath } = await tempStatePath();
   const sourceOfTruthUrl = "https://example.com/SOURCE_OF_TRUTH.md";
   const messageId = "bootstrap-sidebar-recovery";
@@ -179,6 +179,7 @@ test("SC-013 correlated bootstrap recovery searches Recent sidebar after open-ta
   const correlationAttempts = new Map();
   const reopened = [];
   const closed = [];
+  let recentListCalls = 0;
   let responseWaits = 0;
 
   try {
@@ -220,7 +221,10 @@ test("SC-013 correlated bootstrap recovery searches Recent sidebar after open-ta
       },
       getChatGptPages: () => [home],
       async listRecentConversationUrls() {
-        return [miss.url(), match.url()];
+        recentListCalls += 1;
+        return recentListCalls === 1
+          ? [miss.url()]
+          : [miss.url(), match.url()];
       },
       async reopenTargetPage(url) {
         reopened.push(url);
@@ -251,10 +255,21 @@ test("SC-013 correlated bootstrap recovery searches Recent sidebar after open-ta
       sourceOfTruthUrl,
       recentHydrationAttempts: 3,
       recentHydrationPollMs: 1,
+      recentDiscoveryPasses: 2,
+      recentDiscoveryPollMs: 1,
       sleep: async () => {},
       captureCorrelation: async (page) => {
         const count = Number(correlationAttempts.get(page) || 0) + 1;
         correlationAttempts.set(page, count);
+        if (page === miss) {
+          return {
+            confirmed: false,
+            turn_id: null,
+            evidence: "correlated-bootstrap-user-turn-not-observed",
+            match_count: 0,
+            total_count: 1
+          };
+        }
         if (page === match && count >= 2) {
           return {
             confirmed: true,
@@ -293,10 +308,12 @@ test("SC-013 correlated bootstrap recovery searches Recent sidebar after open-ta
     assert.equal(result.page, match);
     assert.equal(result.user_turn_evidence, "correlated-modern-bootstrap-user-turn");
     assert.equal(responseWaits, 1);
+    assert.equal(recentListCalls, 2);
     assert.deepEqual(reopened, [miss.url(), match.url()]);
     assert.deepEqual(closed, [miss.url()]);
-    assert.equal(active, match);
+    assert.equal(correlationAttempts.get(miss), 1);
     assert.equal(correlationAttempts.get(match), 2);
+    assert.equal(active, match);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
