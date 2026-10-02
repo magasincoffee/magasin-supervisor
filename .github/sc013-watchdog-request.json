@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-watchdog-request.v1",
-  "requested_at": "2026-10-02T17:55:30Z",
+  "requested_at": "2026-10-02T18:03:20Z",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Verify PR #292 proof-rewind outcome: current message should leave poisoned RESPONSE_RUNNING and either safe-retry/send or fail closed with new first-failure evidence."
+  "reason": "Verify PR #293 live outcome after safe-snapshot false-delivery rewind; confirm retry_count/outbound and real conversation health."
 }
