@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "03c1b139a412a9de4eb96673e2dc9b81c69f07ab",
+  "requested_main_sha": "9bd8b823aaeb1dcf64dab11fd8d051fc62c27afc",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy SC-013 ENQUEUED task-discovery restart rebind fix from PR #290 after all mandatory gates passed."
+  "reason": "Deploy SC-013 historical-user-turn false-delivery fix from PR #291 after all mandatory gates passed."
 }
