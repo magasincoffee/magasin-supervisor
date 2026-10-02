@@ -1394,6 +1394,8 @@ export async function recoverCorrelatedPreparedBootstrapDelivery({
   waitForResponse = waitForBootstrapResponse,
   recentHydrationAttempts = 16,
   recentHydrationPollMs = 500,
+  recentDiscoveryPasses = 3,
+  recentDiscoveryPollMs = 1_000,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 } = {}) {
   if (!adapter) throw new Error("adapter is required");
