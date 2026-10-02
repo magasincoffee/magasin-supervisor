@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  markExactOnceEnqueued,
   markExactOnceResponseComplete,
   markExactOnceVerified,
   prepareExactOnceOutbound,
@@ -110,7 +111,7 @@ test("SC-013 replacement replay starts with the single retry budget consumed", a
   }
 });
 
-test("SC-006 exact DOM evidence reconciles delivery when latest-turn helper is stale", async () => {
+test("SC-013 historical DOM match cannot override a newer baseline user turn", async () => {
   const { root, statePath } = await makeState();
   const message = "MAGASIN_SINGLE_CONVERSATION_NEXT_V1 id=modern-dom";
   try {
@@ -128,10 +129,12 @@ test("SC-006 exact DOM evidence reconciles delivery when latest-turn helper is s
       messageId: "modern-dom",
       message,
       reconciliationProbes: 1,
-      captureTurn: async () => ({ turn_id: "u0", text: "old" }),
+      captureTurn: async () => sends
+        ? { turn_id: "u1", text: message }
+        : { turn_id: "u0", text: "old" },
       captureMatchingTurn: async () => ({
         confirmed: true,
-        turn_id: "modern-user-1",
+        turn_id: "historical-user-turn",
         evidence: "exact-modern-user-turn"
       }),
       inspectDraft: async () => ({ ready: true, has_text: false, digest: null }),
@@ -141,11 +144,11 @@ test("SC-006 exact DOM evidence reconciles delivery when latest-turn helper is s
       }
     });
 
-    assert.equal(result.action, "NO_SEND");
-    assert.equal(sends, 0);
+    assert.equal(result.action, "SEND");
+    assert.equal(sends, 1);
     const durable = await readSingleConversationState(statePath);
     assert.equal(durable.outbound.state, "DELIVERED");
-    assert.equal(durable.outbound.delivered_user_turn_id, "modern-user-1");
+    assert.equal(durable.outbound.delivered_user_turn_id, "u1");
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -780,6 +783,60 @@ test("SC-013 PREPARED recovery may overwrite stale composer residue before first
     assert.equal(durable.outbound.retry_count, 0);
     assert.equal(durable.automation.status, "RUNNING");
     assert.equal(durable.outbound.last_error_code, null);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test("SC-013 ENQUEUED recovery ignores historical matching prompt and performs one safe retry", async () => {
+  const { root, statePath } = await makeState();
+  const message = "MAGASIN_DISCOVER_TASK_V1 id=3f968d68-bab1-46c5-9d25-d77de7524ad2";
+  let sent = false;
+  let sends = 0;
+  try {
+    await prepareExactOnceOutbound(statePath, {
+      messageId: "3f968d68-bab1-46c5-9d25-d77de7524ad2",
+      message,
+      kind: "SOURCE_OF_TRUTH_TASK_DISCOVERY",
+      baselineUserTurnId: "manual-baseline"
+    });
+    await markExactOnceEnqueued(statePath, {
+      messageId: "3f968d68-bab1-46c5-9d25-d77de7524ad2",
+      message
+    });
+
+    const result = await reconcileExactOnceOutbound({
+      statePath,
+      page: { async waitForTimeout() {} },
+      messageId: "3f968d68-bab1-46c5-9d25-d77de7524ad2",
+      message,
+      reconciliationProbes: 2,
+      reconciliationPollMs: 1,
+      captureMatchingTurn: async () => ({
+        confirmed: true,
+        turn_id: "historical-discovery-turn",
+        evidence: "exact-modern-user-turn"
+      }),
+      captureTurn: async () => sent
+        ? { turn_id: "new-discovery-turn", text: message }
+        : { turn_id: "manual-baseline", text: "manual user turn after the historical discovery" },
+      inspectDraft: async () => ({ ready: true, has_text: false, digest: null }),
+      sendInstruction: async () => {
+        sends += 1;
+        sent = true;
+        return { executed: true };
+      }
+    });
+
+    assert.equal(result.action, "SAFE_RETRY_SENT");
+    assert.equal(result.retry_count, 1);
+    assert.equal(sends, 1);
+
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "DELIVERED");
+    assert.equal(durable.outbound.retry_count, 1);
+    assert.equal(durable.outbound.delivered_user_turn_id, "new-discovery-turn");
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
