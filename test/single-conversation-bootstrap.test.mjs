@@ -161,6 +161,147 @@ test("SC-013 correlated PREPARED bootstrap delivery reconciles without resend", 
   }
 });
 
+test("SC-013 correlated bootstrap recovery searches Recent sidebar after open-tab miss", async () => {
+  const { root, statePath } = await tempStatePath();
+  const sourceOfTruthUrl = "https://example.com/SOURCE_OF_TRUTH.md";
+  const messageId = "bootstrap-sidebar-recovery";
+  const message = buildSingleConversationBootstrap({
+    sourceOfTruthUrl,
+    messageId
+  });
+  const home = fakePage("https://chatgpt.com/");
+  const miss = fakePage("https://chatgpt.com/c/sidebar-miss");
+  const match = fakePage("https://chatgpt.com/c/sidebar-match");
+  const recentByUrl = new Map([
+    [miss.url(), miss],
+    [match.url(), match]
+  ]);
+  const correlationAttempts = new Map();
+  const reopened = [];
+  const closed = [];
+  let responseWaits = 0;
+
+  try {
+    await ensureSingleConversationState(statePath, {
+      sourceOfTruthUrl,
+      projectId: "LIVE",
+      sessionId: "sidebar-bootstrap-test"
+    });
+    const state = await readSingleConversationState(statePath);
+    state.conversation = {
+      ...state.conversation,
+      generation: 2,
+      status: "ACTIVE",
+      runtime_id: null,
+      created_at: state.updated_at,
+      last_seen_at: state.updated_at
+    };
+    state.outbound = {
+      ...state.outbound,
+      state: "PREPARED",
+      kind: "SOURCE_OF_TRUTH_BOOTSTRAP",
+      message_id: messageId,
+      message_digest: composerInstructionDigest(message),
+      retry_count: 1,
+      last_error_code: "SEND_NOT_ACTUATED",
+      prepared_at: state.updated_at
+    };
+    state.automation.status = "BLOCKED";
+    state.automation.phase = "BOOTSTRAP_FAILED";
+    state.automation.reason = "SEND_NOT_ACTUATED";
+    await writeSingleConversationState(statePath, state);
+
+    let active = home;
+    const adapter = {
+      getActivePage: () => active,
+      setActivePage(page) {
+        active = page;
+        return page;
+      },
+      getChatGptPages: () => [home],
+      async listRecentConversationUrls() {
+        return [miss.url(), match.url()];
+      },
+      async reopenTargetPage(url) {
+        reopened.push(url);
+        return recentByUrl.get(url) || null;
+      },
+      async invalidateTargetRecoveryPage(url, { page, close } = {}) {
+        if (close && page) closed.push(url);
+        return true;
+      },
+      async probePage(page) {
+        return {
+          snapshot: {
+            conversationPath: page !== home,
+            loginRequired: false,
+            hasCaptcha: false,
+            hasNetworkError: false,
+            hasTransientError: false,
+            conversationMissing: false,
+            conversationAccessDenied: false
+          }
+        };
+      }
+    };
+
+    const result = await recoverCorrelatedPreparedBootstrapDelivery({
+      adapter,
+      statePath,
+      sourceOfTruthUrl,
+      recentHydrationAttempts: 3,
+      recentHydrationPollMs: 1,
+      sleep: async () => {},
+      captureCorrelation: async (page) => {
+        const count = Number(correlationAttempts.get(page) || 0) + 1;
+        correlationAttempts.set(page, count);
+        if (page === match && count >= 2) {
+          return {
+            confirmed: true,
+            turn_id: "user:sidebar-bootstrap",
+            evidence: "correlated-modern-bootstrap-user-turn",
+            match_count: 1,
+            total_count: 1
+          };
+        }
+        return {
+          confirmed: false,
+          turn_id: null,
+          evidence: "correlated-bootstrap-user-turn-not-observed",
+          match_count: 0,
+          total_count: 0
+        };
+      },
+      waitForResponse: async () => {
+        responseWaits += 1;
+        const delivered = await readSingleConversationState(statePath);
+        assert.equal(delivered.outbound.state, "DELIVERED");
+        assert.equal(delivered.automation.status, "RUNNING");
+        assert.equal(delivered.automation.phase, "WAIT_RESPONSE");
+        assert.ok(delivered.conversation.runtime_id);
+        return {
+          status: "RESPONSE_COMPLETE",
+          assistant_turn: {
+            turn_id: "assistant:sidebar-bootstrap",
+            text: "ready"
+          }
+        };
+      }
+    });
+
+    assert.equal(result.recovered, true);
+    assert.equal(result.page, match);
+    assert.equal(result.user_turn_evidence, "correlated-modern-bootstrap-user-turn");
+    assert.equal(responseWaits, 1);
+    assert.deepEqual(reopened, [miss.url(), match.url()]);
+    assert.deepEqual(closed, [miss.url()]);
+    assert.equal(active, match);
+    assert.equal(correlationAttempts.get(match), 2);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("SC-013 correlated bootstrap recovery remains fail-closed without a unique correlated turn", async () => {
   const candidate = {
     conversation: { status: "ACTIVE" },

@@ -1391,7 +1391,10 @@ export async function recoverCorrelatedPreparedBootstrapDelivery({
   pollMs = 750,
   now = () => new Date().toISOString(),
   captureCorrelation = captureCorrelatedBootstrapUserTurnEvidence,
-  waitForResponse = waitForBootstrapResponse
+  waitForResponse = waitForBootstrapResponse,
+  recentHydrationAttempts = 16,
+  recentHydrationPollMs = 500,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 } = {}) {
   if (!adapter) throw new Error("adapter is required");
   if (!statePath) throw new Error("statePath is required");
@@ -1426,6 +1429,7 @@ export async function recoverCorrelatedPreparedBootstrapDelivery({
   const active = typeof adapter.getActivePage === "function"
     ? adapter.getActivePage()
     : null;
+  const initiallyOpen = new Set(pages);
   const candidates = [];
   for (const page of [active, ...pages]) {
     if (!page || candidates.includes(page)) continue;
@@ -1434,12 +1438,29 @@ export async function recoverCorrelatedPreparedBootstrapDelivery({
   }
 
   const matches = [];
-  for (const page of candidates) {
-    const evidence = await captureCorrelation(page, {
-      messageId,
-      sourceOfTruthUrl: source
-    }).catch(() => null);
-    if (!evidence?.confirmed) continue;
+  const matchedRuntimeIds = new Set();
+
+  const inspectCandidate = async (page, {
+    allowHydration = false
+  } = {}) => {
+    const attempts = allowHydration
+      ? Math.max(1, Number(recentHydrationAttempts) || 1)
+      : 1;
+
+    let evidence = null;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      evidence = await captureCorrelation(page, {
+        messageId,
+        sourceOfTruthUrl: source
+      }).catch(() => null);
+
+      if (evidence?.confirmed) break;
+      if (attempt + 1 < attempts) {
+        await sleep(Math.max(0, Number(recentHydrationPollMs) || 0));
+      }
+    }
+
+    if (!evidence?.confirmed) return false;
 
     const probe = await adapter.probePage(page).catch(() => null);
     const snapshot = probe?.snapshot || {};
@@ -1453,10 +1474,70 @@ export async function recoverCorrelatedPreparedBootstrapDelivery({
       snapshot.conversationMissing ||
       snapshot.conversationAccessDenied
     ) {
-      continue;
+      return false;
     }
 
-    matches.push({ page, evidence });
+    const runtimeId = opaqueRuntimeIdentity(pageUrl(page));
+    if (!runtimeId || matchedRuntimeIds.has(runtimeId)) return true;
+    matchedRuntimeIds.add(runtimeId);
+    matches.push({ page, evidence, runtimeId });
+    return true;
+  };
+
+  for (const page of candidates) {
+    await inspectCandidate(page);
+  }
+
+  // SC-013 production recovery: after Chrome/runtime restart, the delivered
+  // bootstrap conversation can remain in ChatGPT Recent/Sidebar even when no
+  // correlated conversation tab is currently open and durable runtime_id is
+  // still missing. Search Recent read-only, hydrate each candidate boundedly,
+  // require the same exact bootstrap correlation, and close non-matches.
+  if (
+    matches.length <= 1 &&
+    typeof adapter.listRecentConversationUrls === "function" &&
+    typeof adapter.reopenTargetPage === "function"
+  ) {
+    const discoveryPage = active || pages.at(-1) || null;
+    const recentUrls = discoveryPage
+      ? await adapter
+          .listRecentConversationUrls(discoveryPage, { limit: 50 })
+          .catch(() => [])
+      : [];
+
+    const openRuntimeIds = new Set(
+      candidates
+        .map((page) => opaqueRuntimeIdentity(pageUrl(page)))
+        .filter(Boolean)
+    );
+
+    for (const url of Array.isArray(recentUrls) ? recentUrls : []) {
+      const runtimeId = opaqueRuntimeIdentity(url);
+      if (!runtimeId || openRuntimeIds.has(runtimeId)) continue;
+
+      let page = null;
+      let matched = false;
+      try {
+        page = await adapter.reopenTargetPage(url).catch(() => null);
+        if (!page) continue;
+        matched = await inspectCandidate(page, { allowHydration: true });
+      } finally {
+        if (
+          page &&
+          !matched &&
+          !initiallyOpen.has(page)
+        ) {
+          if (typeof adapter.invalidateTargetRecoveryPage === "function") {
+            await adapter.invalidateTargetRecoveryPage(url, {
+              page,
+              close: true
+            }).catch(() => {});
+          } else if (typeof adapter.closePage === "function") {
+            await adapter.closePage(page).catch(() => {});
+          }
+        }
+      }
+    }
   }
 
   if (matches.length !== 1) {
@@ -1470,7 +1551,12 @@ export async function recoverCorrelatedPreparedBootstrapDelivery({
   }
 
   const match = matches[0];
-  const runtimeId = opaqueRuntimeIdentity(pageUrl(match.page));
+  if (typeof adapter.setActivePage === "function") {
+    adapter.setActivePage(match.page);
+  }
+
+  const runtimeId = match.runtimeId ||
+    opaqueRuntimeIdentity(pageUrl(match.page));
   await persistDelivered(statePath, {
     userTurnId:
       match.evidence.turn_id ||
