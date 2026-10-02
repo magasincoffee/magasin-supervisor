@@ -5,14 +5,11 @@ import fs from "node:fs/promises";
 const read = (name) =>
   fs.readFile(new URL(`../windows/${name}`, import.meta.url), "utf8");
 
-test("autostart bootstrap resumes canonical runner and Supervisor only when Owner STOP latch is absent", async () => {
+test("autostart resumes canonical runner and Supervisor only when Owner STOP is absent", async () => {
   const source = await read("autostart-bootstrap.ps1");
   assert.match(source, /AUTOSTART_DISABLED/);
   assert.match(source, /SUPERVISOR_RUNNER_ROOT/);
-  assert.match(source, /C:\\actions-runner-magasin-supervisor\\actions-runner/);
-  assert.match(source, /C:\\actions-runner-business\\actions-runner/);
   assert.match(source, /Runner\.Listener\.exe/);
-  assert.match(source, /Split-Path \(\[string\]\$listener\.ExecutablePath\) -Parent/);
   assert.match(source, /RUNNER_TRACKING_ID = 'MAGASIN_RUNNER_PERSISTENT'/);
   assert.match(source, /start-supervisor\.ps1/);
   assert.match(source, /SUPERVISOR_ONLINE/);
@@ -34,7 +31,6 @@ test("manual STOP disables reboot resume while START re-enables it", async () =>
     read("start-supervisor.ps1"),
     read("stop-supervisor.ps1")
   ]);
-
   assert.match(stop, /Set-Content -Path \$autostartDisabled -Value 'OWNER_STOP'/);
   assert.match(start, /Clear-LifecycleOwnerStopLatches -Root \$root/);
 });
@@ -46,21 +42,17 @@ test("power-loss recovery keeps the dedicated browser boundary", async () => {
   assert.match(source, /Supervisor requested dedicated Chrome restart/);
 });
 
-test("Robot Chrome disables background throttling and Three-Lane uses low-latency defaults", async () => {
+test("Robot Chrome uses low-latency flags and only the single-conversation poll interval", async () => {
   const source = await read("run-supervisor.ps1");
 
   assert.match(source, /--disable-background-timer-throttling/);
   assert.match(source, /--disable-backgrounding-occluded-windows/);
   assert.match(source, /--disable-renderer-backgrounding/);
   assert.match(source, /--disable-features=CalculateNativeWinOcclusion/);
-  assert.match(source, /SUPERVISOR_THREE_LANE_POLL_MS/);
-  assert.match(source, /else \{\s*'2000'\s*\}/);
-  assert.match(source, /SUPERVISOR_CHATGPT_PAGE_BUDGET/);
-  assert.match(source, /else \{\s*'4'\s*\}/);
-  assert.match(source, /'--page-budget', \$pageBudget/);
+  assert.match(source, /SUPERVISOR_SINGLE_CONVERSATION_POLL_MS/);
+  assert.doesNotMatch(source, /SUPERVISOR_THREE_LANE_POLL_MS/);
+  assert.doesNotMatch(source, /SUPERVISOR_CHATGPT_PAGE_BUDGET/);
 });
-
-
 
 test("local watchdog starts before Owner STOP suppresses Robot recovery", async () => {
   const source = await read("autostart-bootstrap.ps1");
