@@ -87,6 +87,7 @@ export class ChatGptUiAdapter {
     this.page = null;
     this.attachedOverCdp = false;
     this.targetRecoveryPages = new Map();
+    this.recentNavigationHydratedPages = new WeakSet();
   }
 
   async reconnectOverCdp() {
@@ -268,9 +269,51 @@ export class ChatGptUiAdapter {
     return focused;
   }
 
+  async revealRecentConversationNavigation(page) {
+    if (!page || page.isClosed()) return false;
+    if (this.recentNavigationHydratedPages.has(page)) return false;
+
+    const clicked = await page.evaluate(() => {
+      const visible = (node) => {
+        if (!(node instanceof Element)) return false;
+        const style = getComputedStyle(node);
+        const box = node.getBoundingClientRect();
+        return style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          box.width > 0 &&
+          box.height > 0;
+      };
+      const controls = [...document.querySelectorAll('button,[role="button"]')];
+      const wanted = /(sidebar|side bar|navigation|chat history|recent chats?|thanh bên|thanh điều hướng|lịch sử trò chuyện)/i;
+      const reject = /(new chat|new conversation|temporary chat|settings|profile|account|share|voice|attach|upload|send|trò chuyện mới|cài đặt|tài khoản|gửi)/i;
+
+      const candidate = controls.find((node) => {
+        if (!visible(node)) return false;
+        const descriptor = [
+          node.getAttribute("aria-label"),
+          node.getAttribute("title"),
+          node.getAttribute("data-testid"),
+          node.textContent
+        ].filter(Boolean).join(" ").trim();
+        return descriptor && wanted.test(descriptor) && !reject.test(descriptor);
+      });
+      if (!candidate) return false;
+      candidate.click();
+      return true;
+    }).catch(() => false);
+
+    if (!clicked) return false;
+    this.recentNavigationHydratedPages.add(page);
+    await page.waitForTimeout(
+      Math.max(100, Math.min(1_000, Number(this.settleMs) || 250))
+    ).catch(() => {});
+    return true;
+  }
+
   async listRecentConversationUrls(page, { limit = 20 } = {}) {
     if (!page || page.isClosed()) return [];
-    const urls = await page.evaluate((maxItems) => {
+    const maxItems = Math.max(1, Math.min(50, Number(limit) || 20));
+    const collect = () => page.evaluate((boundedMaxItems) => {
       const seen = new Set();
       const out = [];
       for (const anchor of document.querySelectorAll("a[href]")) {
@@ -288,10 +331,20 @@ export class ChatGptUiAdapter {
         if (seen.has(normalized)) continue;
         seen.add(normalized);
         out.push(normalized);
-        if (out.length >= maxItems) break;
+        if (out.length >= boundedMaxItems) break;
       }
       return out;
-    }, Math.max(1, Math.min(50, Number(limit) || 20)));
+    }, maxItems);
+
+    let urls = await collect().catch(() => []);
+    if (!Array.isArray(urls)) urls = [];
+    if (!urls.length) {
+      const revealed = await this.revealRecentConversationNavigation(page)
+        .catch(() => false);
+      if (revealed) {
+        urls = await collect().catch(() => []);
+      }
+    }
     return Array.isArray(urls) ? urls : [];
   }
 
