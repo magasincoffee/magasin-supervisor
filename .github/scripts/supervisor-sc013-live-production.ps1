@@ -103,6 +103,20 @@ if($delegatedStartExpiresAt){
 
 $ownerStop=Get-LifecycleOwnerStopState -Root $root
 $truthBefore=Get-LifecycleProcessTruth -Root $root
+
+if($baselineNeedsRecovery -and $truthBefore.cdp_healthy){
+  $readOnlyDiagnostic=Join-Path $env:GITHUB_WORKSPACE '.github\scripts\supervisor-sc013-rebind-diagnostic.ps1'
+  if(Test-Path $readOnlyDiagnostic){
+    try{
+      Write-Host 'SC013_LIVE_PRESTART_READONLY_DIAGNOSTIC=True'
+      & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $readOnlyDiagnostic -TargetComputer $TargetComputer -NonTargetHoldSeconds 0
+      Write-Host "SC013_LIVE_PRESTART_READONLY_DIAGNOSTIC_EXIT=$LASTEXITCODE"
+    }catch{
+      Write-Host "SC013_LIVE_PRESTART_READONLY_DIAGNOSTIC_ERROR=$($_.Exception.Message)"
+    }
+  }
+}
+
 if($ownerStop.blocked -or -not $truthBefore.wrapper_alive){
   if($delegatedStartAuthorized){
     Write-Host 'SC013_LIVE_OWNER_START_INVOKED=True'
