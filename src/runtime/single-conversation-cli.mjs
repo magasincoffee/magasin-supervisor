@@ -961,6 +961,32 @@ async function recoverConversationFromRecentSidebar({
   return null;
 }
 
+async function recoverConversationFromBrowserHistory({
+  adapter,
+  expected
+} = {}) {
+  if (
+    typeof adapter?.listBrowserHistoryChatGptUrls !== "function" ||
+    typeof adapter?.reopenTargetPage !== "function"
+  ) {
+    return null;
+  }
+
+  const urls = await adapter
+    .listBrowserHistoryChatGptUrls({ limit: 200 })
+    .catch(() => []);
+  const matches = [...new Set(
+    (Array.isArray(urls) ? urls : []).filter(
+      (url) => opaqueRuntimeIdentity(url) === expected
+    )
+  )];
+
+  if (matches.length !== 1) return null;
+  const recovered = await adapter.reopenTargetPage(matches[0]).catch(() => null);
+  if (!recovered || !runtimeIdMatchesPage(recovered, expected)) return null;
+  return recovered;
+}
+
 export async function resumeExistingConversationPage({
   adapter,
   state,
@@ -1003,8 +1029,16 @@ export async function resumeExistingConversationPage({
       retries: recoveryRetries,
       pollMs: recoveryPollMs
     });
-    if (!page) return null;
-    recoveredFrom = "RECENT_SIDEBAR";
+    if (page) {
+      recoveredFrom = "RECENT_SIDEBAR";
+    } else {
+      page = await recoverConversationFromBrowserHistory({
+        adapter,
+        expected
+      });
+      if (!page) return null;
+      recoveredFrom = "BROWSER_HISTORY";
+    }
   }
 
   const selected = typeof adapter.setActivePage === "function"
@@ -1013,7 +1047,7 @@ export async function resumeExistingConversationPage({
   if (!(await probeReusableConversationPage(adapter, selected))) return null;
 
   if (
-    recoveredFrom === "RECENT_SIDEBAR" &&
+    ["RECENT_SIDEBAR", "BROWSER_HISTORY"].includes(recoveredFrom) &&
     discoveryPage &&
     discoveryPage !== selected &&
     isBlankHomePage(discoveryPage) &&
