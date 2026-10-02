@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "bab60f14a892bd25aaf7d7c535a204e201370bac",
+  "requested_main_sha": "dcb1c43ee33bd087fab04bebe4420d9c7587a5e0",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy SC-013 stable Playwright Open sidebar rebind fix from PR #285 after all mandatory gates passed."
+  "reason": "Deploy SC-013 exact Chrome History rebind fallback from PR #286 after all mandatory gates passed."
 }
