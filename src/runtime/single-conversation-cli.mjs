@@ -947,21 +947,25 @@ async function resumeInFlightProtocolMessageAfterRebind({
       });
     }
 
-    const draft = await boundedRuntimeStep(
-      "RESTART_FALSE_DELIVERY_CAPTURE_DRAFT",
-      () => inspectComposerDraftDigest(page, { timeoutMs: 1_500 }),
+    const safeProbe = await boundedRuntimeStep(
+      "RESTART_FALSE_DELIVERY_SAFE_SNAPSHOT",
+      () => adapter.probePage(page),
       { timeoutMs: 5_000 }
-    ).catch((error) => {
-      if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
-      return null;
-    });
+    ).catch(() => null);
+    const safeSnapshot = safeProbe?.snapshot || null;
+    const composerReadable = safeSnapshot?.composerTextReadable === true;
 
     const rewound = await rewindFalseHistoricalDiscoveryDelivery(statePath, {
       messageId,
       message,
       latestUserTurnId: latestUser?.turn_id || null,
-      composerReady: draft?.ready === true,
-      composerHasText: draft?.has_text
+      composerReady:
+        safeSnapshot?.composerReady === true &&
+        composerReadable,
+      composerHasText:
+        composerReadable
+          ? safeSnapshot?.composerHasText
+          : null
     }).then(() => true).catch((error) => {
       if (error?.code === "FALSE_DELIVERY_REWIND_UNVERIFIED") return false;
       throw error;

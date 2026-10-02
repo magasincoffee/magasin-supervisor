@@ -1065,6 +1065,11 @@ test("SC-013 in-flight discovery restart attempts proof-gated false-delivery rew
   assert.ok(settle > resumeEnqueued);
   assert.match(body, /SOURCE_OF_TRUTH_TASK_DISCOVERY/);
   assert.match(body, /retry_count/);
-  assert.match(body, /composerHasText:\s*draft\?\.has_text/);
+  assert.match(body, /RESTART_FALSE_DELIVERY_SAFE_SNAPSHOT/);
+  assert.match(body, /adapter\.probePage\(page\)/);
+  assert.match(body, /composerTextReadable/);
+  assert.match(body, /composerHasText/);
+  assert.doesNotMatch(body, /RESTART_FALSE_DELIVERY_CAPTURE_DRAFT/);
+  assert.doesNotMatch(body, /inspectComposerDraftDigest\(page/);
   assert.match(body, /FALSE_DELIVERY_REWIND_UNVERIFIED/);
 });
