@@ -261,17 +261,21 @@ function baselineStillCurrent(turn, baselineUserTurnId) {
   return String(turn?.turn_id || "") === baseline;
 }
 
-function matchingEvidenceIsLatestUserTurn(matching, latestUser, digest) {
-  if (latestTurnMatchesMessage(latestUser, digest)) return true;
-  if (!matching?.confirmed) return false;
+function currentMatchingUserTurnId(matching, latestUser, digest) {
+  const latestTurnId = String(latestUser?.turn_id || "").trim();
+  if (latestTurnMatchesMessage(latestUser, digest)) {
+    return latestTurnId || null;
+  }
+  if (!matching?.confirmed) return null;
 
   const matchingTurnId = String(matching?.turn_id || "").trim();
-  const latestTurnId = String(latestUser?.turn_id || "").trim();
-  return Boolean(
+  return (
     matchingTurnId &&
     latestTurnId &&
     matchingTurnId === latestTurnId
-  );
+  )
+    ? matchingTurnId
+    : null;
 }
 
 export async function reconcileExactOnceOutbound({
@@ -321,9 +325,9 @@ export async function reconcileExactOnceOutbound({
     for (let index = 0; index < probes; index += 1) {
       const matching = await captureMatchingTurn(page, text).catch(() => null);
       latestUser = await captureTurn(page, "user").catch(() => null);
-      if (
-        matchingEvidenceIsLatestUserTurn(matching, latestUser, digest)
-      ) {
+      const currentMatchingTurnId =
+        currentMatchingUserTurnId(matching, latestUser, digest);
+      if (currentMatchingTurnId) {
         if (current === "PREPARED") {
           await markExactOnceEnqueued(statePath, {
             messageId: id,
@@ -334,7 +338,7 @@ export async function reconcileExactOnceOutbound({
         await markExactOnceDelivered(statePath, {
           messageId: id,
           message: text,
-          userTurnId: matching?.turn_id || latestUser?.turn_id || null,
+          userTurnId: currentMatchingTurnId,
           now
         });
         const delivered = await readSingleConversationState(statePath);
@@ -468,7 +472,9 @@ export async function reconcileExactOnceOutbound({
     await markExactOnceDelivered(statePath, {
       messageId: id,
       message: text,
-      userTurnId: matchingDelivery?.turn_id || deliveredTurn?.turn_id || null,
+      userTurnId: latestTurnMatchesMessage(deliveredTurn, digest)
+        ? deliveredTurn?.turn_id || null
+        : matchingDelivery?.turn_id || null,
       now
     });
 
