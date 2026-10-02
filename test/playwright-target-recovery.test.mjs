@@ -165,3 +165,38 @@ test("SC-010 new Chat page becomes the adapter sticky active page", async () => 
   assert.equal(created, fresh);
   assert.equal(adapter.getActivePage(), fresh);
 });
+
+
+test("SC-013 Recent recovery reveals cold sidebar once before re-listing conversations", async () => {
+  const adapter = new ChatGptUiAdapter({
+    chromeExecutable: "fake-chrome",
+    settleMs: 0
+  });
+  let scanCalls = 0;
+  let revealCalls = 0;
+  let waits = 0;
+  const recoveredUrl = "https://chatgpt.com/c/recovered-conversation";
+  const page = {
+    isClosed() { return false; },
+    async evaluate(_fn, arg) {
+      if (typeof arg === "number") {
+        scanCalls += 1;
+        return scanCalls === 1 ? [] : [recoveredUrl];
+      }
+      revealCalls += 1;
+      return true;
+    },
+    async waitForTimeout() {
+      waits += 1;
+    }
+  };
+
+  const first = await adapter.listRecentConversationUrls(page, { limit: 50 });
+  const second = await adapter.listRecentConversationUrls(page, { limit: 50 });
+
+  assert.deepEqual(first, [recoveredUrl]);
+  assert.deepEqual(second, [recoveredUrl]);
+  assert.equal(revealCalls, 1);
+  assert.equal(waits, 1);
+  assert.equal(scanCalls, 3);
+});
