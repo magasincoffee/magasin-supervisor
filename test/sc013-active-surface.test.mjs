@@ -92,3 +92,44 @@ test("active GitHub scripts are exactly deploy, live observer and watchdog", asy
     "update-latest-clean-old.ps1"
   ]);
 });
+
+
+test("canonical runtime and Windows source inventories stay minimal", async () => {
+  const runtimeFiles = (await fs.readdir(path.join(root, "src", "runtime"))).sort();
+  assert.deepEqual(runtimeFiles, [
+    "atomic-json-write.mjs",
+    "local-watchdog-probe-cli.mjs",
+    "recovery.mjs",
+    "single-conversation-bootstrap.mjs",
+    "single-conversation-cli.mjs",
+    "single-conversation-loop.mjs",
+    "single-conversation-rollover.mjs",
+    "single-conversation-state.mjs",
+    "single-conversation-transaction.mjs"
+  ]);
+
+  const uiFiles = (await fs.readdir(path.join(root, "src", "ui"))).sort();
+  assert.deepEqual(uiFiles, [
+    "actions.mjs",
+    "classifier.mjs",
+    "latest-turn.mjs",
+    "playwright-adapter.mjs",
+    "snapshot.mjs",
+    "submit-flight-recorder.mjs"
+  ]);
+
+  const windowsFiles = (await fs.readdir(path.join(root, "windows"))).sort();
+  assert.deepEqual(windowsFiles, [
+    "autostart-bootstrap.ps1",
+    "control-panel.ps1",
+    "install-autostart.ps1",
+    "install-supervisor.ps1",
+    "lifecycle-truth.ps1",
+    "local-watchdog.ps1",
+    "run-supervisor.ps1",
+    "start-local-watchdog.ps1",
+    "start-supervisor.ps1",
+    "state-root.ps1",
+    "stop-supervisor.ps1"
+  ]);
+});
