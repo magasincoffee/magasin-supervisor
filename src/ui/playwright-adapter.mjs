@@ -377,6 +377,80 @@ export class ChatGptUiAdapter {
     return Array.isArray(urls) ? urls : [];
   }
 
+  async listBrowserHistoryChatGptUrls({ limit = 100 } = {}) {
+    if (!this.context || typeof this.context.newPage !== "function") return [];
+
+    const maxItems = Math.max(1, Math.min(500, Number(limit) || 100));
+    let historyPage = null;
+    try {
+      historyPage = await this.context.newPage();
+      await historyPage.goto("chrome://history/?q=chatgpt.com", {
+        waitUntil: "commit",
+        timeout: Math.max(1_000, Math.min(10_000, Number(this.timeoutMs) || 5_000))
+      });
+      if (typeof historyPage.waitForTimeout === "function") {
+        await historyPage.waitForTimeout(
+          Math.max(250, Math.min(1_500, Number(this.settleMs) || 500))
+        );
+      }
+
+      const urls = await historyPage.evaluate((boundedMaxItems) => {
+        const seen = new Set();
+        const out = [];
+        const roots = [document];
+        const visited = new Set();
+
+        while (roots.length && out.length < boundedMaxItems) {
+          const root = roots.shift();
+          if (!root || visited.has(root)) continue;
+          visited.add(root);
+
+          const anchors = typeof root.querySelectorAll === "function"
+            ? [...root.querySelectorAll("a[href]")]
+            : [];
+          for (const anchor of anchors) {
+            const raw = String(anchor.getAttribute("href") || "").trim();
+            if (!raw) continue;
+            let url = null;
+            try {
+              url = new URL(raw, "https://chatgpt.com/");
+            } catch {
+              continue;
+            }
+            if (url.hostname !== "chatgpt.com" && !url.hostname.endsWith(".chatgpt.com")) {
+              continue;
+            }
+            if (!/^\/(c|g|project)\//.test(url.pathname)) continue;
+            const normalized = url.origin + url.pathname;
+            if (seen.has(normalized)) continue;
+            seen.add(normalized);
+            out.push(normalized);
+            if (out.length >= boundedMaxItems) break;
+          }
+
+          const nodes = typeof root.querySelectorAll === "function"
+            ? [...root.querySelectorAll("*")]
+            : [];
+          for (const node of nodes) {
+            if (node && node.shadowRoot && !visited.has(node.shadowRoot)) {
+              roots.push(node.shadowRoot);
+            }
+          }
+        }
+
+        return out;
+      }, maxItems).catch(() => []);
+
+      return Array.isArray(urls) ? urls : [];
+    } catch {
+      return [];
+    } finally {
+      if (historyPage && !historyPage.isClosed?.()) {
+        await historyPage.close().catch(() => {});
+      }
+    }
+  }
+
   findPageForTarget(target) {
     if (!target?.origin || !target?.pathname) return null;
     return this.getChatGptPages().find((page) =>
