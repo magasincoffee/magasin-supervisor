@@ -656,6 +656,7 @@ Owner-visible incident evidence:
 - after the single-snapshot draft fix and delegated START support (#279) were deployed, the pre-armed observer successfully advanced the stale bootstrap from generation 1 `BLOCKED/BOOTSTRAP_FAILED` into `RUNNING/REPLACE_CHAT`, and the replacement generation reached generation 2 with `retry_count=1`. The runtime then persisted `PREPARED / SEND_NOT_ACTUATED`, but read-only production evidence showed a real conversation with one user turn and one assistant turn. The user turn contained the exact bootstrap protocol marker, the current unique message ID, and the current SOT URL, while the generic full-text matcher rejected it because ChatGPT rendered a one-character presentation mutation. Therefore the bootstrap was actually delivered and answered; the first failure is now delivery verification/reconciliation, not composer actuation. The canonical repair is bootstrap-specific correlation identity and restart reconciliation without any resend.
 - after correlated-delivery reconciliation (#280) was deployed, the delegated live attempt still remained `PREPARED / SEND_NOT_ACTUATED`. Subsequent read-only diagnostics proved the previously delivered bootstrap conversation was no longer an open tab after restart, but its opaque runtime identity `chat:0a2e510ffd86a7df06fa7ff81a7cd572` still appeared in exactly one current Recent/Sidebar URL. An incident-window Chrome-history scan independently found exactly one hydrated conversation with `correlated-modern-bootstrap-user-turn`, one matching user turn, the current message ID and SOT, and the same opaque runtime identity. Therefore #280 failed because it searched only currently open ChatGPT tabs; the canonical repair is to extend correlated bootstrap recovery to boundedly hydrate Recent/Sidebar candidates, require exactly one exact correlation, close non-matches, and persist `DELIVERED` without any resend.
 - after Recent/Sidebar recovery (#281) was deployed, the delegated live attempt advanced the internal first failure to `RUNTIME_RESTART_IDENTITY_NOT_VERIFIED` while CDP remained healthy and watchdog still observed `RESPONSE_COMPLETE`. The runtime spent about 114 seconds before failing. A later warm diagnostic proved the known correlated runtime identity was present in exactly one current Recent URL and its bootstrap correlation was visible on the first check in about 41 ms. This isolates the remaining failure to cold-start Recent-list discovery: #281 enumerated Recent only once before scanning candidates, so the correct conversation could appear in the sidebar after that first enumeration. Canonical recovery must therefore re-enumerate Recent boundedly and process only newly appeared runtime identities; a hydrated candidate with real user turns but no bootstrap correlation is an immediate non-match and must not consume the full hydration budget.
+- after cold Recent re-enumeration (#282) was deployed, the next real target recovery still failed closed. Wrapper evidence on `DESKTOP-4K7IM13` showed `BOOTSTRAP_CORRELATION_RECENT_PASS={"pass":2,"recent_count":11,"new_count":11,"match_count":2}`, followed by `RUNTIME_RESTART_IDENTITY_NOT_VERIFIED` and `SINGLE_CONVERSATION_BLOCKED_PAUSE=True`. CDP remained healthy and the browser still contained completed ChatGPT conversations. Therefore the current first failure is **duplicate correlated bootstrap identity ambiguity**: two conversations satisfy user-side bootstrap correlation while durable `runtime_id` is absent. No resend or arbitrary conversation selection is authorized; recovery must deterministically prove one canonical conversation or remain fail-closed.
 
 Canonical fix:
 1. forward production MUST use only `SINGLE_CONVERSATION_V1`; obsolete Planner/Executor/Brain/Bridge qualification or cutover workflows MUST NOT auto-run from `main` or consume the production target;
@@ -732,6 +733,47 @@ Current Owner-delegated overnight stabilization authority:
 - allowed actions while valid: pre-arm one observer, START the canonical Robot, capture first failure, implement exactly one first-stage fix, run mandatory gates, perform explicit production deploy, re-arm, START again, and continue into soak when the full flow passes;
 - forbidden even while delegated: ambiguous resend, bypassing exact-once evidence, speculative later-stage fixes, disabling fail-closed safeguards merely to force progress, or START on any machine other than the exact delegated target;
 - after expiry or Owner revocation, remote START authority ends automatically and the process returns to manual Owner START.
+
+### SC-013 single active production surface
+
+SC-013 is now governed by a **single active production surface**. This is a hard architecture boundary intended to make the first real failure observable without interference from historical orchestration, qualification jobs, or temporary diagnostics.
+
+Active workflow allowlist:
+
+- `.github/workflows/supervisor-control-panel-desktop-4k7im13.yml` — explicit production deploy only;
+- `.github/workflows/supervisor-sc013-live-production.yml` — the only live first-failure/start observation flow;
+- `.github/workflows/sc013-runtime-watchdog.yml` — read-only GitHub watchdog;
+- `.github/workflows/supervisor-tests.yml` — hosted-only canonical regression tests;
+- `.github/workflows/supervisor-integrity.yml` — hosted-only static architecture audit;
+- `.github/workflows/supervisor-autostart-install.yml` — hosted-only autostart contract;
+- `.github/workflows/supervisor-lifecycle-acceptance.yml` — hosted-only lifecycle contract.
+
+Only the first three workflows above may use a self-hosted runner. Test/integrity/autostart/lifecycle gates MUST remain hosted-only and MUST NOT start, stop, install, deploy, open Chrome, mutate durable state, or otherwise touch `DESKTOP-4K7IM13`.
+
+Active operational script allowlist:
+
+- `.github/scripts/update-latest-clean-old.ps1`;
+- `.github/scripts/supervisor-sc013-live-production.ps1`;
+- `.github/scripts/sc013-runtime-watchdog.ps1`.
+
+Production runtime is exclusively `SINGLE_CONVERSATION_V1`. The active wrapper, lifecycle truth, Control Center, installer, and deploy script MUST NOT contain runtime selection or execution paths for Planner/Executor, Three-Lane, Brain/Worker, Bridge, Work lanes, or other superseded architectures.
+
+The canonical runtime source inventory is limited to the Single Conversation import closure plus its read-only watchdog and atomic/recovery support. Historical runtime entry points, migration utilities, qualification scripts, old control panels, old browser launchers, temporary soak scripts, and parallel diagnostic workflows are not part of the active source tree.
+
+Evidence policy:
+
+1. local watchdog is the single persistent read-only evidence stream on the machine;
+2. GitHub watchdog reads lifecycle/durable-state/local-watchdog evidence and MUST NOT launch a second diagnostic path;
+3. live first-failure observer uses the same local-watchdog liveness evidence and MUST NOT create a parallel CDP probe workflow;
+4. a temporary diagnostic may be created only when the canonical evidence stream cannot identify the first failure; once the needed evidence is captured, the temporary workflow/script/test MUST be deleted before the repair is accepted;
+5. unreadable evidence is `unknown`, never silently converted to a positive value such as empty draft;
+6. a production problem is fixed only at the earliest proven failing stage; cleanup or state reset MUST NOT be used to bypass exact-once/reconciliation safeguards.
+
+Canonical production path after this cleanup:
+
+`EXPLICIT DEPLOY -> PRE-ARM ONE LIVE OBSERVER -> START -> SINGLE_CONVERSATION_V1 -> LOCAL WATCHDOG -> FIRST FAILURE OR NEXT_WORK -> REPAIR/REPEAT -> SOAK`
+
+No second production workflow, secondary runtime selector, hidden qualification attempt, or legacy self-hosted test may run in parallel with this path.
 
 ### SC-013 unattended observation policy
 

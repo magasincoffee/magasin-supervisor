@@ -35,6 +35,7 @@ Set-Output 'qualified' 'false'
 $root=Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
 $runtime=Join-Path $root 'runtime'
 $statePath=Join-Path $root 'single-conversation-state.json'
+$localWatchdogStatusPath=Join-Path $root 'local-watchdog-status.json'
 $controlPath=Join-Path $root 'single-conversation-control.json'
 $startScript=Join-Path $runtime 'windows\start-supervisor.ps1'
 $delegationPath=Join-Path $env:GITHUB_WORKSPACE '.github\sc013-owner-delegation.json'
@@ -161,8 +162,6 @@ $lastPrinted=''
 $latest=$null
 $lastUiProbe=[DateTimeOffset]::MinValue
 $lastUiSignature=''
-$uiProbeScript=Join-Path $env:GITHUB_WORKSPACE '.github\scripts\sc013-wait-response-liveness.mjs'
-
 while([DateTimeOffset]::UtcNow -lt $deadline){
   Start-Sleep -Seconds 2
   if(-not (Test-Path $statePath)){continue}
@@ -216,57 +215,44 @@ while([DateTimeOffset]::UtcNow -lt $deadline){
     if($line -ne $lastPrinted){Write-Host "SC013_LIVE_PROGRESS $line";$lastPrinted=$line}
   }
 
-  # WAIT_RESPONSE can legitimately remain durably unchanged while ChatGPT is
-  # still executing a long GitHub/Supabase/tool task. Use read-only CDP UI
-  # liveness as additional progress evidence so the harness does not create a
-  # false NO_PROGRESS_TIMEOUT after four minutes of active work.
-  $waitingForResponse=[bool]($phase -eq 'WAIT_RESPONSE' -or $outbound -in @('DELIVERED','RESPONSE_RUNNING'))
+  # WAIT_RESPONSE may legitimately remain durably unchanged while ChatGPT is
+  # still executing. Reuse the independent local watchdog's read-only UI
+  # evidence instead of launching a second probe/diagnostic path.
+  $waitingForResponse=[bool](
+    $phase -eq 'WAIT_RESPONSE' -or
+    $outbound -in @('DELIVERED','RESPONSE_RUNNING')
+  )
   if(
     $waitingForResponse -and
-    (Test-Path $uiProbeScript) -and
-    ([DateTimeOffset]::UtcNow-$lastUiProbe).TotalSeconds -ge 30
+    (Test-Path $localWatchdogStatusPath -PathType Leaf) -and
+    ([DateTimeOffset]::UtcNow-$lastUiProbe).TotalSeconds -ge 10
   ){
     $lastUiProbe=[DateTimeOffset]::UtcNow
     try{
-      $truthNow=Get-LifecycleProcessTruth -Root $root
-      if($truthNow.cdp_healthy){
-        $chromeNow=Get-LifecycleRobotChrome -Root $root
-        if($chromeNow -and [string]$chromeNow.CommandLine -match '--remote-debugging-port=(\d+)'){
-          $cdpUrl="http://127.0.0.1:$([int]$Matches[1])"
-          $probeLines=@(& node $uiProbeScript $runtime $statePath $cdpUrl 2>$null)
-          $uiMatch=0
-          $uiRunning=$false
-          $uiAssistantBusy=$false
-          $uiMainBusy=$false
-          $uiAssistantCount=0
-          $uiAssistantChars=0
-          foreach($probeLine in $probeLines){
-            $probeText=[string]$probeLine
-            if($probeText -match '^SC013_UI_MATCH_COUNT=(\d+)$'){$uiMatch=[int]$Matches[1];continue}
-            if($probeText -eq 'SC013_UI_RESPONSE_RUNNING=True'){$uiRunning=$true;continue}
-            if($probeText -eq 'SC013_UI_ASSISTANT_BUSY=True'){$uiAssistantBusy=$true;continue}
-            if($probeText -eq 'SC013_UI_MAIN_BUSY=True'){$uiMainBusy=$true;continue}
-            if($probeText -match '^SC013_UI_ASSISTANT_COUNT=(\d+)$'){$uiAssistantCount=[int]$Matches[1];continue}
-            if($probeText -match '^SC013_UI_ASSISTANT_CHARS=(\d+)$'){$uiAssistantChars=[int]$Matches[1];continue}
-          }
-
-          if($uiMatch -eq 1){
-            $uiSignature="$uiAssistantCount|$uiAssistantChars"
-            $uiChanged=[bool](
-              -not [string]::IsNullOrWhiteSpace($lastUiSignature) -and
-              $uiSignature -ne $lastUiSignature
-            )
-            $uiActive=[bool]($uiRunning -or $uiAssistantBusy -or $uiMainBusy)
-            if($uiActive -or $uiChanged){
-              $lastProgress=[DateTimeOffset]::UtcNow
-              Write-Host "SC013_LIVE_WAIT_RESPONSE_LIVENESS active=$uiActive changed=$uiChanged assistant_count=$uiAssistantCount assistant_chars=$uiAssistantChars"
-            }
-            $lastUiSignature=$uiSignature
-          }
+      $watchdog=Get-Content $localWatchdogStatusPath -Raw -Encoding UTF8|ConvertFrom-Json
+      $watchdogAge=[int](
+        [DateTimeOffset]::UtcNow-
+        [DateTimeOffset]::Parse([string]$watchdog.timestamp)
+      ).TotalSeconds
+      $ui=$watchdog.ui
+      if($watchdogAge -le 30 -and $ui){
+        $uiActive=[bool](
+          [bool]$ui.response_running -or
+          [bool]$ui.assistant_busy
+        )
+        $uiSignature="$([string]$ui.observation)|$([string]$ui.ui_state)|$([string]$ui.response_running)|$([string]$ui.assistant_busy)"
+        $uiChanged=[bool](
+          -not [string]::IsNullOrWhiteSpace($lastUiSignature) -and
+          $uiSignature -ne $lastUiSignature
+        )
+        if($uiActive -or $uiChanged){
+          $lastProgress=[DateTimeOffset]::UtcNow
+          Write-Host "SC013_LIVE_WAIT_RESPONSE_LIVENESS active=$uiActive changed=$uiChanged observation=$([string]$ui.observation)"
         }
+        $lastUiSignature=$uiSignature
       }
     }catch{
-      Write-Host "SC013_LIVE_WAIT_RESPONSE_LIVENESS_PROBE_ERROR=$($_.Exception.Message)"
+      Write-Host "SC013_LIVE_WAIT_RESPONSE_LIVENESS_STATUS_ERROR=$($_.Exception.Message)"
     }
   }
 

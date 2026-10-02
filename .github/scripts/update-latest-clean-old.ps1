@@ -5,390 +5,83 @@ param(
   [string]$ExpectedMainSha
 )
 
-$ErrorActionPreference='Stop'
+$ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 
-if($env:COMPUTERNAME -ne $TargetComputer){
+if ($env:COMPUTERNAME -ne $TargetComputer) {
   Write-Host 'TARGET_MATCH=False'
-  Write-Host 'TARGET_SKIP_SAFE=True'
-  exit 0
+  Write-Host 'TARGET_MUTATION_SKIPPED=True'
+  exit 1
 }
 Write-Host 'TARGET_MATCH=True'
+Write-Host "EXPECTED_MAIN_SHA=$ExpectedMainSha"
+if (-not [string]::IsNullOrWhiteSpace([string]$env:GITHUB_SHA)) {
+  if ([string]$env:GITHUB_SHA -ne $ExpectedMainSha) {
+    throw "Checked-out SHA does not match explicit deploy authority."
+  }
+}
 
 . (Join-Path $env:GITHUB_WORKSPACE 'windows\state-root.ps1')
+$root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
+$root = Set-SupervisorStateRootBinding -Root $root
+$runtime = Join-Path $root 'runtime'
+$stateFile = Join-Path $root 'single-conversation-state.json'
+$controlFile = Join-Path $root 'single-conversation-control.json'
+$installScript = Join-Path $env:GITHUB_WORKSPACE 'windows\install-supervisor.ps1'
 
-$canonical=Get-SupervisorStateRoot -Compatibility 'platform-default'
-if(-not [string]::IsNullOrWhiteSpace([string]$env:SUPERVISOR_STATE_ROOT)){
-  $canonical=[System.IO.Path]::GetFullPath([string]$env:SUPERVISOR_STATE_ROOT)
+if (-not (Test-Path $installScript -PathType Leaf)) {
+  throw "Canonical installer is missing: $installScript"
 }
-$canonical=Set-SupervisorStateRootBinding -Root $canonical
-
-$base=[string]$env:LOCALAPPDATA
-if([string]::IsNullOrWhiteSpace($base)){$base=[string]$env:USERPROFILE}
-if([string]::IsNullOrWhiteSpace($base)){throw 'Cannot resolve local app data root.'}
-
-$legacy=Join-Path $base 'MAGASIN\BusinessOS\supervisor'
-$runtime=Join-Path $canonical 'runtime'
-$browserProfile=Join-Path $canonical 'browser_profile'
-$configFile=Join-Path $canonical 'lanes.json'
-$registryFile=Join-Path $canonical 'lane-registry.json'
-$desktop=[Environment]::GetFolderPath('Desktop')
-$shortcutDisplayName='MAGASIN SUPERVISOR '+[char]0x2014+' CONTROL CENTER.lnk'
-$shortcutPath=Join-Path $desktop $shortcutDisplayName
-$installScript=Join-Path $env:GITHUB_WORKSPACE 'windows\install-supervisor.ps1'
-$lifecycleScript=Join-Path $env:GITHUB_WORKSPACE 'windows\lifecycle-truth.ps1'
-
-Write-Host "EXPECTED_MAIN_SHA=$ExpectedMainSha"
-Write-Host "CANONICAL_ROOT=$canonical"
-Write-Host "LEGACY_ROOT=$legacy"
-
-foreach($p in @($configFile,$registryFile,$installScript,$lifecycleScript)){
-  if(-not (Test-Path $p)){throw "Missing required path: $p"}
+if (-not (Test-Path $controlFile -PathType Leaf)) {
+  throw "SINGLE_CONVERSATION_V1 control record is missing; refusing production deploy."
 }
 
-function Get-TargetFingerprint([string]$Path){
-  $cfg=Get-Content $Path -Raw -Encoding UTF8|ConvertFrom-Json
-  $canonicalText=@($cfg.lanes|Sort-Object lane_id|ForEach-Object{
-    "$([string]$_.lane_id)|$([bool]$_.enabled)|$([string]$_.brain_url)|$([int]$_.brain_url_revision)|$([string]$_.work_url)|$([int]$_.work_url_revision)|$([string]$_.work_mode)"
-  }) -join [Environment]::NewLine
-  $bytes=[Text.Encoding]::UTF8.GetBytes($canonicalText)
-  $sha=[Security.Cryptography.SHA256]::Create()
-  try{return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-','').ToLowerInvariant()}
-  finally{$sha.Dispose()}
+$control = Get-Content $controlFile -Raw -Encoding UTF8 | ConvertFrom-Json
+if (
+  [string]$control.schema_version -ne 'single-conversation-control.v1' -or
+  [string]$control.mode -ne 'SINGLE_CONVERSATION_V1' -or
+  [string]::IsNullOrWhiteSpace([string]$control.source_of_truth_url)
+) {
+  throw 'Production deploy refused: canonical SINGLE_CONVERSATION_V1 control record is invalid.'
 }
+Write-Host 'DEPLOY_RUNTIME_MODE=SINGLE_CONVERSATION_V1'
 
-$cfgBefore=Get-Content $configFile -Raw -Encoding UTF8|ConvertFrom-Json
-$enabledBefore=@($cfgBefore.lanes|Where-Object{[bool]$_.enabled}).Count
-Write-Host "ENABLED_LANES_BEFORE=$enabledBefore"
-$fingerprintBefore=Get-TargetFingerprint $configFile
-$regBefore=Get-Content $registryFile -Raw -Encoding UTF8|ConvertFrom-Json
-
-. $lifecycleScript
-$truthBefore=Get-LifecycleProcessTruth -Root $canonical
-$plannerExecutorActive=[bool](
-  $truthBefore.wrapper_alive -and
-  [string]$truthBefore.runtime_mode -eq 'PLANNER_EXECUTOR_V1'
-)
-$singleConversationActive=[bool](
-  $truthBefore.wrapper_alive -and
-  [string]$truthBefore.runtime_mode -eq 'SINGLE_CONVERSATION_V1'
-)
-Write-Host "PLANNER_EXECUTOR_ACTIVE_BEFORE=$plannerExecutorActive"
-Write-Host "SINGLE_CONVERSATION_ACTIVE_BEFORE=$singleConversationActive"
-
-if($enabledBefore -ne 0 -or $plannerExecutorActive -or $singleConversationActive){
-  $ownerStop=Get-LifecycleOwnerStopState -Root $canonical
-  if($ownerStop.blocked){
-    Write-Host 'UPDATE_RESULT=DEFERRED_OWNER_STOP'
-    exit 0
-  }
-
-  $sourceSrc=Join-Path $env:GITHUB_WORKSPACE 'src'
-  $targetSrc=Join-Path $runtime 'src'
-  $sourcePackage=Join-Path $env:GITHUB_WORKSPACE 'package.json'
-  $targetPackage=Join-Path $runtime 'package.json'
-  $sourcePanel=Join-Path $env:GITHUB_WORKSPACE 'windows\control-panel.ps1'
-  $targetPanel=Join-Path $runtime 'windows\control-panel.ps1'
-  $sourceWrapper=Join-Path $env:GITHUB_WORKSPACE 'windows\run-supervisor.ps1'
-  $targetWrapper=Join-Path $runtime 'windows\run-supervisor.ps1'
-  $sourceOpenChat=Join-Path $env:GITHUB_WORKSPACE 'windows\open-supervisor-chat.ps1'
-  $targetOpenChat=Join-Path $runtime 'windows\open-supervisor-chat.ps1'
-  $sourceLocalWatchdog=Join-Path $env:GITHUB_WORKSPACE 'windows\local-watchdog.ps1'
-  $targetLocalWatchdog=Join-Path $runtime 'windows\local-watchdog.ps1'
-  $sourceLocalWatchdogStart=Join-Path $env:GITHUB_WORKSPACE 'windows\start-local-watchdog.ps1'
-  $targetLocalWatchdogStart=Join-Path $runtime 'windows\start-local-watchdog.ps1'
-  foreach($p in @($sourceSrc,$targetSrc,$sourcePackage,$targetPackage,$sourcePanel,$targetPanel,$sourceWrapper,$targetWrapper,$sourceOpenChat,$targetOpenChat,$sourceLocalWatchdog,$sourceLocalWatchdogStart)){
-    if(-not (Test-Path $p)){throw "Active-lane hotpatch missing required path: $p"}
-  }
-
-  $sourcePackageHash=(Get-FileHash $sourcePackage -Algorithm SHA256).Hash
-  $targetPackageHash=(Get-FileHash $targetPackage -Algorithm SHA256).Hash
-  if($sourcePackageHash -ne $targetPackageHash){
-    Write-Host 'UPDATE_RESULT=DEFERRED_PACKAGE_CHANGE'
-    exit 0
-  }
-
-  Write-Host 'ACTIVE_LANE_HOTPATCH_BEGIN=True'
-
-  Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-    Where-Object {
-      $_.CommandLine -and
-      $_.CommandLine -like '*local-watchdog.ps1*' -and
-      $_.CommandLine -notlike '*start-local-watchdog.ps1*' -and
-      $_.CommandLine -like "*$canonical*"
-    } |
-    ForEach-Object {
-      Stop-Process -Id ([int]$_.ProcessId) -Force -ErrorAction SilentlyContinue
-      Write-Host "HOTPATCH_OLD_LOCAL_WATCHDOG_STOPPED=$($_.ProcessId)"
-    }
-
-  Copy-Item (Join-Path $sourceSrc '*') $targetSrc -Recurse -Force
-  Copy-Item $sourcePanel $targetPanel -Force
-  Copy-Item $sourceWrapper $targetWrapper -Force
-  Copy-Item $sourceOpenChat $targetOpenChat -Force
-  Copy-Item $sourceLocalWatchdog $targetLocalWatchdog -Force
-  Copy-Item $sourceLocalWatchdogStart $targetLocalWatchdogStart -Force
-  Write-Host 'HOTPATCH_WINDOWS_LAUNCHERS_REFRESHED=True'
-
-  & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $targetLocalWatchdogStart -WaitForHeartbeat
-  if($LASTEXITCODE -ne 0){throw 'Hotpatch local watchdog failed to publish a fresh heartbeat.'}
-  Write-Host 'HOTPATCH_LOCAL_WATCHDOG_RUNNING=True'
-
-  # Windows PowerShell 5.1 decodes UTF-8 scripts without BOM as the active
-  # ANSI code page. Re-encode the installed Control Panel exactly like the
-  # canonical full installer so Vietnamese UI strings remain parse-safe.
-  $panelText=Get-Content $targetPanel -Raw -Encoding UTF8
-  $utf8Bom=New-Object System.Text.UTF8Encoding($true)
-  [System.IO.File]::WriteAllText($targetPanel,$panelText,$utf8Bom)
-
-  $targetPanelText=Get-Content $targetPanel -Raw -Encoding UTF8
-  $sourcePanelText=Get-Content $sourcePanel -Raw -Encoding UTF8
-  if($targetPanelText -ne $sourcePanelText){throw 'Hotpatch Control Panel content mismatch after UTF-8 BOM rewrite.'}
-  Write-Host 'HOTPATCH_CONTROL_PANEL_UTF8_BOM=True'
-
-  $sourceActions=Join-Path $sourceSrc 'ui\actions.mjs'
-  $targetActions=Join-Path $targetSrc 'ui\actions.mjs'
-  if(-not (Test-Path $targetActions)){throw 'Hotpatch target actions.mjs missing after overlay.'}
-  $sourceActionsHash=(Get-FileHash $sourceActions -Algorithm SHA256).Hash
-  $targetActionsHash=(Get-FileHash $targetActions -Algorithm SHA256).Hash
-  if($sourceActionsHash -ne $targetActionsHash){throw 'Hotpatch actions.mjs hash mismatch.'}
-  Write-Host "HOTPATCH_ACTIONS_SHA256=$targetActionsHash"
-
-  $wrapper=Get-LifecycleSupervisorWrapper -Root $canonical
-  if($wrapper){
-    $wrapperPid=[int]$wrapper.ProcessId
-    $child=Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
-      Where-Object {
-        [int]$_.ParentProcessId -eq $wrapperPid -and
-        $_.CommandLine -and (
-          $_.CommandLine -like '*three-lane-cli.mjs*' -or
-          $_.CommandLine -like '*planner-executor-cli.mjs*' -or
-          $_.CommandLine -like '*single-conversation-cli.mjs*'
-        )
-      } |
-      Select-Object -First 1
-    if($child){
-      $childKind = if($child.CommandLine -like '*single-conversation-cli.mjs*'){
-        'SINGLE_CONVERSATION'
-      }elseif($child.CommandLine -like '*planner-executor-cli.mjs*'){
-        'PLANNER_EXECUTOR'
-      }else{
-        'THREE_LANE'
-      }
-      Stop-Process -Id ([int]$child.ProcessId) -Force -ErrorAction Stop
-      Write-Host "HOTPATCH_OLD_CHILD_STOPPED=$($child.ProcessId)"
-      Write-Host "HOTPATCH_OLD_CHILD_KIND=$childKind"
-    }else{
-      Write-Host 'HOTPATCH_CHILD_ALREADY_ABSENT=True'
-    }
-  }else{
-    $startScript=Join-Path $runtime 'windows\start-supervisor.ps1'
-    if(-not (Test-Path $startScript)){throw 'Hotpatch recovery start script missing.'}
-    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $startScript -Hidden -Recovery
-    if($LASTEXITCODE -ne 0){throw 'Hotpatch recovery start failed.'}
-    Write-Host 'HOTPATCH_RECOVERY_START_REQUESTED=True'
-  }
-
-  $healthy=$false
-  for($i=0;$i -lt 60;$i++){
-    Start-Sleep -Milliseconds 500
-    $truth=Get-LifecycleProcessTruth -Root $canonical
-    if($truth.healthy){
-      $healthy=$true
-      Write-Host "HOTPATCH_WRAPPER_ALIVE=$([bool]$truth.wrapper_alive)"
-      Write-Host "HOTPATCH_THREE_LANE_ALIVE=$([bool]$truth.three_lane_alive)"
-      Write-Host "HOTPATCH_CDP_HEALTHY=$([bool]$truth.cdp_healthy)"
-      break
-    }
-  }
-  if(-not $healthy){throw 'Hotpatch runtime did not become healthy within bounded wait.'}
-
-  # Refresh only the Owner Control Panel process so the live UI reflects the
-  # same source revision. The Supervisor wrapper/Three-Lane authority remains
-  # untouched after its bounded child restart above.
-  Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-    Where-Object {
-      $_.CommandLine -and
-      $_.CommandLine -like '*control-panel.ps1*' -and
-      $_.CommandLine -notlike '*run-supervisor.ps1*'
-    } |
-    ForEach-Object {
-      Stop-Process -Id ([int]$_.ProcessId) -Force -ErrorAction SilentlyContinue
-      Write-Host "HOTPATCH_OLD_CONTROL_PANEL_STOPPED=$($_.ProcessId)"
-    }
-
-  Start-Sleep -Milliseconds 300
-  if(Test-Path $shortcutPath){
-    & explorer.exe $shortcutPath
-    Write-Host 'HOTPATCH_CONTROL_PANEL_REOPEN_REQUESTED=True'
-  }else{
-    $env:RUNNER_TRACKING_ID='MAGASIN_CONTROL_PANEL_PERSISTENT'
-    Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
-      '-NoLogo','-NoProfile','-ExecutionPolicy','Bypass',
-      '-File',('"' + $targetPanel + '"')
-    )
-    Write-Host 'HOTPATCH_CONTROL_PANEL_REOPEN_FALLBACK=True'
-  }
-
-  $fingerprintAfter=Get-TargetFingerprint $configFile
-  if($fingerprintBefore -ne $fingerprintAfter){throw 'Project target fingerprint changed during active-lane hotpatch.'}
-
-  $cfgAfter=Get-Content $configFile -Raw -Encoding UTF8|ConvertFrom-Json
-  $enabledAfter=@($cfgAfter.lanes|Where-Object{[bool]$_.enabled}).Count
-  if($enabledAfter -ne $enabledBefore){throw 'Lane enabled state changed during active-lane hotpatch.'}
-
-  $regAfter=Get-Content $registryFile -Raw -Encoding UTF8|ConvertFrom-Json
-  foreach($laneName in @('lane-1','lane-2','lane-3')){
-    $before=$regBefore.lanes.$laneName
-    $after=$regAfter.lanes.$laneName
-    if($before -and $after){
-      if([string]$before.task_id -ne [string]$after.task_id){throw "Task changed for $laneName during hotpatch."}
-      if([bool]$before.awaiting_work -ne [bool]$after.awaiting_work){throw "Awaiting state changed for $laneName during hotpatch."}
-    }
-  }
-
-  Write-Host 'TARGET_FINGERPRINT_UNCHANGED=True'
-  Write-Host 'PROJECT_STATE_PRESERVED=True'
-  Write-Host 'UPDATE_RESULT=HOTPATCH_ENABLED_LANES'
-  exit 0
+$stateHashBefore = $null
+if (Test-Path $stateFile -PathType Leaf) {
+  $stateHashBefore = (Get-FileHash $stateFile -Algorithm SHA256).Hash
+  Write-Host "STATE_HASH_BEFORE=$stateHashBefore"
 }
-
-# This branch is reached only when there are no enabled legacy lanes AND
-# no live Planner/Executor or Single-Conversation runtime. Never classify PLANNER_EXECUTOR_V1 as idle
-# merely because lanes.json has zero enabled lanes; doing so would crash-kill
-# its dedicated Chrome and produce the "Restore pages?" bubble mid-project.
-# When truly idle, retire only the dedicated Robot Chrome profile so the next
-# Owner START/manual open launches with the current browser flags.
-$dedicatedChrome=@(
-  Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
-    Where-Object {
-      $_.CommandLine -and
-      $_.CommandLine -like "*$browserProfile*"
-    }
-)
-foreach($chromeProcess in $dedicatedChrome){
-  Stop-Process -Id ([int]$chromeProcess.ProcessId) -Force -ErrorAction SilentlyContinue
-  Write-Host "OLD_DEDICATED_CHROME_STOPPED=$($chromeProcess.ProcessId)"
-}
-if($dedicatedChrome.Count -gt 0){
-  Write-Host 'DEDICATED_CHROME_FAST_RESTART_ARMED=True'
-}else{
-  Write-Host 'DEDICATED_CHROME_ALREADY_ABSENT=True'
-}
-
-$sourcePanel=Get-Content (Join-Path $env:GITHUB_WORKSPACE 'windows\control-panel.ps1') -Raw -Encoding UTF8
-foreach($marker in @('CONTROL PANEL V2','heroPanel','overviewPanel','$resetAllButton = New-Object Windows.Forms.Button','Request-RunnerRecovery','Request-LifecycleRecovery','for ($eventIndex = $events.Count - 1; $eventIndex -ge 0; $eventIndex--)')){
-  if($sourcePanel -notmatch [regex]::Escape($marker)){
-    throw "Latest source panel marker missing: $marker"
-  }
-}
-Write-Host 'LATEST_PANEL_MARKERS=PASS'
-
-Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-  Where-Object {
-    $_.CommandLine -and
-    ($_.CommandLine -like '*control-panel.ps1*' -or $_.CommandLine -like '*run-supervisor.ps1*')
-  } |
-  ForEach-Object {
-    Stop-Process -Id ([int]$_.ProcessId) -Force -ErrorAction SilentlyContinue
-    Write-Host "OLD_POWERSHELL_STOPPED=$($_.ProcessId)"
-  }
-
-Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
-  Where-Object {
-    $_.CommandLine -and $_.CommandLine -match '(supervisor-loop-cli|brain-worker-cli|three-lane-cli)\.mjs'
-  } |
-  ForEach-Object {
-    Stop-Process -Id ([int]$_.ProcessId) -Force -ErrorAction SilentlyContinue
-    Write-Host "OLD_NODE_STOPPED=$($_.ProcessId)"
-  }
-
-Start-Sleep -Milliseconds 900
 
 & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installScript -SourceRoot $env:GITHUB_WORKSPACE
-if($LASTEXITCODE -ne 0){throw 'Current runtime install failed.'}
+if ($LASTEXITCODE -ne 0) {
+  throw "Canonical runtime install failed with exit code $LASTEXITCODE."
+}
 Write-Host 'CANONICAL_RUNTIME_REPLACED=True'
 
-if(Test-Path $legacy){
-  if([System.IO.Path]::GetFullPath($legacy).TrimEnd('\') -eq [System.IO.Path]::GetFullPath($canonical).TrimEnd('\')){
-    throw 'Legacy path aliases canonical root.'
+$sourceCli = Join-Path $env:GITHUB_WORKSPACE 'src\runtime\single-conversation-cli.mjs'
+$installedCli = Join-Path $runtime 'src\runtime\single-conversation-cli.mjs'
+foreach ($p in @($sourceCli,$installedCli)) {
+  if (-not (Test-Path $p -PathType Leaf)) { throw "Required runtime file is missing: $p" }
+}
+$sourceHash = (Get-FileHash $sourceCli -Algorithm SHA256).Hash
+$installedHash = (Get-FileHash $installedCli -Algorithm SHA256).Hash
+if ($sourceHash -ne $installedHash) {
+  throw 'Installed SINGLE_CONVERSATION_V1 runtime does not match exact deployed source.'
+}
+Write-Host "SINGLE_CONVERSATION_CLI_SHA256=$installedHash"
+
+if ($null -ne $stateHashBefore) {
+  if (-not (Test-Path $stateFile -PathType Leaf)) {
+    throw 'Durable single-conversation state disappeared during deploy.'
   }
-  Remove-Item $legacy -Recurse -Force -ErrorAction Stop
-  Write-Host 'LEGACY_ROOT_DELETED=True'
-}else{
-  Write-Host 'LEGACY_ROOT_DELETED=ALREADY_ABSENT'
-}
-
-@(
-  'START_MAGASIN_SUPERVISOR.cmd',
-  'STOP_MAGASIN_SUPERVISOR.cmd',
-  'START_MAGASIN_SUPERVISOR.lnk',
-  'STOP_MAGASIN_SUPERVISOR.lnk',
-  'SAYDI CONTROL.lnk'
-) | ForEach-Object {
-  $p=Join-Path $desktop $_
-  if(Test-Path $p){
-    Remove-Item $p -Force -ErrorAction SilentlyContinue
-    Write-Host "OLD_SHORTCUT_DELETED=$p"
+  $stateHashAfter = (Get-FileHash $stateFile -Algorithm SHA256).Hash
+  if ($stateHashAfter -ne $stateHashBefore) {
+    throw 'Durable single-conversation state changed during code deployment.'
   }
+  Write-Host 'DURABLE_STATE_PRESERVED=True'
+} else {
+  Write-Host 'DURABLE_STATE_PRESERVED=NO_PRIOR_STATE'
 }
 
-$installedPanel=Get-Content (Join-Path $runtime 'windows\control-panel.ps1') -Raw -Encoding UTF8
-foreach($marker in @('CONTROL PANEL V2','heroPanel','overviewPanel','$resetAllButton = New-Object Windows.Forms.Button','Request-RunnerRecovery','Request-LifecycleRecovery','for ($eventIndex = $events.Count - 1; $eventIndex -ge 0; $eventIndex--)')){
-  if($installedPanel -notmatch [regex]::Escape($marker)){
-    throw "Installed panel marker missing: $marker"
-  }
-}
-Write-Host 'INSTALLED_PANEL_MARKERS=PASS'
-
-if(-not (Test-Path $shortcutPath)){throw 'Unified control panel shortcut missing.'}
-$wsh=New-Object -ComObject WScript.Shell
-$sc=$wsh.CreateShortcut($shortcutPath)
-$expectedPanel=Join-Path $runtime 'windows\control-panel.ps1'
-Write-Host "SHORTCUT_TARGET=$($sc.TargetPath)"
-Write-Host "SHORTCUT_ARGS=$($sc.Arguments)"
-Write-Host "SHORTCUT_WORKDIR=$($sc.WorkingDirectory)"
-if($sc.Arguments -notlike "*$expectedPanel*"){throw 'Unified shortcut does not target canonical panel.'}
-if([System.IO.Path]::GetFullPath($sc.WorkingDirectory) -ne [System.IO.Path]::GetFullPath($canonical)){
-  throw 'Unified shortcut working directory is not canonical.'
-}
-
-$fingerprintAfter=Get-TargetFingerprint $configFile
-if($fingerprintBefore -ne $fingerprintAfter){throw 'Project target fingerprint changed during update.'}
-
-$cfgAfter=Get-Content $configFile -Raw -Encoding UTF8|ConvertFrom-Json
-$enabledAfter=@($cfgAfter.lanes|Where-Object{[bool]$_.enabled}).Count
-if($enabledAfter -ne $enabledBefore){throw 'Lane enabled state changed during update.'}
-
-$regAfter=Get-Content $registryFile -Raw -Encoding UTF8|ConvertFrom-Json
-foreach($laneName in @('lane-1','lane-2','lane-3')){
-  $before=$regBefore.lanes.$laneName
-  $after=$regAfter.lanes.$laneName
-  if($before -and $after){
-    if([string]$before.task_id -ne [string]$after.task_id){throw "Task changed for $laneName."}
-    if([bool]$before.awaiting_work -ne [bool]$after.awaiting_work){throw "Awaiting state changed for $laneName."}
-  }
-}
-
-$legacyProcesses=@(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-  Where-Object {$_.CommandLine -and $_.CommandLine -like "*$legacy*"})
-Write-Host "LEGACY_PROCESS_COUNT=$($legacyProcesses.Count)"
-if($legacyProcesses.Count -ne 0){throw 'Process still references deleted legacy root.'}
-
-& explorer.exe $shortcutPath
-$panel=$null
-for($i=0;$i -lt 30;$i++){
-  Start-Sleep -Milliseconds 500
-  $panel=Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-    Where-Object {$_.CommandLine -and $_.CommandLine -like "*$expectedPanel*"} |
-    Select-Object -First 1
-  if($panel){break}
-}
-if(-not $panel){throw 'Canonical current control panel did not launch.'}
-
-Write-Host "CURRENT_PANEL_PID=$($panel.ProcessId)"
-Write-Host "ENABLED_LANES_AFTER=$enabledAfter"
-Write-Host 'TARGET_FINGERPRINT_UNCHANGED=True'
-Write-Host 'PROJECT_STATE_PRESERVED=True'
-Write-Host 'OLD_VERSIONS_REMOVED=True'
+Write-Host 'LOCAL_WATCHDOG_INSTALLED_RUNNING=True'
 Write-Host 'LATEST_VERSION_UPDATE=PASS'

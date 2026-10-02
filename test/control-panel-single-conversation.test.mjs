@@ -6,104 +6,74 @@ async function read(rel) {
   return fs.readFile(new URL(rel, import.meta.url), "utf8");
 }
 
-test("SC-007 forward Control Center requires only Source of Truth plus START STOP", async () => {
+test("Control Center exposes only SINGLE_CONVERSATION_V1", async () => {
   const panel = await read("../windows/control-panel.ps1");
-  const start = panel.indexOf("function Show-SingleConversationControlPanel");
-  const end = panel.indexOf("function Show-PlannerExecutorControlPanel", start);
-  assert.ok(start >= 0);
-  assert.ok(end > start);
-  const ui = panel.slice(start, end);
 
-  assert.match(ui, /SOURCE OF TRUTH/);
-  assert.match(ui, /START ROBOT/);
-  assert.match(ui, /STOP ROBOT/);
-  assert.match(ui, /SINGLE_CONVERSATION_V1/);
-  assert.match(ui, /generation=/);
-  assert.match(ui, /conversationStatus/);
-  assert.match(ui, /source_of_truth_url/);
-  assert.match(ui, /single-conversation-control\.v1/);
-  assert.match(ui, /START = create\/resume Robot session from Source of Truth/);
+  assert.match(panel, /SOURCE OF TRUTH/);
+  assert.match(panel, /START ROBOT/);
+  assert.match(panel, /STOP ROBOT/);
+  assert.match(panel, /SINGLE_CONVERSATION_V1/);
+  assert.match(panel, /single-conversation-control\.v1/);
+  assert.match(panel, /source_of_truth_url/);
+  assert.match(panel, /generation=/);
+  assert.match(panel, /AUTOMATION:/);
+  assert.match(panel, /SOURCE OF TRUTH SYNC:/);
 
-  assert.doesNotMatch(ui, /Planner URL|Executor URL|LINK CHAT PLANNER|LINK CHAT EXECUTOR/);
-  assert.doesNotMatch(ui, /MỞ PLANNER|MỞ EXECUTOR/);
-  assert.doesNotMatch(ui, /Save-PlannerExecutorTargets|Initialize-LinkOnlyPlannerExecutorSession/);
+  assert.doesNotMatch(panel, /THREE_LANE_V1/);
+  assert.doesNotMatch(panel, /PLANNER_EXECUTOR_V1/);
+  assert.doesNotMatch(panel, /BRAIN_WORKER_V1/);
+  assert.doesNotMatch(panel, /Show-PlannerExecutorControlPanel/);
+  assert.doesNotMatch(panel, /lanes\.json/);
+  assert.doesNotMatch(panel, /lane-registry\.json/);
+  assert.doesNotMatch(panel, /planner-executor/i);
+  assert.doesNotMatch(panel, /SUPERVISOR_CONTROL_PANEL_LEGACY/);
 });
 
-test("SC-007 production panel bypasses legacy Planner Executor unless rollback flag is explicit", async () => {
+test("START writes only Source of Truth control identity and starts canonical wrapper", async () => {
   const panel = await read("../windows/control-panel.ps1");
-  const forward = panel.indexOf("if ([string]$env:SUPERVISOR_CONTROL_PANEL_LEGACY -ne '1')");
-  const legacySelector = panel.indexOf("$plannerExecutorPanelState = Read-JsonFile $plannerExecutorStateFile");
-  assert.ok(forward >= 0);
-  assert.ok(legacySelector > forward);
-  assert.match(
-    panel.slice(forward, legacySelector),
-    /Show-SingleConversationControlPanel[\s\S]*exit 0/
-  );
-});
 
-test("SC-007 START writes only Source of Truth control identity and no chat targets", async () => {
-  const panel = await read("../windows/control-panel.ps1");
-  const start = panel.indexOf("function Show-SingleConversationControlPanel");
-  const end = panel.indexOf("function Show-PlannerExecutorControlPanel", start);
-  const ui = panel.slice(start, end);
+  const writeStart = panel.indexOf("function Write-SingleConversationControl");
+  const writeEnd = panel.indexOf("function Refresh-SingleConversationUi", writeStart);
+  const write = panel.slice(writeStart, writeEnd);
 
-  const writeStart = ui.indexOf("function Write-SingleConversationControl");
-  const writeEnd = ui.indexOf("function Refresh-SingleConversationUi", writeStart);
-  const write = ui.slice(writeStart, writeEnd);
   assert.match(write, /schema_version = 'single-conversation-control\.v1'/);
   assert.match(write, /mode = 'SINGLE_CONVERSATION_V1'/);
   assert.match(write, /source_of_truth_url = \$source/);
-  assert.doesNotMatch(write, /planner|executor|chat_url|conversation_url/i);
+  assert.doesNotMatch(write, /planner|executor|lane|chat_url|conversation_url/i);
 
-  const clickStart = ui.indexOf("$startButton.Add_Click({");
-  const clickEnd = ui.indexOf("$stopButton.Add_Click", clickStart);
-  const handler = ui.slice(clickStart, clickEnd);
+  const clickStart = panel.indexOf("$startButton.Add_Click({");
+  const clickEnd = panel.indexOf("$stopButton.Add_Click", clickStart);
+  const handler = panel.slice(clickStart, clickEnd);
   assert.match(handler, /Write-SingleConversationControl/);
-  assert.match(handler, /start-supervisor\.ps1|\$startScript/);
-  assert.doesNotMatch(handler, /planner|executor/i);
+  assert.match(handler, /\$startScript/);
+  assert.match(handler, /'-Hidden'/);
 });
 
-test("SC-007 wrapper and lifecycle select SINGLE_CONVERSATION_V1 from forward control", async () => {
+test("wrapper and lifecycle have no legacy runtime selector", async () => {
   const run = await read("../windows/run-supervisor.ps1");
   const lifecycle = await read("../windows/lifecycle-truth.ps1");
 
-  assert.match(run, /single-conversation-control\.json/);
-  assert.match(run, /SINGLE_CONVERSATION_V1/);
+  for (const source of [run, lifecycle]) {
+    assert.match(source, /SINGLE_CONVERSATION_V1/);
+    assert.doesNotMatch(source, /THREE_LANE_V1/);
+    assert.doesNotMatch(source, /PLANNER_EXECUTOR_V1/);
+    assert.doesNotMatch(source, /BRAIN_WORKER_V1/);
+  }
+
   assert.match(run, /src\/runtime\/single-conversation-cli\.mjs/);
   assert.match(run, /--source-of-truth/);
   assert.match(run, /--state/);
-
-  assert.match(lifecycle, /single-conversation-control\.json/);
   assert.match(lifecycle, /Get-LifecycleSingleConversationProcess/);
   assert.match(lifecycle, /single_conversation_alive/);
-  assert.match(lifecycle, /return 'SINGLE_CONVERSATION_V1'/);
 });
 
-
-test("SC-009 production wrapper does not require legacy target.json for SINGLE_CONVERSATION_V1", async () => {
-  const run = await read("../windows/run-supervisor.ps1");
-  const gateStart = run.indexOf("target.json belongs only to legacy target-bound runtimes");
-  const gateEnd = run.indexOf('Write-Host "Supervisor entry point:', gateStart);
-  assert.ok(gateStart >= 0);
-  assert.ok(gateEnd > gateStart);
-  const gate = run.slice(gateStart, gateEnd);
-
-  assert.match(
-    gate,
-    /\$runtimeMode -notin @\('SINGLE_CONVERSATION_V1','PLANNER_EXECUTOR_V1','THREE_LANE_V1','BRAIN_WORKER_V1'\)/
-  );
-  assert.match(run, /if \(-not \$DryRun\) \{ \$nodeArgs \+= '--execute' \}/);
-});
-
-
-test("SC-012 production wrapper pauses instead of retrying a durable BLOCKED state", async () => {
+test("durable BLOCKED state pauses wrapper instead of relaunching chat", async () => {
   const run = await read("../windows/run-supervisor.ps1");
   const blocked = run.indexOf("SINGLE_CONVERSATION_BLOCKED_PAUSE=True");
   const cdpRecovery = run.indexOf("$nodeExitCode -eq 75", blocked);
   assert.ok(blocked >= 0);
   assert.ok(cdpRecovery > blocked);
   const guard = run.slice(Math.max(0, blocked - 1800), cdpRecovery);
-  assert.match(guard, /\$runtimeMode -eq 'SINGLE_CONVERSATION_V1'/);
   assert.match(guard, /\$singleAutomationAfterRun -eq 'BLOCKED'/);
   assert.match(guard, /break/);
 });
