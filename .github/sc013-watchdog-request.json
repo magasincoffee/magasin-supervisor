@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-watchdog-request.v1",
-  "requested_at": "2026-10-02T17:35:30Z",
+  "requested_at": "2026-10-02T17:55:30Z",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Capture live state for RUNNING/WAIT_RESPONSE with no visible new Robot user turn after post-reboot recovery."
+  "reason": "Verify PR #292 proof-rewind outcome: current message should leave poisoned RESPONSE_RUNNING and either safe-retry/send or fail closed with new first-failure evidence."
 }
