@@ -1,0 +1,31 @@
+name: SCHED-UI-017 Realistic Local Staging
+
+on:
+  push:
+    branches:
+      - 'owner-review/sched-ui-017-local'
+    paths:
+      - '.github/workflows/sched-ui-017-local-staging.yml'
+      - '.github/local-review/**'
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-local-staging:
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [a, b]
+    runs-on: self-hosted
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare exact-candidate local staging on review desktop
+        shell: cmd
+        run: |
+          @echo off
+          echo SLOT=${{ matrix.slot }}
+          echo MACHINE=%COMPUTERNAME%
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\local-review\prepare-sched-ui-017-local-staging.ps1" -TargetComputer "DESKTOP-4K7IM13" -CandidateSha "1f6f6cf0646aba66e9f73fab123f87a182cb17c1" -Port 8772
+          exit /b %ERRORLEVEL%
