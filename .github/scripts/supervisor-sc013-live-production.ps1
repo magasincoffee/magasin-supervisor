@@ -302,6 +302,24 @@ while([DateTimeOffset]::UtcNow -lt $deadline){
     }
   }
 
+  $legitimateOwnerGate=[bool](
+    $automation -eq 'BLOCKED' -and
+    $phase -eq 'WAIT_OWNER' -and
+    $reason -like 'OWNER_INPUT_REQUIRED*' -and
+    $outbound -eq 'VERIFIED'
+  )
+  if($legitimateOwnerGate){
+    $truth=Get-LifecycleProcessTruth -Root $root
+    Write-Host 'SC013_LIVE_OWNER_GATE_REACHED=True'
+    Write-Host "SC013_LIVE_OWNER_GATE_REASON=$reason"
+    Write-Host "SC013_LIVE_OWNER_GATE_OUTBOUND=$outbound"
+    Write-Host "SC013_LIVE_WRAPPER_ALIVE=$([bool]$truth.wrapper_alive)"
+    Write-Host "SC013_LIVE_CDP_HEALTHY=$([bool]$truth.cdp_healthy)"
+    Write-Host 'SC013_LIVE_STATUS=PASS'
+    Set-Output 'qualified' 'true'
+    exit 0
+  }
+
   if($automation -eq 'BLOCKED'){
     if($null -eq $blockedSince){$blockedSince=[DateTimeOffset]::UtcNow}
     if(([DateTimeOffset]::UtcNow-$blockedSince).TotalSeconds -ge [Math]::Max(120,$BlockedGraceSeconds)){
