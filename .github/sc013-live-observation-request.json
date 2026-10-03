@@ -2,6 +2,6 @@
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
   "requested_after_cleanup_sha": "06ae5520014175c55c8824157b574d4a00d61af8",
-  "purpose": "Post-deploy live rerun for PR #301 pre-bootstrap startup recovery. Prove START progresses beyond generation=0/BOOTSTRAP_FAILED; capture only the next first failing stage if one remains.",
-  "rearm_nonce": "post-pr301-bootstrap-recovery-live-1"
+  "purpose": "Retry post-deploy live rerun for PR #301 until assigned to DESKTOP-4K7IM13. Prove START progresses beyond generation=0/BOOTSTRAP_FAILED; capture only the next first failing stage if one remains.",
+  "rearm_nonce": "post-pr301-bootstrap-recovery-live-2"
 }
