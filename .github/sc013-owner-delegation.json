@@ -3,9 +3,9 @@
   "active": true,
   "scope": "SC-013_OVERNIGHT_STABILIZATION",
   "target": "DESKTOP-4K7IM13",
-  "granted_by": "Owner explicit instruction in ChatGPT",
-  "granted_at": "2026-10-02T00:09:00+07:00",
-  "expires_at": "2026-10-02T12:00:00+07:00",
+  "granted_by": "Owner explicit instruction in ChatGPT: run Robot until genuine Owner block",
+  "granted_at": "2026-10-03T09:01:00+07:00",
+  "expires_at": "2026-10-04T09:01:00+07:00",
   "permissions": [
     "START_CANONICAL_ROBOT",
     "REARM_FIRST_FAILURE_OBSERVER",
