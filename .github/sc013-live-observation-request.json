@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "requested_after_cleanup_sha": "bd407271929f06d4e14a9d57cc2985b547771f10",
-  "purpose": "Continue first-failure observation after independent watchdog verification of PR #293."
+  "requested_after_cleanup_sha": "e2fdc8460eec920203d4fbd3da9a16e165ae6139",
+  "purpose": "Owner-delegated unattended run: START canonical Robot and continue first-failure observation until genuine Owner-required block; RUNNING/CHECK and technical faults are not Owner blocks."
 }
