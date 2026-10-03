@@ -2,5 +2,5 @@
   "schema_version": "sc013-watchdog-request.v1",
   "target": "DESKTOP-4K7IM13",
   "purpose": "Capture exact current first-send bootstrap failure after PR302 deploy: state, wrapper stdout/stderr, CDP and ChatGPT UI evidence. Observation only; no send or repair.",
-  "rearm_nonce": "first-send-bootstrap-diagnostic-20261003-2203-retry2"
+  "rearm_nonce": "first-send-bootstrap-diagnostic-20261003-2203-retry3"
 }
