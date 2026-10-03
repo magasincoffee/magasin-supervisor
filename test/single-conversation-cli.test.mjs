@@ -1161,3 +1161,21 @@ test("SC-013 ENQUEUED task restart checks assistant correlation before exact-onc
   assert.ok(reconcile > settle);
   assert.match(body, /userTurnId:\s*null/);
 });
+
+
+test("SC-013 runtime logs structured task-protocol subreason without chat content", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /SINGLE_CONVERSATION_TASK_PROTOCOL_REASON=/);
+  assert.match(source, /MISSING_BLOCK/);
+  assert.match(source, /MALFORMED_FIELD/);
+  assert.match(source, /READY_MISSING_NEXT_TASK/);
+  assert.match(source, /RUNNING_INVALID_TASK_OR_DELAY/);
+  assert.match(source, /NO_EXECUTABLE_TASK_ID/);
+  assert.doesNotMatch(
+    source,
+    /SINGLE_CONVERSATION_TASK_PROTOCOL_REASON=.*assistant_turn.*text/
+  );
+});
