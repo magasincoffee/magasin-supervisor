@@ -83,30 +83,53 @@ export function parseTaskControl(text) {
     renderedWhitespaceFallback = Boolean(match);
   }
 
+  const fields = new Map();
+  let body = match?.[1] || "";
+
   if (!match) {
+    // ChatGPT's rendered DOM can occasionally collapse paragraph boundaries
+    // without preserving whitespace at all. Accept only the exact machine
+    // schema in that case: fixed header/footer, fixed field order, and no
+    // unrecognized prose inside the block.
+    const compactBlockPattern = /MAGASIN_TASK_CONTROL_V1([\s\S]*?)END_MAGASIN_TASK_CONTROL_V1/g;
+    let compact = null;
+    for (const candidate of source.matchAll(compactBlockPattern)) {
+      compact = candidate;
+    }
+    if (compact) {
+      body = compact[1];
+      const compactFields = /^\s*STATUS\s*=\s*(READY|RUNNING|COMPLETE|BLOCKED|DONE)\s*TASK_ID\s*=\s*(NONE|[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}?)(?=\s*NEXT_TASK_ID\s*=)\s*NEXT_TASK_ID\s*=\s*(NONE|[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}?)(?=\s*CHECK_AFTER_SECONDS\s*=)\s*CHECK_AFTER_SECONDS\s*=\s*(\d+)\s*$/.exec(body);
+      if (compactFields) {
+        fields.set("STATUS", compactFields[1]);
+        fields.set("TASK_ID", compactFields[2]);
+        fields.set("NEXT_TASK_ID", compactFields[3]);
+        fields.set("CHECK_AFTER_SECONDS", compactFields[4]);
+      }
+    }
+  } else {
+    const rawFields = renderedWhitespaceFallback
+      ? body.trim().split(/\s+/)
+      : body.split(/\r?\n/);
+
+    for (const rawLine of rawFields) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const fieldMatch = renderedWhitespaceFallback
+        ? /^([A-Z_]+)=(\S*)$/.exec(line)
+        : /^([A-Z_]+)=(.*)$/.exec(line);
+      if (!fieldMatch) {
+        throw Object.assign(new Error("malformed task-control line"), {
+          code: "TASK_PROTOCOL_INVALID"
+        });
+      }
+      fields.set(fieldMatch[1], fieldMatch[2].trim());
+    }
+  }
+
+  if (fields.size === 0) {
     throw Object.assign(new Error("complete task-control block is missing"), {
       code: "TASK_PROTOCOL_INVALID"
     });
-  }
-
-  const body = match[1];
-  const fields = new Map();
-  const rawFields = renderedWhitespaceFallback
-    ? body.trim().split(/\s+/)
-    : body.split(/\r?\n/);
-
-  for (const rawLine of rawFields) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const fieldMatch = renderedWhitespaceFallback
-      ? /^([A-Z_]+)=(\S*)$/.exec(line)
-      : /^([A-Z_]+)=(.*)$/.exec(line);
-    if (!fieldMatch) {
-      throw Object.assign(new Error("malformed task-control line"), {
-        code: "TASK_PROTOCOL_INVALID"
-      });
-    }
-    fields.set(fieldMatch[1], fieldMatch[2].trim());
   }
 
   const status = String(fields.get("STATUS") || "").toUpperCase();
