@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "requested_after_cleanup_sha": "a08393499d7e2e50f752046e487cfd72257d406e",
-  "purpose": "Owner-delegated live rerun after PR #297 compact task-control parser fix; auto-START canonical Robot and verify VERIFIED discovery advances past NEXT_WORK into task execution/check."
+  "requested_after_cleanup_sha": "911fd74a0128c41c515fdcdda808b64836048cb5",
+  "purpose": "Owner-delegated live rerun with task-protocol subreason instrumentation. Auto-START canonical Robot, capture exact first failing parser branch if TASK_PROTOCOL_INVALID recurs, otherwise continue until genuine Owner block or next technical first failure."
 }
