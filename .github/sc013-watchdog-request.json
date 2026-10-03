@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-watchdog-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "purpose": "Capture exact current first-send bootstrap failure after PR302 deploy: state, wrapper stdout/stderr, CDP and ChatGPT UI evidence. Observation only; no send or repair.",
-  "rearm_nonce": "first-send-bootstrap-diagnostic-20261003-2203-retry3"
+  "purpose": "Post-New-Chat-busy-fix sample: determine whether Robot created generation 1, sent bootstrap exactly once, is waiting for ChatGPT, or hit the next real failure. Observation only.",
+  "rearm_nonce": "post-first-send-fix-state-sample-20261003-2211"
 }
