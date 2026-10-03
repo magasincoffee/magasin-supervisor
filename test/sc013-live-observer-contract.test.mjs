@@ -25,3 +25,25 @@ test("SC-013 live first-failure observer is explicit, pre-armed, and single-atte
   assert.match(workflow, /-MaxObserveSeconds 3600/);
   assert.match(workflow, /supervisor-sc013-live-production\.ps1/);
 });
+
+
+test("SC-013 observers treat a verified WAIT_OWNER gate as a valid terminal state", async () => {
+  const live = await fs.readFile(
+    new URL("../.github/scripts/supervisor-sc013-live-production.ps1", import.meta.url),
+    "utf8"
+  );
+  const watchdog = await fs.readFile(
+    new URL("../.github/scripts/sc013-runtime-watchdog.ps1", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(live, /SC013_LIVE_OWNER_GATE_REACHED=True/);
+  assert.match(live, /OWNER_INPUT_REQUIRED/);
+  assert.match(live, /phase -eq 'WAIT_OWNER'/);
+  assert.match(live, /outbound -eq 'VERIFIED'/);
+
+  assert.match(watchdog, /SC013_WATCHDOG_OWNER_GATE_REACHED=True/);
+  assert.match(watchdog, /SC013_WATCHDOG_STATUS=OWNER_INPUT_REQUIRED/);
+  assert.match(watchdog, /phase -eq 'WAIT_OWNER'/);
+  assert.match(watchdog, /outbound -eq 'VERIFIED'/);
+});
