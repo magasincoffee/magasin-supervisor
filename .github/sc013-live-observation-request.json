@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "requested_after_cleanup_sha": "e2fdc8460eec920203d4fbd3da9a16e165ae6139",
-  "purpose": "Owner-delegated unattended run: START canonical Robot and continue first-failure observation until genuine Owner-required block; RUNNING/CHECK and technical faults are not Owner blocks."
+  "requested_after_cleanup_sha": "d34225269f8014eb509fbf18e4918562f857de5f",
+  "purpose": "Owner-delegated live rerun after PR #295 assistant-correlation reconciliation; auto-START canonical Robot and verify SCHED-UI-012 resumes RUNNING/CHECK instead of technical BLOCK."
 }
