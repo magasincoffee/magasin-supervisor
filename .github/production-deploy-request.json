@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "09b4f009db457f423bb0f0a3e5dbea41ad837d3e",
+  "requested_main_sha": "11d7ea6c5f2b7a955a214304457d639e67e9c627",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy PR #302 Owner-facing Vietnamese live status/countdown plus merged SC-013 startup recovery, then rerun production."
+  "reason": "Deploy first-send bootstrap fix: tolerate transient blank New Chat busy/generating hydration; all mandatory hosted gates are green."
 }
