@@ -1,7 +1,7 @@
 {
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "requested_after_cleanup_sha": "06ae5520014175c55c8824157b574d4a00d61af8",
-  "purpose": "Retry post-deploy live rerun for PR #301 until assigned to DESKTOP-4K7IM13. Prove START progresses beyond generation=0/BOOTSTRAP_FAILED; capture only the next first failing stage if one remains.",
-  "rearm_nonce": "post-pr301-bootstrap-recovery-live-2"
+  "requested_after_cleanup_sha": "3c8d754ae51e8dfb9a43e0fe122b68adf7f17315",
+  "purpose": "Post-PR302 production rerun. Verify startup recovery, Vietnamese Control Center observability, bootstrap progression, and next bounded work without unexpected STOP/BLOCKED.",
+  "rearm_nonce": "owner-vietnamese-control-rerun-20261003-2100"
 }
