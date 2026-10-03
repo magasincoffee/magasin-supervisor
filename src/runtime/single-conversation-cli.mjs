@@ -31,7 +31,8 @@ import {
 } from "./single-conversation-rollover.mjs";
 import {
   ensureSingleConversationState,
-  readSingleConversationState
+  readSingleConversationState,
+  writeSingleConversationState
 } from "./single-conversation-state.mjs";
 import {
   markExactOnceDelivered,
@@ -93,6 +94,35 @@ function taskProtocolSubreason(error) {
     ["task protocol did not provide an executable task id", "NO_EXECUTABLE_TASK_ID"]
   ]);
   return table.get(message) || "OTHER_PROTOCOL_INVALID";
+}
+
+export async function persistTerminalTaskControl(
+  statePath,
+  control,
+  { now = () => new Date().toISOString() } = {}
+) {
+  const status = String(control?.status || "").toUpperCase();
+  if (!["BLOCKED", "DONE"].includes(status)) {
+    return readSingleConversationState(statePath);
+  }
+
+  const state = await readSingleConversationState(statePath);
+  const at = new Date(typeof now === "function" ? now() : now).toISOString();
+
+  if (status === "BLOCKED") {
+    const blockedTaskId = String(control?.task_id || "").trim();
+    state.automation.status = "BLOCKED";
+    state.automation.phase = "WAIT_OWNER";
+    state.automation.reason = blockedTaskId
+      ? `OWNER_INPUT_REQUIRED:${blockedTaskId}`
+      : "OWNER_INPUT_REQUIRED";
+  } else {
+    state.automation.status = "DONE";
+    state.automation.phase = "DONE";
+    state.automation.reason = "PROJECT_DONE";
+  }
+  state.automation.updated_at = at;
+  return writeSingleConversationState(statePath, state, { now: () => at });
 }
 
 export async function waitForNextCycleDelay(
@@ -1774,17 +1804,19 @@ export async function runSingleConversationRuntime({
 
   while (maxCycles <= 0 || cycles < maxCycles) {
     if (control.status === "DONE") {
+      const terminalState = await persistTerminalTaskControl(statePath, control);
       return {
         status: "DONE",
         cycles,
-        generation: (await readSingleConversationState(statePath)).conversation.generation
+        generation: terminalState.conversation.generation
       };
     }
     if (control.status === "BLOCKED") {
+      const terminalState = await persistTerminalTaskControl(statePath, control);
       return {
         status: "WAIT_OWNER",
         cycles,
-        generation: (await readSingleConversationState(statePath)).conversation.generation
+        generation: terminalState.conversation.generation
       };
     }
 
