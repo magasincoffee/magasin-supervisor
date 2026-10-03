@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-watchdog-request.v1",
-  "requested_at": "2026-10-03T06:24:00Z",
+  "requested_at": "2026-10-03T07:57:00Z",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Differentiate true NEXT_WORK stall from legitimate STATUS=RUNNING CHECK_AFTER timer after run 37099444506."
+  "reason": "Post-PR297 live run 37103200546 failed NO_PROGRESS_TIMEOUT at NEXT_WORK after VERIFIED discovery. Capture current wrapper/CDP/runtime error to distinguish parser exit from true NEXT_WORK stall."
 }
