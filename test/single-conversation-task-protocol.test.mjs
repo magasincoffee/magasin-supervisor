@@ -500,3 +500,38 @@ test("SC-013 compact task-control fallback still rejects prose inside the machin
     (error) => error?.code === "TASK_PROTOCOL_INVALID"
   );
 });
+
+
+test("SC-013 normalizes BLOCKED discovery that advertises the blocked gate in NEXT_TASK_ID", () => {
+  const parsed = parseTaskControl(
+    "MAGASIN_TASK_CONTROL_V1\n" +
+    "STATUS=BLOCKED\n" +
+    "TASK_ID=NONE\n" +
+    "NEXT_TASK_ID=SCHED-UI-016\n" +
+    "CHECK_AFTER_SECONDS=0\n" +
+    "END_MAGASIN_TASK_CONTROL_V1"
+  );
+
+  assert.deepEqual(parsed, {
+    status: "BLOCKED",
+    task_id: "SCHED-UI-016",
+    next_task_id: null,
+    check_after_seconds: 0
+  });
+});
+
+test("SC-013 discovery contract makes BLOCKED gate semantics explicit", () => {
+  const message = buildSingleConversationTaskDiscoveryInstruction({
+    sourceOfTruthUrl: "https://github.com/magasincoffee/project/blob/main/SOURCE_OF_TRUTH.md",
+    messageId: "sc013-blocked-contract-test"
+  });
+
+  assert.match(
+    message,
+    /Use STATUS=BLOCKED only when no executable task can proceed without Owner input/
+  );
+  assert.match(
+    message,
+    /BLOCKED => TASK_ID=<blocked SOT gate id or NONE> and NEXT_TASK_ID=NONE/
+  );
+});
