@@ -45,14 +45,15 @@ Copy-Item -LiteralPath $mockSource -Destination $mockTarget -Force
 
 $needle = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2'
 $replacement = '/LOCAL_STAGING/supabase-local-mock.js'
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $patchedCount = 0
 Get-ChildItem -LiteralPath $target -Recurse -File | Where-Object {
   $_.FullName -notmatch '\\.git\\' -and $_.FullName -ne $mockTarget -and @('.html','.js') -contains $_.Extension.ToLowerInvariant()
 } | ForEach-Object {
-  $raw = Get-Content -LiteralPath $_.FullName -Raw
+  $raw = [System.IO.File]::ReadAllText($_.FullName, $utf8NoBom)
   if ($raw.Contains($needle)) {
     $next = $raw.Replace($needle,$replacement)
-    Set-Content -LiteralPath $_.FullName -Value $next -Encoding UTF8
+    [System.IO.File]::WriteAllText($_.FullName, $next, $utf8NoBom)
     $patchedCount++
   }
 }
@@ -61,8 +62,15 @@ if ($patchedCount -lt 5) {
   throw "Expected multiple Supabase CDN replacements, got $patchedCount"
 }
 
+$authHtmlPath = Join-Path $target '03_PLATFORM\01_AUTH\index.html'
+$authHtmlCheck = [System.IO.File]::ReadAllText($authHtmlPath, $utf8NoBom)
+if ($authHtmlCheck -notmatch 'Đăng nhập' -or $authHtmlCheck -match 'Ä|Ã') {
+  throw 'UTF8 verification failed after local staging patch.'
+}
+Write-Host "LOCAL_STAGING_UTF8=PASS"
+
 $authPath = Join-Path $target '03_PLATFORM\01_AUTH\auth-runtime-v2.js'
-$auth = Get-Content -LiteralPath $authPath -Raw
+$auth = [System.IO.File]::ReadAllText($authPath, $utf8NoBom)
 $oldRoute = @'
     if (role === 'OWNER') location.replace('/owner/');
     else if (role === 'ACCOUNTANT') location.replace('/nhap-hang/');
@@ -81,7 +89,7 @@ if (!$auth.Contains($oldRoute)) {
   throw 'Local staging auth route anchor not found.'
 }
 $auth = $auth.Replace($oldRoute,$newRoute)
-Set-Content -LiteralPath $authPath -Value $auth -Encoding UTF8
+[System.IO.File]::WriteAllText($authPath, $auth, $utf8NoBom)
 
 $readme = @(
   'SCHED-UI-017 LOCAL STAGING'
@@ -95,8 +103,8 @@ $readme = @(
   ''
   "Login: http://127.0.0.1:$Port/03_PLATFORM/01_AUTH/?localstaging=2"
 ) -join [Environment]::NewLine
-Set-Content -LiteralPath (Join-Path $target 'LOCAL_STAGING\README.txt') -Value $readme -Encoding UTF8
-Set-Content -LiteralPath (Join-Path $env:USERPROFILE 'Desktop\SCHED-UI-017-LOCAL-STAGING.txt') -Value $readme -Encoding UTF8
+[System.IO.File]::WriteAllText((Join-Path $target 'LOCAL_STAGING\README.txt'), $readme, $utf8NoBom)
+[System.IO.File]::WriteAllText((Join-Path $env:USERPROFILE 'Desktop\SCHED-UI-017-LOCAL-STAGING.txt'), $readme, $utf8NoBom)
 
 $base = "http://127.0.0.1:$Port"
 $loginUrl = "$base/03_PLATFORM/01_AUTH/?localstaging=2"
