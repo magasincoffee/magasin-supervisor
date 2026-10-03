@@ -7,7 +7,10 @@ import {
   composerInstructionDigest,
   inspectComposerDraftDigest
 } from "../ui/actions.mjs";
-import { ChatGptUiAdapter } from "../ui/playwright-adapter.mjs";
+import {
+  ChatGptUiAdapter,
+  isTransientNavigationError
+} from "../ui/playwright-adapter.mjs";
 import { captureLatestRoleTurn } from "../ui/latest-turn.mjs";
 import {
   bootstrapFailureRecoveryReason,
@@ -75,6 +78,43 @@ function terminalAnswer(text) {
   if (/\b(?:WAIT_OWNER|OWNER_REQUIRED|BLOCKED)\b/i.test(value)) return "WAIT_OWNER";
   if (/\b(?:PROJECT_DONE|PROJECT_COMPLETE)\b/i.test(value)) return "DONE";
   return null;
+}
+
+function runtimeStartupErrorCode(error) {
+  const explicit = String(error?.code || "").trim().toUpperCase();
+  if (explicit) return explicit.slice(0, 120);
+  const message = String(error?.message || error || "");
+  if (/captcha/i.test(message)) return "CAPTCHA_REQUIRED";
+  if (/login|required|sign in/i.test(message)) return "AUTH_REQUIRED";
+  if (/access is denied|access denied/i.test(message)) return "ACCESS_DENIED";
+  if (/network|ECONN|ETIMEDOUT|socket|fetch failed/i.test(message)) return "NETWORK_ERROR";
+  return "RUNTIME_START_FAILED";
+}
+
+async function persistRuntimeStartupState(
+  statePath,
+  {
+    status = "RUNNING",
+    phase,
+    reason = null,
+    errorCode = null,
+    errorStage = null,
+    now = () => new Date().toISOString()
+  } = {}
+) {
+  const state = await readSingleConversationState(statePath);
+  const at = new Date(typeof now === "function" ? now() : now).toISOString();
+  state.automation.status = String(status || "RUNNING").toUpperCase();
+  state.automation.phase = String(phase || "STARTING_BROWSER").toUpperCase();
+  state.automation.reason = reason ? String(reason).slice(0, 300) : null;
+  state.automation.updated_at = at;
+  if (state.outbound && typeof state.outbound === "object") {
+    state.outbound.last_error_code = errorCode ? String(errorCode).slice(0, 120) : null;
+    if (Object.hasOwn(state.outbound, "last_error_stage")) {
+      state.outbound.last_error_stage = errorStage ? String(errorStage).slice(0, 120) : null;
+    }
+  }
+  return writeSingleConversationState(statePath, state, { now: () => at });
 }
 
 function taskProtocolSubreason(error) {
@@ -1411,7 +1451,48 @@ export async function runSingleConversationRuntime({
     };
   }
 
-  await adapter.open();
+  await persistRuntimeStartupState(statePath, {
+    status: "RUNNING",
+    phase: "STARTING_BROWSER",
+    reason: null,
+    errorCode: null,
+    errorStage: null
+  });
+
+  try {
+    await boundedRuntimeStep(
+      "RUNTIME_OPEN_CDP",
+      () => adapter.open(),
+      { timeoutMs: 20_000 }
+    );
+  } catch (error) {
+    const message = String(error?.message || error || "");
+    const cdpRecoverable = Boolean(
+      String(error?.code || "").toUpperCase() === "CDP_RECOVERY_REQUIRED" ||
+      isTransientNavigationError(error) ||
+      /real Chrome CDP connection has no browser context|real Chrome CDP connection has no open page/i.test(message)
+    );
+    const code = cdpRecoverable
+      ? "CDP_RECOVERY_REQUIRED"
+      : runtimeStartupErrorCode(error);
+    await persistRuntimeStartupState(statePath, {
+      status: cdpRecoverable ? "RUNNING" : "BLOCKED",
+      phase: cdpRecoverable ? "CDP_RECOVERY_REQUIRED" : "BOOTSTRAP_FAILED",
+      reason: code,
+      errorCode: code,
+      errorStage: "RUNTIME_OPEN_CDP"
+    }).catch(() => {});
+    if (cdpRecoverable) {
+      throw Object.assign(
+        new Error(message || "CDP startup recovery required"),
+        { code, runtime_stage: "RUNTIME_OPEN_CDP", cause: error }
+      );
+    }
+    throw Object.assign(error instanceof Error ? error : new Error(message), {
+      runtime_stage: "RUNTIME_OPEN_CDP"
+    });
+  }
+
   let page = adapter.getActivePage();
   let current = await readSingleConversationState(statePath);
   let bootstrapResponse = null;
@@ -1949,6 +2030,12 @@ if (isMain) {
     const code = String(error?.code || "");
     const stage = String(error?.runtime_stage || "");
     console.error("SINGLE_CONVERSATION_RUNTIME_ERROR=" + (code || error?.name || "Error"));
+    const safeMessage = String(error?.message || error || "")
+      .replace(/[\r\n]+/g, " ")
+      .slice(0, 500);
+    if (safeMessage) {
+      console.error("SINGLE_CONVERSATION_RUNTIME_ERROR_MESSAGE=" + safeMessage);
+    }
     if (code === "TASK_PROTOCOL_INVALID") {
       console.error(
         "SINGLE_CONVERSATION_TASK_PROTOCOL_REASON=" +
