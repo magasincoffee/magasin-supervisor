@@ -76,6 +76,25 @@ function terminalAnswer(text) {
   return null;
 }
 
+function taskProtocolSubreason(error) {
+  const message = String(error?.message || "");
+  const table = new Map([
+    ["complete task-control block is missing", "MISSING_BLOCK"],
+    ["malformed task-control line", "MALFORMED_FIELD"],
+    ["invalid task-control status", "INVALID_STATUS"],
+    ["invalid task id in task-control block", "INVALID_TASK_ID"],
+    ["invalid CHECK_AFTER_SECONDS", "INVALID_CHECK_AFTER_SECONDS"],
+    ["READY requires NEXT_TASK_ID", "READY_MISSING_NEXT_TASK"],
+    ["RUNNING requires TASK_ID and positive CHECK_AFTER_SECONDS", "RUNNING_INVALID_TASK_OR_DELAY"],
+    ["COMPLETE requires TASK_ID and NEXT_TASK_ID", "COMPLETE_MISSING_TASK_OR_NEXT"],
+    ["COMPLETE cannot repeat the same TASK_ID as NEXT_TASK_ID", "COMPLETE_REPEATED_TASK"],
+    ["DONE must not include NEXT_TASK_ID", "DONE_HAS_NEXT_TASK"],
+    ["BLOCKED must not include NEXT_TASK_ID", "BLOCKED_HAS_NEXT_TASK"],
+    ["task protocol did not provide an executable task id", "NO_EXECUTABLE_TASK_ID"]
+  ]);
+  return table.get(message) || "OTHER_PROTOCOL_INVALID";
+}
+
 export async function waitForNextCycleDelay(
   delayMs,
   { sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}
@@ -1898,6 +1917,12 @@ if (isMain) {
     const code = String(error?.code || "");
     const stage = String(error?.runtime_stage || "");
     console.error("SINGLE_CONVERSATION_RUNTIME_ERROR=" + (code || error?.name || "Error"));
+    if (code === "TASK_PROTOCOL_INVALID") {
+      console.error(
+        "SINGLE_CONVERSATION_TASK_PROTOCOL_REASON=" +
+        taskProtocolSubreason(error)
+      );
+    }
     if (stage) {
       console.error("SINGLE_CONVERSATION_RUNTIME_ERROR_STAGE=" + stage);
     }
