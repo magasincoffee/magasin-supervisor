@@ -2,5 +2,6 @@
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
   "requested_after_cleanup_sha": "d34225269f8014eb509fbf18e4918562f857de5f",
-  "purpose": "Owner-delegated live rerun after PR #295 assistant-correlation reconciliation; auto-START canonical Robot and verify SCHED-UI-012 resumes RUNNING/CHECK instead of technical BLOCK."
+  "purpose": "Owner-delegated live rerun after PR #295; re-arm because prior observer landed on non-target runner. Require DESKTOP-4K7IM13 and auto-START canonical Robot.",
+  "rearm_nonce": "target-retry-1"
 }
