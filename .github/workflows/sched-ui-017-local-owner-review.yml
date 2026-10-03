@@ -98,12 +98,12 @@ jobs:
             throw "Local preview HTTP check failed: $($resp.StatusCode)"
           }
 
-          $readme = @"
-SCHED-UI-017 LOCAL OWNER REVIEW
-Candidate: $actual
-Safe review URL: $fixture
-Production mutation: NONE (QA fixture / mock business data)
-"@
+          $readme = @(
+            "SCHED-UI-017 LOCAL OWNER REVIEW"
+            "Candidate: $actual"
+            "Safe review URL: $fixture"
+            "Production mutation: NONE (QA fixture / mock business data)"
+          ) -join [Environment]::NewLine
           Set-Content -Path (Join-Path $env:USERPROFILE 'Desktop\SCHED-UI-017-LOCAL-REVIEW.txt') -Value $readme -Encoding UTF8
 
           Write-Host "LOCAL_REVIEW_URL=$fixture"
