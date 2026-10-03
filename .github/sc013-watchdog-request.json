@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-watchdog-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "purpose": "Post-New-Chat-busy-fix sample: determine whether Robot created generation 1, sent bootstrap exactly once, is waiting for ChatGPT, or hit the next real failure. Observation only.",
-  "rearm_nonce": "post-first-send-fix-state-sample-20261003-2211"
+  "purpose": "Capture current owner-visible fault: automation RUNNING/NEXT_WORK with conversation ACTIVE and SOT VERIFIED, while wrapper and CDP are down. Read-only evidence only; capture wrapper stderr/runtime exit cause before any restart.",
+  "rearm_nonce": "next-work-wrapper-down-20261003-2354"
 }
