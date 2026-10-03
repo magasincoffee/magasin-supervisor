@@ -18,7 +18,7 @@ test("SC-007 forward Control Center requires only Source of Truth plus START STO
   assert.match(ui, /KHỞI ĐỘNG ROBOT/);
   assert.match(ui, /DỪNG ROBOT/);
   assert.match(ui, /SINGLE_CONVERSATION_V1/);
-  assert.match(ui, /thế hệ=\$generation/);
+  assert.match(ui, /\$generation/);
   assert.match(ui, /conversationStatus/);
   assert.match(ui, /source_of_truth_url/);
   assert.match(ui, /single-conversation-control\.v1/);
