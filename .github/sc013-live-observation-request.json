@@ -2,6 +2,6 @@
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
   "requested_after_cleanup_sha": "911fd74a0128c41c515fdcdda808b64836048cb5",
-  "purpose": "Owner-delegated parser-subreason qualification; previous observer landed on non-target. Require DESKTOP-4K7IM13, auto-START canonical Robot, capture exact TASK_PROTOCOL_INVALID subreason or next technical first failure.",
-  "rearm_nonce": "subreason-target-retry-1"
+  "purpose": "Owner-delegated parser-subreason qualification; retry until scheduler assigns DESKTOP-4K7IM13. Non-target attempts are invalid evidence and must not mutate.",
+  "rearm_nonce": "subreason-target-retry-2"
 }
