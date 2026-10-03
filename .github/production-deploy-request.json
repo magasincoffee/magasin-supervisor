@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "c666896bf31eae9bdcdb830d6a5a37730351b45f",
+  "requested_main_sha": "75cf145896362bffe0f582acc5568c12bc2d6628",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy SC-013 safe-snapshot false-delivery rewind from PR #293 after all mandatory gates passed."
+  "reason": "Deploy SC-013 ENQUEUED task assistant-correlation reconciliation from PR #295 after all mandatory gates passed."
 }
