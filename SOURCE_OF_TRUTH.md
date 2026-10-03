@@ -763,12 +763,13 @@ A future chat that is asked to "continue SC-013", "make the Robot run", "continu
 Current Owner-delegated overnight stabilization authority:
 - scope: `SC-013_OVERNIGHT_STABILIZATION`;
 - target: `DESKTOP-4K7IM13`;
-- authority: the Owner explicitly authorized ChatGPT to run the canonical START command directly on the target and re-arm attempts while the Owner is asleep;
+- authority: on 2026-10-03 the Owner explicitly authorized ChatGPT to run the canonical START command directly on the target, re-arm attempts, and keep the Robot progressing unattended until a genuine Owner-required block is reached;
 - marker: `.github/sc013-owner-delegation.json`;
-- automatic expiry: `2026-10-02T12:00:00+07:00`;
+- automatic expiry: `2026-10-04T09:01:00+07:00`;
+- stop condition while valid: only a genuine Owner-required boundary (`BLOCKED_OWNER` semantics such as credentials/MFA/CAPTCHA/security/permission, explicit business approval/decision, or Owner STOP) ends unattended progression; `STATUS=RUNNING`, bounded `CHECK_AFTER_SECONDS`, technical faults, runtime/CDP/UI failures, reconciliation faults, and monitoring faults are not Owner blocks;
 - allowed actions while valid: pre-arm one observer, START the canonical Robot, capture first failure, implement exactly one first-stage fix, run mandatory gates, perform explicit production deploy, re-arm, START again, and continue into soak when the full flow passes;
 - forbidden even while delegated: ambiguous resend, bypassing exact-once evidence, speculative later-stage fixes, disabling fail-closed safeguards merely to force progress, or START on any machine other than the exact delegated target;
-- after expiry or Owner revocation, remote START authority ends automatically and the process returns to manual Owner START.
+- after expiry, genuine Owner block, or Owner revocation, remote START authority ends automatically and the process returns to manual Owner START.
 
 ### SC-013 unattended observation policy
 
