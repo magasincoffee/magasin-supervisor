@@ -42,7 +42,7 @@ jobs:
           if (Test-Path $pidFile) {
             $oldPid = (Get-Content $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
             if ($oldPid -match '^\d+$') {
-              Stop-Process -Id ([int]$oldPid) -Force -ErrorAction SilentlyContinue
+              cmd.exe /d /c "taskkill /PID $oldPid /T /F >NUL 2>&1" | Out-Null
             }
             Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
           }
@@ -72,24 +72,28 @@ jobs:
             throw 'Python not found on local runner.'
           }
 
-          # Prevent the self-hosted runner cleanup phase from killing the preview server.
-          $env:RUNNER_TRACKING_ID = ''
+          # Launch through the Windows WMI provider so the local review server
+          # is not a child process owned by the GitHub runner job.
+          $serverScript = Join-Path $env:USERPROFILE 'MAGASIN_PREVIEW\SCHED-UI-017-server.ps1'
+          $escapedTarget = $target.Replace("'","''")
+          $escapedPython = $pythonExe.Replace("'","''")
+          $escapedLog = $logFile.Replace("'","''")
+          $argText = ($pythonArgs -join ' ')
+          $serverBody = @(
+            "$ErrorActionPreference = 'Stop'"
+            "Set-Location -LiteralPath '$escapedTarget'"
+            "& '$escapedPython' $argText *> '$escapedLog'"
+          ) -join [Environment]::NewLine
+          Set-Content -Path $serverScript -Value $serverBody -Encoding UTF8
 
-          $psi = New-Object System.Diagnostics.ProcessStartInfo
-          $psi.FileName = $pythonExe
-          $psi.Arguments = ($pythonArgs -join ' ')
-          $psi.WorkingDirectory = $target
-          $psi.UseShellExecute = $false
-          $psi.CreateNoWindow = $true
-          $psi.RedirectStandardOutput = $true
-          $psi.RedirectStandardError = $true
+          $commandLine = "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$serverScript`""
+          $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $commandLine }
+          if ($created.ReturnValue -ne 0 -or -not $created.ProcessId) {
+            throw "Unable to create durable local preview process. ReturnValue=$($created.ReturnValue)"
+          }
+          Set-Content -Path $pidFile -Value $created.ProcessId -Encoding ASCII
 
-          $proc = New-Object System.Diagnostics.Process
-          $proc.StartInfo = $psi
-          [void]$proc.Start()
-          Set-Content -Path $pidFile -Value $proc.Id -Encoding ASCII
-
-          Start-Sleep -Seconds 2
+          Start-Sleep -Seconds 3
           $base = "http://127.0.0.1:$env:REVIEW_PORT"
           $fixture = "$base/09_QA/people-shift/ui2-012-manager-scheduling-fixture.html"
 
@@ -107,7 +111,7 @@ jobs:
           Set-Content -Path (Join-Path $env:USERPROFILE 'Desktop\SCHED-UI-017-LOCAL-REVIEW.txt') -Value $readme -Encoding UTF8
 
           Write-Host "LOCAL_REVIEW_URL=$fixture"
-          Write-Host "LOCAL_REVIEW_PID=$($proc.Id)"
+          Write-Host "LOCAL_REVIEW_PID=$($created.ProcessId)"
           Write-Host "LOCAL_REVIEW_PRODUCTION_MUTATION=NONE"
 
           Start-Process $fixture
