@@ -113,7 +113,7 @@ $guard = @'
     if(document.getElementById('localProductionReadOnlyBanner'))return;
     const b=document.createElement('div');
     b.id='localProductionReadOnlyBanner';
-    b.textContent='LOCAL REVIEW · TÀI KHOẢN + DỮ LIỆU THẬT · CHỈ ĐỌC';
+    b.textContent='LOCAL REVIEW · REAL ACCOUNT + REAL DATA · READ ONLY';
     b.style.cssText='position:fixed;right:10px;top:8px;z-index:2147483647;background:#174c65;color:#fff;padding:7px 11px;border-radius:999px;font:700 11px/1.2 system-ui;box-shadow:0 3px 12px #0003;pointer-events:none';
     (document.documentElement||document.body).appendChild(b);
   }
@@ -126,6 +126,9 @@ $guard = @'
 
 $needle = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2'
 $replacement = '/LOCAL_STAGING/supabase-production-readonly.js?v=real-readonly-1'
+$authHtmlPath = Join-Path $target '03_PLATFORM\01_AUTH\index.html'
+$authHtmlOriginal = [System.IO.File]::ReadAllText($authHtmlPath, $utf8NoBom)
+$authHtmlExpected = $authHtmlOriginal.Replace($needle,$replacement)
 $patchedCount = 0
 Get-ChildItem -LiteralPath $target -Recurse -File | Where-Object {
   $_.FullName -notmatch '\\.git\\' -and $_.FullName -notlike "$stagingDir*" -and @('.html','.js') -contains $_.Extension.ToLowerInvariant()
@@ -141,16 +144,15 @@ if ($patchedCount -lt 5) {
   throw "Expected multiple Supabase CDN replacements, got $patchedCount"
 }
 
-# Verify that the candidate's Vietnamese text survived the local patch byte-for-byte in UTF-8 terms.
-$authHtmlPath = Join-Path $target '03_PLATFORM\01_AUTH\index.html'
+# Verify that the login page changed only by the expected Supabase script replacement.
 $authHtmlCheck = [System.IO.File]::ReadAllText($authHtmlPath, $utf8NoBom)
-if ($authHtmlCheck -notmatch 'Đăng nhập' -or $authHtmlCheck -match 'Ä|Ã') {
-  throw 'UTF8 verification failed after local staging patch.'
+if ($authHtmlCheck -cne $authHtmlExpected) {
+  throw 'UTF8/content verification failed after local staging patch.'
 }
 Write-Host "LOCAL_STAGING_UTF8=PASS"
 
 $readme = @(
-  'SCHED-UI-017 LOCAL REVIEW · REAL AUTH / REAL DATA / READ-ONLY'
+  'SCHED-UI-017 LOCAL REVIEW - REAL AUTH / REAL DATA / READ-ONLY'
   "Candidate: $actual"
   'Login uses the real MAGASIN Supabase account.'
   'Reads use production data allowed by that account role.'
