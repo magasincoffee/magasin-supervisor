@@ -1001,12 +1001,19 @@ async function assertBlankNewChatSurface(adapter, page) {
       { code: "COMPOSER_NOT_READY" }
     );
   }
-  if (snapshot.responseRunning) {
-    throw new Error("ChatGPT New Chat surface is unexpectedly generating");
-  }
   if (Number(snapshot.userMessageCount || 0) !== 0 ||
       Number(snapshot.assistantMessageCount || 0) !== 0) {
     throw new Error("ChatGPT surface is not a blank New Chat");
+  }
+  if (snapshot.responseRunning) {
+    // Current ChatGPT can transiently expose a busy/generating control while a
+    // freshly opened blank home surface is hydrating. This is not send
+    // authority. Keep waiting only while the surface remains provably blank;
+    // bounded timeout below still fails closed if the busy state persists.
+    throw Object.assign(
+      new Error("ChatGPT blank New Chat is temporarily busy"),
+      { code: "NEW_CHAT_BUSY" }
+    );
   }
 
   return probe;
@@ -1035,7 +1042,7 @@ async function waitForBlankNewChatSurface(
       const code = String(error?.code || "");
       const message = String(error?.message || "");
       if (
-        code !== "COMPOSER_NOT_READY" ||
+        !["COMPOSER_NOT_READY", "NEW_CHAT_BUSY"].includes(code) ||
         /login|required|CAPTCHA|access is denied|surface is missing/i.test(message)
       ) {
         throw error;

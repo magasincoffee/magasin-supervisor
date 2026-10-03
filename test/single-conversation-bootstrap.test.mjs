@@ -706,6 +706,51 @@ test("SC-003 forceNewPage never reuses a pre-existing home page", async () => {
   assert.equal(newPages, 1);
 });
 
+test("SC-013 blank New Chat tolerates a transient busy snapshot before hydration settles", async () => {
+  const oldHome = fakePage();
+  const fresh = fakePage();
+  let probes = 0;
+  const adapter = {
+    async open() {},
+    getActivePage() { return oldHome; },
+    async newChatPage() { return fresh; },
+    async probePage(candidate) {
+      assert.equal(candidate, fresh);
+      probes += 1;
+      if (probes === 1) {
+        return { snapshot: blankSnapshot({ responseRunning: true }) };
+      }
+      return { snapshot: blankSnapshot({ responseRunning: false }) };
+    }
+  };
+
+  const result = await acquireBlankNewChatSurface(adapter, {
+    forceNewPage: true
+  });
+  assert.equal(result.page, fresh);
+  assert.equal(result.created, true);
+  assert.equal(probes, 2);
+});
+
+test("SC-013 busy surface with existing turns is never accepted as blank New Chat", async () => {
+  const page = fakePage();
+  const snapshot = blankSnapshot({
+    responseRunning: true,
+    userMessageCount: 1
+  });
+  const adapter = {
+    async open() {},
+    getActivePage() { return page; },
+    async newChatPage() { return page; },
+    async probePage() { return { snapshot }; }
+  };
+
+  await assert.rejects(
+    acquireBlankNewChatSurface(adapter, { forceNewPage: true }),
+    /not a blank New Chat/
+  );
+});
+
 test("SC-003 reuses an authenticated blank ChatGPT home as New Chat", async () => {
   const page = fakePage();
   let newPages = 0;
