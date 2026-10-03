@@ -1,7 +1,7 @@
 {
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "requested_after_cleanup_sha": "2ccf88b154c37641eb78c59270dd1c224c9da4d7",
-  "purpose": "Retry the current Owner-reported START -> immediate STOP bootstrap first-failure capture until the scheduler assigns DESKTOP-4K7IM13. Non-target attempts are invalid evidence and must not mutate production.",
-  "rearm_nonce": "bootstrap-failure-live-capture-20261003-2100-retry-1"
+  "requested_after_cleanup_sha": "06ae5520014175c55c8824157b574d4a00d61af8",
+  "purpose": "Post-deploy live rerun for PR #301 pre-bootstrap startup recovery. Prove START progresses beyond generation=0/BOOTSTRAP_FAILED; capture only the next first failing stage if one remains.",
+  "rearm_nonce": "post-pr301-bootstrap-recovery-live-1"
 }
