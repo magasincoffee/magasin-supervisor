@@ -2,5 +2,5 @@
   "schema_version": "sc013-watchdog-request.v1",
   "target": "DESKTOP-4K7IM13",
   "purpose": "Capture current owner-visible fault: automation RUNNING/NEXT_WORK with conversation ACTIVE and SOT VERIFIED, while wrapper and CDP are down. Read-only evidence only; capture wrapper stderr/runtime exit cause before any restart.",
-  "rearm_nonce": "next-work-wrapper-down-20261003-2354-r2"
+  "rearm_nonce": "next-work-wrapper-down-20261003-2354-r3"
 }
