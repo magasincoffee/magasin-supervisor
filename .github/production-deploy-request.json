@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "3d93135b4af9e116231c1c3495f9f35455af1997",
+  "requested_main_sha": "1b967f4aa3b965a571950e46d84811ed1a7a678e",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy SC-013 invisible task-control rendering normalization from PR #296 after all mandatory gates passed."
+  "reason": "Deploy SC-013 compact rendered task-control parser fallback from PR #297 after all mandatory gates passed."
 }
