@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-watchdog-request.v1",
-  "requested_at": "2026-10-03T08:36:00Z",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Owner supplied SC-013 report. Capture wrapper-startup stderr after run 37108342770 so PR #298 task-protocol subreason can be read from the correct target before repair."
+  "purpose": "Read-only capture after Owner START remains stuck at generation=0 / BOOTSTRAP_FAILED. Capture wrapper/startup log tails and live UI evidence through the canonical watchdog lane.",
+  "rearm_nonce": "bootstrap-root-cause-watchdog-20261003-2135"
 }
