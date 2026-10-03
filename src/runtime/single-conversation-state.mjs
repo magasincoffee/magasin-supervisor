@@ -113,7 +113,13 @@ export function createSingleConversationState({
       status: "STOPPED",
       reason: null,
       phase: "STOPPED",
-      updated_at: at
+      updated_at: at,
+      wait_kind: null,
+      wait_label: null,
+      wait_task_id: null,
+      wait_started_at: null,
+      wait_until: null,
+      wait_seconds_total: 0
     },
     created_at: at,
     updated_at: at
@@ -229,6 +235,27 @@ export function assertSingleConversationState(value) {
   value.automation.phase = String(value.automation.phase || "STOPPED").toUpperCase();
   value.automation.reason =
     requireNullableString(value.automation.reason, "automation.reason", 300);
+  value.automation.wait_kind =
+    requireNullableString(value.automation.wait_kind, "automation.wait_kind", 80);
+  if (value.automation.wait_kind) {
+    value.automation.wait_kind = value.automation.wait_kind.toUpperCase();
+  }
+  value.automation.wait_label =
+    requireNullableString(value.automation.wait_label, "automation.wait_label", 240);
+  value.automation.wait_task_id =
+    requireNullableString(value.automation.wait_task_id, "automation.wait_task_id", 120);
+  if (value.automation.wait_task_id && !TASK_ID_RE.test(value.automation.wait_task_id)) {
+    throw new Error("invalid automation.wait_task_id");
+  }
+  value.automation.wait_started_at =
+    requireNullableString(value.automation.wait_started_at, "automation.wait_started_at", 64);
+  value.automation.wait_until =
+    requireNullableString(value.automation.wait_until, "automation.wait_until", 64);
+  const waitSecondsTotal = Number(value.automation.wait_seconds_total || 0);
+  if (!Number.isInteger(waitSecondsTotal) || waitSecondsTotal < 0 || waitSecondsTotal > 86400) {
+    throw new Error("automation.wait_seconds_total must be an integer between 0 and 86400");
+  }
+  value.automation.wait_seconds_total = waitSecondsTotal;
 
   return value;
 }
