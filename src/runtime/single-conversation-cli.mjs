@@ -34,6 +34,7 @@ import {
   readSingleConversationState
 } from "./single-conversation-state.mjs";
 import {
+  markExactOnceDelivered,
   markExactOnceResponseComplete,
   markExactOnceVerified,
   prepareExactOnceOutbound,
@@ -818,6 +819,14 @@ async function resumeEnqueuedTaskDiscoveryAfterRebind({
   });
 }
 
+export function assistantTurnConfirmsCycleDelivery(turn, messageId) {
+  const id = String(messageId || "").trim();
+  if (!id || !turn?.turn_id) return false;
+  return String(turn.text || "").includes(
+    `MAGASIN_CYCLE_CORRELATION_V1 ${id}`
+  );
+}
+
 async function resumeEnqueuedTaskMessageAfterRebind({
   adapter,
   page,
@@ -883,6 +892,34 @@ async function resumeEnqueuedTaskMessageAfterRebind({
   }
 
   const messageId = String(state.outbound.message_id);
+
+  // A correlated assistant response is positive proof that ChatGPT accepted
+  // this exact Robot request. This is stronger than a failed/mutated user-turn
+  // text match and must suppress resend during restart reconciliation.
+  const correlatedAssistant = await boundedRuntimeStep(
+    `RESTART_${label}_CAPTURE_ASSISTANT_CORRELATION`,
+    () => captureLatestRoleTurn(page, "assistant"),
+    { timeoutMs: 10_000 }
+  ).catch(() => null);
+
+  if (assistantTurnConfirmsCycleDelivery(correlatedAssistant, messageId)) {
+    await markExactOnceDelivered(statePath, {
+      messageId,
+      message,
+      userTurnId: null
+    });
+    return settleTransactionResponse({
+      adapter,
+      page,
+      statePath,
+      messageId,
+      message,
+      baselineAssistantTurnId: null,
+      timeoutMs: responseTimeoutMs,
+      pollMs: Math.min(750, Math.max(100, pollMs))
+    });
+  }
+
   const delivery = await reconcileExactOnceOutbound({
     statePath,
     page,
