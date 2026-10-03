@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  assistantTurnConfirmsCycleDelivery,
   bootstrapRecoveryReasonForState,
   boundedRuntimeStep,
   canRecoverPreparedBootstrapNonDelivery,
@@ -1101,4 +1102,62 @@ test("SC-013 false-delivery safe snapshot requires one idle readable empty-compo
     safeFalseHistoricalDeliverySnapshot({ ...safe, hasNetworkError: true }),
     false
   );
+});
+
+
+test("SC-013 assistant cycle correlation is positive delivery evidence for restart", () => {
+  const messageId = "4129456d-b3d8-4420-96b9-43988924c002";
+  const correlated = {
+    turn_id: "conversation-turn-assistant-9",
+    text:
+      "MAGASIN_TASK_CONTROL_V1\n" +
+      "STATUS=RUNNING\n" +
+      "TASK_ID=SCHED-UI-012\n" +
+      "NEXT_TASK_ID=NONE\n" +
+      "CHECK_AFTER_SECONDS=180\n" +
+      "END_MAGASIN_TASK_CONTROL_V1\n\n" +
+      "MAGASIN_CYCLE_CORRELATION_V1 " + messageId
+  };
+  assert.equal(
+    assistantTurnConfirmsCycleDelivery(correlated, messageId),
+    true
+  );
+  assert.equal(
+    assistantTurnConfirmsCycleDelivery(
+      correlated,
+      "different-message-id"
+    ),
+    false
+  );
+  assert.equal(
+    assistantTurnConfirmsCycleDelivery(
+      { turn_id: "a", text: "STATUS=RUNNING" },
+      messageId
+    ),
+    false
+  );
+});
+
+test("SC-013 ENQUEUED task restart checks assistant correlation before exact-once resend decision", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const start = source.indexOf("async function resumeEnqueuedTaskMessageAfterRebind");
+  const end = source.indexOf("async function resumeInFlightProtocolMessageAfterRebind", start);
+  assert.ok(start >= 0 && end > start);
+  const body = source.slice(start, end);
+
+  const capture = body.indexOf("CAPTURE_ASSISTANT_CORRELATION");
+  const confirm = body.indexOf("assistantTurnConfirmsCycleDelivery", capture);
+  const delivered = body.indexOf("markExactOnceDelivered", confirm);
+  const settle = body.indexOf("settleTransactionResponse", delivered);
+  const reconcile = body.indexOf("reconcileExactOnceOutbound", settle);
+
+  assert.ok(capture >= 0);
+  assert.ok(confirm > capture);
+  assert.ok(delivered > confirm);
+  assert.ok(settle > delivered);
+  assert.ok(reconcile > settle);
+  assert.match(body, /userTurnId:\s*null/);
 });
