@@ -464,3 +464,39 @@ test("SC-013 task-control parser normalizes NBSP but still rejects prose in bloc
     (error) => error?.code === "TASK_PROTOCOL_INVALID"
   );
 });
+
+
+test("SC-013 parses a task-control block when rendered field boundaries collapse completely", () => {
+  const parsed = parseTaskControl(
+    "prefix " +
+    "MAGASIN_TASK_CONTROL_V1" +
+    "STATUS=RUNNING" +
+    "TASK_ID=SCHED-UI-012" +
+    "NEXT_TASK_ID=NONE" +
+    "CHECK_AFTER_SECONDS=180" +
+    "END_MAGASIN_TASK_CONTROL_V1" +
+    " suffix"
+  );
+
+  assert.deepEqual(parsed, {
+    status: "RUNNING",
+    task_id: "SCHED-UI-012",
+    next_task_id: null,
+    check_after_seconds: 180
+  });
+});
+
+test("SC-013 compact task-control fallback still rejects prose inside the machine block", () => {
+  assert.throws(
+    () => parseTaskControl(
+      "MAGASIN_TASK_CONTROL_V1" +
+      "STATUS=READY" +
+      "unexpected-prose" +
+      "TASK_ID=NONE" +
+      "NEXT_TASK_ID=SCHED-UI-013" +
+      "CHECK_AFTER_SECONDS=0" +
+      "END_MAGASIN_TASK_CONTROL_V1"
+    ),
+    (error) => error?.code === "TASK_PROTOCOL_INVALID"
+  );
+});
