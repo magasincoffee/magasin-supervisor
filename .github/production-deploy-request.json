@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "9384014671f84ad6db240ad690abe6989a2dddbf",
+  "requested_main_sha": "a6ec370203dbef4505f7fba5b4be585e924d97b0",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy SC-013 task-protocol subreason instrumentation from PR #298 after all mandatory gates passed."
+  "reason": "Deploy SC-013 blocked Owner-gate protocol repair from PR #299 after all mandatory gates passed; root cause BLOCKED_HAS_NEXT_TASK captured on target."
 }
