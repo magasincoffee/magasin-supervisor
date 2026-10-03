@@ -1,7 +1,6 @@
 {
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "requested_after_cleanup_sha": "363c080e3ea172d57e15c8e3d3050ecfccdd0c1a",
-  "purpose": "Owner-delegated rerun after PR #296; previous observer landed on non-target. Require DESKTOP-4K7IM13, auto-START canonical Robot, continue until genuine Owner block or next technical first failure.",
-  "rearm_nonce": "parser-fix-target-retry-1"
+  "requested_after_cleanup_sha": "a08393499d7e2e50f752046e487cfd72257d406e",
+  "purpose": "Owner-delegated live rerun after PR #297 compact task-control parser fix; auto-START canonical Robot and verify VERIFIED discovery advances past NEXT_WORK into task execution/check."
 }
