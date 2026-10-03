@@ -423,3 +423,44 @@ test("SC-013 startup routes rebound ENQUEUED discovery through exact-once reconc
   assert.match(helper, /SAFE_RETRY_SENT/);
   assert.doesNotMatch(helper, /sendComposerInstruction\(/);
 });
+
+
+test("SC-013 task-control parser ignores invisible ChatGPT rendering characters", () => {
+  const parsed = parseTaskControl(
+    "MAGASIN_TASK_\u200BCONTROL_V1\n" +
+    "STA\u2060TUS=READY\n" +
+    "TASK_ID=NONE\n" +
+    "NEXT_TASK_ID=SCHED-UI-013\n" +
+    "CHECK_AFTER_SECONDS=0\n" +
+    "END_MAGASIN_TASK_CONTROL_V1"
+  );
+
+  assert.deepEqual(parsed, {
+    status: "READY",
+    task_id: null,
+    next_task_id: "SCHED-UI-013",
+    check_after_seconds: 0
+  });
+});
+
+test("SC-013 task-control parser normalizes NBSP but still rejects prose in block", () => {
+  const parsed = parseTaskControl(
+    "MAGASIN_TASK_CONTROL_V1\u00A0" +
+    "STATUS=RUNNING\u00A0TASK_ID=SCHED-UI-012\u00A0" +
+    "NEXT_TASK_ID=NONE\u00A0CHECK_AFTER_SECONDS=180\u00A0" +
+    "END_MAGASIN_TASK_CONTROL_V1"
+  );
+  assert.equal(parsed.status, "RUNNING");
+  assert.equal(parsed.task_id, "SCHED-UI-012");
+  assert.equal(parsed.check_after_seconds, 180);
+
+  assert.throws(
+    () => parseTaskControl(
+      "MAGASIN_TASK_CONTROL_V1\u00A0" +
+      "STATUS=READY\u00A0unexpected-prose\u00A0" +
+      "TASK_ID=NONE\u00A0NEXT_TASK_ID=SCHED-UI-013\u00A0" +
+      "CHECK_AFTER_SECONDS=0\u00A0END_MAGASIN_TASK_CONTROL_V1"
+    ),
+    (error) => error?.code === "TASK_PROTOCOL_INVALID"
+  );
+});
