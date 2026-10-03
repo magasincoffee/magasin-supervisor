@@ -22,6 +22,7 @@ import {
   safeBootstrapNonDeliverySnapshot,
   safeFalseHistoricalDeliverySnapshot,
   runSingleConversationRuntime,
+  persistTerminalTaskControl,
   waitForNextCycleDelay,
   waitForPositiveBlankBootstrapNonDelivery
 } from "../src/runtime/single-conversation-cli.mjs";
@@ -1178,4 +1179,54 @@ test("SC-013 runtime logs structured task-protocol subreason without chat conten
     source,
     /SINGLE_CONVERSATION_TASK_PROTOCOL_REASON=.*assistant_turn.*text/
   );
+});
+
+
+test("SC-013 persists a legitimate blocked Owner gate instead of leaving RUNNING/NEXT_WORK", async () => {
+  const { root, statePath } = await tempState();
+  try {
+    await ensureSingleConversationState(statePath, {
+      sourceOfTruthUrl: "https://github.com/magasincoffee/project/blob/main/SOURCE_OF_TRUTH.md"
+    });
+
+    const blocked = await persistTerminalTaskControl(statePath, {
+      status: "BLOCKED",
+      task_id: "SCHED-UI-016",
+      next_task_id: null,
+      check_after_seconds: 0
+    }, {
+      now: () => "2026-10-03T09:30:00.000Z"
+    });
+
+    assert.equal(blocked.automation.status, "BLOCKED");
+    assert.equal(blocked.automation.phase, "WAIT_OWNER");
+    assert.equal(blocked.automation.reason, "OWNER_INPUT_REQUIRED:SCHED-UI-016");
+
+    const reread = await readSingleConversationState(statePath);
+    assert.equal(reread.automation.status, "BLOCKED");
+    assert.equal(reread.automation.phase, "WAIT_OWNER");
+    assert.equal(reread.automation.reason, "OWNER_INPUT_REQUIRED:SCHED-UI-016");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("SC-013 persists DONE separately from Owner BLOCKED", async () => {
+  const { root, statePath } = await tempState();
+  try {
+    await ensureSingleConversationState(statePath, {
+      sourceOfTruthUrl: "https://github.com/magasincoffee/project/blob/main/SOURCE_OF_TRUTH.md"
+    });
+    const done = await persistTerminalTaskControl(statePath, {
+      status: "DONE",
+      task_id: null,
+      next_task_id: null,
+      check_after_seconds: 0
+    });
+    assert.equal(done.automation.status, "DONE");
+    assert.equal(done.automation.phase, "DONE");
+    assert.equal(done.automation.reason, "PROJECT_DONE");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
