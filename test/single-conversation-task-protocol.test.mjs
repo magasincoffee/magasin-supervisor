@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import {
   buildSingleConversationTaskDiscoveryInstruction,
@@ -10,8 +12,14 @@ import {
 import { opaqueRuntimeIdentity } from "../src/runtime/single-conversation-bootstrap.mjs";
 import {
   canRebindEnqueuedTaskDiscovery,
+  clearTaskRecheckWait,
+  persistTaskRecheckWait,
   resumeExistingConversationPage
 } from "../src/runtime/single-conversation-cli.mjs";
+import {
+  ensureSingleConversationState,
+  readSingleConversationState
+} from "../src/runtime/single-conversation-state.mjs";
 
 test("SC-011 parses authoritative READY task id", () => {
   const parsed = parseTaskControl(`
@@ -45,6 +53,45 @@ END_MAGASIN_TASK_CONTROL_V1
   assert.equal(parsed.task_id, "E2E-030");
   assert.equal(parsed.next_task_id, null);
   assert.equal(parsed.check_after_seconds, 300);
+});
+
+test("Owner countdown metadata persists while a RUNNING task waits for recheck", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "sc013-owner-countdown-"));
+  const statePath = path.join(dir, "single-conversation-state.json");
+  try {
+    await ensureSingleConversationState(statePath, {
+      sourceOfTruthUrl: "https://example.com/source",
+      sessionId: "countdown-session",
+      now: () => "2026-10-03T14:00:00.000Z"
+    });
+
+    await persistTaskRecheckWait(statePath, {
+      taskId: "SCHED-UI-016",
+      seconds: 190,
+      now: () => "2026-10-03T14:00:10.000Z"
+    });
+
+    let state = await readSingleConversationState(statePath);
+    assert.equal(state.automation.status, "RUNNING");
+    assert.equal(state.automation.phase, "WAIT_TASK_RECHECK");
+    assert.equal(state.automation.wait_kind, "TASK_RECHECK");
+    assert.equal(state.automation.wait_task_id, "SCHED-UI-016");
+    assert.equal(state.automation.wait_seconds_total, 190);
+    assert.equal(state.automation.wait_started_at, "2026-10-03T14:00:10.000Z");
+    assert.equal(state.automation.wait_until, "2026-10-03T14:03:20.000Z");
+    assert.match(state.automation.wait_label, /SCHED-UI-016/);
+
+    await clearTaskRecheckWait(statePath, {
+      now: () => "2026-10-03T14:03:20.000Z"
+    });
+    state = await readSingleConversationState(statePath);
+    assert.equal(state.automation.phase, "NEXT_WORK");
+    assert.equal(state.automation.wait_kind, null);
+    assert.equal(state.automation.wait_until, null);
+    assert.equal(state.automation.wait_seconds_total, 0);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("SC-011 rejects free text and repeated COMPLETE id", () => {
