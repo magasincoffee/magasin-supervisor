@@ -1,0 +1,113 @@
+name: SCHED-UI-017 Local Owner Review
+
+on:
+  push:
+    branches:
+      - 'owner-review/sched-ui-017-local'
+    paths:
+      - '.github/workflows/sched-ui-017-local-owner-review.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sched-ui-017-local-owner-review
+  cancel-in-progress: true
+
+jobs:
+  launch-local-review:
+    runs-on: self-hosted
+    timeout-minutes: 10
+    env:
+      CANDIDATE_SHA: 1f6f6cf0646aba66e9f73fab123f87a182cb17c1
+      PRODUCT_BRANCH: sched-ui-001-recurring-editor
+      REVIEW_PORT: '8772'
+    steps:
+      - name: Verify target machine and launch exact-candidate local preview
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "LOCAL_REVIEW_MACHINE=$env:COMPUTERNAME"
+          if ($env:COMPUTERNAME -ne 'DESKTOP-4K7IM13') {
+            throw "Wrong self-hosted runner: $env:COMPUTERNAME"
+          }
+
+          $target = Join-Path $env:USERPROFILE 'MAGASIN_PREVIEW\SCHED-UI-017'
+          $pidFile = Join-Path $env:USERPROFILE 'MAGASIN_PREVIEW\SCHED-UI-017-server.pid'
+          $logFile = Join-Path $env:USERPROFILE 'MAGASIN_PREVIEW\SCHED-UI-017-server.log'
+
+          New-Item -ItemType Directory -Force -Path (Split-Path $target -Parent) | Out-Null
+
+          if (Test-Path $pidFile) {
+            $oldPid = (Get-Content $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+            if ($oldPid -match '^\d+$') {
+              Stop-Process -Id ([int]$oldPid) -Force -ErrorAction SilentlyContinue
+            }
+            Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+          }
+
+          if (Test-Path $target) {
+            Remove-Item $target -Recurse -Force
+          }
+
+          git clone --depth 1 --branch $env:PRODUCT_BRANCH https://github.com/magasincoffee/magasincoffee.github.io.git $target
+          Push-Location $target
+          $actual = (git rev-parse HEAD).Trim()
+          Pop-Location
+          if ($actual -ne $env:CANDIDATE_SHA) {
+            throw "Candidate mismatch. expected=$env:CANDIDATE_SHA actual=$actual"
+          }
+          Write-Host "LOCAL_REVIEW_CANDIDATE_SHA=$actual"
+
+          $pythonExe = $null
+          $pythonArgs = @()
+          if (Get-Command py.exe -ErrorAction SilentlyContinue) {
+            $pythonExe = (Get-Command py.exe).Source
+            $pythonArgs = @('-3','-m','http.server',$env:REVIEW_PORT,'--bind','127.0.0.1')
+          } elseif (Get-Command python.exe -ErrorAction SilentlyContinue) {
+            $pythonExe = (Get-Command python.exe).Source
+            $pythonArgs = @('-m','http.server',$env:REVIEW_PORT,'--bind','127.0.0.1')
+          } else {
+            throw 'Python not found on local runner.'
+          }
+
+          # Prevent the self-hosted runner cleanup phase from killing the preview server.
+          $env:RUNNER_TRACKING_ID = ''
+
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName = $pythonExe
+          $psi.Arguments = ($pythonArgs -join ' ')
+          $psi.WorkingDirectory = $target
+          $psi.UseShellExecute = $false
+          $psi.CreateNoWindow = $true
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError = $true
+
+          $proc = New-Object System.Diagnostics.Process
+          $proc.StartInfo = $psi
+          [void]$proc.Start()
+          Set-Content -Path $pidFile -Value $proc.Id -Encoding ASCII
+
+          Start-Sleep -Seconds 2
+          $base = "http://127.0.0.1:$env:REVIEW_PORT"
+          $fixture = "$base/09_QA/people-shift/ui2-012-manager-scheduling-fixture.html"
+
+          $resp = Invoke-WebRequest -UseBasicParsing -Uri $fixture -TimeoutSec 10
+          if ($resp.StatusCode -ne 200) {
+            throw "Local preview HTTP check failed: $($resp.StatusCode)"
+          }
+
+          $readme = @"
+SCHED-UI-017 LOCAL OWNER REVIEW
+Candidate: $actual
+Safe review URL: $fixture
+Production mutation: NONE (QA fixture / mock business data)
+"@
+          Set-Content -Path (Join-Path $env:USERPROFILE 'Desktop\SCHED-UI-017-LOCAL-REVIEW.txt') -Value $readme -Encoding UTF8
+
+          Write-Host "LOCAL_REVIEW_URL=$fixture"
+          Write-Host "LOCAL_REVIEW_PID=$($proc.Id)"
+          Write-Host "LOCAL_REVIEW_PRODUCTION_MUTATION=NONE"
+
+          Start-Process $fixture
