@@ -59,7 +59,10 @@ function normalizeTaskId(value) {
 }
 
 export function parseTaskControl(text) {
-  const source = String(text || "").replace(/\r\n/g, "\n");
+  const source = String(text || "")
+    .replace(/[\u200B-\u200F\u2060\uFEFF]/g, "")
+    .replace(/\u00A0/g, " ")
+    .replace(/\r\n/g, "\n");
   const canonicalPattern = /(?:^|\n)MAGASIN_TASK_CONTROL_V1\n([\s\S]*?)\nEND_MAGASIN_TASK_CONTROL_V1(?=\n|$)/g;
   let match = null;
   let renderedWhitespaceFallback = false;
