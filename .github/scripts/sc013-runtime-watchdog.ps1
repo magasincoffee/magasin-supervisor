@@ -23,6 +23,8 @@ $root=Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
 $statePath=Join-Path $root 'single-conversation-state.json'
 $localWatchdogStatusPath=Join-Path $root 'local-watchdog-status.json'
 $failures=New-Object 'System.Collections.Generic.HashSet[string]'
+$legitimateOwnerGate=$false
+$legitimateOwnerGateReason=''
 
 try{
   $truth=Get-LifecycleProcessTruth -Root $root
@@ -64,7 +66,14 @@ if(Test-Path $localWatchdogStatusPath -PathType Leaf){
 # Explicit Owner STOP remains authoritative and is not a Robot fault. The local
 # observer is still expected to publish a fresh heartbeat while STOP is active.
 if($ownerStop.blocked){
-  if($failures.Count -gt 0){
+  if($legitimateOwnerGate){
+  Write-Host 'SC013_WATCHDOG_OWNER_GATE_REACHED=True'
+  Write-Host "SC013_WATCHDOG_OWNER_GATE_REASON=$legitimateOwnerGateReason"
+  Write-Host 'SC013_WATCHDOG_STATUS=OWNER_INPUT_REQUIRED'
+  exit 0
+}
+
+if($failures.Count -gt 0){
     Write-Host "SC013_WATCHDOG_LOCAL_OBSERVER_FAILURES=$(($failures|Sort-Object)-join ',')"
     exit 1
   }
@@ -102,7 +111,15 @@ if(-not (Test-Path $statePath -PathType Leaf)){
     Write-Host "SC013_WATCHDOG_LAST_ERROR_CODE=$lastCode"
     Write-Host "SC013_WATCHDOG_UPDATED_AT=$updatedAt"
 
-    if($automation -eq 'BLOCKED'){
+    $legitimateOwnerGate=[bool](
+      $automation -eq 'BLOCKED' -and
+      $phase -eq 'WAIT_OWNER' -and
+      $reason -like 'OWNER_INPUT_REQUIRED*' -and
+      $outbound -eq 'VERIFIED'
+    )
+    if($legitimateOwnerGate){
+      $legitimateOwnerGateReason=$reason
+    } elseif($automation -eq 'BLOCKED'){
       $code=if($lastCode){$lastCode}elseif($reason){$reason}else{'UNKNOWN'}
       [void]$failures.Add("BLOCKED:$code")
     }
