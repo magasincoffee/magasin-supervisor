@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "23e1d7ee3211eed306fa540c4e28e9e37fe1fd97",
+  "requested_main_sha": "09b4f009db457f423bb0f0a3e5dbea41ad837d3e",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy SC-013 pre-bootstrap startup recovery fix from PR #301 after all mandatory hosted gates passed."
+  "reason": "Deploy PR #302 Owner-facing Vietnamese live status/countdown plus merged SC-013 startup recovery, then rerun production."
 }
