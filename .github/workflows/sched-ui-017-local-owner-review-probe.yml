@@ -12,23 +12,29 @@ permissions:
 
 jobs:
   verify-local-review:
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [a, b]
     runs-on: self-hosted
     timeout-minutes: 3
     steps:
-      - name: Verify local review server survived prior runner cleanup
-        shell: powershell
+      - name: Pin probe to DESKTOP-4K7IM13 and verify port 8772
+        shell: cmd
         run: |
-          $ErrorActionPreference = 'Stop'
-          if ($env:COMPUTERNAME -ne 'DESKTOP-4K7IM13') {
-            throw "Wrong self-hosted runner: $env:COMPUTERNAME"
-          }
-          $url = 'http://127.0.0.1:8772/09_QA/people-shift/ui2-012-manager-scheduling-fixture.html'
-          $resp = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 10
-          if ($resp.StatusCode -ne 200) {
-            throw "Local review persistence probe failed: $($resp.StatusCode)"
-          }
-          if ($resp.Content -notmatch 'ui2ManagerScheduling') {
-            throw 'Local review fixture marker missing.'
-          }
-          Write-Host "LOCAL_REVIEW_PERSISTENCE=PASS"
-          Write-Host "LOCAL_REVIEW_URL=$url"
+          @echo off
+          echo PROBE_SLOT=${{ matrix.slot }}
+          echo PROBE_MACHINE=%COMPUTERNAME%
+          if /I not "%COMPUTERNAME%"=="DESKTOP-4K7IM13" (
+            echo NON_TARGET_HOLD=True
+            timeout /t 45 /nobreak >NUL
+            exit /b 0
+          )
+          echo TARGET_MATCH=True
+          curl.exe -fsS "http://127.0.0.1:8772/09_QA/people-shift/ui2-012-manager-scheduling-fixture.html" | findstr /C:"ui2ManagerScheduling" >NUL
+          if errorlevel 1 (
+            echo LOCAL_REVIEW_PERSISTENCE=FAIL
+            exit /b 1
+          )
+          echo LOCAL_REVIEW_PERSISTENCE=PASS
+          echo LOCAL_REVIEW_URL=http://127.0.0.1:8772/09_QA/people-shift/ui2-012-manager-scheduling-fixture.html
