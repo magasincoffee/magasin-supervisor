@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "9ebb1146754a104e559d2c1ad596b5e2a668fa88",
+  "requested_main_sha": "23e1d7ee3211eed306fa540c4e28e9e37fe1fd97",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy SC-013 durable Owner-gate lifecycle repair from PR #300 after all mandatory gates passed."
+  "reason": "Deploy SC-013 pre-bootstrap startup recovery fix from PR #301 after all mandatory hosted gates passed."
 }
