@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-watchdog-request.v1",
-  "requested_at": "2026-10-03T02:02:00Z",
+  "requested_at": "2026-10-03T05:12:00Z",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Owner reports Robot stopped/blocked while assistant task-control is STATUS=RUNNING for SCHED-UI-012 with CHECK_AFTER_SECONDS=180; capture current read-only state."
+  "reason": "Owner reports Robot stopped again after prior live PASS. Capture new first-failure state before delegated restart."
 }
