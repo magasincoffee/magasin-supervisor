@@ -1185,39 +1185,41 @@ function Switch-PlannerExecutorProject([string]$ProjectId) {
 function Show-SingleConversationControlPanel {
     [Windows.Forms.Application]::EnableVisualStyles()
 
+    $watchdogStatusFile = Join-Path $root 'local-watchdog-status.json'
+
     $form = New-Object Windows.Forms.Form
-    $form.Text = 'MAGASIN SUPERVISOR — CONTROL CENTER'
+    $form.Text = 'MAGASIN SUPERVISOR — TRUNG TÂM ĐIỀU KHIỂN'
     $form.StartPosition = 'CenterScreen'
-    $form.Size = New-Object Drawing.Size(900, 620)
-    $form.MinimumSize = New-Object Drawing.Size(820, 560)
+    $form.Size = New-Object Drawing.Size(980, 760)
+    $form.MinimumSize = New-Object Drawing.Size(900, 700)
     $form.AutoScaleMode = [Windows.Forms.AutoScaleMode]::Dpi
     $form.BackColor = [Drawing.Color]::FromArgb(241,245,249)
     $form.Font = New-Object Drawing.Font('Segoe UI', 9)
 
     $hero = New-Object Windows.Forms.Panel
     $hero.Location = New-Object Drawing.Point(20, 18)
-    $hero.Size = New-Object Drawing.Size(840, 104)
+    $hero.Size = New-Object Drawing.Size(920, 104)
     $hero.BackColor = [Drawing.Color]::FromArgb(15,23,42)
     $form.Controls.Add($hero)
 
     $title = New-Object Windows.Forms.Label
     $title.Text = 'MAGASIN SUPERVISOR'
     $title.Location = New-Object Drawing.Point(22, 14)
-    $title.Size = New-Object Drawing.Size(470, 42)
+    $title.Size = New-Object Drawing.Size(520, 42)
     $title.Font = New-Object Drawing.Font('Segoe UI Semibold', 23)
     $title.ForeColor = [Drawing.Color]::White
     $hero.Controls.Add($title)
 
     $subtitle = New-Object Windows.Forms.Label
-    $subtitle.Text = 'SINGLE CONVERSATION  •  DISPOSABLE CHAT  •  PERSISTENT SOURCE OF TRUTH'
+    $subtitle.Text = '1 CUỘC CHAT  •  CHAT CÓ THỂ THAY THẾ  •  SOURCE OF TRUTH LÀ BỘ NHỚ CHÍNH'
     $subtitle.Location = New-Object Drawing.Point(25, 62)
-    $subtitle.Size = New-Object Drawing.Size(610, 24)
+    $subtitle.Size = New-Object Drawing.Size(690, 24)
     $subtitle.ForeColor = [Drawing.Color]::FromArgb(203,213,225)
     $hero.Controls.Add($subtitle)
 
     $modeBadge = New-Object Windows.Forms.Label
     $modeBadge.Text = 'SINGLE_CONVERSATION_V1'
-    $modeBadge.Location = New-Object Drawing.Point(620, 25)
+    $modeBadge.Location = New-Object Drawing.Point(700, 25)
     $modeBadge.Size = New-Object Drawing.Size(195, 32)
     $modeBadge.TextAlign = 'MiddleCenter'
     $modeBadge.BackColor = [Drawing.Color]::FromArgb(30,41,59)
@@ -1226,27 +1228,27 @@ function Show-SingleConversationControlPanel {
 
     $control = New-Object Windows.Forms.Panel
     $control.Location = New-Object Drawing.Point(20, 140)
-    $control.Size = New-Object Drawing.Size(840, 178)
+    $control.Size = New-Object Drawing.Size(920, 178)
     $control.BackColor = [Drawing.Color]::White
     $control.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
     $form.Controls.Add($control)
 
     $sourceLabel = New-Object Windows.Forms.Label
-    $sourceLabel.Text = 'SOURCE OF TRUTH'
+    $sourceLabel.Text = 'SOURCE OF TRUTH — NGUỒN DỮ LIỆU CHÍNH'
     $sourceLabel.Location = New-Object Drawing.Point(20, 22)
-    $sourceLabel.Size = New-Object Drawing.Size(130, 24)
+    $sourceLabel.Size = New-Object Drawing.Size(330, 24)
     $sourceLabel.Font = New-Object Drawing.Font('Segoe UI Semibold', 10)
     $control.Controls.Add($sourceLabel)
 
     $sourceBox = New-Object Windows.Forms.TextBox
     $sourceBox.Location = New-Object Drawing.Point(20, 52)
-    $sourceBox.Size = New-Object Drawing.Size(795, 28)
+    $sourceBox.Size = New-Object Drawing.Size(875, 28)
     $control.Controls.Add($sourceBox)
 
     $startButton = New-Object Windows.Forms.Button
     $startButton.Location = New-Object Drawing.Point(20, 104)
     $startButton.Size = New-Object Drawing.Size(180, 44)
-    $startButton.Text = '▶  START ROBOT'
+    $startButton.Text = '▶  KHỞI ĐỘNG ROBOT'
     $startButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
     $startButton.BackColor = [Drawing.Color]::FromArgb(22,163,74)
     $startButton.ForeColor = [Drawing.Color]::White
@@ -1256,7 +1258,7 @@ function Show-SingleConversationControlPanel {
     $stopButton = New-Object Windows.Forms.Button
     $stopButton.Location = New-Object Drawing.Point(215, 104)
     $stopButton.Size = New-Object Drawing.Size(180, 44)
-    $stopButton.Text = '■  STOP ROBOT'
+    $stopButton.Text = '■  DỪNG ROBOT'
     $stopButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
     $stopButton.BackColor = [Drawing.Color]::FromArgb(185,28,28)
     $stopButton.ForeColor = [Drawing.Color]::White
@@ -1264,44 +1266,68 @@ function Show-SingleConversationControlPanel {
     $control.Controls.Add($stopButton)
 
     $startMeaning = New-Object Windows.Forms.Label
-    $startMeaning.Location = New-Object Drawing.Point(420, 100)
-    $startMeaning.Size = New-Object Drawing.Size(395, 54)
+    $startMeaning.Location = New-Object Drawing.Point(420, 98)
+    $startMeaning.Size = New-Object Drawing.Size(470, 58)
     $startMeaning.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
-    $startMeaning.Text = 'START = create/resume Robot session from Source of Truth. No chat URL is required.'
+    $startMeaning.Text = 'KHỞI ĐỘNG = Robot tự tạo hoặc phục hồi phiên làm việc từ Source of Truth. Owner không cần cung cấp link cuộc chat.'
     $control.Controls.Add($startMeaning)
 
     $diagnostics = New-Object Windows.Forms.Panel
     $diagnostics.Location = New-Object Drawing.Point(20, 338)
-    $diagnostics.Size = New-Object Drawing.Size(840, 190)
+    $diagnostics.Size = New-Object Drawing.Size(920, 342)
     $diagnostics.BackColor = [Drawing.Color]::White
     $diagnostics.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
     $form.Controls.Add($diagnostics)
 
     $diagTitle = New-Object Windows.Forms.Label
-    $diagTitle.Text = 'RUNTIME DIAGNOSTICS'
+    $diagTitle.Text = 'TRẠNG THÁI ROBOT — CẬP NHẬT MỖI 1 GIÂY'
     $diagTitle.Location = New-Object Drawing.Point(20, 18)
-    $diagTitle.Size = New-Object Drawing.Size(260, 24)
+    $diagTitle.Size = New-Object Drawing.Size(430, 24)
     $diagTitle.Font = New-Object Drawing.Font('Segoe UI Semibold', 10)
     $diagnostics.Controls.Add($diagTitle)
 
     $runtimeValue = New-Object Windows.Forms.Label
-    $runtimeValue.Location = New-Object Drawing.Point(20, 52)
-    $runtimeValue.Size = New-Object Drawing.Size(795, 28)
+    $runtimeValue.Location = New-Object Drawing.Point(20, 50)
+    $runtimeValue.Size = New-Object Drawing.Size(875, 26)
     $diagnostics.Controls.Add($runtimeValue)
 
+    $flowValue = New-Object Windows.Forms.Label
+    $flowValue.Location = New-Object Drawing.Point(20, 78)
+    $flowValue.Size = New-Object Drawing.Size(875, 26)
+    $flowValue.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
+    $diagnostics.Controls.Add($flowValue)
+
     $conversationValue = New-Object Windows.Forms.Label
-    $conversationValue.Location = New-Object Drawing.Point(20, 82)
-    $conversationValue.Size = New-Object Drawing.Size(795, 28)
+    $conversationValue.Location = New-Object Drawing.Point(20, 106)
+    $conversationValue.Size = New-Object Drawing.Size(875, 26)
     $diagnostics.Controls.Add($conversationValue)
 
     $automationValue = New-Object Windows.Forms.Label
-    $automationValue.Location = New-Object Drawing.Point(20, 112)
-    $automationValue.Size = New-Object Drawing.Size(795, 28)
+    $automationValue.Location = New-Object Drawing.Point(20, 134)
+    $automationValue.Size = New-Object Drawing.Size(875, 26)
     $diagnostics.Controls.Add($automationValue)
 
+    $timerValue = New-Object Windows.Forms.Label
+    $timerValue.Location = New-Object Drawing.Point(20, 162)
+    $timerValue.Size = New-Object Drawing.Size(875, 26)
+    $timerValue.ForeColor = [Drawing.Color]::FromArgb(30,64,175)
+    $diagnostics.Controls.Add($timerValue)
+
+    $errorValue = New-Object Windows.Forms.Label
+    $errorValue.Location = New-Object Drawing.Point(20, 190)
+    $errorValue.Size = New-Object Drawing.Size(875, 44)
+    $errorValue.ForeColor = [Drawing.Color]::FromArgb(185,28,28)
+    $diagnostics.Controls.Add($errorValue)
+
+    $actionValue = New-Object Windows.Forms.Label
+    $actionValue.Location = New-Object Drawing.Point(20, 236)
+    $actionValue.Size = New-Object Drawing.Size(875, 44)
+    $actionValue.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
+    $diagnostics.Controls.Add($actionValue)
+
     $syncValue = New-Object Windows.Forms.Label
-    $syncValue.Location = New-Object Drawing.Point(20, 142)
-    $syncValue.Size = New-Object Drawing.Size(795, 28)
+    $syncValue.Location = New-Object Drawing.Point(20, 286)
+    $syncValue.Size = New-Object Drawing.Size(875, 34)
     $syncValue.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
     $diagnostics.Controls.Add($syncValue)
 
@@ -1327,11 +1353,132 @@ function Show-SingleConversationControlPanel {
         return $source
     }
 
+    function Format-OwnerDuration([int]$Seconds) {
+        $safe = [Math]::Max(0, $Seconds)
+        $span = [TimeSpan]::FromSeconds($safe)
+        if ($span.TotalHours -ge 1) {
+            return ('{0:00}:{1:00}:{2:00}' -f [int]$span.TotalHours, $span.Minutes, $span.Seconds)
+        }
+        return ('{0:00}:{1:00}' -f $span.Minutes, $span.Seconds)
+    }
+
+    function Get-OwnerPhaseLabel([string]$Phase) {
+        switch ($Phase.ToUpperInvariant()) {
+            'STOPPED' { return 'R0 — Robot đang dừng' }
+            'SYNC_SOURCE_OF_TRUTH' { return 'R4 — Đang đọc và đồng bộ Source of Truth' }
+            'NEW_CHAT' { return 'R3 — Đang tạo cuộc chat mới' }
+            'SEND_BOOTSTRAP' { return 'R3 — Đang gửi yêu cầu khởi động vào ChatGPT' }
+            'WAIT_RESPONSE' { return 'R10 — Đang chờ ChatGPT trả lời' }
+            'CONTINUE_RESPONSE' { return 'R10 — ChatGPT còn đang trả lời, Robot đang tiếp tục phản hồi' }
+            'BOOTSTRAP_RESPONSE_COMPLETE' { return 'R10 — ChatGPT đã trả lời yêu cầu khởi động' }
+            'BOOTSTRAP_RECOVERY_REQUIRED' { return 'R15 — Đang phục hồi cuộc chat / bootstrap' }
+            'BOOTSTRAP_FAILED' { return 'R3 — LỖI khởi động ChatGPT / bootstrap' }
+            'SEND_WORK' { return 'R5–R9 — Đang chuẩn bị và gửi công việc cho ChatGPT' }
+            'VERIFY_SOURCE_OF_TRUTH' { return 'R11 — Đang xác minh kết quả với Source of Truth' }
+            'WAIT_TASK_RECHECK' { return 'R12 — Đang chờ công việc nền trước lần kiểm tra tiếp theo' }
+            'NEXT_WORK' { return 'R12 — Đang chuẩn bị công việc tiếp theo' }
+            'WAIT_OWNER' { return 'R13 — Cần Owner xử lý hoặc quyết định' }
+            'CYCLE_FAILED' { return 'LỖI — Chu kỳ xử lý hiện tại thất bại' }
+            'DONE' { return 'DONE — Dự án / chuỗi công việc đã hoàn tất' }
+            default {
+                if ([string]::IsNullOrWhiteSpace($Phase)) { return 'Chưa có trạng thái' }
+                return ('PHA KỸ THUẬT: ' + $Phase)
+            }
+        }
+    }
+
+    function Get-OwnerAutomationLabel([string]$Status) {
+        switch ($Status.ToUpperInvariant()) {
+            'RUNNING' { return 'ĐANG HOẠT ĐỘNG' }
+            'BLOCKED' { return 'ĐANG BỊ CHẶN' }
+            'DONE' { return 'HOÀN TẤT' }
+            'STOPPED' { return 'ĐÃ DỪNG' }
+            'IDLE' { return 'ĐANG CHỜ' }
+            default { return $(if ($Status) { $Status } else { 'CHƯA XÁC ĐỊNH' }) }
+        }
+    }
+
+    function Get-OwnerConversationLabel([string]$Status) {
+        switch ($Status.ToUpperInvariant()) {
+            'NONE' { return 'chưa có cuộc chat đang hoạt động' }
+            'CREATING' { return 'đang tạo cuộc chat' }
+            'ACTIVE' { return 'đang hoạt động' }
+            'UNUSABLE' { return 'cuộc chat không còn sử dụng được' }
+            'RETIRED' { return 'cuộc chat cũ đã được thay thế' }
+            default { return $(if ($Status) { $Status } else { 'chưa xác định' }) }
+        }
+    }
+
+    function Get-OwnerSyncLabel([string]$Status) {
+        switch ($Status.ToUpperInvariant()) {
+            'NEVER' { return 'chưa đồng bộ' }
+            'UNVERIFIED' { return 'chưa xác minh' }
+            'SYNCING' { return 'đang đồng bộ' }
+            'VERIFIED' { return 'đã xác minh' }
+            'FAILED' { return 'đồng bộ thất bại' }
+            default { return $(if ($Status) { $Status } else { 'chưa xác định' }) }
+        }
+    }
+
+    function Get-OwnerErrorLabel([string]$Reason,[string]$Code) {
+        $raw = if ($Code) { $Code } else { $Reason }
+        if ([string]::IsNullOrWhiteSpace($raw)) { return 'không có lỗi được ghi nhận' }
+        if ($raw -like 'OWNER_INPUT_REQUIRED*') { return ('Cần Owner xử lý: ' + $raw) }
+        if ($raw -like 'TASK_RECHECK*') { return 'không phải lỗi — Robot đang chờ kiểm tra lại công việc' }
+        switch ($raw.ToUpperInvariant()) {
+            'AUTH_REQUIRED' { return 'ChatGPT chưa đăng nhập' }
+            'CAPTCHA_REQUIRED' { return 'ChatGPT yêu cầu CAPTCHA / xác minh người dùng' }
+            'ACCESS_DENIED' { return 'ChatGPT từ chối quyền truy cập' }
+            'CONVERSATION_MISSING' { return 'Không tìm thấy cuộc chat đang dùng' }
+            'CONVERSATION_FULL' { return 'Cuộc chat đã đầy / quá dài' }
+            'NETWORK_ERROR' { return 'Lỗi mạng khi làm việc với ChatGPT' }
+            'TRANSIENT_ERROR' { return 'ChatGPT gặp lỗi tạm thời' }
+            'RESPONSE_TIMEOUT' { return 'Chờ ChatGPT quá thời gian cho phép' }
+            'BOOTSTRAP_FAILED' { return 'Khởi động ChatGPT / bootstrap thất bại' }
+            'CDP_RECOVERY_REQUIRED' { return 'Kết nối điều khiển Chrome/CDP cần phục hồi' }
+            'COMPOSER_NOT_READY' { return 'Ô nhập ChatGPT chưa sẵn sàng' }
+            'SEND_NOT_ACTUATED' { return 'Robot chưa thực hiện được thao tác gửi' }
+            'TASK_PROTOCOL_INVALID' { return 'Phản hồi điều khiển task không đúng định dạng' }
+            default { return $raw }
+        }
+    }
+
+    function Get-OwnerActionLabel(
+        [bool]$WrapperAlive,
+        [string]$Phase,
+        [string]$Reason,
+        [string]$Code
+    ) {
+        $raw = if ($Code) { $Code } else { $Reason }
+        if ($raw -like 'OWNER_INPUT_REQUIRED*') {
+            return 'Owner cần xử lý quyết định / điều kiện được ghi ở dòng lỗi, sau đó Robot mới có thể tiếp tục.'
+        }
+        switch ([string]$raw) {
+            'AUTH_REQUIRED' { return 'Mở Chrome MAGASIN và đăng nhập ChatGPT, sau đó bấm KHỞI ĐỘNG ROBOT.' }
+            'CAPTCHA_REQUIRED' { return 'Mở Chrome MAGASIN, hoàn thành CAPTCHA / xác minh, sau đó bấm KHỞI ĐỘNG ROBOT.' }
+            'ACCESS_DENIED' { return 'Kiểm tra quyền truy cập ChatGPT trên Chrome MAGASIN. Không cần sửa task dự án.' }
+        }
+        if ($Phase -eq 'WAIT_TASK_RECHECK') {
+            return 'Không cần thao tác. Robot sẽ tự kiểm tra lại khi bộ đếm về 00:00.'
+        }
+        if ($Phase -eq 'WAIT_RESPONSE') {
+            return 'Không cần thao tác. Robot đang chờ ChatGPT và watchdog vẫn giám sát.'
+        }
+        if (-not $WrapperAlive -and ($Phase -eq 'BOOTSTRAP_FAILED' -or $raw)) {
+            return 'Đây là lỗi kỹ thuật của Robot / Chrome / ChatGPT bootstrap. Không sửa task dự án; dùng mã lỗi ở trên để sửa đúng bước rồi chạy lại.'
+        }
+        if (-not $WrapperAlive) {
+            return 'Robot hiện đã dừng. Bấm KHỞI ĐỘNG ROBOT khi muốn tiếp tục.'
+        }
+        return 'Không cần thao tác. Robot đang hoạt động.'
+    }
+
     function Refresh-SingleConversationUi {
         $truth = Get-LifecycleProcessTruth -Root $root
         $ownerStop = Get-LifecycleOwnerStopState -Root $root
         $controlState = Read-SingleConversationControl
         $state = Read-JsonFile $singleConversationStateFile
+        $watchdog = Read-JsonFile $watchdogStatusFile
 
         if (-not $sourceBox.Focused) {
             $configuredSource = [string](Get-OptionalPropertyValue $controlState 'source_of_truth_url' '')
@@ -1352,32 +1499,99 @@ function Show-SingleConversationControlPanel {
         $startButton.Enabled = [bool]($robotStopped -and $sourceReady)
         $stopButton.Enabled = [bool]($truth.wrapper_alive -or -not $ownerStop.blocked)
 
+        $watchdogMode = [string](Get-OptionalPropertyValue $watchdog 'mode' 'UNKNOWN')
+        $watchdogLabel = switch ($watchdogMode) {
+            'HEALTHY' { 'BÌNH THƯỜNG' }
+            'FAULT' { 'CÓ LỖI' }
+            'OWNER_STOP' { 'OWNER ĐÃ DỪNG' }
+            'INTERNAL_ERROR' { 'LỖI WATCHDOG' }
+            default { 'CHƯA CÓ DỮ LIỆU' }
+        }
+        $cdpLabel = if ($truth.cdp_healthy) { 'KẾT NỐI' } else { 'MẤT KẾT NỐI' }
         $runtimeValue.Text =
-            'RUNTIME: ' +
-            $(if ($truth.wrapper_alive) { 'RUNNING' } else { 'STOPPED' }) +
-            '  •  mode=' +
-            $(if ($truth.runtime_mode) { [string]$truth.runtime_mode } else { '—' })
+            'ROBOT: ' +
+            $(if ($truth.wrapper_alive) { 'ĐANG CHẠY' } else { 'ĐÃ DỪNG' }) +
+            '  •  CHROME/CDP: ' + $cdpLabel +
+            '  •  WATCHDOG: ' + $watchdogLabel
 
-        $generation = if ($state) {
-            [int](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'conversation' $null) 'generation' 0)
-        } else { 0 }
-        $conversationStatus = if ($state) {
-            [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'conversation' $null) 'status' 'NONE')
-        } else { 'NONE' }
-        $conversationValue.Text = "CONVERSATION: generation=$generation  •  status=$conversationStatus"
+        $conversation = if ($state) { Get-OptionalPropertyValue $state 'conversation' $null } else { $null }
+        $automation = if ($state) { Get-OptionalPropertyValue $state 'automation' $null } else { $null }
+        $outbound = if ($state) { Get-OptionalPropertyValue $state 'outbound' $null } else { $null }
+        $sourceState = if ($state) { Get-OptionalPropertyValue $state 'source_of_truth' $null } else { $null }
 
-        $automationStatus = if ($state) {
-            [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'automation' $null) 'status' 'STOPPED')
-        } else { 'STOPPED' }
-        $phase = if ($state) {
-            [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'automation' $null) 'phase' 'STOPPED')
-        } else { 'STOPPED' }
-        $automationValue.Text = "AUTOMATION: $automationStatus  •  phase=$phase"
+        $generation = if ($conversation) { [int](Get-OptionalPropertyValue $conversation 'generation' 0) } else { 0 }
+        $conversationStatus = if ($conversation) { [string](Get-OptionalPropertyValue $conversation 'status' 'NONE') } else { 'NONE' }
+        $automationStatus = if ($automation) { [string](Get-OptionalPropertyValue $automation 'status' 'STOPPED') } else { 'STOPPED' }
+        $phase = if ($automation) { [string](Get-OptionalPropertyValue $automation 'phase' 'STOPPED') } else { 'STOPPED' }
+        $reason = if ($automation) { [string](Get-OptionalPropertyValue $automation 'reason' '') } else { '' }
+        $lastCode = if ($outbound) { [string](Get-OptionalPropertyValue $outbound 'last_error_code' '') } else { '' }
 
-        $syncStatus = if ($state) {
-            [string](Get-OptionalPropertyValue (Get-OptionalPropertyValue $state 'source_of_truth' $null) 'sync_status' 'UNVERIFIED')
+        $flowValue.Text = 'BƯỚC HIỆN TẠI: ' + (Get-OwnerPhaseLabel $phase)
+        $conversationValue.Text = "CUỘC CHAT: thế hệ=$generation  •  " + (Get-OwnerConversationLabel $conversationStatus)
+        $automationValue.Text =
+            'TRẠNG THÁI: ' + (Get-OwnerAutomationLabel $automationStatus) +
+            '  •  mã kỹ thuật=' + $phase
+
+        $timerValue.Text = 'THỜI GIAN: —'
+        if ($phase -eq 'WAIT_TASK_RECHECK' -and $automation) {
+            $waitUntilRaw = [string](Get-OptionalPropertyValue $automation 'wait_until' '')
+            $waitLabel = [string](Get-OptionalPropertyValue $automation 'wait_label' '')
+            if ($waitUntilRaw) {
+                try {
+                    $remaining = [int][Math]::Ceiling(
+                        ([DateTimeOffset]::Parse($waitUntilRaw) - [DateTimeOffset]::UtcNow).TotalSeconds
+                    )
+                    $remaining = [Math]::Max(0, $remaining)
+                    $timerValue.Text =
+                        'ĐẾM NGƯỢC: còn ' + (Format-OwnerDuration $remaining) +
+                        $(if ($waitLabel) { '  •  ' + $waitLabel } else { '  •  Robot sẽ tự kiểm tra lại' })
+                } catch {}
+            }
+        } elseif ($phase -eq 'WAIT_RESPONSE') {
+            $startedRaw = if ($outbound) {
+                [string](Get-OptionalPropertyValue $outbound 'response_running_at' (
+                    Get-OptionalPropertyValue $outbound 'delivered_at' ''
+                ))
+            } else { '' }
+            if (-not $startedRaw -and $automation) {
+                $startedRaw = [string](Get-OptionalPropertyValue $automation 'updated_at' '')
+            }
+            if ($startedRaw) {
+                try {
+                    $elapsed = [int][Math]::Max(
+                        0,
+                        ([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse($startedRaw)).TotalSeconds
+                    )
+                    $timerValue.Text =
+                        'THỜI GIAN: đã chờ ChatGPT ' + (Format-OwnerDuration $elapsed) +
+                        '  •  Robot vẫn đang theo dõi phản hồi'
+                } catch {}
+            } else {
+                $timerValue.Text = 'THỜI GIAN: đang chờ ChatGPT trả lời'
+            }
+        } elseif ($truth.wrapper_alive) {
+            $timerValue.Text = 'THỜI GIAN: Robot đang hoạt động  •  bảng cập nhật mỗi 1 giây'
+        }
+
+        $watchdogFaults = @()
+        if ($watchdog) {
+            $watchdogFaults = @(Get-OptionalPropertyValue $watchdog 'faults' @())
+        }
+        $errorText = Get-OwnerErrorLabel $reason $lastCode
+        if ($watchdogFaults.Count -gt 0) {
+            $errorText += '  •  Watchdog: ' + ([string]::Join(', ', @($watchdogFaults)))
+        }
+        $errorValue.Text = 'LỖI / CẢNH BÁO: ' + $errorText
+        $actionValue.Text =
+            'OWNER CẦN LÀM GÌ: ' +
+            (Get-OwnerActionLabel ([bool]$truth.wrapper_alive) $phase $reason $lastCode)
+
+        $syncStatus = if ($sourceState) {
+            [string](Get-OptionalPropertyValue $sourceState 'sync_status' 'UNVERIFIED')
         } else { 'UNVERIFIED' }
-        $syncValue.Text = "SOURCE OF TRUTH SYNC: $syncStatus  •  Chat URLs are disposable diagnostics and are not persisted."
+        $syncValue.Text =
+            'SOURCE OF TRUTH: ' + (Get-OwnerSyncLabel $syncStatus) +
+            '  •  Robot không lưu link chat làm bộ nhớ dự án.'
     }
 
     $sourceBox.Add_TextChanged({ Refresh-SingleConversationUi })
@@ -1394,7 +1608,7 @@ function Show-SingleConversationControlPanel {
         } catch {
             [Windows.Forms.MessageBox]::Show(
                 $_.Exception.Message,
-                'KHÔNG THỂ START ROBOT',
+                'KHÔNG THỂ KHỞI ĐỘNG ROBOT',
                 'OK',
                 'Warning'
             ) | Out-Null
@@ -1409,7 +1623,7 @@ function Show-SingleConversationControlPanel {
     })
 
     $timer = New-Object Windows.Forms.Timer
-    $timer.Interval = 2000
+    $timer.Interval = 1000
     $timer.Add_Tick({ Refresh-SingleConversationUi })
     $form.Add_Shown({ Refresh-SingleConversationUi })
     $form.Add_FormClosed({ $timer.Stop(); $timer.Dispose() })
