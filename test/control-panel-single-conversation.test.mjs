@@ -15,14 +15,21 @@ test("SC-007 forward Control Center requires only Source of Truth plus START STO
   const ui = panel.slice(start, end);
 
   assert.match(ui, /SOURCE OF TRUTH/);
-  assert.match(ui, /START ROBOT/);
-  assert.match(ui, /STOP ROBOT/);
+  assert.match(ui, /KHỞI ĐỘNG ROBOT/);
+  assert.match(ui, /DỪNG ROBOT/);
   assert.match(ui, /SINGLE_CONVERSATION_V1/);
-  assert.match(ui, /generation=/);
+  assert.match(ui, /\$generation/);
   assert.match(ui, /conversationStatus/);
   assert.match(ui, /source_of_truth_url/);
   assert.match(ui, /single-conversation-control\.v1/);
-  assert.match(ui, /START = create\/resume Robot session from Source of Truth/);
+  assert.match(ui, /Owner không cần cung cấp link cuộc chat/);
+  assert.match(ui, /BƯỚC HIỆN TẠI/);
+  assert.match(ui, /ĐẾM NGƯỢC/);
+  assert.match(ui, /WAIT_TASK_RECHECK/);
+  assert.match(ui, /local-watchdog-status\.json/);
+  assert.match(ui, /timer\.Interval = 1000/);
+  assert.match(ui, /LỖI \/ CẢNH BÁO/);
+  assert.match(ui, /OWNER CẦN LÀM GÌ/);
 
   assert.doesNotMatch(ui, /Planner URL|Executor URL|LINK CHAT PLANNER|LINK CHAT EXECUTOR/);
   assert.doesNotMatch(ui, /MỞ PLANNER|MỞ EXECUTOR/);

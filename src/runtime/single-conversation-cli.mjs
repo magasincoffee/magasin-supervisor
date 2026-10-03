@@ -161,6 +161,61 @@ export async function persistTerminalTaskControl(
     state.automation.phase = "DONE";
     state.automation.reason = "PROJECT_DONE";
   }
+  state.automation.wait_kind = null;
+  state.automation.wait_label = null;
+  state.automation.wait_task_id = null;
+  state.automation.wait_started_at = null;
+  state.automation.wait_until = null;
+  state.automation.wait_seconds_total = 0;
+  state.automation.updated_at = at;
+  return writeSingleConversationState(statePath, state, { now: () => at });
+}
+
+export async function persistTaskRecheckWait(
+  statePath,
+  {
+    taskId,
+    seconds,
+    now = () => new Date().toISOString()
+  } = {}
+) {
+  const waitSeconds = Math.max(0, Math.min(3600, Math.floor(Number(seconds) || 0)));
+  const state = await readSingleConversationState(statePath);
+  const at = new Date(typeof now === "function" ? now() : now).toISOString();
+  const until = new Date(new Date(at).getTime() + waitSeconds * 1000).toISOString();
+  const id = String(taskId || "").trim() || null;
+
+  state.automation.status = "RUNNING";
+  state.automation.phase = "WAIT_TASK_RECHECK";
+  state.automation.reason = id ? `TASK_RECHECK:${id}` : "TASK_RECHECK";
+  state.automation.wait_kind = "TASK_RECHECK";
+  state.automation.wait_label = id
+    ? `Đang chờ tác vụ ${id} hoàn tất trước lần kiểm tra kế tiếp`
+    : "Đang chờ tác vụ nền hoàn tất trước lần kiểm tra kế tiếp";
+  state.automation.wait_task_id = id;
+  state.automation.wait_started_at = at;
+  state.automation.wait_until = until;
+  state.automation.wait_seconds_total = waitSeconds;
+  state.automation.updated_at = at;
+  return writeSingleConversationState(statePath, state, { now: () => at });
+}
+
+export async function clearTaskRecheckWait(
+  statePath,
+  { now = () => new Date().toISOString() } = {}
+) {
+  const state = await readSingleConversationState(statePath);
+  const at = new Date(typeof now === "function" ? now() : now).toISOString();
+  if (String(state.automation.phase || "").toUpperCase() === "WAIT_TASK_RECHECK") {
+    state.automation.phase = "NEXT_WORK";
+    state.automation.reason = null;
+  }
+  state.automation.wait_kind = null;
+  state.automation.wait_label = null;
+  state.automation.wait_task_id = null;
+  state.automation.wait_started_at = null;
+  state.automation.wait_until = null;
+  state.automation.wait_seconds_total = 0;
   state.automation.updated_at = at;
   return writeSingleConversationState(statePath, state, { now: () => at });
 }
@@ -1935,7 +1990,12 @@ export async function runSingleConversationRuntime({
     }
 
     if (checkOnly) {
+      await persistTaskRecheckWait(statePath, {
+        taskId,
+        seconds: control.check_after_seconds
+      });
       await waitForNextCycleDelay(control.check_after_seconds * 1000);
+      await clearTaskRecheckWait(statePath);
     }
 
     const messageId = randomUUID();

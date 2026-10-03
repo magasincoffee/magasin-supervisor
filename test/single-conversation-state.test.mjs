@@ -58,6 +58,12 @@ test("SC-002 state is created from Source of Truth only", () => {
   assert.equal(state.conversation.page_id, null);
   assert.equal(state.outbound.state, "NONE");
   assert.equal(state.outbound.cmd_id, null);
+  assert.equal(state.automation.wait_kind, null);
+  assert.equal(state.automation.wait_label, null);
+  assert.equal(state.automation.wait_task_id, null);
+  assert.equal(state.automation.wait_started_at, null);
+  assert.equal(state.automation.wait_until, null);
+  assert.equal(state.automation.wait_seconds_total, 0);
   assert.equal(Object.hasOwn(state, "planner"), false);
   assert.equal(Object.hasOwn(state, "executor"), false);
   assert.equal(Object.hasOwn(state.conversation, "url"), false);
