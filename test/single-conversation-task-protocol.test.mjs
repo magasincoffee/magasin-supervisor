@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import {
   buildSingleConversationTaskDiscoveryInstruction,
@@ -10,7 +12,8 @@ import {
 import { opaqueRuntimeIdentity } from "../src/runtime/single-conversation-bootstrap.mjs";
 import {
   canRebindEnqueuedTaskDiscovery,
-  resumeExistingConversationPage
+  resumeExistingConversationPage,
+  runSingleConversationRuntime
 } from "../src/runtime/single-conversation-cli.mjs";
 
 test("SC-011 parses authoritative READY task id", () => {
@@ -45,6 +48,64 @@ END_MAGASIN_TASK_CONTROL_V1
   assert.equal(parsed.task_id, "E2E-030");
   assert.equal(parsed.next_task_id, null);
   assert.equal(parsed.check_after_seconds, 300);
+});
+
+test("SC-013 pre-bootstrap CDP startup failure is recoverable and visible", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "sc013-startup-"));
+  const statePath = path.join(dir, "single-conversation-state.json");
+  const adapter = {
+    open: async () => {
+      throw new Error("connectOverCDP socket hang up");
+    },
+    getActivePage: () => null
+  };
+
+  await assert.rejects(
+    runSingleConversationRuntime({
+      adapter,
+      statePath,
+      sourceOfTruthUrl: "https://example.com/SOURCE_OF_TRUTH.md",
+      execute: true
+    }),
+    (error) =>
+      error?.code === "CDP_RECOVERY_REQUIRED" &&
+      error?.runtime_stage === "RUNTIME_OPEN_CDP"
+  );
+
+  const state = JSON.parse(await fs.readFile(statePath, "utf8"));
+  assert.equal(state.automation.status, "RUNNING");
+  assert.equal(state.automation.phase, "CDP_RECOVERY_REQUIRED");
+  assert.equal(state.automation.reason, "CDP_RECOVERY_REQUIRED");
+  assert.equal(state.outbound.last_error_code, "CDP_RECOVERY_REQUIRED");
+  assert.equal(state.outbound.last_error_stage, "RUNTIME_OPEN_CDP");
+});
+
+test("SC-013 non-CDP startup failure records an exact pre-bootstrap stage", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "sc013-startup-hard-"));
+  const statePath = path.join(dir, "single-conversation-state.json");
+  const adapter = {
+    open: async () => {
+      throw new Error("unexpected startup contract failure");
+    },
+    getActivePage: () => null
+  };
+
+  await assert.rejects(
+    runSingleConversationRuntime({
+      adapter,
+      statePath,
+      sourceOfTruthUrl: "https://example.com/SOURCE_OF_TRUTH.md",
+      execute: true
+    }),
+    /unexpected startup contract failure/
+  );
+
+  const state = JSON.parse(await fs.readFile(statePath, "utf8"));
+  assert.equal(state.automation.status, "BLOCKED");
+  assert.equal(state.automation.phase, "BOOTSTRAP_FAILED");
+  assert.equal(state.automation.reason, "RUNTIME_START_FAILED");
+  assert.equal(state.outbound.last_error_code, "RUNTIME_START_FAILED");
+  assert.equal(state.outbound.last_error_stage, "RUNTIME_OPEN_CDP");
 });
 
 test("SC-011 rejects free text and repeated COMPLETE id", () => {
