@@ -2,6 +2,6 @@
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
   "requested_after_cleanup_sha": "811bb5c5cc60b1f21d231c55086a30e72a3641e6",
-  "purpose": "Post-PR300 live qualification: prove BLOCKED_HAS_NEXT_TASK is normalized and genuine SCHED-UI-016 Owner gate persists as BLOCKED/WAIT_OWNER rather than technical TASK_PROTOCOL_INVALID.",
-  "rearm_nonce": "owner-gate-live-qualification-1"
+  "purpose": "Post-PR300 live qualification; retry until scheduler assigns DESKTOP-4K7IM13. Prove genuine SCHED-UI-016 Owner gate persists as BLOCKED/WAIT_OWNER without TASK_PROTOCOL_INVALID. Non-target attempts are invalid evidence and must not mutate.",
+  "rearm_nonce": "owner-gate-live-qualification-2"
 }
