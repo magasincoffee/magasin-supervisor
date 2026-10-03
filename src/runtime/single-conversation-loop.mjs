@@ -139,9 +139,18 @@ export function parseTaskControl(text) {
     });
   }
 
-  const taskId = normalizeTaskId(fields.get("TASK_ID"));
-  const nextTaskId = normalizeTaskId(fields.get("NEXT_TASK_ID"));
+  let taskId = normalizeTaskId(fields.get("TASK_ID"));
+  let nextTaskId = normalizeTaskId(fields.get("NEXT_TASK_ID"));
   const checkAfter = Number(fields.get("CHECK_AFTER_SECONDS") || 0);
+
+  // SC-013 production evidence showed a safe Owner gate rendered as
+  // STATUS=BLOCKED with the blocked gate placed in NEXT_TASK_ID. Treat that
+  // legacy shape conservatively: preserve BLOCKED semantics, promote the gate
+  // id to TASK_ID when needed, and never execute NEXT_TASK_ID.
+  if (status === "BLOCKED" && nextTaskId) {
+    taskId = taskId || nextTaskId;
+    nextTaskId = null;
+  }
   if (!Number.isInteger(checkAfter) || checkAfter < 0 || checkAfter > 3600) {
     throw Object.assign(new Error("invalid CHECK_AFTER_SECONDS"), {
       code: "TASK_PROTOCOL_INVALID"
@@ -168,8 +177,8 @@ export function parseTaskControl(text) {
       code: "TASK_PROTOCOL_INVALID"
     });
   }
-  if ((status === "DONE" || status === "BLOCKED") && nextTaskId) {
-    throw Object.assign(new Error(status + " must not include NEXT_TASK_ID"), {
+  if (status === "DONE" && nextTaskId) {
+    throw Object.assign(new Error("DONE must not include NEXT_TASK_ID"), {
       code: "TASK_PROTOCOL_INVALID"
     });
   }
@@ -190,6 +199,7 @@ function taskControlContractLines() {
     "TASK_ID=<existing SOT task id or NONE>",
     "NEXT_TASK_ID=<existing SOT task id or NONE>",
     "CHECK_AFTER_SECONDS=<0-3600>",
+    "Semantic rules: READY => TASK_ID=NONE and NEXT_TASK_ID=<executable task>; RUNNING => TASK_ID=<same running task> and NEXT_TASK_ID=NONE; COMPLETE => TASK_ID=<completed task> and NEXT_TASK_ID=<next executable task>; BLOCKED => TASK_ID=<blocked SOT gate id or NONE> and NEXT_TASK_ID=NONE; DONE => NEXT_TASK_ID=NONE.",
     TASK_CONTROL_FOOTER
   ];
 }
@@ -212,7 +222,7 @@ export function buildSingleConversationTaskDiscoveryInstruction({
     "Do not execute project work in this turn.",
     "Identify exactly one authoritative next executable task ID already present in SOT.",
     "If a task is available, use STATUS=READY and put it in NEXT_TASK_ID.",
-    "If the project is finished, use STATUS=DONE. If Owner input is required, use STATUS=BLOCKED.",
+    "If the project is finished, use STATUS=DONE. Use STATUS=BLOCKED only when no executable task can proceed without Owner input; put the blocked SOT gate in TASK_ID when one exists and always use NEXT_TASK_ID=NONE.",
     ...taskControlContractLines(),
     `End with: MAGASIN_CYCLE_CORRELATION_V1 ${id}`
   ].join("\n");
