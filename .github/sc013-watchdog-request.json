@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-watchdog-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "purpose": "Capture exact post-PR301 first failure. Live rerun advanced through STARTING_BROWSER, then returned to BOOTSTRAP_FAILED before conversation generation. Collect wrapper stderr/message and live blank-chat evidence only.",
-  "rearm_nonce": "post-pr301-bootstrap-stage2-diagnostic-1"
+  "purpose": "Retry exact post-PR301 first-failure diagnostics on DESKTOP-4K7IM13. Live rerun advanced through STARTING_BROWSER, then failed before conversation generation; collect wrapper stderr/error message and current UI evidence.",
+  "rearm_nonce": "post-pr301-bootstrap-stage2-diagnostic-2"
 }
