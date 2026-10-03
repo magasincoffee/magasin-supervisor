@@ -1,7 +1,7 @@
 {
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "requested_after_cleanup_sha": "811bb5c5cc60b1f21d231c55086a30e72a3641e6",
-  "purpose": "Post-PR300 live qualification; retry until scheduler assigns DESKTOP-4K7IM13. Prove genuine SCHED-UI-016 Owner gate persists as BLOCKED/WAIT_OWNER without TASK_PROTOCOL_INVALID. Non-target attempts are invalid evidence and must not mutate.",
-  "rearm_nonce": "owner-gate-live-qualification-2"
+  "requested_after_cleanup_sha": "8beecd4ea62b38dcc2271075fe71dfce091753a2",
+  "purpose": "Capture the current Owner-reported START -> immediate STOP bootstrap failure. Identify the earliest proven failing stage on the real production path before any repair. Owner also requested Vietnamese Control Center observability, but this live attempt is only for first-failure evidence.",
+  "rearm_nonce": "bootstrap-failure-live-capture-20261003-2100"
 }
