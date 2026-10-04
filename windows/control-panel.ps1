@@ -1439,6 +1439,7 @@ function Show-SingleConversationControlPanel {
             'COMPOSER_NOT_READY' { return 'Ô nhập ChatGPT chưa sẵn sàng' }
             'SEND_NOT_ACTUATED' { return 'Robot chưa thực hiện được thao tác gửi' }
             'TASK_PROTOCOL_INVALID' { return 'Phản hồi điều khiển task không đúng định dạng' }
+            'POST_SEND_CONFIRMATION_PENDING' { return 'Không phải lỗi — Robot đã gửi và đang chờ xác nhận phản hồi tương ứng' }
             default { return $raw }
         }
     }
