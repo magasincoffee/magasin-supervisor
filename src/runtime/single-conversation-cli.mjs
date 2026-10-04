@@ -834,11 +834,12 @@ export function canRebindEnqueuedTaskMessage(state) {
 
 export function canRebindEnqueuedTaskDiscovery(state) {
   const outbound = state?.outbound || {};
+  const lastError = String(outbound.last_error_code || "");
   return Boolean(
     String(state?.conversation?.status || "").toUpperCase() === "ACTIVE" &&
     String(outbound.state || "").toUpperCase() === "ENQUEUED" &&
     String(outbound.kind || "") === "SOURCE_OF_TRUTH_TASK_DISCOVERY" &&
-    String(outbound.last_error_code || "") === "SEND_NOT_ACTUATED" &&
+    ["SEND_NOT_ACTUATED", "POST_SEND_CONFIRMATION_PENDING"].includes(lastError) &&
     Number(outbound.retry_count || 0) < 1 &&
     String(outbound.message_id || "").trim() &&
     String(outbound.message_digest || "").trim()
@@ -1103,9 +1104,59 @@ async function resumeEnqueuedTaskDiscoveryAfterRebind({
     );
   }
 
-  // This path only rebinds the exact prior conversation. It does not authorize
-  // a resend by itself. The existing exact-once reconciler must prove either
-  // delivery or positive non-delivery before any browser actuation.
+  // Correlation or an actively running response on the exact rebound
+  // conversation is positive evidence that the prior discovery submit reached
+  // ChatGPT. Observe the existing response only; never replay this message.
+  const correlatedAssistant = await boundedRuntimeStep(
+    "RESTART_DISCOVERY_CAPTURE_ASSISTANT_CORRELATION",
+    () => captureLatestRoleTurn(page, "assistant"),
+    { timeoutMs: 10_000 }
+  ).catch(() => null);
+
+  if (assistantTurnConfirmsCycleDelivery(correlatedAssistant, messageId)) {
+    await markExactOnceDelivered(statePath, {
+      messageId,
+      message,
+      userTurnId: null
+    });
+    return settleTransactionResponse({
+      adapter,
+      page,
+      statePath,
+      messageId,
+      message,
+      baselineAssistantTurnId: null,
+      timeoutMs: responseTimeoutMs,
+      pollMs: Math.min(750, Math.max(100, pollMs))
+    });
+  }
+
+  const pendingPostSendConfirmation =
+    String(state.outbound.last_error_code || "") ===
+    "POST_SEND_CONFIRMATION_PENDING";
+  const reboundProbe = await boundedRuntimeStep(
+    "RESTART_DISCOVERY_RESPONSE_PROBE",
+    () => adapter.probePage(page),
+    { timeoutMs: 10_000 }
+  ).catch(() => null);
+  const responseRunning = Boolean(reboundProbe?.snapshot?.responseRunning);
+
+  if (pendingPostSendConfirmation || responseRunning) {
+    return settleTransactionResponse({
+      adapter,
+      page,
+      statePath,
+      messageId,
+      message,
+      baselineAssistantTurnId: null,
+      timeoutMs: responseTimeoutMs,
+      pollMs: Math.min(750, Math.max(100, pollMs))
+    });
+  }
+
+  // Without correlation/running-response evidence, the legacy
+  // SEND_NOT_ACTUATED state remains fail-closed: only the existing exact-once
+  // reconciler may prove delivery or positive non-delivery before any retry.
   const delivery = await reconcileExactOnceOutbound({
     statePath,
     page,
