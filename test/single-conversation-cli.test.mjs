@@ -18,6 +18,7 @@ import {
   reconstructPendingStatusCheckMessage,
   reconstructPendingTaskMessage,
   replacementReasonForResponseWaitError,
+  recoverableConversationFullTask,
   preparedBootstrapIsStaleEnough,
   safeBootstrapNonDeliverySnapshot,
   safeFalseHistoricalDeliverySnapshot,
@@ -864,7 +865,70 @@ test("SC-013 startup prioritizes PREPARED recovery before in-flight and ENQUEUED
 });
 
 
-test("SC-013 restart rejects a full chat and rolls over only settled outbound work", async () => {
+test("SC-013 identifies only in-flight task work as safe full-chat CHECK recovery", () => {
+  const base = {
+    conversation: { status: "ACTIVE" },
+    automation: { status: "BLOCKED", phase: "CYCLE_FAILED" },
+    outbound: {
+      state: "RESPONSE_RUNNING",
+      kind: "TASK_EXECUTION",
+      task_id: "OPS-074",
+      message_id: "full-live-task",
+      last_error_code: "CONVERSATION_FULL"
+    }
+  };
+
+  assert.deepEqual(recoverableConversationFullTask(base), {
+    task_id: "OPS-074",
+    kind: "TASK_EXECUTION",
+    outbound_state: "RESPONSE_RUNNING",
+    message_id: "full-live-task"
+  });
+
+  const statusCheck = structuredClone(base);
+  statusCheck.outbound.kind = "TASK_STATUS_CHECK";
+  statusCheck.outbound.state = "DELIVERED";
+  assert.equal(recoverableConversationFullTask(statusCheck)?.task_id, "OPS-074");
+
+  for (const mutation of [
+    (state) => { state.outbound.last_error_code = "NETWORK_ERROR"; },
+    (state) => { state.outbound.kind = "SOURCE_OF_TRUTH_TASK_DISCOVERY"; },
+    (state) => { state.outbound.state = "PREPARED"; },
+    (state) => { state.outbound.task_id = null; },
+    (state) => { state.conversation.status = "RETIRED"; }
+  ]) {
+    const unsafe = structuredClone(base);
+    mutation(unsafe);
+    assert.equal(recoverableConversationFullTask(unsafe), null);
+  }
+});
+
+test("SC-013 full chat during in-flight task rolls over then CHECKs same task without replaying EXECUTE", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  const helperStart = source.indexOf("async function recoverConversationFullTaskByCheck");
+  const helperEnd = source.indexOf("async function discoverTaskControl", helperStart);
+  assert.ok(helperStart >= 0 && helperEnd > helperStart);
+  const helper = source.slice(helperStart, helperEnd);
+
+  assert.match(helper, /reason: "CONVERSATION_FULL_IN_FLIGHT"/);
+  assert.match(helper, /checkOnly: true/);
+  assert.match(helper, /kind: "TASK_STATUS_CHECK"/);
+  assert.match(helper, /taskId: task/);
+  assert.doesNotMatch(helper, /kind: "TASK_EXECUTION"/);
+
+  const loop = source.indexOf("while (maxCycles <= 0 || cycles < maxCycles)");
+  const send = source.indexOf("response = await sendProtocolMessage", loop);
+  const full = source.indexOf('String(error?.code || "").toUpperCase() !== "CONVERSATION_FULL"', send);
+  const recover = source.indexOf("recoverConversationFullTaskByCheck({", full);
+  const parse = source.indexOf("sourceKind: responseSourceKind", recover);
+  assert.ok(loop >= 0 && send > loop && full > send && recover > full && parse > recover);
+});
+
+test("SC-013 restart full-chat handling checks in-flight task before settled rollover", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
     "utf8"
@@ -873,11 +937,22 @@ test("SC-013 restart rejects a full chat and rolls over only settled outbound wo
   const rebind = source.indexOf("export async function resumeExistingConversationPage", probe);
   assert.match(source.slice(probe, rebind), /classifyDisposableConversation\(snapshot\)\.action !== "KEEP_CHAT"/);
   const restart = source.indexOf("const restartProbe = rebound?.page");
-  const full = source.indexOf('restartProbe?.classification?.reason === "CONVERSATION_FULL"', restart);
+  const inFlight = source.indexOf("else if (recoverableConversationFullTask(current))", restart);
+  const inFlightRecover = source.indexOf("recoverConversationFullTaskByCheck({", inFlight);
+  const full = source.indexOf('restartProbe?.classification?.reason === "CONVERSATION_FULL"', inFlightRecover);
   const settled = source.indexOf('["RESPONSE_COMPLETE", "VERIFIED"]', full);
   const replace = source.indexOf("const replacement = await replaceDisposableConversation", settled);
   const failClosed = source.indexOf('code: "RUNTIME_RESTART_IDENTITY_NOT_VERIFIED"', replace);
-  assert.ok(restart >= 0 && full > restart && settled > full && replace > settled && failClosed > replace);
+  assert.ok(
+    restart >= 0 &&
+    inFlight > restart &&
+    inFlightRecover > inFlight &&
+    full > inFlightRecover &&
+    settled > full &&
+    replace > settled &&
+    failClosed > replace
+  );
+  assert.match(source.slice(inFlight, full), /taskId: interrupted.task_id/);
   assert.match(source.slice(full, failClosed), /reason: "CONVERSATION_FULL"/);
 });
 
