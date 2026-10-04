@@ -1,7 +1,7 @@
 {
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "requested_after_cleanup_sha": "aad1266a08cdd99a3976c142aabe2f4a84e45d65",
-  "purpose": "Post-PR305 live qualification while OPS-074 remains active. Verify current delivered task recovers, terminal CI failure does not enter indefinite WAIT, same TASK_ID remains OPS-074, repair/new-run evidence advances, and at least two subsequent verified cycles remain exact-once.",
-  "rearm_nonce": "ops074-ci-auto-recovery-live-20261004-1301"
+  "requested_after_cleanup_sha": "a9d36cc42b4bbec583e7ed79ba2f7d0a08a2fbbd",
+  "purpose": "Post-PR306 live qualification for OPS-074 CI auto-recovery. Verify delivered legacy TASK_EXECUTION response is recovered by exact assistant correlation without prompt reconstruction/resend, then verify completed failed CI does not remain RUNNING wait, same TASK_ID OPS-074 enters AUTO_REPAIR, and subsequent new commit/run evidence advances.",
+  "rearm_nonce": "ops074-ci-auto-recovery-post-pr306-20261004-1413"
 }
