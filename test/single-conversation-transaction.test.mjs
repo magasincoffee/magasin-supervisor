@@ -9,6 +9,7 @@ import {
   markExactOnceEnqueued,
   markExactOnceResponseComplete,
   markExactOnceVerified,
+  markCorrelatedInFlightTaskResponseVerified,
   prepareExactOnceOutbound,
   reconcileExactOnceOutbound,
   rewindFalseHistoricalDiscoveryDelivery
@@ -516,6 +517,53 @@ test("SC-006 different new user turn fails closed instead of resending", async (
       (error) => error?.code === "AMBIGUOUS_ENQUEUED_OUTCOME"
     );
     assert.equal(sends, 0);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("SC-013 correlated delivered task can verify after runtime prompt upgrade without reconstruction", async () => {
+  const { root, statePath } = await makeState();
+  const originalMessage = "MAGASIN_EXECUTE_TASK_V1\nid=legacy-live-message\nTASK_ID=OPS-074\nlegacy prompt contract";
+  try {
+    await prepareExactOnceOutbound(statePath, {
+      messageId: "legacy-live-message",
+      message: originalMessage,
+      kind: "TASK_EXECUTION",
+      taskId: "OPS-074",
+      baselineUserTurnId: "u0"
+    });
+    await markExactOnceEnqueued(statePath, {
+      messageId: "legacy-live-message",
+      message: originalMessage
+    });
+    await markExactOnceDelivered(statePath, {
+      messageId: "legacy-live-message",
+      message: originalMessage,
+      userTurnId: "u1"
+    });
+
+    await markCorrelatedInFlightTaskResponseVerified(statePath, {
+      messageId: "legacy-live-message",
+      assistantTurnId: "a-correlated",
+      now: () => "2026-10-04T07:10:00.000Z"
+    });
+
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "VERIFIED");
+    assert.equal(durable.outbound.message_digest, composerInstructionDigest(originalMessage));
+    assert.equal(durable.outbound.retry_count, 0);
+    assert.equal(durable.automation.status, "RUNNING");
+    assert.equal(durable.automation.phase, "NEXT_WORK");
+    assert.equal(durable.automation.last_assistant_turn_id, "a-correlated");
+    assert.equal(durable.source_of_truth.sync_status, "VERIFIED");
+
+    await assert.rejects(
+      markCorrelatedInFlightTaskResponseVerified(statePath, {
+        messageId: "different-id"
+      }),
+      (error) => error?.code === "OUTBOUND_ID_MISMATCH"
+    );
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

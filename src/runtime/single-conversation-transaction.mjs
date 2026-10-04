@@ -300,6 +300,53 @@ export async function markExactOnceVerified(statePath, {
   }, now);
 }
 
+export async function markCorrelatedInFlightTaskResponseVerified(statePath, {
+  messageId,
+  assistantTurnId = null,
+  now = () => new Date().toISOString()
+} = {}) {
+  const id = requireMessageId(messageId);
+  return mutateState(statePath, (state, at) => {
+    const outbound = state.outbound || {};
+    if (String(outbound.message_id || "") !== id) {
+      throw Object.assign(new Error("outbound message_id mismatch"), {
+        code: "OUTBOUND_ID_MISMATCH"
+      });
+    }
+    const current = String(outbound.state || "").toUpperCase();
+    const kind = String(outbound.kind || "");
+    if (!["TASK_EXECUTION", "TASK_STATUS_CHECK"].includes(kind)) {
+      throw Object.assign(
+        new Error("correlated task response verification requires a task message"),
+        { code: "INVALID_CORRELATED_TASK_KIND" }
+      );
+    }
+    if (!["DELIVERED", "RESPONSE_RUNNING"].includes(current)) {
+      throw Object.assign(
+        new Error("correlated task response verification requires in-flight delivery evidence"),
+        { code: "INVALID_CORRELATED_TASK_STATE" }
+      );
+    }
+
+    // Exact assistant correlation is positive evidence that this already
+    // delivered task request reached ChatGPT. This restart-only transition
+    // never reconstructs or resends the original prompt, so a runtime upgrade
+    // that changes prompt wording cannot strand an older delivered message.
+    outbound.state = "VERIFIED";
+    outbound.response_complete_at = outbound.response_complete_at || at;
+    outbound.verified_at = outbound.verified_at || at;
+    outbound.last_error_code = null;
+    outbound.last_error_stage = null;
+    state.source_of_truth.sync_status = "VERIFIED";
+    state.source_of_truth.last_verified_at = at;
+    state.automation.status = "RUNNING";
+    state.automation.phase = "NEXT_WORK";
+    state.automation.reason = null;
+    state.automation.last_assistant_turn_id = assistantTurnId || null;
+    state.automation.updated_at = at;
+  }, now);
+}
+
 async function persistExactOnceFailure(statePath, error, now) {
   return mutateState(statePath, (state, at) => {
     const code = transactionCode(error).slice(0, 120);

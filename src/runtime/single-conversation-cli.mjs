@@ -41,6 +41,7 @@ import {
   markExactOnceDelivered,
   markExactOnceResponseComplete,
   markExactOnceVerified,
+  markCorrelatedInFlightTaskResponseVerified,
   prepareExactOnceOutbound,
   reconcileExactOnceOutbound,
   rewindFalseHistoricalDiscoveryDelivery
@@ -1029,6 +1030,7 @@ async function resumePreparedProtocolMessageAfterRebind({
 
   const kind = String(state.outbound.kind || "");
   const messageId = String(state.outbound.message_id || "");
+
   let message = reconstructPendingProtocolMessage(state);
   let latestUser = null;
 
@@ -1273,6 +1275,35 @@ async function resumeInFlightProtocolMessageAfterRebind({
 
   const kind = String(state.outbound.kind || "");
   const messageId = String(state.outbound.message_id || "");
+
+  if (
+    ["TASK_EXECUTION", "TASK_STATUS_CHECK"].includes(kind) &&
+    ["DELIVERED", "RESPONSE_RUNNING"].includes(
+      String(state.outbound.state || "").toUpperCase()
+    )
+  ) {
+    const correlatedAssistant = await boundedRuntimeStep(
+      "RESTART_WAIT_RESPONSE_CAPTURE_ASSISTANT_CORRELATION",
+      () => captureLatestRoleTurn(page, "assistant"),
+      { timeoutMs: 10_000 }
+    ).catch(() => null);
+
+    if (assistantTurnConfirmsCycleDelivery(correlatedAssistant, messageId)) {
+      await markCorrelatedInFlightTaskResponseVerified(statePath, {
+        messageId,
+        assistantTurnId: correlatedAssistant.turn_id || null
+      });
+      return {
+        status: "RESPONSE_COMPLETE",
+        assistant_turn: correlatedAssistant,
+        continue_clicks: 0,
+        saw_running: false,
+        marker_confirmed: true,
+        recovered_from_correlation_without_prompt_reconstruction: true
+      };
+    }
+  }
+
   let message = reconstructPendingProtocolMessage(state);
   let latestUser = null;
 
