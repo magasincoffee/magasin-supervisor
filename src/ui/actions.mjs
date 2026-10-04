@@ -1021,7 +1021,7 @@ async function clickControlBySemantic(page, control) {
 export async function sendComposerInstruction(
   page,
   instruction,
-  { dryRun = true } = {}
+  { dryRun = true, allowPendingUserTurn = false } = {}
 ) {
   if (!page) throw new TypeError("page is required");
   if (typeof instruction !== "string" || !instruction.trim()) {
@@ -1300,6 +1300,23 @@ export async function sendComposerInstruction(
     }).catch(() => {});
 
     if (!userTurn.confirmed) {
+      if (allowPendingUserTurn && submission.confirmed) {
+        return await finish({
+          executed: true,
+          dryRun: false,
+          action: ACTIONS.CONTINUE,
+          target: "COMPOSER_SEND",
+          input_method: textSet.method,
+          send_method: sendMethod,
+          send_selector: sendSelector,
+          send_scope: sendScope,
+          primary_submit_evidence: primarySubmitEvidence,
+          submit_evidence: submission.evidence,
+          user_turn_evidence: userTurn.evidence,
+          user_turn_pending: true,
+          reason: "submit transition confirmed; matching user turn is still hydrating"
+        });
+      }
       return await finish({
         executed: false,
         dryRun: false,
