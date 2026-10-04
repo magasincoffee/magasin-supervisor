@@ -1,7 +1,7 @@
 {
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "requested_after_cleanup_sha": "69d4a5feeb3e66859a452a41afc872f2901c4103",
-  "purpose": "Post-first-send bootstrap fix production rerun. Verify blank New Chat busy hydration settles, first bootstrap message is sent exactly once, ChatGPT responds, then continue until next proven first failure or Owner block.",
-  "rearm_nonce": "post-new-chat-busy-fix-20261003-2208"
+  "requested_after_cleanup_sha": "aad1266a08cdd99a3976c142aabe2f4a84e45d65",
+  "purpose": "Post-PR305 live qualification while OPS-074 remains active. Verify current delivered task recovers, terminal CI failure does not enter indefinite WAIT, same TASK_ID remains OPS-074, repair/new-run evidence advances, and at least two subsequent verified cycles remain exact-once.",
+  "rearm_nonce": "ops074-ci-auto-recovery-live-20261004-1301"
 }
