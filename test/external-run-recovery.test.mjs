@@ -14,6 +14,9 @@ import {
   readSingleConversationState,
   writeSingleConversationState
 } from "../src/runtime/single-conversation-state.mjs";
+import {
+  reconcileExternalRunResponse
+} from "../src/runtime/single-conversation-cli.mjs";
 
 function evidence(overrides = {}) {
   return {
@@ -122,6 +125,21 @@ test("SC-013 repeated CHECK of the same completed failed run does not poll or co
   assert.equal(second.external_work.repair_attempt, 1);
   assert.equal(second.taskControl.status, "READY");
   assert.equal(second.taskControl.check_after_seconds, 0);
+});
+
+test("SC-013 repeated execution with no concrete progress consumes repair budget", () => {
+  const failed = evidence({
+    workflow_status: "completed",
+    workflow_conclusion: "failure",
+    failure_signature: "ops074_db_ci_permission_queue_sql",
+    failure_count: 3,
+    last_action: "READ_FAILURE",
+    next_action: "AUTO_REPAIR"
+  });
+  const first = reconcile(null, failed, "TASK_STATUS_CHECK");
+  const second = reconcile(first.external_work, failed, "TASK_EXECUTION");
+  assert.equal(second.external_work.repair_attempt, 2);
+  assert.equal(second.taskControl.status, "READY");
 });
 
 test("SC-013 repair commit tracks the new run instead of the completed failed run", () => {
@@ -234,6 +252,54 @@ test("SC-013 AUTO_REPAIR continuity survives Robot restart", async () => {
     assert.equal(restarted.external_work.repair_attempt, 1);
     assert.equal(restarted.external_work.decision, "AUTO_REPAIR");
     assert.equal(restarted.external_work.failure_signature, "ops074_db_ci_permission_queue_sql");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("SC-013 tracked external task cannot return RUNNING without fresh external evidence", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "sc013-missing-external-evidence-"));
+  const statePath = path.join(root, "single-conversation-state.json");
+  try {
+    let state = await ensureSingleConversationState(statePath, {
+      sourceOfTruthUrl: "https://github.com/magasincoffee/OPS-WebApp/blob/main/SOURCE_OF_TRUTH.md",
+      sessionId: "missing-external-evidence",
+      now: () => "2026-10-04T05:00:00.000Z"
+    });
+    const failed = evidence({
+      workflow_status: "completed",
+      workflow_conclusion: "failure",
+      failure_signature: "ops074_db_ci_permission_queue_sql",
+      failure_count: 3
+    });
+    state.external_work = reconcileExternalRunState({
+      previous: state.external_work,
+      evidence: failed,
+      sourceKind: "TASK_STATUS_CHECK",
+      now: () => "2026-10-04T05:00:01.000Z"
+    }).external_work;
+    await writeSingleConversationState(statePath, state, {
+      now: () => "2026-10-04T05:00:01.000Z"
+    });
+
+    const control = await reconcileExternalRunResponse({
+      statePath,
+      text: "No fresh external evidence in this response.",
+      taskControl: runningControl(),
+      expectedTaskId: "OPS-074",
+      sourceKind: "TASK_STATUS_CHECK",
+      now: () => "2026-10-04T05:00:02.000Z"
+    });
+    assert.deepEqual(control, {
+      status: "READY",
+      task_id: null,
+      next_task_id: "OPS-074",
+      check_after_seconds: 0
+    });
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.automation.phase, "AUTO_REPAIR");
+    assert.equal(durable.automation.reason, "EXTERNAL_EVIDENCE_MISSING");
+    assert.equal(durable.external_work.last_action, "EXTERNAL_EVIDENCE_MISSING");
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
