@@ -341,7 +341,14 @@ try {
                     }
                     if ($outbound -eq 'ENQUEUED' -and $state.outbound.enqueued_at) {
                         $enqueuedAge = [int]($now - [DateTimeOffset]::Parse([string]$state.outbound.enqueued_at)).TotalSeconds
-                        if ($enqueuedAge -ge $MaxEnqueuedSeconds) {
+                        $pendingPostSendConfirmation = [bool](
+                            $phase -eq 'WAIT_RESPONSE' -and
+                            $lastCode -eq 'POST_SEND_CONFIRMATION_PENDING'
+                        )
+                        if (
+                            $enqueuedAge -ge $MaxEnqueuedSeconds -and
+                            -not $pendingPostSendConfirmation
+                        ) {
                             [void]$faults.Add("ENQUEUED_STALLED:$enqueuedAge")
                         }
                     }
