@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "6f6dc1287305b47a9c2abf389d456fc4041a1ea6",
+  "requested_main_sha": "5dfd2cbc03a0eaf77a7a2a447e8f4ac0e02a8ed1",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy PR #308 rendered task-control equals-spacing recovery for OPS-074 discovery MALFORMED_FIELD stop."
+  "reason": "Deploy PR #310 post-submit user-turn lag recovery for OPS-074 C04 discovery SEND_NOT_ACTUATED stop."
 }
