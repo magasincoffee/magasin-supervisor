@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-watchdog-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "purpose": "Capture current owner-visible fault: automation RUNNING/NEXT_WORK with conversation ACTIVE and SOT VERIFIED, while wrapper and CDP are down. Read-only evidence only; capture wrapper stderr/runtime exit cause before any restart.",
-  "rearm_nonce": "next-work-wrapper-down-20261003-2354-r3"
+  "purpose": "Capture current OPS-074 live fault: state shows BLOCKED/SEND_WORK/EXACT_ONCE_FAILED with ENQUEUED_STALLED and wrapper down while ChatGPT produced STATUS=RUNNING CHECK_AFTER_SECONDS=120. Read-only diagnosis only; capture wrapper stderr, durable transaction state, CDP/UI health, and exact first failure.",
+  "rearm_nonce": "ops074-exact-once-fault-20261004-1203-a"
 }
