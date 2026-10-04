@@ -460,6 +460,32 @@ export function replacementReasonForResponseWaitError(error) {
   return null;
 }
 
+export function recoverableConversationFullTask(state) {
+  const outbound = state?.outbound || {};
+  const kind = String(outbound.kind || "").toUpperCase();
+  const outboundState = String(outbound.state || "").toUpperCase();
+  const taskId = String(outbound.task_id || "").trim();
+  const errorCode = String(outbound.last_error_code || "").toUpperCase();
+  const conversationStatus = String(state?.conversation?.status || "").toUpperCase();
+
+  if (
+    conversationStatus !== "ACTIVE" ||
+    errorCode !== "CONVERSATION_FULL" ||
+    !["TASK_EXECUTION", "TASK_STATUS_CHECK"].includes(kind) ||
+    !["ENQUEUED", "DELIVERED", "RESPONSE_RUNNING"].includes(outboundState) ||
+    !taskId
+  ) {
+    return null;
+  }
+
+  return {
+    task_id: taskId,
+    kind,
+    outbound_state: outboundState,
+    message_id: String(outbound.message_id || "").trim() || null
+  };
+}
+
 export function bootstrapRecoveryReasonForState(state) {
   const outbound = state?.outbound || {};
   const outboundState = String(outbound.state || "").toUpperCase();
@@ -1708,6 +1734,64 @@ async function sendProtocolMessage({
   });
 }
 
+async function recoverConversationFullTaskByCheck({
+  adapter,
+  page,
+  statePath,
+  sourceOfTruthUrl,
+  taskId,
+  qualificationOnly = false,
+  responseTimeoutMs,
+  pollMs
+} = {}) {
+  const task = String(taskId || "").trim();
+  if (!task) {
+    throw Object.assign(
+      new Error("conversation-full task recovery requires task id"),
+      { code: "CONVERSATION_FULL_RECOVERY_TASK_ID_MISSING" }
+    );
+  }
+
+  const replacement = await replaceDisposableConversation({
+    adapter,
+    page,
+    statePath,
+    reason: "CONVERSATION_FULL_IN_FLIGHT",
+    sourceOfTruthUrl,
+    projectId: "LIVE",
+    qualificationOnly,
+    timeoutMs: responseTimeoutMs,
+    pollMs: Math.min(750, Math.max(100, pollMs))
+  });
+
+  const checkMessageId = randomUUID();
+  const checkMessage = buildSingleConversationTaskInstruction({
+    sourceOfTruthUrl,
+    taskId: task,
+    messageId: checkMessageId,
+    checkOnly: true
+  });
+  const response = await sendProtocolMessage({
+    adapter,
+    page: replacement.page,
+    statePath,
+    message: checkMessage,
+    messageId: checkMessageId,
+    kind: "TASK_STATUS_CHECK",
+    taskId: task,
+    responseTimeoutMs,
+    pollMs
+  });
+
+  return {
+    page: replacement.page,
+    response,
+    source_kind: "TASK_STATUS_CHECK",
+    task_id: task,
+    replacement
+  };
+}
+
 async function discoverTaskControl({
   adapter,
   page,
@@ -2007,6 +2091,27 @@ export async function runSingleConversationRuntime({
       page = replacement.page;
       bootstrapResponse = replacement.response;
       current = await readSingleConversationState(statePath);
+    } else if (recoverableConversationFullTask(current)) {
+      // The old conversation filled while a task request was already in-flight.
+      // Never replay that TASK_EXECUTION. Retire only the full disposable chat,
+      // bootstrap a fresh generation from SOT, then CHECK the same authoritative
+      // task so partial/complete side effects are reconciled from durable evidence.
+      const interrupted = recoverableConversationFullTask(current);
+      const recovered = await recoverConversationFullTaskByCheck({
+        adapter,
+        page:
+          restartProbe?.page ||
+          recoverableBootstrapPage(adapter, current),
+        statePath,
+        sourceOfTruthUrl,
+        taskId: interrupted.task_id,
+        qualificationOnly,
+        responseTimeoutMs,
+        pollMs
+      });
+      page = recovered.page;
+      bootstrapResponse = recovered.response;
+      current = await readSingleConversationState(statePath);
     } else if (
       restartProbe?.classification?.reason === "CONVERSATION_FULL" &&
       ["RESPONSE_COMPLETE", "VERIFIED"].includes(String(current.outbound?.state || "").toUpperCase())
@@ -2275,24 +2380,51 @@ export async function runSingleConversationRuntime({
       messageId,
       checkOnly
     });
-    const response = await sendProtocolMessage({
-      adapter,
-      page,
-      statePath,
-      message,
-      messageId,
-      kind: checkOnly ? "TASK_STATUS_CHECK" : "TASK_EXECUTION",
-      taskId,
-      responseTimeoutMs,
-      pollMs
-    });
+    let response = null;
+    let responseSourceKind = checkOnly ? "TASK_STATUS_CHECK" : "TASK_EXECUTION";
+    try {
+      response = await sendProtocolMessage({
+        adapter,
+        page,
+        statePath,
+        message,
+        messageId,
+        kind: responseSourceKind,
+        taskId,
+        responseTimeoutMs,
+        pollMs
+      });
+    } catch (error) {
+      if (String(error?.code || "").toUpperCase() !== "CONVERSATION_FULL") {
+        throw error;
+      }
+      const interruptedState = await readSingleConversationState(statePath);
+      const interrupted = recoverableConversationFullTask(interruptedState);
+      if (!interrupted || interrupted.task_id !== taskId) {
+        throw error;
+      }
+
+      const recovered = await recoverConversationFullTaskByCheck({
+        adapter,
+        page,
+        statePath,
+        sourceOfTruthUrl,
+        taskId,
+        qualificationOnly,
+        responseTimeoutMs,
+        pollMs
+      });
+      page = recovered.page;
+      response = recovered.response;
+      responseSourceKind = recovered.source_kind;
+    }
     cycles += 1;
     try {
       control = await parseTaskResponseControl({
         statePath,
         text: response.assistant_turn?.text,
         expectedTaskId: taskId,
-        sourceKind: checkOnly ? "TASK_STATUS_CHECK" : "TASK_EXECUTION"
+        sourceKind: responseSourceKind
       });
     } catch (error) {
       if (error?.code !== "TASK_PROTOCOL_INVALID") throw error;
