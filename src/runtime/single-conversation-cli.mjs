@@ -136,7 +136,8 @@ function taskProtocolSubreason(error) {
     ["COMPLETE cannot repeat the same TASK_ID as NEXT_TASK_ID", "COMPLETE_REPEATED_TASK"],
     ["DONE must not include NEXT_TASK_ID", "DONE_HAS_NEXT_TASK"],
     ["BLOCKED must not include NEXT_TASK_ID", "BLOCKED_HAS_NEXT_TASK"],
-    ["task protocol did not provide an executable task id", "NO_EXECUTABLE_TASK_ID"]
+    ["task protocol did not provide an executable task id", "NO_EXECUTABLE_TASK_ID"],
+    ["external-run protocol invalid", "EXTERNAL_RUN_PROTOCOL_INVALID"]
   ]);
   return table.get(message) || "OTHER_PROTOCOL_INVALID";
 }
@@ -218,6 +219,32 @@ export async function reconcileExternalRunResponse({
     externalWork: reconciled.external_work,
     expectedTaskId: expected || evidence.task_id
   });
+}
+
+async function parseTaskResponseControl({
+  statePath,
+  text,
+  expectedTaskId = null,
+  sourceKind = null
+} = {}) {
+  const control = parseTaskControl(text);
+  try {
+    return await reconcileExternalRunResponse({
+      statePath,
+      text,
+      taskControl: control,
+      expectedTaskId,
+      sourceKind
+    });
+  } catch (error) {
+    if (String(error?.code || "").startsWith("EXTERNAL_RUN_")) {
+      throw Object.assign(
+        new Error(`external-run protocol invalid: ${error.message}`),
+        { code: "TASK_PROTOCOL_INVALID", cause: error }
+      );
+    }
+    throw error;
+  }
 }
 
 export async function persistTerminalTaskControl(
@@ -2010,7 +2037,13 @@ export async function runSingleConversationRuntime({
   let control = null;
   if (bootstrapResponse?.assistant_turn?.text) {
     try {
-      control = parseTaskControl(bootstrapResponse.assistant_turn.text);
+      const settled = await readSingleConversationState(statePath);
+      control = await parseTaskResponseControl({
+        statePath,
+        text: bootstrapResponse.assistant_turn.text,
+        expectedTaskId: settled.outbound?.task_id || null,
+        sourceKind: settled.outbound?.kind || null
+      });
     } catch (error) {
       if (error?.code !== "TASK_PROTOCOL_INVALID") throw error;
       // A completed bootstrap is not a terminal Owner pause merely because
@@ -2031,7 +2064,13 @@ export async function runSingleConversationRuntime({
     const latestAssistant = await captureLatestRoleTurn(page, "assistant")
       .catch(() => null);
     try {
-      control = parseTaskControl(latestAssistant?.text);
+      const settled = await readSingleConversationState(statePath);
+      control = await parseTaskResponseControl({
+        statePath,
+        text: latestAssistant?.text,
+        expectedTaskId: settled.outbound?.task_id || null,
+        sourceKind: settled.outbound?.kind || null
+      });
     } catch (error) {
       if (error?.code !== "TASK_PROTOCOL_INVALID") throw error;
       control = await discoverTaskControl({
@@ -2080,9 +2119,13 @@ export async function runSingleConversationRuntime({
     );
     page = recovery.page;
     if (recovery.recovered) {
-      control = parseTaskControl(
-        recovery.result?.response?.assistant_turn?.text
-      );
+      const recoveredState = await readSingleConversationState(statePath);
+      control = await parseTaskResponseControl({
+        statePath,
+        text: recovery.result?.response?.assistant_turn?.text,
+        expectedTaskId: recoveredState.outbound?.task_id || null,
+        sourceKind: recoveredState.outbound?.kind || null
+      });
       continue;
     }
 
@@ -2126,7 +2169,12 @@ export async function runSingleConversationRuntime({
     });
     cycles += 1;
     try {
-      control = parseTaskControl(response.assistant_turn?.text);
+      control = await parseTaskResponseControl({
+        statePath,
+        text: response.assistant_turn?.text,
+        expectedTaskId: taskId,
+        sourceKind: checkOnly ? "TASK_STATUS_CHECK" : "TASK_EXECUTION"
+      });
     } catch (error) {
       if (error?.code !== "TASK_PROTOCOL_INVALID") throw error;
       // SC-013: the task side effect is already exact-once VERIFIED at this
