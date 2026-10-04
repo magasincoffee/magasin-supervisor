@@ -423,6 +423,62 @@ test("SC-013 parses READY control when ChatGPT DOM collapses visible line breaks
   });
 });
 
+test("SC-013 parses OPS-074 discovery control when rendered DOM adds spaces around equals", () => {
+  const parsed = parseTaskControl(
+    "MAGASIN_TASK_CONTROL_V1 " +
+    "STATUS = READY TASK_ID = NONE NEXT_TASK_ID = OPS-074 CHECK_AFTER_SECONDS = 0 " +
+    "END_MAGASIN_TASK_CONTROL_V1 " +
+    "MAGASIN_CYCLE_CORRELATION_V1 8903ab33-5938-48f0-9297-25a4c9d76113"
+  );
+
+  assert.deepEqual(parsed, {
+    status: "READY",
+    task_id: null,
+    next_task_id: "OPS-074",
+    check_after_seconds: 0
+  });
+});
+
+test("SC-013 newline task-control parser tolerates presentation spaces around equals", () => {
+  const parsed = parseTaskControl(
+    "MAGASIN_TASK_CONTROL_V1\n" +
+    "STATUS = READY\n" +
+    "TASK_ID = NONE\n" +
+    "NEXT_TASK_ID = OPS-074\n" +
+    "CHECK_AFTER_SECONDS = 0\n" +
+    "END_MAGASIN_TASK_CONTROL_V1"
+  );
+
+  assert.deepEqual(parsed, {
+    status: "READY",
+    task_id: null,
+    next_task_id: "OPS-074",
+    check_after_seconds: 0
+  });
+});
+
+test("SC-013 rendered equals tolerance still rejects prose or extra fields", () => {
+  assert.throws(
+    () => parseTaskControl(
+      "MAGASIN_TASK_CONTROL_V1 " +
+      "STATUS = READY unexpected-prose TASK_ID = NONE " +
+      "NEXT_TASK_ID = OPS-074 CHECK_AFTER_SECONDS = 0 " +
+      "END_MAGASIN_TASK_CONTROL_V1"
+    ),
+    (error) => error?.code === "TASK_PROTOCOL_INVALID"
+  );
+
+  assert.throws(
+    () => parseTaskControl(
+      "MAGASIN_TASK_CONTROL_V1 " +
+      "STATUS = READY TASK_ID = NONE EXTRA = X " +
+      "NEXT_TASK_ID = OPS-074 CHECK_AFTER_SECONDS = 0 " +
+      "END_MAGASIN_TASK_CONTROL_V1"
+    ),
+    (error) => error?.code === "TASK_PROTOCOL_INVALID"
+  );
+});
+
 test("SC-013 rendered-whitespace fallback rejects prose inside the machine block", () => {
   assert.throws(
     () => parseTaskControl(

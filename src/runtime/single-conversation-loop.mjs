@@ -107,17 +107,27 @@ export function parseTaskControl(text) {
         fields.set("CHECK_AFTER_SECONDS", compactFields[4]);
       }
     }
+  } else if (renderedWhitespaceFallback) {
+    // ChatGPT may render the exact machine block with ordinary whitespace
+    // around "=" (for example "STATUS = READY") while also collapsing the
+    // visible line breaks. Parse only the fixed four-field schema in order.
+    // This keeps presentation tolerance narrow: no prose, extra field, field
+    // reordering, or multi-token value is accepted.
+    const renderedFields = /^\s*STATUS\s*=\s*(READY|RUNNING|COMPLETE|BLOCKED|DONE)\s+TASK_ID\s*=\s*(NONE|[A-Za-z0-9][A-Za-z0-9._:/-]{0,119})\s+NEXT_TASK_ID\s*=\s*(NONE|[A-Za-z0-9][A-Za-z0-9._:/-]{0,119})\s+CHECK_AFTER_SECONDS\s*=\s*(\d+)\s*$/.exec(body);
+    if (!renderedFields) {
+      throw Object.assign(new Error("malformed task-control line"), {
+        code: "TASK_PROTOCOL_INVALID"
+      });
+    }
+    fields.set("STATUS", renderedFields[1]);
+    fields.set("TASK_ID", renderedFields[2]);
+    fields.set("NEXT_TASK_ID", renderedFields[3]);
+    fields.set("CHECK_AFTER_SECONDS", renderedFields[4]);
   } else {
-    const rawFields = renderedWhitespaceFallback
-      ? body.trim().split(/\s+/)
-      : body.split(/\r?\n/);
-
-    for (const rawLine of rawFields) {
+    for (const rawLine of body.split(/\r?\n/)) {
       const line = rawLine.trim();
       if (!line) continue;
-      const fieldMatch = renderedWhitespaceFallback
-        ? /^([A-Z_]+)=(\S*)$/.exec(line)
-        : /^([A-Z_]+)=(.*)$/.exec(line);
+      const fieldMatch = /^([A-Z_]+)\s*=\s*(.*)$/.exec(line);
       if (!fieldMatch) {
         throw Object.assign(new Error("malformed task-control line"), {
           code: "TASK_PROTOCOL_INVALID"
