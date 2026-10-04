@@ -13,6 +13,7 @@ import {
   canRebindEnqueuedTaskMessage,
   canRebindInFlightProtocolMessage,
   canRebindPreparedProtocolMessage,
+  canReplaceLostReadOnlyDiscovery,
   canResumePreActuationDiscovery,
   reconstructPendingProtocolMessage,
   reconstructPendingStatusCheckMessage,
@@ -38,6 +39,80 @@ async function tempState() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "sc007-runtime-"));
   return { root, statePath: path.join(root, "state.json") };
 }
+
+test("SC-013 lost read-only discovery identity is safe to replace without Owner input", () => {
+  const base = {
+    conversation: { status: "ACTIVE" },
+    outbound: {
+      state: "ENQUEUED",
+      kind: "SOURCE_OF_TRUTH_TASK_DISCOVERY",
+      message_id: "lost-discovery",
+      message_digest: "digest"
+    }
+  };
+
+  assert.equal(canReplaceLostReadOnlyDiscovery(base), true);
+
+  const delivered = structuredClone(base);
+  delivered.outbound.state = "DELIVERED";
+  assert.equal(canReplaceLostReadOnlyDiscovery(delivered), true);
+
+  const responseRunning = structuredClone(base);
+  responseRunning.outbound.state = "RESPONSE_RUNNING";
+  responseRunning.outbound.kind = "SOURCE_OF_TRUTH_NEXT_WORK";
+  assert.equal(canReplaceLostReadOnlyDiscovery(responseRunning), true);
+
+  for (const mutate of [
+    (state) => { state.conversation.status = "RETIRED"; },
+    (state) => { state.outbound.state = "PREPARED"; },
+    (state) => { state.outbound.kind = "TASK_EXECUTION"; },
+    (state) => { state.outbound.message_id = ""; },
+    (state) => { state.outbound.message_digest = ""; }
+  ]) {
+    const unsafe = structuredClone(base);
+    mutate(unsafe);
+    assert.equal(canReplaceLostReadOnlyDiscovery(unsafe), false);
+  }
+});
+
+test("SC-013 lost discovery restart rolls over before generic identity fail-closed", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const active = source.indexOf("if (current.conversation.status !== \"ACTIVE\")");
+  const lost = source.indexOf("else if (canReplaceLostReadOnlyDiscovery(current))", active);
+  const replacement = source.indexOf('reason: "READ_ONLY_DISCOVERY_IDENTITY_LOST"', lost);
+  const fullTask = source.indexOf("else if (recoverableConversationFullTask(current))", replacement);
+  const failClosed = source.indexOf('code: "RUNTIME_RESTART_IDENTITY_NOT_VERIFIED"', fullTask);
+
+  assert.ok(active >= 0);
+  assert.ok(lost > active);
+  assert.ok(replacement > lost);
+  assert.ok(fullTask > replacement);
+  assert.ok(failClosed > fullTask);
+
+  const body = source.slice(lost, fullTask);
+  assert.match(body, /replaceDisposableConversation/);
+  assert.match(body, /bootstrapResponse = replacement\.response/);
+  assert.doesNotMatch(body, /TASK_EXECUTION/);
+});
+
+test("SC-013 conversation-full during read-only discovery rolls over instead of stopping", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const start = source.indexOf("async function discoverTaskControl");
+  const end = source.indexOf("export async function runSingleConversationRuntime", start);
+  assert.ok(start >= 0 && end > start);
+  const body = source.slice(start, end);
+
+  assert.match(body, /CONVERSATION_FULL/);
+  assert.match(body, /CONVERSATION_FULL_READ_ONLY_DISCOVERY/);
+  assert.match(body, /replaceDisposableConversation/);
+  assert.match(body, /return parseTaskControl\(replacement\.response\?\.assistant_turn\?\.text\)/);
+});
 
 test("SC-013 restart rebind permits only proven pre-actuation task discovery recovery", () => {
   const candidate = {

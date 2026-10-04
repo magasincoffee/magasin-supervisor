@@ -872,6 +872,19 @@ export function canRebindEnqueuedTaskDiscovery(state) {
   );
 }
 
+export function canReplaceLostReadOnlyDiscovery(state) {
+  const outbound = state?.outbound || {};
+  const kind = String(outbound.kind || "").toUpperCase();
+  const outboundState = String(outbound.state || "").toUpperCase();
+  return Boolean(
+    String(state?.conversation?.status || "").toUpperCase() === "ACTIVE" &&
+    ["SOURCE_OF_TRUTH_TASK_DISCOVERY", "SOURCE_OF_TRUTH_NEXT_WORK"].includes(kind) &&
+    ["ENQUEUED", "DELIVERED", "RESPONSE_RUNNING"].includes(outboundState) &&
+    String(outbound.message_id || "").trim() &&
+    String(outbound.message_digest || "").trim()
+  );
+}
+
 export function canRebindEnqueuedStatusCheck(state) {
   return Boolean(
     canRebindEnqueuedTaskMessage(state) &&
@@ -1805,17 +1818,40 @@ async function discoverTaskControl({
     sourceOfTruthUrl,
     messageId
   });
-  const response = await sendProtocolMessage({
-    adapter,
-    page,
-    statePath,
-    message,
-    messageId,
-    kind: "SOURCE_OF_TRUTH_TASK_DISCOVERY",
-    responseTimeoutMs,
-    pollMs
-  });
-  return parseTaskControl(response.assistant_turn?.text);
+  try {
+    const response = await sendProtocolMessage({
+      adapter,
+      page,
+      statePath,
+      message,
+      messageId,
+      kind: "SOURCE_OF_TRUTH_TASK_DISCOVERY",
+      responseTimeoutMs,
+      pollMs
+    });
+    return parseTaskControl(response.assistant_turn?.text);
+  } catch (error) {
+    if (String(error?.code || "").toUpperCase() !== "CONVERSATION_FULL") {
+      throw error;
+    }
+
+    // Discovery is read-only project work. If the chat fills before the
+    // assistant can return a complete task-control block, abandon only that
+    // disposable chat, bootstrap a fresh generation from the same SOT, and
+    // use the bootstrap task-control result. Never stop for Owner input.
+    const replacement = await replaceDisposableConversation({
+      adapter,
+      page,
+      statePath,
+      reason: "CONVERSATION_FULL_READ_ONLY_DISCOVERY",
+      sourceOfTruthUrl,
+      projectId: "LIVE",
+      qualificationOnly: false,
+      timeoutMs: responseTimeoutMs,
+      pollMs: Math.min(750, Math.max(100, pollMs))
+    });
+    return parseTaskControl(replacement.response?.assistant_turn?.text);
+  }
 }
 
 export async function runSingleConversationRuntime({
@@ -2082,6 +2118,26 @@ export async function runSingleConversationRuntime({
         page: restartProbe?.page || recoverableBootstrapPage(adapter, current),
         statePath,
         reason: lostBootstrapRecoveryReason,
+        sourceOfTruthUrl,
+        projectId: "LIVE",
+        qualificationOnly,
+        timeoutMs: responseTimeoutMs,
+        pollMs: Math.min(750, Math.max(100, pollMs))
+      });
+      page = replacement.page;
+      bootstrapResponse = replacement.response;
+      current = await readSingleConversationState(statePath);
+    } else if (canReplaceLostReadOnlyDiscovery(current)) {
+      // If a read-only discovery transaction was already sent but the
+      // conversation identity can no longer be rebound (for example after a
+      // full-chat surface disappears), there is no project-side-effect risk in
+      // retiring that disposable chat. Bootstrap a fresh generation from SOT;
+      // do not fail closed on the lost historical chat.
+      const replacement = await replaceDisposableConversation({
+        adapter,
+        page: restartProbe?.page || recoverableBootstrapPage(adapter, current),
+        statePath,
+        reason: "READ_ONLY_DISCOVERY_IDENTITY_LOST",
         sourceOfTruthUrl,
         projectId: "LIVE",
         qualificationOnly,

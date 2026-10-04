@@ -40,6 +40,10 @@ test("SC-007 forward Control Center requires only Source of Truth plus START STO
   assert.match(ui, /Lần tự sửa/);
   assert.match(ui, /Checkpoint/);
   assert.match(ui, /Trạng thái CI/);
+  assert.match(ui, /STARTING_BROWSER/);
+  assert.match(ui, /Đang kết nối Chrome \/ phục hồi cuộc chat/);
+  assert.match(ui, /\$externalActive/);
+  assert.match(ui, /\$externalActive -and \$externalDecision -eq 'WAIT_EXTERNAL'/);
   assert.match(ui, /REPLACE_CHAT/);
   assert.match(ui, /Cuộc chat cũ đã đầy \/ lỗi, Robot đang chuyển sang chat mới/);
   assert.match(ui, /CONVERSATION_FULL_IN_FLIGHT/);

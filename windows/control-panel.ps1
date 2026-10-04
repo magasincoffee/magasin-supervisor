@@ -1365,6 +1365,7 @@ function Show-SingleConversationControlPanel {
     function Get-OwnerPhaseLabel([string]$Phase) {
         switch ($Phase.ToUpperInvariant()) {
             'STOPPED' { return 'R0 — Robot đang dừng' }
+            'STARTING_BROWSER' { return 'R2 — Đang kết nối Chrome / phục hồi cuộc chat' }
             'SYNC_SOURCE_OF_TRUTH' { return 'R4 — Đang đọc và đồng bộ Source of Truth' }
             'NEW_CHAT' { return 'R3 — Đang tạo cuộc chat mới' }
             'REPLACE_CHAT' { return 'R3 — Cuộc chat cũ đã đầy / lỗi, Robot đang chuyển sang chat mới' }
@@ -1563,6 +1564,16 @@ function Show-SingleConversationControlPanel {
         $lastAction = if ($external) { [string](Get-OptionalPropertyValue $external 'last_action' '') } else { '' }
         $nextAction = if ($external) { [string](Get-OptionalPropertyValue $external 'next_action' '') } else { '' }
 
+        $externalActive = $false
+        switch ($externalDecision) {
+            'WAIT_EXTERNAL' { $externalActive = ($phase -eq 'WAIT_EXTERNAL') }
+            'AUTO_REPAIR' { $externalActive = ($phase -eq 'AUTO_REPAIR') }
+            'TRIGGER_EXTERNAL_RUN' { $externalActive = ($phase -eq 'TRIGGER_EXTERNAL_RUN') }
+            'VERIFY_EXTERNAL_SUCCESS' { $externalActive = ($phase -eq 'VERIFY_EXTERNAL_SUCCESS') }
+            'BLOCKED_REPAIR_LIMIT' { $externalActive = ($phase -eq 'WAIT_OWNER') }
+        }
+
+        if ($externalActive) {
         switch ($externalDecision) {
             'WAIT_EXTERNAL' {
                 $flowValue.Text = 'BƯỚC HIỆN TẠI: R12 — Đang chờ GitHub CI'
@@ -1599,6 +1610,7 @@ function Show-SingleConversationControlPanel {
                     [string]$repairAttempt + '/' + [string]$maxRepairAttempts
             }
         }
+        }
 
         $timerValue.Text = 'THỜI GIAN: —'
         if (($phase -eq 'WAIT_TASK_RECHECK' -or $phase -eq 'WAIT_EXTERNAL') -and $automation) {
@@ -1615,18 +1627,18 @@ function Show-SingleConversationControlPanel {
                         $(if ($waitLabel) { '  •  ' + $waitLabel } else { '  •  Robot sẽ tự kiểm tra lại' })
                 } catch {}
             }
-        } elseif ($externalDecision -eq 'AUTO_REPAIR') {
+        } elseif ($externalActive -and $externalDecision -eq 'AUTO_REPAIR') {
             $timerValue.Text =
                 'CI VỪA LỖI: Run ' + $(if ($runId) { $runId } else { 'không xác định' }) +
                 '  •  Kết quả: ' + $(if ($workflowConclusion) { $workflowConclusion.ToUpperInvariant() } else { 'FAILED' }) +
                 '  •  Số lỗi phát hiện: ' + [string]$failureCount +
                 '  •  Lần tự sửa: ' + [string]$repairAttempt + '/' + [string]$maxRepairAttempts
-        } elseif ($externalDecision -eq 'TRIGGER_EXTERNAL_RUN') {
+        } elseif ($externalActive -and $externalDecision -eq 'TRIGGER_EXTERNAL_RUN') {
             $timerValue.Text =
                 'WORKFLOW: chưa tìm thấy run cho commit ' +
                 $(if ($commitSha) { $commitSha.Substring(0, [Math]::Min(12, $commitSha.Length)) } else { 'chưa có' }) +
                 '  •  Robot đang sửa trigger / tạo run mới'
-        } elseif ($externalDecision -eq 'VERIFY_EXTERNAL_SUCCESS') {
+        } elseif ($externalActive -and $externalDecision -eq 'VERIFY_EXTERNAL_SUCCESS') {
             $timerValue.Text =
                 'CI PASS: Run ' + $(if ($runId) { $runId } else { 'không xác định' }) +
                 '  •  Robot đang xác minh evidence và checkpoint'
@@ -1661,26 +1673,26 @@ function Show-SingleConversationControlPanel {
             $watchdogFaults = @(Get-OptionalPropertyValue $watchdog 'faults' @())
         }
         $errorText = Get-OwnerErrorLabel $reason $lastCode
-        if ($externalDecision -eq 'WAIT_EXTERNAL') {
+        if ($externalActive -and $externalDecision -eq 'WAIT_EXTERNAL') {
             $errorText =
                 'Không có lỗi CI hiện tại  •  Workflow: ' + $workflowName +
                 '  •  Run: ' + $(if ($runId) { $runId } else { 'đang chờ tạo run' }) +
                 '  •  Trạng thái CI: ' + $workflowStatus +
                 $(if ($commitSha) { '  •  Commit: ' + $commitSha.Substring(0, [Math]::Min(12, $commitSha.Length)) } else { '' })
-        } elseif ($externalDecision -eq 'AUTO_REPAIR') {
+        } elseif ($externalActive -and $externalDecision -eq 'AUTO_REPAIR') {
             $errorText =
                 'CI FAILED' +
                 '  •  Run vừa lỗi: ' + $(if ($runId) { $runId } else { 'không xác định' }) +
                 '  •  Bước hiện tại: ' + $(if ($nextAction) { $nextAction } elseif ($lastAction) { $lastAction } else { 'AUTO_REPAIR' }) +
                 '  •  Lần tự sửa: ' + [string]$repairAttempt + '/' + [string]$maxRepairAttempts
-        } elseif ($externalDecision -eq 'TRIGGER_EXTERNAL_RUN') {
+        } elseif ($externalActive -and $externalDecision -eq 'TRIGGER_EXTERNAL_RUN') {
             $errorText =
                 'Không tìm thấy workflow run  •  Robot đang xác định path filter / trigger / workflow state thay vì chờ PASS'
-        } elseif ($externalDecision -eq 'VERIFY_EXTERNAL_SUCCESS') {
+        } elseif ($externalActive -and $externalDecision -eq 'VERIFY_EXTERNAL_SUCCESS') {
             $errorText =
                 'CI SUCCESS  •  Run: ' + $(if ($runId) { $runId } else { 'không xác định' }) +
                 '  •  Đang VERIFY evidence trước khi tiếp tục'
-        } elseif ($externalDecision -eq 'BLOCKED_REPAIR_LIMIT') {
+        } elseif ($externalActive -and $externalDecision -eq 'BLOCKED_REPAIR_LIMIT') {
             $history = @(Get-OptionalPropertyValue $external 'history' @())
             $historyText = @()
             foreach ($item in $history) {
