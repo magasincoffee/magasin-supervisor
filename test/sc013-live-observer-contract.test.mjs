@@ -47,3 +47,17 @@ test("SC-013 observers treat a verified WAIT_OWNER gate as a valid terminal stat
   assert.match(watchdog, /phase -eq 'WAIT_OWNER'/);
   assert.match(watchdog, /outbound -eq 'VERIFIED'/);
 });
+
+test("SC-013 live observer accepts exactly one generation advance for lost read-only discovery recovery", async () => {
+  const live = await fs.readFile(
+    new URL("../.github/scripts/supervisor-sc013-live-production.ps1", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(live, /SC013_LIVE_BASELINE_KIND=/);
+  assert.match(live, /SOURCE_OF_TRUTH_TASK_DISCOVERY/);
+  assert.match(live, /SOURCE_OF_TRUTH_NEXT_WORK/);
+  assert.match(live, /baselineReadOnlyDiscovery/);
+  assert.match(live, /generation -eq \(\$baselineGeneration \+ 1\)/);
+  assert.match(live, /SC013_LIVE_GENERATION_ADVANCED_EXACTLY_ONCE=True/);
+});
