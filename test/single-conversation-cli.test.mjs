@@ -543,7 +543,7 @@ test("SC-013 NEXT_WORK recovers malformed task-control with authoritative discov
     "utf8"
   );
   const taskSend = source.indexOf("const response = await sendProtocolMessage", source.indexOf("while (maxCycles <= 0 || cycles < maxCycles)"));
-  const parse = source.indexOf("control = parseTaskControl(response.assistant_turn?.text)", taskSend);
+  const parse = source.indexOf("control = await parseTaskResponseControl({", taskSend);
   const invalid = source.indexOf('error?.code !== "TASK_PROTOCOL_INVALID"', parse);
   const discovery = source.indexOf("control = await discoverTaskControl", invalid);
   const nextDelay = source.indexOf("await waitForNextCycleDelay(pollMs)", discovery);
@@ -912,7 +912,7 @@ test("SC-013 completed bootstrap recovers malformed task-control without pausing
     "utf8"
   );
   const branch = source.indexOf("if (bootstrapResponse?.assistant_turn?.text)");
-  const parse = source.indexOf("parseTaskControl(bootstrapResponse.assistant_turn.text)", branch);
+  const parse = source.indexOf("control = await parseTaskResponseControl({", branch);
   const invalid = source.indexOf('error?.code !== "TASK_PROTOCOL_INVALID"', parse);
   const discovery = source.indexOf("control = await discoverTaskControl", invalid);
   const fallbackElse = source.indexOf("} else {", discovery);
