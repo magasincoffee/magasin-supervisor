@@ -791,6 +791,55 @@ test("composer clear alone is not accepted without a matching new user turn", as
   assert.equal(result.user_turn_evidence, "matching-user-turn-not-observed");
 });
 
+test("confirmed composer transition may remain pending for exact-once correlated recovery", async () => {
+  let composerText = "";
+
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async fill(value) { composerText = value; },
+    async inputValue() { return composerText; },
+    async click() {},
+    async press() {}
+  };
+  const send = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() { composerText = ""; }
+  };
+  const page = {
+    locator(selector) {
+      if (selector.includes("send-button")) return send;
+      return composer;
+    },
+    async evaluate(fn) {
+      if (String(fn).includes("data-message-author-role")) {
+        return { readable: true, totalCount: 0, exactMatchCount: 0 };
+      }
+      return [];
+    },
+    async waitForTimeout() {},
+    async bringToFront() {},
+    keyboard: { async press() {}, async insertText() {} },
+    getByRole() { return send; }
+  };
+
+  const result = await sendComposerInstruction(
+    page,
+    "submitted while user turn is still hydrating",
+    { dryRun: false, allowPendingUserTurn: true }
+  );
+
+  assert.equal(result.executed, true);
+  assert.equal(result.user_turn_pending, true);
+  assert.equal(result.submit_evidence, "composer-changed");
+  assert.equal(result.user_turn_evidence, "matching-user-turn-not-observed");
+  assert.equal(result.rejection_class, undefined);
+});
+
 test("composer draft inspection returns normalized text for guarded bootstrap-family recovery", async () => {
   let composerText = "MAGASIN_PROJECT_BOOTSTRAP_V1\r\nproject_id=WEB\r\n";
   const composer = {
