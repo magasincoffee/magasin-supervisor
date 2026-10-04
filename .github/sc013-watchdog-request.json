@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-watchdog-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "purpose": "Post-PR305 production qualification: sample OPS-074 external CI state after terminal-failure auto-recovery deploy. Verify completed failed run is not WAIT_EXTERNAL/RUNNING timer, same TASK_ID remains OPS-074, and Robot enters AUTO_REPAIR or tracks a newer commit/run. Read-only.",
-  "rearm_nonce": "ops074-ci-failure-auto-recovery-post-deploy-20261004-1257"
+  "purpose": "Verify deployed CI terminal-state recovery for OPS-074 after PR #305: read durable external_work/task state, wrapper/CDP health, current phase, tracked run/commit/repair attempt. Observation only.",
+  "rearm_nonce": "ops074-ci-auto-repair-verify-20261004-1358"
 }
