@@ -264,6 +264,44 @@ Any unrecoverable conversation fault:
   -> SYNC_SOURCE_OF_TRUTH
 ```
 
+For task work delegated to a durable external CI/deployment/job, the canonical task sub-state is:
+
+```text
+EXECUTE
+  -> COMMIT
+  -> CI_TRIGGERED
+  -> WAIT_EXTERNAL
+  -> CHECK
+       |
+       +--> queued/pending/requested/waiting/in_progress
+       |      -> WAIT_EXTERNAL
+       |
+       +--> completed + success
+       |      -> VERIFY_EXTERNAL_SUCCESS
+       |      -> VERIFY/UPDATE SOT
+       |
+       +--> completed + failure
+       |      -> READ_FAILURE
+       |      -> AUTO_REPAIR
+       |      -> COMMIT_NEW_FIX
+       |      -> CI_TRIGGERED_NEW_RUN
+       |      -> WAIT_EXTERNAL
+       |
+       +--> completed + cancelled/timed_out/action_required
+       |      -> CLASSIFY
+       |      -> AUTO_REPAIR/RETRY when safe
+       |      -> WAIT_OWNER only for genuine Owner action
+       |
+       '--> no run exists
+              -> TRIGGER_EXTERNAL_RUN
+              -> diagnose path filter/workflow/commit trigger
+              -> create concrete progress or WAIT_OWNER if genuinely impossible
+```
+
+A terminal external run is never equivalent to RUNNING. In particular, `completed + failure` MUST NOT return to a timed wait on the same run. The Robot must either create concrete repair progress or move to a bounded Owner gate after exhausting the retry policy.
+
+The minimum durable external-work continuity record is execution/recovery metadata, not competing project authority, and includes: `task_id`, optional `checkpoint_id`, `repo`, `commit_sha`, `workflow_run_id`, `workflow_name`, `workflow_status`, `workflow_conclusion`, `failure_signature`, `failure_count`, `repair_attempt`, `last_action`, `next_action`, `last_progress_at`, Owner-required flag, and a bounded terminal-run history. Internal checkpoint IDs are evidence only and MUST NOT replace the authoritative SOT task ID in `MAGASIN_TASK_CONTROL_V1`.
+
 ---
 
 ## 8. What is deleted from the forward architecture
@@ -614,6 +652,7 @@ Owner-visible incident evidence:
 - the production wrapper treated generic runtime failure as retryable even after durable `automation.status=BLOCKED`, allowing repeated restart/replacement attempts and chat-generation churn.
 
 - on 2026-10-04 the Owner corrected the recovery evidence for the OPS-074 incident: after the Robot stopped at `BLOCKED / SEND_WORK` with `EXACT_ONCE_FAILED`, `ENQUEUED_STALLED`, and `WRAPPER_NOT_ALIVE`, the Robot did **not** restart itself; the Owner manually pressed START. The ChatGPT response for transaction `1514ef60-a01a-466f-8c7c-085242aeee6f` already contained the exact `MAGASIN_CYCLE_CORRELATION_V1` marker and valid `STATUS=RUNNING / TASK_ID=OPS-074 / CHECK_AFTER_SECONDS=120`. After manual START, existing restart reconciliation safely recovered that same message as `VERIFIED` with `retry_count=0`. This proves restart recovery is safe but the live process is still converting a short post-submit rendered-user-turn evidence gap into a technical BLOCKED boundary too early. The current first-failure repair is therefore narrower than generic auto-restart: after browser submit is positively actuated, the same runtime must remain `RUNNING / WAIT_RESPONSE` under a durable no-resend `POST_SEND_CONFIRMATION_PENDING` marker and wait for the exact correlated assistant response. A restart encountering that marker remains fail-closed and cannot resend; only the existing exact correlated-response or positive non-delivery rules may resolve the transaction.
+- on 2026-10-04 a second OPS-074 production incident exposed an external-run state-machine defect independent of browser delivery. Database Migrations CI run `37167270115` for commit `7ca5f478eab3a2d09b8c5400e5217bef3821579e` was definitively `status=completed`, `conclusion=failure`, but the Robot kept returning `STATUS=RUNNING / TASK_ID=OPS-074 / CHECK_AFTER_SECONDS=120` based on the weaker condition “no fresh PASS yet”. The failed job was `migration-smoke`; logs proved three concrete failure classes: `print_job_tracking()` hit `permission denied for view production_print_job_queue`, OPS-042 reported `completed job leaves active mobile work queue` with `have: 1 / want: 0`, and `ops_074_production_drift_repair.test.sql` failed with SQL syntax at `$select`. The OPS SOT subsequently recorded `CURRENT_CHECKPOINT=074-C01` as `REPAIR_REQUIRED`. This establishes the canonical rule that absence of PASS is not evidence of an active run; terminal failure must return the same authoritative task to AUTO_REPAIR rather than another wait interval.
 
 Canonical fix:
 1. disposable replacement MUST acquire/commit the new ChatGPT page before closing the retired page;
@@ -691,6 +730,10 @@ Canonical fix:
 22. task-control parsing MUST normalize only presentation-only invisible characters known to be introduced by rendered ChatGPT text before applying the existing strict block parser: zero-width formatting characters (`U+200B`-`U+200F`, `U+2060`, `U+FEFF`) are removed and NBSP (`U+00A0`) is normalized to an ordinary space. This normalization MUST NOT relax allowed statuses, task-id validation, `CHECK_AFTER_SECONDS`, header/footer boundaries, or free-prose rejection.
 23. if rendered ChatGPT DOM collapses all task-control field boundaries without preserving whitespace, parsing MAY use a final compact-schema fallback only when the exact `MAGASIN_TASK_CONTROL_V1` header/footer and the exact ordered fields `STATUS`, `TASK_ID`, `NEXT_TASK_ID`, and `CHECK_AFTER_SECONDS` can be recovered with the existing value constraints and with no unrecognized content inside the block. This fallback MUST NOT infer missing fields, reorder fields, accept free prose, or relax any semantic validation.
 24. after a fresh protocol send reports positive browser submit actuation, failure to immediately re-read the rendered matching user turn MUST NOT by itself set `automation.status=BLOCKED` or require another Owner START. The runtime MUST durably keep the same `ENQUEUED` transaction as `RUNNING / WAIT_RESPONSE` with `POST_SEND_CONFIRMATION_PENDING`, perform observation only, and wait for the exact correlated assistant response through the normal bounded response path. This pending marker is explicitly **no-resend authority**: if the process restarts before correlation is proven, reconciliation MUST treat it as an ambiguous prior send and MUST NOT actuate the composer again unless the existing positive non-delivery proof independently authorizes the single safe retry. Watchdogs MUST treat this bounded correlated-response wait as active work rather than `ENQUEUED_STALLED`.
+25. external CI/deployment/job state MUST be classified from its actual `status` and `conclusion`, never from “PASS not seen”. Only `queued/pending/requested/waiting/in_progress` may authorize `STATUS=RUNNING` plus a timer. `completed+success` must enter verify/advance; `completed+failure` must enter AUTO_REPAIR for the same authoritative SOT task; `completed+cancelled/timed_out/action_required` must be classified for safe retry/repair and may block only when genuine Owner input is required; `not_found` must trigger workflow/path-filter diagnosis rather than a wait.
+26. every external-run observation used for RUNNING/repair authority MUST be represented in a machine-readable `MAGASIN_EXTERNAL_RUN_V1` block and persisted into the additive `external_work` runtime record. If a task already has durable external-run tracking and a later assistant response again says RUNNING without fresh external-run evidence, the Supervisor MUST NOT restart a timer; it must return the same authoritative task to execution to refresh/repair/trigger concrete evidence.
+27. terminal external failure recovery is bounded. The same completed `workflow_run_id` may be re-read for evidence but MUST NOT be polled as RUNNING. A repeated identical `failure_signature` permits at most three repair attempts. A repair turn counts as progress only when it produces a code/file change reflected by a new action/evidence token, a new commit SHA, a new workflow run, or other durable evidence; repeated execution with the same terminal run/commit/action consumes the repair budget. After the limit, persist a bounded history of attempted run IDs/commit SHAs and enter `WAIT_OWNER` with an exact Owner-facing reason.
+28. external-work recovery MUST survive Robot/process/conversation restart without changing the authoritative task. `task_id` remains the SOT task ID (for the current regression, `OPS-074`); checkpoint IDs such as `074-C01` are internal evidence only. Restart must restore the current run/commit/failure signature/repair attempt and continue the same WAIT/REPAIR/VERIFY decision without rediscovering a different task.
 
 ### SC-013 live first-failure progression rule
 
@@ -812,6 +855,8 @@ DoD:
 - current composer text is not falsely rejected solely because ProseMirror rewrites equivalent whitespace/paragraph structure;
 - exact-once protection still rejects a genuinely different draft;
 - a fresh submitted task whose rendered user turn is temporarily unreadable remains `RUNNING / WAIT_RESPONSE`, settles through the exact cycle-correlation response without Owner START, and cannot be resent after restart while `POST_SEND_CONFIRMATION_PENDING` remains unresolved;
+- external-run regression coverage proves: in-progress -> RUNNING; completed success -> VERIFY/advance; completed failure -> same-task AUTO_REPAIR/READY with no wait; repeat observation of the same failed run never becomes RUNNING; a repair commit/new run becomes the tracked run; no-run becomes trigger diagnosis; repeated identical failure blocks only after the default three repair attempts; restart preserves task/run/attempt; and the Control Center renders each state in Vietnamese;
+- the OPS-074 fixture for Database Migrations CI run `37167270115` must classify `completed/failure` as AUTO_REPAIR for `TASK_ID=OPS-074`, checkpoint `074-C01`, never as another `CHECK_AFTER_SECONDS=120` wait;
 - the production target completes the previously stuck outbound without duplicate delivery;
 - the Robot continues for at least two additional bounded cycles in the same conversation with stable generation;
 - hosted tests/integrity/lifecycle/autostart gates pass;
@@ -831,7 +876,8 @@ As of 2026-09-30:
 - the actual production START wiring has been requalified on `DESKTOP-4K7IM13`;
 - automatic replacement, exact-once reconciliation, Continue handling, cold-start recovery, bounded NEXT_WORK recovery, task-ID execution, safe same-chat restart rebind, and continuous multi-cycle execution have passed their required live qualifications;
 - the real target completed the SC-011 restart-continuity qualification in one stable conversation generation with zero duplicate send attempts and Source of Truth verification preserved;
-- long-running 30-60 minute E2E/verification tasks are supported through durable RUNNING/CHECK polling, with a 90-minute direct response ceiling when no durable external job is available;
+- long-running 30-60 minute E2E/verification tasks are supported through durable RUNNING/CHECK polling only while the tracked external run is genuinely active; terminal failure is repair authority, not polling authority;
+- additive durable `external_work` metadata preserves task/checkpoint/repo/commit/run/workflow/failure/repair-attempt continuity across Robot restart without becoming project authority;
 - persistent Planner/Executor orchestration remains superseded and is legacy/rollback-only, not a forward production dependency.
 
 The forward architecture remains **SINGLE_CONVERSATION_V1**, but unattended production acceptance is temporarily **OPEN** until SC-013 closes the stuck-send and legacy-workflow interference regressions with new real-target evidence.
