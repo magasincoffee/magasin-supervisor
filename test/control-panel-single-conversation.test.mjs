@@ -30,6 +30,16 @@ test("SC-007 forward Control Center requires only Source of Truth plus START STO
   assert.match(ui, /timer\.Interval = 1000/);
   assert.match(ui, /LỖI \/ CẢNH BÁO/);
   assert.match(ui, /OWNER CẦN LÀM GÌ/);
+  assert.match(ui, /external_work/);
+  assert.match(ui, /WAIT_EXTERNAL/);
+  assert.match(ui, /AUTO_REPAIR/);
+  assert.match(ui, /TRIGGER_EXTERNAL_RUN/);
+  assert.match(ui, /ĐANG CHỜ GITHUB CI/);
+  assert.match(ui, /ĐANG TỰ SỬA LỖI CI/);
+  assert.match(ui, /Run vừa lỗi/);
+  assert.match(ui, /Lần tự sửa/);
+  assert.match(ui, /Checkpoint/);
+  assert.match(ui, /Trạng thái CI/);
 
   assert.doesNotMatch(ui, /Planner URL|Executor URL|LINK CHAT PLANNER|LINK CHAT EXECUTOR/);
   assert.doesNotMatch(ui, /MỞ PLANNER|MỞ EXECUTOR/);
