@@ -569,7 +569,10 @@ export async function reconcileExactOnceOutbound({
       now
     });
 
-    const sent = await sendInstruction(page, text, { dryRun: false });
+    const sent = await sendInstruction(page, text, {
+      dryRun: false,
+      allowPendingUserTurn: allowPendingPostSendConfirmation
+    });
     if (!sent?.executed) {
       throw Object.assign(
         new Error(sent?.reason || "outbound send was not confirmed"),
