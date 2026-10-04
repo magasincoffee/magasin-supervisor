@@ -543,7 +543,7 @@ test("SC-013 NEXT_WORK recovers malformed task-control with authoritative discov
     new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
     "utf8"
   );
-  const taskSend = source.indexOf("const response = await sendProtocolMessage", source.indexOf("while (maxCycles <= 0 || cycles < maxCycles)"));
+  const taskSend = source.indexOf("response = await sendProtocolMessage", source.indexOf("while (maxCycles <= 0 || cycles < maxCycles)"));
   const parse = source.indexOf("control = await parseTaskResponseControl({", taskSend);
   const invalid = source.indexOf('error?.code !== "TASK_PROTOCOL_INVALID"', parse);
   const discovery = source.indexOf("control = await discoverTaskControl", invalid);
