@@ -49,6 +49,7 @@ jobs:
             test/single-conversation-rollover.test.mjs `
             test/single-conversation-transaction.test.mjs `
             test/single-conversation-cli.test.mjs `
+            test/external-run-recovery.test.mjs `
             test/control-panel-single-conversation.test.mjs `
             test/windows-browser-background.test.mjs `
             test/windows-cdp-restart.test.mjs `
