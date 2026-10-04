@@ -942,9 +942,14 @@ async function resumeEnqueuedTaskDiscoveryAfterRebind({
     message,
     maxSafeRetries: 1,
     reconciliationProbes: 4,
-    reconciliationPollMs: Math.min(500, Math.max(100, pollMs))
+    reconciliationPollMs: Math.min(500, Math.max(100, pollMs)),
+    // A successful browser submit can temporarily outrun rendered user-turn
+    // capture. Keep observing the same transaction for its exact correlated
+    // assistant response instead of converting that short evidence gap into a
+    // technical BLOCKED state that requires another START.
+    allowPendingPostSendConfirmation: true
   });
-  if (!["SEND", "SAFE_RETRY_SENT", "NO_SEND"].includes(delivery.action)) {
+  if (!["SEND", "SEND_PENDING_CONFIRMATION", "SAFE_RETRY_SENT", "NO_SEND"].includes(delivery.action)) {
     throw Object.assign(
       new Error("restart SOURCE_OF_TRUTH_TASK_DISCOVERY reconciliation did not reach delivery evidence"),
       { code: "RUNTIME_RESTART_ENQUEUED_DISCOVERY_RECONCILE_FAILED" }
