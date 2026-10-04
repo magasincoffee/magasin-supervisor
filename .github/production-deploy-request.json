@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "22fa6a53945d4448c452550f65400f3ad1c8b0cb",
+  "requested_main_sha": "414cfea6f7a373fe321ab7754c78803b0982fab6",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy PR #305 CI failure auto-recovery / no infinite wait after all four mandatory hosted gates passed."
+  "reason": "Deploy PR #306 correlation-first restart recovery for already delivered task responses after runtime prompt-contract upgrades."
 }
