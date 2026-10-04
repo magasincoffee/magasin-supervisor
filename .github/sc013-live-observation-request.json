@@ -3,5 +3,5 @@
   "target": "DESKTOP-4K7IM13",
   "requested_after_cleanup_sha": "41090535e6f2008bc465f85f625bcf7fee53ab55",
   "purpose": "Post-PR308 live rerun after OPS-074 C03 task-control MALFORMED_FIELD repair. Verify correlation 8903ab33 discovery state resumes without Owner manual START, parser accepts valid READY->OPS-074, wrapper/CDP stay healthy, and task advances from current authoritative OPS SOT without duplicate send.",
-  "rearm_nonce": "ops074-c03-parser-recovery-live-20261004-1637"
+  "rearm_nonce": "ops074-c03-parser-recovery-live-20261004-1638-b"
 }
