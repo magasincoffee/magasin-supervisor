@@ -748,6 +748,29 @@ test("SC-013 restart WAIT_RESPONSE recovery never reconciles or actuates outboun
   assert.doesNotMatch(body, /sendComposerInstruction/);
 });
 
+test("SC-013 in-flight task restart checks assistant correlation before prompt reconstruction", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  const start = source.indexOf("async function resumeInFlightProtocolMessageAfterRebind");
+  const end = source.indexOf("async function probeReusableConversationPage", start);
+  assert.ok(start >= 0 && end > start);
+  const body = source.slice(start, end);
+
+  const capture = body.indexOf("RESTART_WAIT_RESPONSE_CAPTURE_ASSISTANT_CORRELATION");
+  const confirm = body.indexOf("assistantTurnConfirmsCycleDelivery", capture);
+  const verify = body.indexOf("markCorrelatedInFlightTaskResponseVerified", confirm);
+  const reconstruct = body.indexOf("reconstructPendingProtocolMessage", verify);
+
+  assert.ok(capture >= 0);
+  assert.ok(confirm > capture);
+  assert.ok(verify > confirm);
+  assert.ok(reconstruct > verify);
+  assert.match(body, /recovered_from_correlation_without_prompt_reconstruction/);
+});
+
 test("SC-013 startup resumes WAIT_RESPONSE before any new task selection", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
