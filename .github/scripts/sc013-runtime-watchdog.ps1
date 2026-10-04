@@ -137,7 +137,13 @@ if(-not (Test-Path $statePath -PathType Leaf)){
     if($outbound -eq 'ENQUEUED' -and $s.outbound.enqueued_at){
       $age=[int]($now-[DateTimeOffset]::Parse([string]$s.outbound.enqueued_at)).TotalSeconds
       Write-Host "SC013_WATCHDOG_ENQUEUED_AGE_SECONDS=$age"
-      if($age -ge $MaxEnqueuedSeconds){[void]$failures.Add("ENQUEUED_STALLED:$age")}
+      $pendingPostSendConfirmation=[bool](
+        $phase -eq 'WAIT_RESPONSE' -and
+        $lastCode -eq 'POST_SEND_CONFIRMATION_PENDING'
+      )
+      if($age -ge $MaxEnqueuedSeconds -and -not $pendingPostSendConfirmation){
+        [void]$failures.Add("ENQUEUED_STALLED:$age")
+      }
     }
   }catch{
     Write-Host "SC013_WATCHDOG_STATE_READ_ERROR=$($_.Exception.Message)"
