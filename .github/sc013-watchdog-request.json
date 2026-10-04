@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-watchdog-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "purpose": "Capture current OPS-074 checkpoint 074-C04 technical stop shown by Control Center: external Scaffold CI run 37193639863 is/was tracked while wrapper stopped; watchdog reports BLOCKED:SEND_NOT_ACTUATED, CHATGPT_RUNTIME_IDENTITY_MISMATCH, WRAPPER_NOT_ALIVE. Read durable state, exact outbound kind/state/message id/runtime identity, wrapper stderr and UI identity evidence. Observation only.",
-  "rearm_nonce": "ops074-c04-send-not-actuated-identity-mismatch-20261004-1659"
+  "purpose": "Capture current production stop where ChatGPT conversation became full while a Robot request was already executing and the assistant response was incomplete. Read durable outbound kind/state/task/message, conversation-full UI evidence, wrapper stderr, CDP health, external_work and Owner STOP. Observation only; do not start or mutate Robot.",
+  "rearm_nonce": "conversation-full-inflight-stop-20261004-1722"
 }
