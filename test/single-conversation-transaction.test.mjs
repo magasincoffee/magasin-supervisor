@@ -257,6 +257,76 @@ test("SC-006 ambiguous post-send evidence is fail-closed across restart", async 
   }
 });
 
+test("SC-013 fresh send waits for correlated response instead of requiring Owner START", async () => {
+  const { root, statePath } = await makeState();
+  const message = "MAGASIN_CHECK_TASK_V1 id=pending-confirmation";
+  let sends = 0;
+  try {
+    await prepareExactOnceOutbound(statePath, {
+      messageId: "pending-confirmation",
+      message,
+      kind: "TASK_STATUS_CHECK",
+      taskId: "OPS-074",
+      baselineUserTurnId: "u0"
+    });
+
+    const pending = await reconcileExactOnceOutbound({
+      statePath,
+      page: { async waitForTimeout() {} },
+      messageId: "pending-confirmation",
+      message,
+      reconciliationProbes: 1,
+      reconciliationPollMs: 1,
+      allowPendingPostSendConfirmation: true,
+      inspectDraft: async () => ({ ready: true, has_text: false, digest: null }),
+      captureTurn: async () => ({ turn_id: "u0", text: "old" }),
+      captureMatchingTurn: async () => ({ confirmed: false }),
+      sendInstruction: async () => {
+        sends += 1;
+        return { executed: true };
+      }
+    });
+
+    assert.equal(pending.action, "SEND_PENDING_CONFIRMATION");
+    assert.equal(sends, 1);
+
+    let durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "ENQUEUED");
+    assert.equal(durable.outbound.last_error_code, "POST_SEND_CONFIRMATION_PENDING");
+    assert.equal(durable.outbound.last_error_stage, "POST_SEND_USER_TURN_UNCONFIRMED");
+    assert.equal(durable.automation.status, "RUNNING");
+    assert.equal(durable.automation.phase, "WAIT_RESPONSE");
+    assert.equal(durable.automation.reason, null);
+
+    // A restart must remain fail-closed: the pending marker is observation
+    // authority only and cannot authorize another send.
+    await assert.rejects(
+      reconcileExactOnceOutbound({
+        statePath,
+        page: { async waitForTimeout() {} },
+        messageId: "pending-confirmation",
+        message,
+        reconciliationProbes: 1,
+        reconciliationPollMs: 1,
+        inspectDraft: async () => ({ ready: true, has_text: false, digest: null }),
+        captureTurn: async () => ({ turn_id: "u0", text: "old" }),
+        captureMatchingTurn: async () => ({ confirmed: false }),
+        sendInstruction: async () => {
+          sends += 1;
+          return { executed: true };
+        }
+      }),
+      (error) => error?.code === "AMBIGUOUS_POST_SEND_DELIVERY"
+    );
+    assert.equal(sends, 1);
+
+    durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "ENQUEUED");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("SC-006 crash after send reconciles matching user turn without duplicate send", async () => {
   const { root, statePath } = await makeState();
   const message = "MAGASIN_SINGLE_CONVERSATION_NEXT_V1 id=m2";

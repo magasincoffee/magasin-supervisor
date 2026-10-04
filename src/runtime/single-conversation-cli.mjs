@@ -1428,7 +1428,9 @@ async function sendProtocolMessage({
   // PREPARED is the only correct state before first reconciliation. The
   // reconciler persists ENQUEUED immediately before browser actuation, which
   // preserves exact-once crash safety without making a fresh transaction look
-  // like an ambiguous prior send.
+  // like an ambiguous prior send. If submit was actuated but the rendered user
+  // turn lags, stay in the same process and wait for the exact correlated
+  // response; never convert that short UI evidence gap into an Owner START.
   const delivery = await reconcileExactOnceOutbound({
     statePath,
     page,
@@ -1436,9 +1438,10 @@ async function sendProtocolMessage({
     message,
     maxSafeRetries: 1,
     reconciliationProbes: 4,
-    reconciliationPollMs: Math.min(500, Math.max(100, pollMs))
+    reconciliationPollMs: Math.min(500, Math.max(100, pollMs)),
+    allowPendingPostSendConfirmation: true
   });
-  if (!["SEND", "SAFE_RETRY_SENT", "NO_SEND"].includes(delivery.action)) {
+  if (!["SEND", "SEND_PENDING_CONFIRMATION", "SAFE_RETRY_SENT", "NO_SEND"].includes(delivery.action)) {
     throw new Error("single-conversation transaction did not reach delivery evidence");
   }
 
