@@ -1,7 +1,7 @@
 {
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "requested_after_cleanup_sha": "b1423e5b240223c7cbad7069b6fdc831c8945fd4",
-  "purpose": "Post-PR310 live rerun for OPS-074 C04 SEND_NOT_ACTUATED after confirmed submit transition. Verify current ENQUEUED discovery 0eb22aa3-f81e-46d0-9a06-fd698f4bf83f is recovered without duplicate send, POST_SEND_CONFIRMATION_PENDING/correlation semantics prevent false BLOCKED, wrapper/CDP remain healthy, and OPS-074 continues beyond checkpoint 074-C04 work.",
-  "rearm_nonce": "ops074-c04-post-submit-recovery-live-20261004-1714"
+  "requested_after_cleanup_sha": "42696a4140a053a60c6c03450f5301942aded9a2",
+  "purpose": "Post-PR311 live recovery for Owner-observed conversation-full mid-task stop. Start canonical Robot under active Owner delegation if stopped. Verify old full chat is retired, generation advances, new chat bootstraps from SOT, interrupted TASK_EXECUTION is NOT replayed, same authoritative task is resumed via MAGASIN_CHECK_TASK_V1, and wrapper/CDP remain healthy.",
+  "rearm_nonce": "conversation-full-inflight-recovery-live-20261004-1734"
 }
