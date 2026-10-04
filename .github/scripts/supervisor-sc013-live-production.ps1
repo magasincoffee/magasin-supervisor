@@ -58,6 +58,7 @@ if(Test-Path $statePath){
 $baselineGeneration=if($baseline){[int]$baseline.conversation.generation}else{-1}
 $baselineMessageId=if($baseline){[string]$baseline.outbound.message_id}else{''}
 $baselineOutbound=if($baseline){[string]$baseline.outbound.state}else{'ABSENT'}
+$baselineKind=if($baseline){[string]$baseline.outbound.kind}else{'ABSENT'}
 $baselineAutomation=if($baseline){[string]$baseline.automation.status}else{'ABSENT'}
 $baselinePhase=if($baseline){[string]$baseline.automation.phase}else{'ABSENT'}
 $baselinePreActuationCode=if($baseline -and $baseline.outbound.PSObject.Properties.Name -contains 'last_pre_actuation_error_code'){[string]$baseline.outbound.last_pre_actuation_error_code}else{''}
@@ -65,6 +66,7 @@ $baselinePreActuationCode=if($baseline -and $baseline.outbound.PSObject.Properti
 Write-Host "SC013_LIVE_BASELINE_GENERATION=$baselineGeneration"
 Write-Host "SC013_LIVE_BASELINE_MESSAGE_ID=$baselineMessageId"
 Write-Host "SC013_LIVE_BASELINE_OUTBOUND=$baselineOutbound"
+Write-Host "SC013_LIVE_BASELINE_KIND=$baselineKind"
 Write-Host "SC013_LIVE_BASELINE_AUTOMATION=$baselineAutomation"
 Write-Host "SC013_LIVE_BASELINE_PHASE=$baselinePhase"
 Write-Host "SC013_LIVE_BASELINE_PRE_ACTUATION_CODE=$baselinePreActuationCode"
@@ -198,10 +200,17 @@ while([DateTimeOffset]::UtcNow -lt $deadline){
 
   if($null -eq $stableGeneration){$stableGeneration=$generation}
   if($generation -ne $stableGeneration){
+    $baselineReadOnlyDiscovery=[bool](
+      $baselineKind -in @('SOURCE_OF_TRUTH_TASK_DISCOVERY','SOURCE_OF_TRUTH_NEXT_WORK') -and
+      $baselineOutbound -in @('ENQUEUED','DELIVERED','RESPONSE_RUNNING')
+    )
     $allowedReplacement=[bool](
       $baselineNeedsRecovery -and
       -not $replacementGenerationObserved -and
-      $baselinePreActuationCode -eq 'COMPOSER_NOT_READY' -and
+      (
+        $baselinePreActuationCode -eq 'COMPOSER_NOT_READY' -or
+        $baselineReadOnlyDiscovery
+      ) -and
       $generation -eq ($baselineGeneration + 1)
     )
     if($allowedReplacement){
