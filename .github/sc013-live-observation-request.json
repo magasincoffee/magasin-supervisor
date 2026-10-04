@@ -2,6 +2,6 @@
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
   "requested_after_cleanup_sha": "866415f2ce95affc8963b8b85b8d896ed0419a4d",
-  "purpose": "Post-PR312 production recovery of the Owner-observed full-chat stop. Under active Owner delegation, start canonical Robot if needed. Verify stale ENQUEUED SOURCE_OF_TRUTH_TASK_DISCOVERY with lost runtime identity is retired automatically, a fresh chat generation bootstraps from the same SOT, no Owner START is required, stale CI state no longer masks STARTING_BROWSER/REPLACE_CHAT, and OPS-074 resumes from authoritative state without duplicate task execution.",
-  "rearm_nonce": "lost-discovery-full-chat-recovery-live-20261004-1756"
+  "purpose": "Live qualification with observer updated for canonical read-only discovery rollover. Verify the previously stalled ENQUEUED SOURCE_OF_TRUTH_TASK_DISCOVERY no longer causes RUNTIME_RESTART_IDENTITY_NOT_VERIFIED, exactly one chat generation replacement is accepted, fresh bootstrap from the same SOT completes, and OPS-074 resumes without duplicate execution or Owner START.",
+  "rearm_nonce": "lost-discovery-rollover-observer-v2-20261004-1802"
 }
