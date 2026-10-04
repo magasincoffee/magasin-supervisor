@@ -1367,6 +1367,7 @@ function Show-SingleConversationControlPanel {
             'STOPPED' { return 'R0 — Robot đang dừng' }
             'SYNC_SOURCE_OF_TRUTH' { return 'R4 — Đang đọc và đồng bộ Source of Truth' }
             'NEW_CHAT' { return 'R3 — Đang tạo cuộc chat mới' }
+            'REPLACE_CHAT' { return 'R3 — Cuộc chat cũ đã đầy / lỗi, Robot đang chuyển sang chat mới' }
             'SEND_BOOTSTRAP' { return 'R3 — Đang gửi yêu cầu khởi động vào ChatGPT' }
             'WAIT_RESPONSE' { return 'R10 — Đang chờ ChatGPT trả lời' }
             'CONTINUE_RESPONSE' { return 'R10 — ChatGPT còn đang trả lời, Robot đang tiếp tục phản hồi' }
@@ -1435,6 +1436,7 @@ function Show-SingleConversationControlPanel {
             'ACCESS_DENIED' { return 'ChatGPT từ chối quyền truy cập' }
             'CONVERSATION_MISSING' { return 'Không tìm thấy cuộc chat đang dùng' }
             'CONVERSATION_FULL' { return 'Cuộc chat đã đầy / quá dài' }
+            'CONVERSATION_FULL_IN_FLIGHT' { return 'Cuộc chat đầy giữa lúc ChatGPT đang xử lý; Robot đang chuyển chat và kiểm tra lại đúng task, không gửi lại lệnh thực thi cũ' }
             'NETWORK_ERROR' { return 'Lỗi mạng khi làm việc với ChatGPT' }
             'TRANSIENT_ERROR' { return 'ChatGPT gặp lỗi tạm thời' }
             'RESPONSE_TIMEOUT' { return 'Chờ ChatGPT quá thời gian cho phép' }
@@ -1474,6 +1476,9 @@ function Show-SingleConversationControlPanel {
         }
         if ($Phase -eq 'WAIT_RESPONSE') {
             return 'Không cần thao tác. Robot đang chờ ChatGPT và watchdog vẫn giám sát.'
+        }
+        if ($Phase -eq 'REPLACE_CHAT') {
+            return 'Không cần thao tác. Robot đang tự chuyển sang cuộc chat mới, đọc lại Source of Truth và kiểm tra tiếp đúng task hiện tại.'
         }
         if (-not $WrapperAlive -and ($Phase -eq 'BOOTSTRAP_FAILED' -or $raw)) {
             return 'Đây là lỗi kỹ thuật của Robot / Chrome / ChatGPT bootstrap. Không sửa task dự án; dùng mã lỗi ở trên để sửa đúng bước rồi chạy lại.'

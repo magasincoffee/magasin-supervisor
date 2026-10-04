@@ -94,6 +94,7 @@ async function persistRecoveryEvidence(statePath, {
       message_id: prior.message_id || null,
       message_digest: prior.message_digest || null,
       kind: prior.kind || null,
+      task_id: prior.task_id || null,
       cmd_id: prior.cmd_id || null,
       baseline_user_turn_id: prior.baseline_user_turn_id || null,
       delivered_user_turn_id: prior.delivered_user_turn_id || null,
