@@ -541,6 +541,10 @@ test("SC-013 restart permits exact identity rebind for ENQUEUED discovery after 
   };
 
   assert.equal(canRebindEnqueuedTaskDiscovery(state), true);
+  const pendingConfirmation = structuredClone(state);
+  pendingConfirmation.outbound.last_error_code = "POST_SEND_CONFIRMATION_PENDING";
+  assert.equal(canRebindEnqueuedTaskDiscovery(pendingConfirmation), true);
+
   const rebound = await resumeExistingConversationPage({
     adapter,
     state,
@@ -565,22 +569,29 @@ test("SC-013 restart permits exact identity rebind for ENQUEUED discovery after 
   );
 });
 
-test("SC-013 startup routes rebound ENQUEUED discovery through exact-once reconciliation", async () => {
+test("SC-013 rebound ENQUEUED discovery observes correlated/running response before retry authority", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
     "utf8"
   );
   const predicate = source.indexOf("canRebindEnqueuedTaskDiscovery(current)");
   const resume = source.indexOf("resumeEnqueuedTaskDiscoveryAfterRebind({", predicate);
-  const reconciler = source.indexOf("reconcileExactOnceOutbound({", source.indexOf("async function resumeEnqueuedTaskDiscoveryAfterRebind"));
+  const helperStart = source.indexOf("async function resumeEnqueuedTaskDiscoveryAfterRebind");
+  const helperEnd = source.indexOf("async function resumeEnqueuedTaskMessageAfterRebind");
+  const helper = source.slice(helperStart, helperEnd);
+  const correlation = helper.indexOf("RESTART_DISCOVERY_CAPTURE_ASSISTANT_CORRELATION");
+  const runningProbe = helper.indexOf("RESTART_DISCOVERY_RESPONSE_PROBE");
+  const pending = helper.indexOf("pendingPostSendConfirmation");
+  const reconciler = helper.indexOf("reconcileExactOnceOutbound({");
 
   assert.ok(predicate >= 0);
   assert.ok(resume > predicate);
-  assert.ok(reconciler >= 0);
-  const helper = source.slice(
-    source.indexOf("async function resumeEnqueuedTaskDiscoveryAfterRebind"),
-    source.indexOf("async function resumeEnqueuedTaskMessageAfterRebind")
-  );
+  assert.ok(correlation >= 0);
+  assert.ok(runningProbe > correlation);
+  assert.ok(pending > correlation);
+  assert.ok(reconciler > runningProbe);
+  assert.match(helper, /responseRunning/);
+  assert.match(helper, /POST_SEND_CONFIRMATION_PENDING/);
   assert.match(helper, /maxSafeRetries:\s*1/);
   assert.match(helper, /SAFE_RETRY_SENT/);
   assert.doesNotMatch(helper, /sendComposerInstruction\(/);
