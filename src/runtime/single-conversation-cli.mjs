@@ -150,10 +150,47 @@ export async function reconcileExternalRunResponse({
   sourceKind = null,
   now = () => new Date().toISOString()
 } = {}) {
-  const evidence = parseExternalRunControl(text);
-  if (!evidence) return taskControl;
-
   const state = await readSingleConversationState(statePath);
+  const evidence = parseExternalRunControl(text);
+  if (!evidence) {
+    const trackedTask = String(state.external_work?.task_id || "").trim();
+    const expected = String(
+      expectedTaskId ||
+      state.outbound?.task_id ||
+      taskControl?.task_id ||
+      taskControl?.next_task_id ||
+      ""
+    ).trim();
+    if (
+      taskControl?.status === "RUNNING" &&
+      trackedTask &&
+      expected === trackedTask
+    ) {
+      // Once a task has entered durable external-run tracking, a later RUNNING
+      // response without fresh run evidence is not concrete progress. Never
+      // resume the timer from "no PASS yet"; return the same task to execution
+      // so it must inspect/repair/trigger real external evidence.
+      state.external_work.decision = "AUTO_REPAIR";
+      state.external_work.last_action = "EXTERNAL_EVIDENCE_MISSING";
+      state.external_work.next_action = "REFRESH_EXTERNAL_EVIDENCE";
+      state.external_work.observed_at = new Date(
+        typeof now === "function" ? now() : now
+      ).toISOString();
+      state.automation.status = "RUNNING";
+      state.automation.phase = "AUTO_REPAIR";
+      state.automation.reason = "EXTERNAL_EVIDENCE_MISSING";
+      state.automation.updated_at = state.external_work.observed_at;
+      await writeSingleConversationState(statePath, state, { now });
+      return {
+        status: "READY",
+        task_id: null,
+        next_task_id: expected,
+        check_after_seconds: 0
+      };
+    }
+    return taskControl;
+  }
+
   const kind = String(sourceKind || state.outbound?.kind || "TASK_STATUS_CHECK").toUpperCase();
   const expected = String(
     expectedTaskId ||
