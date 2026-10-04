@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-watchdog-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "purpose": "Capture current production stop where ChatGPT conversation became full while a Robot request was already executing and the assistant response was incomplete. Read durable outbound kind/state/task/message, conversation-full UI evidence, wrapper stderr, CDP health, external_work and Owner STOP. Observation only; do not start or mutate Robot.",
-  "rearm_nonce": "conversation-full-inflight-stop-20261004-1722"
+  "purpose": "Post-PR311 read-only sample. Verify canonical runtime installed, wrapper/CDP status, conversation generation, recovery reason/phase, and whether the previously stopped full-chat task is progressing without manual Owner intervention.",
+  "rearm_nonce": "conversation-full-post-deploy-sample-20261004-1736"
 }
