@@ -267,7 +267,7 @@ export function externalRunContractLines() {
     "REPO=<owner/repo>",
     "COMMIT_SHA=<git sha or NONE>",
     "WORKFLOW_RUN_ID=<numeric run id or NONE>",
-    "WORKFLOW_NAME=<single_token_name_or_NONE>",
+    "WORKFLOW_NAME=<single_token_name>",
     "WORKFLOW_STATUS=<queued|pending|requested|waiting|in_progress|completed|not_found|unknown>",
     "WORKFLOW_CONCLUSION=<success|failure|cancelled|timed_out|action_required|neutral|skipped|stale|startup_failure|NONE>",
     "FAILURE_SIGNATURE=<stable_token_or_hash_or_NONE>",
@@ -306,8 +306,7 @@ function progressToken(evidence) {
     evidence.workflow_run_id || "NONE",
     evidence.workflow_status || "unknown",
     evidence.workflow_conclusion || "NONE",
-    evidence.last_action || "NONE",
-    evidence.last_progress_at || "NONE"
+    evidence.last_action || "NONE"
   ].join("|");
 }
 
