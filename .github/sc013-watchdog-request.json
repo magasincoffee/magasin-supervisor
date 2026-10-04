@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-watchdog-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "purpose": "Capture current production technical stop after OPS-074 checkpoint 074-C03 Scaffold CI run 37190492508 completed success. Read durable state, wrapper/CDP health, latest runtime errors and exact phase. Observation only; do not start or mutate Robot.",
-  "rearm_nonce": "ops074-c03-verify-wrapper-stop-20261004-1625"
+  "purpose": "Capture current OPS-074 checkpoint 074-C04 technical stop shown by Control Center: external Scaffold CI run 37193639863 is/was tracked while wrapper stopped; watchdog reports BLOCKED:SEND_NOT_ACTUATED, CHATGPT_RUNTIME_IDENTITY_MISMATCH, WRAPPER_NOT_ALIVE. Read durable state, exact outbound kind/state/message id/runtime identity, wrapper stderr and UI identity evidence. Observation only.",
+  "rearm_nonce": "ops074-c04-send-not-actuated-identity-mismatch-20261004-1659"
 }
