@@ -262,6 +262,7 @@ test("SC-013 fresh send waits for correlated response instead of requiring Owner
   const { root, statePath } = await makeState();
   const message = "MAGASIN_CHECK_TASK_V1 id=pending-confirmation";
   let sends = 0;
+  let sendOptions = null;
   try {
     await prepareExactOnceOutbound(statePath, {
       messageId: "pending-confirmation",
@@ -282,14 +283,16 @@ test("SC-013 fresh send waits for correlated response instead of requiring Owner
       inspectDraft: async () => ({ ready: true, has_text: false, digest: null }),
       captureTurn: async () => ({ turn_id: "u0", text: "old" }),
       captureMatchingTurn: async () => ({ confirmed: false }),
-      sendInstruction: async () => {
+      sendInstruction: async (_page, _message, options) => {
         sends += 1;
-        return { executed: true };
+        sendOptions = options;
+        return { executed: true, user_turn_pending: true };
       }
     });
 
     assert.equal(pending.action, "SEND_PENDING_CONFIRMATION");
     assert.equal(sends, 1);
+    assert.equal(sendOptions?.allowPendingUserTurn, true);
 
     let durable = await readSingleConversationState(statePath);
     assert.equal(durable.outbound.state, "ENQUEUED");
