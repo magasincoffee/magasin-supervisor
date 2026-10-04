@@ -45,6 +45,11 @@ import {
   reconcileExactOnceOutbound,
   rewindFalseHistoricalDiscoveryDelivery
 } from "./single-conversation-transaction.mjs";
+import {
+  parseExternalRunControl,
+  reconcileExternalRunState,
+  reconcileTaskControlWithExternalRun
+} from "./external-run-control.mjs";
 
 function parseArgs(argv) {
   const out = {
@@ -131,9 +136,152 @@ function taskProtocolSubreason(error) {
     ["COMPLETE cannot repeat the same TASK_ID as NEXT_TASK_ID", "COMPLETE_REPEATED_TASK"],
     ["DONE must not include NEXT_TASK_ID", "DONE_HAS_NEXT_TASK"],
     ["BLOCKED must not include NEXT_TASK_ID", "BLOCKED_HAS_NEXT_TASK"],
-    ["task protocol did not provide an executable task id", "NO_EXECUTABLE_TASK_ID"]
+    ["task protocol did not provide an executable task id", "NO_EXECUTABLE_TASK_ID"],
+    ["external-run protocol invalid", "EXTERNAL_RUN_PROTOCOL_INVALID"]
   ]);
   return table.get(message) || "OTHER_PROTOCOL_INVALID";
+}
+
+export async function reconcileExternalRunResponse({
+  statePath,
+  text,
+  taskControl,
+  expectedTaskId = null,
+  sourceKind = null,
+  now = () => new Date().toISOString()
+} = {}) {
+  const state = await readSingleConversationState(statePath);
+  const evidence = parseExternalRunControl(text);
+  if (!evidence) {
+    const trackedTask = String(state.external_work?.task_id || "").trim();
+    const expected = String(
+      expectedTaskId ||
+      state.outbound?.task_id ||
+      taskControl?.task_id ||
+      taskControl?.next_task_id ||
+      ""
+    ).trim();
+    if (
+      taskControl?.status === "RUNNING" &&
+      trackedTask &&
+      expected === trackedTask
+    ) {
+      // Once a task has entered durable external-run tracking, a later RUNNING
+      // response without fresh run evidence is not concrete progress. Never
+      // resume the timer from "no PASS yet"; return the same task to execution
+      // so it must inspect/repair/trigger real external evidence.
+      state.external_work.decision = "AUTO_REPAIR";
+      state.external_work.last_action = "EXTERNAL_EVIDENCE_MISSING";
+      state.external_work.next_action = "REFRESH_EXTERNAL_EVIDENCE";
+      state.external_work.observed_at = new Date(
+        typeof now === "function" ? now() : now
+      ).toISOString();
+      state.automation.status = "RUNNING";
+      state.automation.phase = "AUTO_REPAIR";
+      state.automation.reason = "EXTERNAL_EVIDENCE_MISSING";
+      state.automation.updated_at = state.external_work.observed_at;
+      await writeSingleConversationState(statePath, state, { now });
+      return {
+        status: "READY",
+        task_id: null,
+        next_task_id: expected,
+        check_after_seconds: 0
+      };
+    }
+    return taskControl;
+  }
+
+  const kind = String(sourceKind || state.outbound?.kind || "TASK_STATUS_CHECK").toUpperCase();
+  const expected = String(
+    expectedTaskId ||
+    state.outbound?.task_id ||
+    taskControl?.task_id ||
+    taskControl?.next_task_id ||
+    ""
+  ).trim();
+
+  const reconciled = reconcileExternalRunState({
+    previous: state.external_work,
+    evidence,
+    sourceKind: kind,
+    maxRepairAttempts: 3,
+    now
+  });
+  state.external_work = reconciled.external_work;
+
+  switch (reconciled.decision) {
+    case "WAIT_EXTERNAL":
+      state.automation.status = "RUNNING";
+      state.automation.phase = "WAIT_EXTERNAL";
+      state.automation.reason = null;
+      break;
+    case "AUTO_REPAIR":
+      state.automation.status = "RUNNING";
+      state.automation.phase = "AUTO_REPAIR";
+      state.automation.reason = evidence.workflow_conclusion
+        ? `EXTERNAL_${String(evidence.workflow_conclusion).toUpperCase()}`
+        : "EXTERNAL_FAILURE";
+      break;
+    case "TRIGGER_EXTERNAL_RUN":
+      state.automation.status = "RUNNING";
+      state.automation.phase = "TRIGGER_EXTERNAL_RUN";
+      state.automation.reason = "EXTERNAL_RUN_NOT_FOUND";
+      break;
+    case "VERIFY_EXTERNAL_SUCCESS":
+      state.automation.status = "RUNNING";
+      state.automation.phase = "VERIFY_EXTERNAL_SUCCESS";
+      state.automation.reason = null;
+      break;
+    case "BLOCKED_REPAIR_LIMIT":
+      state.automation.status = "BLOCKED";
+      state.automation.phase = "WAIT_OWNER";
+      state.automation.reason = `OWNER_INPUT_REQUIRED:EXTERNAL_REPAIR_LIMIT:${evidence.task_id}`;
+      break;
+    case "BLOCKED_OWNER":
+      state.automation.status = "BLOCKED";
+      state.automation.phase = "WAIT_OWNER";
+      state.automation.reason = `OWNER_INPUT_REQUIRED:EXTERNAL_RUN:${evidence.task_id}`;
+      break;
+    default:
+      break;
+  }
+  state.automation.updated_at = new Date(
+    typeof now === "function" ? now() : now
+  ).toISOString();
+  await writeSingleConversationState(statePath, state, { now });
+
+  return reconcileTaskControlWithExternalRun({
+    taskControl,
+    evidence,
+    externalWork: reconciled.external_work,
+    expectedTaskId: expected || evidence.task_id
+  });
+}
+
+async function parseTaskResponseControl({
+  statePath,
+  text,
+  expectedTaskId = null,
+  sourceKind = null
+} = {}) {
+  const control = parseTaskControl(text);
+  try {
+    return await reconcileExternalRunResponse({
+      statePath,
+      text,
+      taskControl: control,
+      expectedTaskId,
+      sourceKind
+    });
+  } catch (error) {
+    if (String(error?.code || "").startsWith("EXTERNAL_RUN_")) {
+      throw Object.assign(
+        new Error(`external-run protocol invalid: ${error.message}`),
+        { code: "TASK_PROTOCOL_INVALID", cause: error }
+      );
+    }
+    throw error;
+  }
 }
 
 export async function persistTerminalTaskControl(
@@ -151,11 +299,22 @@ export async function persistTerminalTaskControl(
 
   if (status === "BLOCKED") {
     const blockedTaskId = String(control?.task_id || "").trim();
+    const externalDecision = String(state.external_work?.decision || "");
     state.automation.status = "BLOCKED";
     state.automation.phase = "WAIT_OWNER";
-    state.automation.reason = blockedTaskId
-      ? `OWNER_INPUT_REQUIRED:${blockedTaskId}`
-      : "OWNER_INPUT_REQUIRED";
+    if (externalDecision === "BLOCKED_REPAIR_LIMIT") {
+      state.automation.reason = blockedTaskId
+        ? `OWNER_INPUT_REQUIRED:EXTERNAL_REPAIR_LIMIT:${blockedTaskId}`
+        : "OWNER_INPUT_REQUIRED:EXTERNAL_REPAIR_LIMIT";
+    } else if (externalDecision === "BLOCKED_OWNER") {
+      state.automation.reason = blockedTaskId
+        ? `OWNER_INPUT_REQUIRED:EXTERNAL_RUN:${blockedTaskId}`
+        : "OWNER_INPUT_REQUIRED:EXTERNAL_RUN";
+    } else {
+      state.automation.reason = blockedTaskId
+        ? `OWNER_INPUT_REQUIRED:${blockedTaskId}`
+        : "OWNER_INPUT_REQUIRED";
+    }
   } else {
     state.automation.status = "DONE";
     state.automation.phase = "DONE";
@@ -185,13 +344,21 @@ export async function persistTaskRecheckWait(
   const until = new Date(new Date(at).getTime() + waitSeconds * 1000).toISOString();
   const id = String(taskId || "").trim() || null;
 
+  const external = state.external_work || {};
+  const waitingExternal = String(external.decision || "") === "WAIT_EXTERNAL";
   state.automation.status = "RUNNING";
-  state.automation.phase = "WAIT_TASK_RECHECK";
-  state.automation.reason = id ? `TASK_RECHECK:${id}` : "TASK_RECHECK";
-  state.automation.wait_kind = "TASK_RECHECK";
-  state.automation.wait_label = id
-    ? `Đang chờ tác vụ ${id} hoàn tất trước lần kiểm tra kế tiếp`
-    : "Đang chờ tác vụ nền hoàn tất trước lần kiểm tra kế tiếp";
+  state.automation.phase = waitingExternal ? "WAIT_EXTERNAL" : "WAIT_TASK_RECHECK";
+  state.automation.reason = waitingExternal
+    ? (external.workflow_run_id
+        ? `EXTERNAL_RUN:${external.workflow_run_id}`
+        : "EXTERNAL_RUN")
+    : (id ? `TASK_RECHECK:${id}` : "TASK_RECHECK");
+  state.automation.wait_kind = waitingExternal ? "EXTERNAL_RUN" : "TASK_RECHECK";
+  state.automation.wait_label = waitingExternal
+    ? `Đang chờ GitHub CI ${external.workflow_name || ""} run ${external.workflow_run_id || "đang tạo"}`.trim()
+    : (id
+        ? `Đang chờ tác vụ ${id} hoàn tất trước lần kiểm tra kế tiếp`
+        : "Đang chờ tác vụ nền hoàn tất trước lần kiểm tra kế tiếp");
   state.automation.wait_task_id = id;
   state.automation.wait_started_at = at;
   state.automation.wait_until = until;
@@ -206,7 +373,9 @@ export async function clearTaskRecheckWait(
 ) {
   const state = await readSingleConversationState(statePath);
   const at = new Date(typeof now === "function" ? now() : now).toISOString();
-  if (String(state.automation.phase || "").toUpperCase() === "WAIT_TASK_RECHECK") {
+  if (["WAIT_TASK_RECHECK", "WAIT_EXTERNAL"].includes(
+    String(state.automation.phase || "").toUpperCase()
+  )) {
     state.automation.phase = "NEXT_WORK";
     state.automation.reason = null;
   }
@@ -1905,7 +2074,13 @@ export async function runSingleConversationRuntime({
   let control = null;
   if (bootstrapResponse?.assistant_turn?.text) {
     try {
-      control = parseTaskControl(bootstrapResponse.assistant_turn.text);
+      const settled = await readSingleConversationState(statePath);
+      control = await parseTaskResponseControl({
+        statePath,
+        text: bootstrapResponse.assistant_turn.text,
+        expectedTaskId: settled.outbound?.task_id || null,
+        sourceKind: settled.outbound?.kind || null
+      });
     } catch (error) {
       if (error?.code !== "TASK_PROTOCOL_INVALID") throw error;
       // A completed bootstrap is not a terminal Owner pause merely because
@@ -1926,7 +2101,13 @@ export async function runSingleConversationRuntime({
     const latestAssistant = await captureLatestRoleTurn(page, "assistant")
       .catch(() => null);
     try {
-      control = parseTaskControl(latestAssistant?.text);
+      const settled = await readSingleConversationState(statePath);
+      control = await parseTaskResponseControl({
+        statePath,
+        text: latestAssistant?.text,
+        expectedTaskId: settled.outbound?.task_id || null,
+        sourceKind: settled.outbound?.kind || null
+      });
     } catch (error) {
       if (error?.code !== "TASK_PROTOCOL_INVALID") throw error;
       control = await discoverTaskControl({
@@ -1975,9 +2156,13 @@ export async function runSingleConversationRuntime({
     );
     page = recovery.page;
     if (recovery.recovered) {
-      control = parseTaskControl(
-        recovery.result?.response?.assistant_turn?.text
-      );
+      const recoveredState = await readSingleConversationState(statePath);
+      control = await parseTaskResponseControl({
+        statePath,
+        text: recovery.result?.response?.assistant_turn?.text,
+        expectedTaskId: recoveredState.outbound?.task_id || null,
+        sourceKind: recoveredState.outbound?.kind || null
+      });
       continue;
     }
 
@@ -2021,7 +2206,12 @@ export async function runSingleConversationRuntime({
     });
     cycles += 1;
     try {
-      control = parseTaskControl(response.assistant_turn?.text);
+      control = await parseTaskResponseControl({
+        statePath,
+        text: response.assistant_turn?.text,
+        expectedTaskId: taskId,
+        sourceKind: checkOnly ? "TASK_STATUS_CHECK" : "TASK_EXECUTION"
+      });
     } catch (error) {
       if (error?.code !== "TASK_PROTOCOL_INVALID") throw error;
       // SC-013: the task side effect is already exact-once VERIFIED at this

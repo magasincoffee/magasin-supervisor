@@ -58,6 +58,11 @@ test("SC-002 state is created from Source of Truth only", () => {
   assert.equal(state.conversation.page_id, null);
   assert.equal(state.outbound.state, "NONE");
   assert.equal(state.outbound.cmd_id, null);
+  assert.equal(state.external_work.task_id, null);
+  assert.equal(state.external_work.workflow_run_id, null);
+  assert.equal(state.external_work.repair_attempt, 0);
+  assert.equal(state.external_work.max_repair_attempts, 3);
+  assert.deepEqual(state.external_work.history, []);
   assert.equal(state.automation.wait_kind, null);
   assert.equal(state.automation.wait_label, null);
   assert.equal(state.automation.wait_task_id, null);

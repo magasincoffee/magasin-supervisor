@@ -11,6 +11,7 @@ import {
   readSingleConversationState,
   writeSingleConversationState
 } from "./single-conversation-state.mjs";
+import { externalRunContractLines } from "./external-run-control.mjs";
 
 function nowIso(now) {
   const value = typeof now === "function" ? now() : now;
@@ -254,10 +255,16 @@ export function buildSingleConversationTaskInstruction({
     return [
       ...common,
       "Inspect the durable execution evidence for this same task.",
-      "If it is still running, use STATUS=RUNNING with the same TASK_ID and a bounded CHECK_AFTER_SECONDS.",
-      "If it completed, verify the result and use STATUS=COMPLETE with the next authoritative SOT task ID.",
+      "For every external CI/deployment/job, inspect its actual current status and conclusion; absence of PASS is not evidence that the run is still running.",
+      "If an external run is queued/pending/requested/waiting/in_progress, use STATUS=RUNNING with the same TASK_ID and a bounded CHECK_AFTER_SECONDS.",
+      "If an external run is completed+failure, do NOT wait or poll that completed run again. Read the failing job/step/log evidence and use STATUS=READY with TASK_ID=NONE and NEXT_TASK_ID equal to this same authoritative TASK_ID so the next cycle performs AUTO_REPAIR.",
+      "If an external run is completed+cancelled/timed_out/action_required, classify whether retry/repair is safe. Use STATUS=READY for the same TASK_ID unless genuine Owner input is required; only then use STATUS=BLOCKED.",
+      "If the expected external run does not exist, do NOT report RUNNING. Diagnose why it did not trigger and use STATUS=READY for this same TASK_ID so the next execution cycle creates concrete progress.",
+      "If an external run completed successfully, verify the result against SOT. If the parent task/checkpoint still needs work, use STATUS=READY for this same TASK_ID; use STATUS=COMPLETE only when this authoritative task itself is complete and a distinct next SOT task exists.",
+      "When returning READY for repair/retry/trigger of this task, keep the authoritative SOT task ID unchanged by putting it in NEXT_TASK_ID; internal checkpoint IDs must never replace TASK_ID.",
       "If this completion finishes the whole project, use STATUS=DONE. If Owner input is required, use STATUS=BLOCKED.",
       ...taskControlContractLines(),
+      ...externalRunContractLines(),
       `End with: MAGASIN_CYCLE_CORRELATION_V1 ${id}`
     ].join("\n");
   }
@@ -266,10 +273,14 @@ export function buildSingleConversationTaskInstruction({
     ...common,
     "If valid, execute this task now using the available tools; do not merely report or recommend the work.",
     "Verify concrete completion evidence before declaring COMPLETE.",
-    "For work expected to take more than about 5 minutes, prefer launching a durable external job/run when available, then return promptly with STATUS=RUNNING instead of holding the chat turn open.",
+    "For work expected to take more than about 5 minutes, prefer launching a durable external job/run when available, then return promptly with STATUS=RUNNING only when that external run actually exists and is queued/pending/requested/waiting/in_progress.",
     "When STATUS=RUNNING, keep TASK_ID unchanged and choose a practical CHECK_AFTER_SECONDS (normally 30-600).",
+    "If the external run is already completed with failure, read the failure evidence and continue AUTO_REPAIR in this same task instead of returning RUNNING. A repair cycle must create concrete progress: code/file change, new commit, new workflow run, or new durable evidence.",
+    "If a path-filtered workflow did not trigger and no run exists, diagnose/repair/trigger it; do not pretend the task is RUNNING.",
+    "After a repair commit, report the new commit/run in the external-run block. If a new run is active, STATUS=RUNNING may be used for that new run.",
     "After completion, report exactly one next authoritative task ID from SOT. If no work remains, use STATUS=DONE.",
     ...taskControlContractLines(),
+    ...externalRunContractLines(),
     `End with: MAGASIN_CYCLE_CORRELATION_V1 ${id}`
   ].join("\n");
 }

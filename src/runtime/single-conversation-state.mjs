@@ -75,6 +75,31 @@ function blankOutbound() {
   };
 }
 
+function blankExternalWork() {
+  return {
+    task_id: null,
+    checkpoint_id: null,
+    repo: null,
+    commit_sha: null,
+    workflow_run_id: null,
+    workflow_name: null,
+    workflow_status: null,
+    workflow_conclusion: null,
+    failure_signature: null,
+    failure_count: 0,
+    repair_attempt: 0,
+    max_repair_attempts: 3,
+    last_action: null,
+    next_action: null,
+    last_progress_at: null,
+    owner_required: false,
+    decision: null,
+    progress_token: null,
+    observed_at: null,
+    history: []
+  };
+}
+
 export function createSingleConversationState({
   sourceOfTruthUrl,
   projectId = "LIVE",
@@ -109,6 +134,7 @@ export function createSingleConversationState({
       retirement_reason: null
     },
     outbound: blankOutbound(),
+    external_work: blankExternalWork(),
     automation: {
       status: "STOPPED",
       reason: null,
@@ -227,6 +253,72 @@ export function assertSingleConversationState(value) {
     throw new Error("outbound.retry_count must be a non-negative integer");
   }
   value.outbound.retry_count = retryCount;
+
+  if (!value.external_work || typeof value.external_work !== "object") {
+    value.external_work = blankExternalWork();
+  }
+  const external = value.external_work;
+  external.task_id =
+    requireNullableString(external.task_id, "external_work.task_id", 120);
+  if (external.task_id && !TASK_ID_RE.test(external.task_id)) {
+    throw new Error("invalid external_work.task_id");
+  }
+  external.checkpoint_id =
+    requireNullableString(external.checkpoint_id, "external_work.checkpoint_id", 120);
+  if (external.checkpoint_id && !TASK_ID_RE.test(external.checkpoint_id)) {
+    throw new Error("invalid external_work.checkpoint_id");
+  }
+  external.repo =
+    requireNullableString(external.repo, "external_work.repo", 240);
+  external.commit_sha =
+    requireNullableString(external.commit_sha, "external_work.commit_sha", 80);
+  external.workflow_run_id =
+    requireNullableString(external.workflow_run_id, "external_work.workflow_run_id", 80);
+  external.workflow_name =
+    requireNullableString(external.workflow_name, "external_work.workflow_name", 160);
+  external.workflow_status =
+    requireNullableString(external.workflow_status, "external_work.workflow_status", 80);
+  external.workflow_conclusion =
+    requireNullableString(external.workflow_conclusion, "external_work.workflow_conclusion", 80);
+  external.failure_signature =
+    requireNullableString(external.failure_signature, "external_work.failure_signature", 240);
+  external.last_action =
+    requireNullableString(external.last_action, "external_work.last_action", 160);
+  external.next_action =
+    requireNullableString(external.next_action, "external_work.next_action", 160);
+  external.last_progress_at =
+    requireNullableString(external.last_progress_at, "external_work.last_progress_at", 64);
+  external.decision =
+    requireNullableString(external.decision, "external_work.decision", 80);
+  external.progress_token =
+    requireNullableString(external.progress_token, "external_work.progress_token", 1000);
+  external.observed_at =
+    requireNullableString(external.observed_at, "external_work.observed_at", 64);
+  external.owner_required = Boolean(external.owner_required);
+  const failureCount = Number(external.failure_count || 0);
+  if (!Number.isInteger(failureCount) || failureCount < 0 || failureCount > 999) {
+    throw new Error("external_work.failure_count must be an integer between 0 and 999");
+  }
+  external.failure_count = failureCount;
+  const repairAttempt = Number(external.repair_attempt || 0);
+  if (!Number.isInteger(repairAttempt) || repairAttempt < 0 || repairAttempt > 100) {
+    throw new Error("external_work.repair_attempt must be a non-negative integer");
+  }
+  external.repair_attempt = repairAttempt;
+  const maxRepairAttempts = Number(external.max_repair_attempts || 3);
+  if (!Number.isInteger(maxRepairAttempts) || maxRepairAttempts < 1 || maxRepairAttempts > 20) {
+    throw new Error("external_work.max_repair_attempts must be an integer between 1 and 20");
+  }
+  external.max_repair_attempts = maxRepairAttempts;
+  if (!Array.isArray(external.history)) external.history = [];
+  external.history = external.history.slice(-8).map((item) => ({
+    key: requireNullableString(item?.key, "external_work.history.key", 400),
+    workflow_run_id: requireNullableString(item?.workflow_run_id, "external_work.history.workflow_run_id", 80),
+    commit_sha: requireNullableString(item?.commit_sha, "external_work.history.commit_sha", 80),
+    conclusion: requireNullableString(item?.conclusion, "external_work.history.conclusion", 80),
+    failure_signature: requireNullableString(item?.failure_signature, "external_work.history.failure_signature", 240),
+    observed_at: requireNullableString(item?.observed_at, "external_work.history.observed_at", 64)
+  }));
 
   if (!value.automation || typeof value.automation !== "object") {
     throw new Error("automation state is required");
