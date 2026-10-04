@@ -145,7 +145,8 @@ test("SC-005 preserves prior transaction evidence across replacement", async () 
     state.outbound.state = "DELIVERED";
     state.outbound.message_id = "prior-msg";
     state.outbound.message_digest = "a".repeat(64);
-    state.outbound.kind = "SOURCE_OF_TRUTH_NEXT_WORK";
+    state.outbound.kind = "TASK_EXECUTION";
+    state.outbound.task_id = "OPS-074";
     state.outbound.cmd_id = "ui:prior-msg";
     state.outbound.delivered_user_turn_id = "u-prior";
     state.outbound.last_error_code = "AMBIGUOUS_ENQUEUED_OUTCOME";
@@ -248,6 +249,7 @@ test("SC-005 preserves prior transaction evidence across replacement", async () 
     assert.equal(durable.recovery.retired_generation, 1);
     assert.equal(durable.recovery.reason, "CONVERSATION_FULL");
     assert.equal(durable.recovery.prior_outbound.message_id, "prior-msg");
+    assert.equal(durable.recovery.prior_outbound.task_id, "OPS-074");
     assert.equal(durable.recovery.prior_outbound.cmd_id, "ui:prior-msg");
     assert.equal(
       durable.recovery.prior_outbound.last_pre_actuation_error_code,
