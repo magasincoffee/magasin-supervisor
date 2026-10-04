@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "11d7ea6c5f2b7a955a214304457d639e67e9c627",
+  "requested_main_sha": "08f786036f2585621aeb3bd31f6923bc86eb4016",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy first-send bootstrap fix: tolerate transient blank New Chat busy/generating hydration; all mandatory hosted gates are green."
+  "reason": "Deploy PR #304 exact-once post-send in-process correlation recovery after all mandatory hosted gates passed."
 }
