@@ -316,6 +316,34 @@ async function persistExactOnceFailure(statePath, error, now) {
   }, now);
 }
 
+async function persistPostSendConfirmationPending(
+  statePath,
+  {
+    messageId,
+    message,
+    now = () => new Date().toISOString()
+  } = {}
+) {
+  return mutateState(statePath, (state, at) => {
+    assertSameTransaction(state, messageId, message);
+    if (String(state.outbound.state || "").toUpperCase() !== "ENQUEUED") {
+      throw Object.assign(
+        new Error("post-send confirmation requires ENQUEUED state"),
+        { code: "INVALID_POST_SEND_CONFIRMATION_STATE" }
+      );
+    }
+    // Browser submit was actuated, but the rendered user turn is not yet
+    // positively readable. Keep the same transaction alive and observe only;
+    // this marker must never authorize a resend after restart.
+    state.outbound.last_error_code = "POST_SEND_CONFIRMATION_PENDING";
+    state.outbound.last_error_stage = "POST_SEND_USER_TURN_UNCONFIRMED";
+    state.automation.status = "RUNNING";
+    state.automation.phase = "WAIT_RESPONSE";
+    state.automation.reason = null;
+    state.automation.updated_at = at;
+  }, now);
+}
+
 function latestTurnMatchesMessage(turn, digest) {
   if (!turn?.text) return false;
   return composerInstructionDigest(turn.text) === digest;
@@ -356,6 +384,7 @@ export async function reconcileExactOnceOutbound({
   maxSafeRetries = 1,
   reconciliationProbes = 5,
   reconciliationPollMs = 200,
+  allowPendingPostSendConfirmation = false,
   now = () => new Date().toISOString()
 } = {}) {
   if (!statePath) throw new Error("statePath is required");
@@ -454,7 +483,9 @@ export async function reconcileExactOnceOutbound({
     let retry = false;
     if (current === "ENQUEUED") {
       if (
-        state.outbound.last_error_code === "AMBIGUOUS_POST_SEND_DELIVERY"
+        ["AMBIGUOUS_POST_SEND_DELIVERY", "POST_SEND_CONFIRMATION_PENDING"].includes(
+          String(state.outbound.last_error_code || "")
+        )
       ) {
         throw Object.assign(
           new Error("prior post-send delivery outcome remains ambiguous"),
@@ -529,6 +560,22 @@ export async function reconcileExactOnceOutbound({
       !matchingDelivery?.confirmed &&
       !latestTurnMatchesMessage(deliveredTurn, digest)
     ) {
+      if (allowPendingPostSendConfirmation) {
+        await persistPostSendConfirmationPending(statePath, {
+          messageId: id,
+          message: text,
+          now
+        });
+        const pending = await readSingleConversationState(statePath);
+        return {
+          action: "SEND_PENDING_CONFIRMATION",
+          state: "ENQUEUED",
+          cmd_id: pending.outbound.cmd_id,
+          retry_count: pending.outbound.retry_count,
+          reason: "awaiting-correlated-response",
+          send: sent
+        };
+      }
       throw Object.assign(
         new Error("send succeeded but durable delivery evidence remains ambiguous"),
         { code: "AMBIGUOUS_POST_SEND_DELIVERY" }
