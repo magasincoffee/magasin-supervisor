@@ -1,7 +1,7 @@
 {
   "schema_version": "sc013-live-observation-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "requested_after_cleanup_sha": "41090535e6f2008bc465f85f625bcf7fee53ab55",
-  "purpose": "Post-PR308 live rerun after OPS-074 C03 task-control MALFORMED_FIELD repair. Verify correlation 8903ab33 discovery state resumes without Owner manual START, parser accepts valid READY->OPS-074, wrapper/CDP stay healthy, and task advances from current authoritative OPS SOT without duplicate send.",
-  "rearm_nonce": "ops074-c03-parser-recovery-live-20261004-1638-b"
+  "requested_after_cleanup_sha": "b1423e5b240223c7cbad7069b6fdc831c8945fd4",
+  "purpose": "Post-PR310 live rerun for OPS-074 C04 SEND_NOT_ACTUATED after confirmed submit transition. Verify current ENQUEUED discovery 0eb22aa3-f81e-46d0-9a06-fd698f4bf83f is recovered without duplicate send, POST_SEND_CONFIRMATION_PENDING/correlation semantics prevent false BLOCKED, wrapper/CDP remain healthy, and OPS-074 continues beyond checkpoint 074-C04 work.",
+  "rearm_nonce": "ops074-c04-post-submit-recovery-live-20261004-1714"
 }
