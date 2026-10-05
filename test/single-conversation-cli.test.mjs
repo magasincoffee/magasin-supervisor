@@ -25,6 +25,7 @@ import {
   safeBootstrapNonDeliverySnapshot,
   safeFalseHistoricalDeliverySnapshot,
   stableUnmarkedTaskResponseCandidate,
+  orphanedInFlightTaskRecoveryCandidate,
   runSingleConversationRuntime,
   persistTerminalTaskControl,
   waitForNextCycleDelay,
@@ -1476,6 +1477,159 @@ test("SC-013 restart can recover a stable terminal task reply that omitted only 
     }),
     null
   );
+});
+
+// Production regression: stale RESPONSE_RUNNING must reconcile by CHECK, never EXECUTE replay.
+test("SC-013 stale orphaned in-flight task is eligible for CHECK-only restart recovery", () => {
+  const state = {
+    updated_at: "2026-10-05T15:00:00.000Z",
+    conversation: { status: "ACTIVE" },
+    outbound: {
+      state: "RESPONSE_RUNNING",
+      kind: "TASK_EXECUTION",
+      task_id: "XSTORE-019B",
+      message_id: "orphaned-exec-1",
+      response_running_at: "2026-10-05T15:00:00.000Z"
+    }
+  };
+  const idle = {
+    responseRunning: false,
+    assistantBusy: false,
+    hasContinueControl: false,
+    loginRequired: false,
+    hasCaptcha: false,
+    hasNetworkError: false,
+    hasTransientError: false,
+    conversationMissing: false,
+    conversationAccessDenied: false,
+    composerReady: true,
+    composerTextReadable: true,
+    composerHasText: false
+  };
+  const assistant = {
+    turn_id: "assistant-old",
+    text: "prior unrelated terminal answer"
+  };
+
+  const recovered = orphanedInFlightTaskRecoveryCandidate({
+    state,
+    firstSnapshot: idle,
+    secondSnapshot: { ...idle },
+    matchingUser: { confirmed: false },
+    assistantFirst: assistant,
+    assistantSecond: { ...assistant },
+    nowMs: Date.parse("2026-10-05T15:02:00.000Z")
+  });
+
+  assert.equal(recovered?.task_id, "XSTORE-019B");
+  assert.equal(recovered?.kind, "TASK_EXECUTION");
+  assert.equal(recovered?.outbound_state, "RESPONSE_RUNNING");
+  assert.equal(recovered?.message_id, "orphaned-exec-1");
+});
+
+test("SC-013 orphaned in-flight recovery remains proof-gated", () => {
+  const baseState = {
+    updated_at: "2026-10-05T15:00:00.000Z",
+    conversation: { status: "ACTIVE" },
+    outbound: {
+      state: "RESPONSE_RUNNING",
+      kind: "TASK_EXECUTION",
+      task_id: "XSTORE-019B",
+      message_id: "orphaned-exec-2",
+      response_running_at: "2026-10-05T15:00:00.000Z"
+    }
+  };
+  const idle = {
+    responseRunning: false,
+    assistantBusy: false,
+    hasContinueControl: false,
+    loginRequired: false,
+    hasCaptcha: false,
+    hasNetworkError: false,
+    hasTransientError: false,
+    conversationMissing: false,
+    conversationAccessDenied: false,
+    composerReady: true,
+    composerTextReadable: true,
+    composerHasText: false
+  };
+  const assistant = { turn_id: "assistant-old", text: "stable old answer" };
+  const args = {
+    state: baseState,
+    firstSnapshot: idle,
+    secondSnapshot: { ...idle },
+    matchingUser: { confirmed: false },
+    assistantFirst: assistant,
+    assistantSecond: { ...assistant },
+    nowMs: Date.parse("2026-10-05T15:02:00.000Z")
+  };
+
+  assert.equal(
+    orphanedInFlightTaskRecoveryCandidate({
+      ...args,
+      matchingUser: { confirmed: true }
+    }),
+    null
+  );
+  assert.equal(
+    orphanedInFlightTaskRecoveryCandidate({
+      ...args,
+      firstSnapshot: { ...idle, responseRunning: true }
+    }),
+    null
+  );
+  assert.equal(
+    orphanedInFlightTaskRecoveryCandidate({
+      ...args,
+      nowMs: Date.parse("2026-10-05T15:00:30.000Z")
+    }),
+    null
+  );
+  assert.equal(
+    orphanedInFlightTaskRecoveryCandidate({
+      ...args,
+      assistantSecond: { turn_id: "assistant-new", text: "new response" }
+    }),
+    null
+  );
+  assert.equal(
+    orphanedInFlightTaskRecoveryCandidate({
+      ...args,
+      assistantFirst: {
+        turn_id: "assistant-old",
+        text: "MAGASIN_CYCLE_CORRELATION_V1 orphaned-exec-2"
+      },
+      assistantSecond: {
+        turn_id: "assistant-old",
+        text: "MAGASIN_CYCLE_CORRELATION_V1 orphaned-exec-2"
+      }
+    }),
+    null
+  );
+});
+
+test("SC-013 orphaned in-flight restart retires old chat and CHECKs same task without replaying EXECUTE", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  const resume = source.indexOf("async function resumeInFlightProtocolMessageAfterRebind");
+  const orphanProbe = source.indexOf("RESTART_WAIT_RESPONSE_ORPHAN_PROBE_2", resume);
+  const orphanCode = source.indexOf("RUNTIME_RESTART_ORPHANED_IN_FLIGHT_TASK", orphanProbe);
+  const startup = source.indexOf("if (rebound?.page)");
+  const catchBranch = source.indexOf("RUNTIME_RESTART_ORPHANED_IN_FLIGHT_TASK", startup);
+  const recovery = source.indexOf("recoverOrphanedInFlightTaskByCheck", catchBranch);
+  assert.ok(resume >= 0 && orphanProbe > resume && orphanCode > orphanProbe);
+  assert.ok(startup >= 0 && catchBranch > startup && recovery > catchBranch);
+
+  const helperStart = source.indexOf("async function recoverOrphanedInFlightTaskByCheck");
+  const helperEnd = source.indexOf("async function discoverTaskControl", helperStart);
+  const helper = source.slice(helperStart, helperEnd);
+  assert.match(helper, /reason: "RUNTIME_RESTART_ORPHANED_IN_FLIGHT_TASK"/);
+  assert.match(helper, /checkOnly: true/);
+  assert.match(helper, /kind: "TASK_STATUS_CHECK"/);
+  assert.doesNotMatch(helper, /kind: "TASK_EXECUTION"/);
 });
 
 test("SC-013 unmarked terminal recovery is proof-gated before long restart wait", async () => {
