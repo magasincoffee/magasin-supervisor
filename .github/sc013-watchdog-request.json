@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-watchdog-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "purpose": "Post-PR314 read-only sample after bounded STARTING_BROWSER recovery deploy. Verify installed runtime, wrapper/CDP/watchdog health, phase progress, conversation generation, and whether the prior two-hour STARTING_BROWSER stall cleared without duplicate task send.",
-  "rearm_nonce": "starting-browser-post-deploy-20261005-1634"
+  "purpose": "Second post-PR314 read-only sample after the 180-second STARTING_BROWSER stall threshold. Verify whether restart rebind cleared or local watchdog now flags STARTING_BROWSER_STALLED.",
+  "rearm_nonce": "starting-browser-post-deploy-threshold-20261005-1637"
 }
