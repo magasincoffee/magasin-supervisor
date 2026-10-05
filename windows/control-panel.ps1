@@ -1564,20 +1564,43 @@ function Show-SingleConversationControlPanel {
         $reason = if ($automation) { [string](Get-OptionalPropertyValue $automation 'reason' '') } else { '' }
         $lastCode = if ($outbound) { [string](Get-OptionalPropertyValue $outbound 'last_error_code' '') } else { '' }
 
-        if ($phase -eq 'REPLACE_CHAT' -and $watchdogMode -eq 'FAULT') {
-            $watchdogLabel = 'ĐANG PHỤC HỒI'
+        $watchdogFaults = @()
+        if ($watchdog) {
+            $watchdogFaults = @(Get-OptionalPropertyValue $watchdog 'faults' @())
+        }
+        $chatFullFaults = @(
+            $watchdogFaults | Where-Object {
+                [string]$_ -eq 'CHATGPT_CONVERSATION_FULL'
+            }
+        )
+        $nonRecoveryWatchdogFaults = @(
+            $watchdogFaults | Where-Object {
+                [string]$_ -ne 'CHATGPT_CONVERSATION_FULL'
+            }
+        )
+        $chatRecoveryInProgress = [bool](
+            $truth.wrapper_alive -and
+            $chatFullFaults.Count -gt 0 -and
+            $nonRecoveryWatchdogFaults.Count -eq 0 -and
+            $phase -in @('STARTING_BROWSER','REPLACE_CHAT','NEW_CHAT','BOOTSTRAP_RECOVERY_REQUIRED')
+        )
+
+        if ($chatRecoveryInProgress) {
+            $watchdogLabel = 'ĐANG PHỤC HỒI CHAT'
             $runtimeValue.Text =
-                'ROBOT: ' +
-                $(if ($truth.wrapper_alive) { 'ĐANG CHẠY' } else { 'ĐÃ DỪNG' }) +
+                'ROBOT: ĐANG CHẠY' +
                 '  •  CHROME/CDP: ' + $cdpLabel +
                 '  •  WATCHDOG: ' + $watchdogLabel
         }
 
         $flowValue.Text = 'BƯỚC HIỆN TẠI: ' + (Get-OwnerPhaseLabel $phase)
-        $conversationValue.Text = "CUỘC CHAT: thế hệ=$generation  •  " + (Get-OwnerConversationLabel $conversationStatus)
-        $automationValue.Text =
+        $automationValue.Text = if ($chatRecoveryInProgress) {
+            'TRẠNG THÁI: ĐANG TỰ PHỤC HỒI CHAT  •  Owner không cần thao tác'
+        } else {
             'TRẠNG THÁI: ' + (Get-OwnerAutomationLabel $automationStatus) +
-            '  •  mã kỹ thuật=' + $phase
+            '  •  PHA: ' + $phase
+        }
+        $conversationValue.Text = "CUỘC CHAT: thế hệ=$generation  •  " + (Get-OwnerConversationLabel $conversationStatus)
 
         $externalDecision = if ($external) { [string](Get-OptionalPropertyValue $external 'decision' '') } else { '' }
         $externalTask = if ($external) { [string](Get-OptionalPropertyValue $external 'task_id' '') } else { '' }
@@ -1731,41 +1754,32 @@ function Show-SingleConversationControlPanel {
         } else { '' }
 
         if ($lastSentRaw) {
-            $timingFacts.Add('Gửi gần nhất ' + (Format-VietnamTime $lastSentRaw))
+            $timingFacts.Add('Gửi ' + (Format-OwnerClock $lastSentRaw))
         }
         if ($responseDoneRaw) {
-            $timingFacts.Add('Trả lời xong ' + (Format-VietnamTime $responseDoneRaw))
+            $timingFacts.Add('Trả lời xong ' + (Format-OwnerClock $responseDoneRaw))
         }
         if ($recoveryRecordedRaw) {
             $recoveryReason = [string](Get-OptionalPropertyValue $recovery 'reason' '')
             if ($recoveryReason -like '*CONVERSATION_FULL*') {
-                $timingFacts.Add('Chat full phát hiện ' + (Format-VietnamTime $recoveryRecordedRaw))
+                $timingFacts.Add('Chat full ' + (Format-OwnerClock $recoveryRecordedRaw))
             } else {
-                $timingFacts.Add('Recovery bắt đầu ' + (Format-VietnamTime $recoveryRecordedRaw))
+                $timingFacts.Add('Recovery ' + (Format-OwnerClock $recoveryRecordedRaw))
             }
         }
         if ($rehydratedRaw) {
-            $timingFacts.Add('Chat mới sẵn sàng ' + (Format-VietnamTime $rehydratedRaw))
+            $timingFacts.Add('Chat mới ' + (Format-OwnerClock $rehydratedRaw))
         }
-        if ($timingFacts.Count -gt 0) {
-            $timerValue.Text += [Environment]::NewLine + 'MỐC: ' + ([string]::Join('  •  ', @($timingFacts)))
-        }
-
-        $watchdogFaults = @()
-        if ($watchdog) {
-            $watchdogFaults = @(Get-OptionalPropertyValue $watchdog 'faults' @())
+        $milestoneValue.Text = if ($timingFacts.Count -gt 0) {
+            'MỐC HOẠT ĐỘNG' + [Environment]::NewLine +
+            ([string]::Join('  •  ', @($timingFacts)))
+        } else {
+            'MỐC HOẠT ĐỘNG' + [Environment]::NewLine + 'Chưa có mốc mới trong phiên hiện tại.'
         }
         $errorText = Get-OwnerErrorLabel $reason $lastCode
-        if ($phase -eq 'REPLACE_CHAT') {
-            $nonRecoveryFaults = @(
-                $watchdogFaults | Where-Object {
-                    [string]$_ -ne 'CHATGPT_CONVERSATION_FULL'
-                }
-            )
-            if ($nonRecoveryFaults.Count -eq 0) {
-                $errorText = 'Chat cũ không còn dùng được; Robot đang tự phục hồi, không cần Owner thao tác.'
-                $watchdogFaults = @()
-            }
+        if ($chatRecoveryInProgress) {
+            $errorText = 'Chat đã đầy; Robot đang tự chuyển sang chat mới và tiếp tục đúng task.'
+            $watchdogFaults = @()
         }
         if ($externalActive -and $externalDecision -eq 'WAIT_EXTERNAL') {
             $errorText =
@@ -1804,10 +1818,23 @@ function Show-SingleConversationControlPanel {
         if ($watchdogFaults.Count -gt 0) {
             $errorText += '  •  Watchdog: ' + ([string]::Join(', ', @($watchdogFaults)))
         }
-        $errorValue.Text = 'LỖI / CẢNH BÁO: ' + $errorText
-        $actionValue.Text =
-            'OWNER CẦN LÀM GÌ: ' +
-            (Get-OwnerActionLabel ([bool]$truth.wrapper_alive) $phase $reason $lastCode)
+        if ($chatRecoveryInProgress) {
+            $errorValue.ForeColor = [Drawing.Color]::FromArgb(161,98,7)
+            $errorValue.Text = 'SỰ KIỆN PHỤC HỒI: ' + $errorText
+            $actionValue.Text = 'OWNER CẦN LÀM GÌ: Không cần thao tác. Robot đang tự phục hồi chat.'
+        } elseif ([string]::IsNullOrWhiteSpace($reason) -and [string]::IsNullOrWhiteSpace($lastCode) -and $watchdogFaults.Count -eq 0) {
+            $errorValue.ForeColor = [Drawing.Color]::FromArgb(22,101,52)
+            $errorValue.Text = 'SỰ KIỆN / CẢNH BÁO: Không có lỗi cần xử lý.'
+            $actionValue.Text =
+                'OWNER CẦN LÀM GÌ: ' +
+                (Get-OwnerActionLabel ([bool]$truth.wrapper_alive) $phase $reason $lastCode)
+        } else {
+            $errorValue.ForeColor = [Drawing.Color]::FromArgb(185,28,28)
+            $errorValue.Text = 'LỖI / CẢNH BÁO: ' + $errorText
+            $actionValue.Text =
+                'OWNER CẦN LÀM GÌ: ' +
+                (Get-OwnerActionLabel ([bool]$truth.wrapper_alive) $phase $reason $lastCode)
+        }
 
         $syncStatus = if ($sourceState) {
             [string](Get-OptionalPropertyValue $sourceState 'sync_status' 'UNVERIFIED')
