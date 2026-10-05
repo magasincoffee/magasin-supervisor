@@ -93,7 +93,7 @@ test(">30m stale responseRunning=true without real progress enters STALL_CHECK",
   assert.equal(result.state.reload_count, 0);
 });
 
-test(">30m responseRunning with progress under 5m old stays WORKING_LONG", () => {
+test(">30m responseRunning with progress under 15m old stays WORKING_LONG", () => {
   const result = evaluate({
     minutes: 35,
     responseRunning: true,
@@ -104,10 +104,10 @@ test(">30m responseRunning with progress under 5m old stays WORKING_LONG", () =>
   assert.equal(result.state.reload_count, 0);
 });
 
-test(">30m recent activity under 5m stays WORKING_LONG", () => {
+test(">30m recent activity under 15m stays WORKING_LONG", () => {
   const result = evaluate({
     minutes: 32,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   assert.equal(result.decision, WORK_WATCHDOG_DECISIONS.WORKING_LONG);
 });
@@ -121,10 +121,10 @@ test(">30m changed safe progress stays WORKING_LONG", () => {
   assert.equal(result.decision, WORK_WATCHDOG_DECISIONS.WORKING_LONG);
 });
 
-test(">=30m + >=5m inactivity enters STALL_CHECK first, not reload", () => {
+test(">=30m + >=15m inactivity enters STALL_CHECK first, not reload", () => {
   const result = evaluate({
     minutes: 35,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   assert.equal(result.decision, WORK_WATCHDOG_DECISIONS.STALL_CHECK);
   assert.equal(result.state.phase, WORK_WATCHDOG_PHASES.STALL_CHECK);
@@ -135,12 +135,12 @@ test(">=30m + >=5m inactivity enters STALL_CHECK first, not reload", () => {
 test("second eligible turn becomes RELOAD_ELIGIBLE and intent consumes epoch budget before mutation", () => {
   const checked = evaluate({
     minutes: 35,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   const eligible = evaluate({
     minutes: 35,
     seconds: 5,
-    taskTiming: timing({ activity: 29 }),
+    taskTiming: timing({ activity: 19 }),
     state: checked.state
   });
   assert.equal(eligible.decision, WORK_WATCHDOG_DECISIONS.RELOAD_ELIGIBLE);
@@ -156,7 +156,7 @@ test("second eligible turn becomes RELOAD_ELIGIBLE and intent consumes epoch bud
 test("no progress after bounded reload becomes one continue-eligible stage before possibly stalled", () => {
   const checked = evaluate({
     minutes: 35,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   const intent = beginWatchdogReloadIntent(checked.state, { now: iso(35, 1) });
   const reloaded = markWatchdogReloaded(intent, { now: iso(35, 2) });
@@ -164,7 +164,7 @@ test("no progress after bounded reload becomes one continue-eligible stage befor
   const post = evaluate({
     minutes: 36,
     state: reloaded,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   assert.equal(post.decision, WORK_WATCHDOG_DECISIONS.POST_RELOAD_OBSERVE);
   assert.equal(post.state.reload_count, 1);
@@ -172,7 +172,7 @@ test("no progress after bounded reload becomes one continue-eligible stage befor
   const eligible = evaluate({
     minutes: 41,
     state: post.state,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   assert.equal(eligible.decision, WORK_WATCHDOG_DECISIONS.CONTINUE_ELIGIBLE);
   assert.equal(eligible.state.phase, WORK_WATCHDOG_PHASES.CONTINUE_READY);
@@ -193,7 +193,7 @@ test("no progress after bounded reload becomes one continue-eligible stage befor
   const postContinue = evaluate({
     minutes: 42,
     state: continued,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   assert.equal(
     postContinue.decision,
@@ -203,7 +203,7 @@ test("no progress after bounded reload becomes one continue-eligible stage befor
   const stalled = evaluate({
     minutes: 47,
     state: postContinue.state,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   assert.equal(stalled.decision, WORK_WATCHDOG_DECISIONS.POSSIBLY_STALLED);
   assert.equal(stalled.reason_code, "WATCHDOG_NO_PROGRESS_AFTER_CONTINUE");
@@ -214,7 +214,7 @@ test("no progress after bounded reload becomes one continue-eligible stage befor
 test("restart with persisted reload intent does not replay mutation", () => {
   const checked = evaluate({
     minutes: 35,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   const intent = beginWatchdogReloadIntent(checked.state, { now: iso(35) });
   const restarted = normalizeWorkWatchdog(JSON.parse(JSON.stringify(intent)));
@@ -222,7 +222,7 @@ test("restart with persisted reload intent does not replay mutation", () => {
   const uncertain = evaluate({
     minutes: 36,
     state: restarted,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   assert.equal(uncertain.decision, WORK_WATCHDOG_DECISIONS.RECOVERY_UNCERTAIN);
   assert.equal(uncertain.state.reload_count, 1);
@@ -230,7 +230,7 @@ test("restart with persisted reload intent does not replay mutation", () => {
   const later = evaluate({
     minutes: 41,
     state: uncertain.state,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   assert.equal(later.decision, WORK_WATCHDOG_DECISIONS.POSSIBLY_STALLED);
   assert.equal(later.state.reload_count, 1);
@@ -239,14 +239,14 @@ test("restart with persisted reload intent does not replay mutation", () => {
 test("restart with persisted continue intent never replays the continue mutation", () => {
   const checked = evaluate({
     minutes: 35,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   const reloadIntent = beginWatchdogReloadIntent(checked.state, { now: iso(35) });
   const reloaded = markWatchdogReloaded(reloadIntent, { now: iso(35, 1) });
   const eligible = evaluate({
     minutes: 41,
     state: reloaded,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   assert.equal(eligible.decision, WORK_WATCHDOG_DECISIONS.CONTINUE_ELIGIBLE);
 
@@ -260,7 +260,7 @@ test("restart with persisted continue intent never replays the continue mutation
   const uncertain = evaluate({
     minutes: 42,
     state: restarted,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   assert.equal(
     uncertain.decision,
@@ -272,7 +272,7 @@ test("restart with persisted continue intent never replays the continue mutation
   const later = evaluate({
     minutes: 47,
     state: uncertain.state,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   assert.equal(later.decision, WORK_WATCHDOG_DECISIONS.POSSIBLY_STALLED);
   assert.equal(later.reason_code, "WATCHDOG_CONTINUE_OUTCOME_UNCERTAIN");
@@ -281,7 +281,7 @@ test("restart with persisted continue intent never replays the continue mutation
 test("fresh progress after reload returns WORKING_LONG and only re-arms after >=10m cooldown", () => {
   const checked = evaluate({
     minutes: 35,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   const intent = beginWatchdogReloadIntent(checked.state, { now: iso(35) });
   const reloaded = markWatchdogReloaded(intent, { now: iso(35, 1) });
@@ -331,7 +331,7 @@ test("reload cooldown is enforced even after a rearmed epoch", () => {
   const result = evaluate({
     minutes: 35,
     state,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   assert.equal(result.decision, WORK_WATCHDOG_DECISIONS.STALL_CHECK_COOLDOWN);
   assert.equal(result.state.reload_count, 0);
@@ -340,12 +340,12 @@ test("reload cooldown is enforced even after a rearmed epoch", () => {
 test("exact task/work generation/revision mismatch cancels recovery fail-closed", () => {
   const first = evaluate({
     minutes: 35,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   const mismatch = evaluate({
     minutes: 36,
     state: first.state,
-    taskTiming: timing({ activity: 29 }),
+    taskTiming: timing({ activity: 19 }),
     generation: 5
   });
   assert.equal(mismatch.decision, WORK_WATCHDOG_DECISIONS.IDENTITY_MISMATCH);
@@ -356,7 +356,7 @@ test("Owner STOP blocks watchdog reload eligibility", () => {
   const result = evaluate({
     minutes: 35,
     ownerStopped: true,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   assert.equal(result.decision, WORK_WATCHDOG_DECISIONS.BLOCKED_OWNER_STOP);
   assert.equal(result.state.reload_count, 0);
@@ -366,7 +366,7 @@ test("auth/MFA/CAPTCHA/security ambiguity blocks watchdog recovery", () => {
   const result = evaluate({
     minutes: 35,
     securityBlocked: true,
-    taskTiming: timing({ activity: 29 })
+    taskTiming: timing({ activity: 19 })
   });
   assert.equal(result.decision, WORK_WATCHDOG_DECISIONS.BLOCKED_SECURITY);
   assert.equal(result.state.reload_count, 0);

@@ -616,6 +616,32 @@ test("SC-010 inter-cycle delay does not depend on Playwright page RPC", async ()
   assert.match(source, /await waitForNextCycleDelay\(pollMs\)/);
 });
 
+test("SC-013 task recheck waits preserve the external deadline while observing chat health", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const helper = source.indexOf("export async function waitForTaskRecheckDelay");
+  const helperEnd = source.indexOf("export async function boundedRuntimeStep", helper);
+  assert.ok(helper >= 0 && helperEnd > helper);
+  const body = source.slice(helper, helperEnd);
+  assert.match(body, /TASK_RECHECK_WAIT_RECOVERY_PROBE/);
+  assert.match(body, /recoverDisposableConversationIfNeeded/);
+  assert.match(body, /const deadline = Date\.now\(\) \+ totalMs/);
+  assert.match(body, /persistTaskRecheckWait/);
+  assert.match(body, /remainingSeconds/);
+
+  const loop = source.indexOf("if (checkOnly)");
+  const send = source.indexOf("const messageId = randomUUID()", loop);
+  const loopBody = source.slice(loop, send);
+  assert.match(loopBody, /waitForTaskRecheckDelay/);
+  assert.match(loopBody, /page = observedWait\.page/);
+  assert.doesNotMatch(
+    loopBody,
+    /waitForNextCycleDelay\(control\.check_after_seconds \* 1000\)/
+  );
+});
+
 test("SC-010 bounded runtime step converts a hung NEXT_WORK UI probe into recovery", async () => {
   await assert.rejects(
     boundedRuntimeStep(

@@ -48,6 +48,12 @@ test("SC-007 forward Control Center requires only Source of Truth plus START STO
   assert.match(ui, /Cuộc chat cũ đã đầy \/ lỗi, Robot đang chuyển sang chat mới/);
   assert.match(ui, /CONVERSATION_FULL_IN_FLIGHT/);
   assert.match(ui, /không gửi lại lệnh thực thi cũ/);
+  assert.match(ui, /WATCHDOG: /);
+  assert.match(ui, /ĐANG PHỤC HỒI/);
+  assert.match(ui, /Gửi gần nhất/);
+  assert.match(ui, /Trả lời xong/);
+  assert.match(ui, /Chat full phát hiện/);
+  assert.match(ui, /Chat mới sẵn sàng/);
 
   assert.doesNotMatch(ui, /Planner URL|Executor URL|LINK CHAT PLANNER|LINK CHAT EXECUTOR/);
   assert.doesNotMatch(ui, /MỞ PLANNER|MỞ EXECUTOR/);

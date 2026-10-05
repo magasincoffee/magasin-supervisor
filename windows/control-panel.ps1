@@ -1536,6 +1536,7 @@ function Show-SingleConversationControlPanel {
         $outbound = if ($state) { Get-OptionalPropertyValue $state 'outbound' $null } else { $null }
         $external = if ($state) { Get-OptionalPropertyValue $state 'external_work' $null } else { $null }
         $sourceState = if ($state) { Get-OptionalPropertyValue $state 'source_of_truth' $null } else { $null }
+        $recovery = if ($state) { Get-OptionalPropertyValue $state 'recovery' $null } else { $null }
 
         $generation = if ($conversation) { [int](Get-OptionalPropertyValue $conversation 'generation' 0) } else { 0 }
         $conversationStatus = if ($conversation) { [string](Get-OptionalPropertyValue $conversation 'status' 'NONE') } else { 'NONE' }
@@ -1543,6 +1544,15 @@ function Show-SingleConversationControlPanel {
         $phase = if ($automation) { [string](Get-OptionalPropertyValue $automation 'phase' 'STOPPED') } else { 'STOPPED' }
         $reason = if ($automation) { [string](Get-OptionalPropertyValue $automation 'reason' '') } else { '' }
         $lastCode = if ($outbound) { [string](Get-OptionalPropertyValue $outbound 'last_error_code' '') } else { '' }
+
+        if ($phase -eq 'REPLACE_CHAT' -and $watchdogMode -eq 'FAULT') {
+            $watchdogLabel = 'ĐANG PHỤC HỒI'
+            $runtimeValue.Text =
+                'ROBOT: ' +
+                $(if ($truth.wrapper_alive) { 'ĐANG CHẠY' } else { 'ĐÃ DỪNG' }) +
+                '  •  CHROME/CDP: ' + $cdpLabel +
+                '  •  WATCHDOG: ' + $watchdogLabel
+        }
 
         $flowValue.Text = 'BƯỚC HIỆN TẠI: ' + (Get-OwnerPhaseLabel $phase)
         $conversationValue.Text = "CUỘC CHAT: thế hệ=$generation  •  " + (Get-OwnerConversationLabel $conversationStatus)
@@ -1613,7 +1623,26 @@ function Show-SingleConversationControlPanel {
         }
 
         $timerValue.Text = 'THỜI GIAN: —'
-        if (($phase -eq 'WAIT_TASK_RECHECK' -or $phase -eq 'WAIT_EXTERNAL') -and $automation) {
+        if ($phase -eq 'REPLACE_CHAT') {
+            $recoveryAtRaw = if ($recovery) {
+                [string](Get-OptionalPropertyValue $recovery 'recorded_at' '')
+            } else { '' }
+            if ($recoveryAtRaw) {
+                try {
+                    $recoveryAge = [int][Math]::Max(
+                        0,
+                        ([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse($recoveryAtRaw)).TotalSeconds
+                    )
+                    $timerValue.Text =
+                        'PHỤC HỒI CHAT: đã ' + (Format-OwnerDuration $recoveryAge) +
+                        '  •  Robot đang tạo / phục hồi chat mới'
+                } catch {
+                    $timerValue.Text = 'PHỤC HỒI CHAT: đang tạo / phục hồi chat mới'
+                }
+            } else {
+                $timerValue.Text = 'PHỤC HỒI CHAT: đang tạo / phục hồi chat mới'
+            }
+        } elseif (($phase -eq 'WAIT_TASK_RECHECK' -or $phase -eq 'WAIT_EXTERNAL') -and $automation) {
             $waitUntilRaw = [string](Get-OptionalPropertyValue $automation 'wait_until' '')
             $waitLabel = [string](Get-OptionalPropertyValue $automation 'wait_label' '')
             if ($waitUntilRaw) {
@@ -1668,11 +1697,57 @@ function Show-SingleConversationControlPanel {
             $timerValue.Text = 'THỜI GIAN: Robot đang hoạt động  •  bảng cập nhật mỗi 1 giây'
         }
 
+        $timingFacts = New-Object Collections.Generic.List[string]
+        $lastSentRaw = if ($outbound) {
+            [string](Get-OptionalPropertyValue $outbound 'delivered_at' '')
+        } else { '' }
+        $responseDoneRaw = if ($outbound) {
+            [string](Get-OptionalPropertyValue $outbound 'response_complete_at' '')
+        } else { '' }
+        $recoveryRecordedRaw = if ($recovery) {
+            [string](Get-OptionalPropertyValue $recovery 'recorded_at' '')
+        } else { '' }
+        $rehydratedRaw = if ($recovery) {
+            [string](Get-OptionalPropertyValue $recovery 'rehydrated_at' '')
+        } else { '' }
+
+        if ($lastSentRaw) {
+            $timingFacts.Add('Gửi gần nhất ' + (Format-VietnamTime $lastSentRaw))
+        }
+        if ($responseDoneRaw) {
+            $timingFacts.Add('Trả lời xong ' + (Format-VietnamTime $responseDoneRaw))
+        }
+        if ($recoveryRecordedRaw) {
+            $recoveryReason = [string](Get-OptionalPropertyValue $recovery 'reason' '')
+            if ($recoveryReason -like '*CONVERSATION_FULL*') {
+                $timingFacts.Add('Chat full phát hiện ' + (Format-VietnamTime $recoveryRecordedRaw))
+            } else {
+                $timingFacts.Add('Recovery bắt đầu ' + (Format-VietnamTime $recoveryRecordedRaw))
+            }
+        }
+        if ($rehydratedRaw) {
+            $timingFacts.Add('Chat mới sẵn sàng ' + (Format-VietnamTime $rehydratedRaw))
+        }
+        if ($timingFacts.Count -gt 0) {
+            $timerValue.Text += [Environment]::NewLine + 'MỐC: ' + ([string]::Join('  •  ', @($timingFacts)))
+        }
+
         $watchdogFaults = @()
         if ($watchdog) {
             $watchdogFaults = @(Get-OptionalPropertyValue $watchdog 'faults' @())
         }
         $errorText = Get-OwnerErrorLabel $reason $lastCode
+        if ($phase -eq 'REPLACE_CHAT') {
+            $nonRecoveryFaults = @(
+                $watchdogFaults | Where-Object {
+                    [string]$_ -ne 'CHATGPT_CONVERSATION_FULL'
+                }
+            )
+            if ($nonRecoveryFaults.Count -eq 0) {
+                $errorText = 'Chat cũ không còn dùng được; Robot đang tự phục hồi, không cần Owner thao tác.'
+                $watchdogFaults = @()
+            }
+        }
         if ($externalActive -and $externalDecision -eq 'WAIT_EXTERNAL') {
             $errorText =
                 'Không có lỗi CI hiện tại  •  Workflow: ' + $workflowName +
