@@ -24,6 +24,7 @@ import {
   preparedBootstrapIsStaleEnough,
   safeBootstrapNonDeliverySnapshot,
   safeFalseHistoricalDeliverySnapshot,
+  stableUnmarkedTaskResponseCandidate,
   runSingleConversationRuntime,
   persistTerminalTaskControl,
   waitForNextCycleDelay,
@@ -1336,6 +1337,143 @@ test("SC-013 false-delivery safe snapshot requires one idle readable empty-compo
   );
 });
 
+
+test("SC-013 restart can recover a stable terminal task reply that omitted only the cycle marker", () => {
+  const state = {
+    conversation: { status: "ACTIVE" },
+    outbound: {
+      state: "DELIVERED",
+      kind: "TASK_STATUS_CHECK",
+      task_id: "OPS-074",
+      message_id: "restart-unmarked-1"
+    }
+  };
+  const snapshot = {
+    responseRunning: false,
+    assistantBusy: false,
+    hasContinueControl: false,
+    loginRequired: false,
+    hasCaptcha: false,
+    hasNetworkError: false,
+    hasTransientError: false,
+    conversationMissing: false,
+    conversationAccessDenied: false,
+    composerReady: true,
+    composerTextReadable: true,
+    composerHasText: false
+  };
+  const text =
+    "MAGASIN_TASK_CONTROL_V1\n" +
+    "STATUS=READY\n" +
+    "TASK_ID=NONE\n" +
+    "NEXT_TASK_ID=OPS-074\n" +
+    "CHECK_AFTER_SECONDS=0\n" +
+    "END_MAGASIN_TASK_CONTROL_V1";
+  const assistant = { turn_id: "assistant-9", text };
+  const matchingUser = { confirmed: true, turn_id: "user-8" };
+
+  const recovered = stableUnmarkedTaskResponseCandidate({
+    state,
+    snapshot,
+    matchingUser,
+    assistantFirst: assistant,
+    assistantSecond: { ...assistant }
+  });
+  assert.equal(recovered?.task_control?.status, "READY");
+  assert.equal(recovered?.task_control?.next_task_id, "OPS-074");
+
+  assert.equal(
+    stableUnmarkedTaskResponseCandidate({
+      state,
+      snapshot: { ...snapshot, responseRunning: true },
+      matchingUser,
+      assistantFirst: assistant,
+      assistantSecond: assistant
+    }),
+    null
+  );
+  assert.equal(
+    stableUnmarkedTaskResponseCandidate({
+      state,
+      snapshot,
+      matchingUser: { confirmed: false },
+      assistantFirst: assistant,
+      assistantSecond: assistant
+    }),
+    null
+  );
+  assert.equal(
+    stableUnmarkedTaskResponseCandidate({
+      state,
+      snapshot,
+      matchingUser,
+      assistantFirst: assistant,
+      assistantSecond: {
+        turn_id: "assistant-10",
+        text
+      }
+    }),
+    null
+  );
+  assert.equal(
+    stableUnmarkedTaskResponseCandidate({
+      state,
+      snapshot,
+      matchingUser,
+      assistantFirst: assistant,
+      assistantSecond: {
+        ...assistant,
+        text:
+          "MAGASIN_TASK_CONTROL_V1\n" +
+          "STATUS=READY\n" +
+          "TASK_ID=NONE\n" +
+          "NEXT_TASK_ID=OTHER-001\n" +
+          "CHECK_AFTER_SECONDS=0\n" +
+          "END_MAGASIN_TASK_CONTROL_V1"
+      }
+    }),
+    null
+  );
+  assert.equal(
+    stableUnmarkedTaskResponseCandidate({
+      state,
+      snapshot,
+      matchingUser,
+      assistantFirst: {
+        ...assistant,
+        text: text + "\nMAGASIN_CYCLE_CORRELATION_V1 restart-unmarked-1"
+      },
+      assistantSecond: {
+        ...assistant,
+        text: text + "\nMAGASIN_CYCLE_CORRELATION_V1 restart-unmarked-1"
+      }
+    }),
+    null
+  );
+});
+
+test("SC-013 unmarked terminal recovery is proof-gated before long restart wait", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+  const start = source.indexOf("async function resumeInFlightProtocolMessageAfterRebind");
+  const end = source.indexOf("async function probeReusableConversationPage", start);
+  const body = source.slice(start, end);
+  const exactUser = body.indexOf("RESTART_WAIT_RESPONSE_EXACT_USER_CORRELATION");
+  const helper = body.indexOf("stableUnmarkedTaskResponseCandidate", exactUser);
+  const verify = body.indexOf("markCorrelatedInFlightTaskResponseVerified", helper);
+  const settle = body.lastIndexOf("settleTransactionResponse");
+
+  assert.ok(start >= 0 && end > start);
+  assert.ok(exactUser >= 0);
+  assert.ok(helper > exactUser);
+  assert.ok(verify > helper);
+  assert.ok(settle > verify);
+  assert.match(body, /TERMINAL_PROBE_1/);
+  assert.match(body, /TERMINAL_PROBE_2/);
+  assert.doesNotMatch(body.slice(exactUser, settle), /sendProtocolMessage|reconcileExactOnceOutbound/);
+});
 
 test("SC-013 assistant cycle correlation is positive delivery evidence for restart", () => {
   const messageId = "4129456d-b3d8-4420-96b9-43988924c002";
