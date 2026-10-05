@@ -201,7 +201,11 @@ test("SC-013 repeated identical failure blocks only after three repair attempts 
       next_action: "AUTO_REPAIR",
       last_progress_at: `2026-10-04T05:0${Math.min(index,9)}:00.000Z`
     });
-    const result = reconcile(previous, failed);
+    const result = reconcile(
+      previous,
+      failed,
+      index === 1 ? "TASK_STATUS_CHECK" : "TASK_EXECUTION"
+    );
     previous = result.external_work;
     if (index <= 3) {
       assert.equal(result.decision, "AUTO_REPAIR");
