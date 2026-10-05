@@ -14,6 +14,7 @@ import {
   canRebindInFlightProtocolMessage,
   canRebindPreparedProtocolMessage,
   canReplaceLostReadOnlyDiscovery,
+  canReplaceLostSettledConversation,
   canResumePreActuationDiscovery,
   reconstructPendingProtocolMessage,
   reconstructPendingStatusCheckMessage,
@@ -73,6 +74,63 @@ test("SC-013 lost read-only discovery identity is safe to replace without Owner 
     mutate(unsafe);
     assert.equal(canReplaceLostReadOnlyDiscovery(unsafe), false);
   }
+});
+
+test("SC-013 settled conversation identity loss is safe to replace without replay", () => {
+  const base = {
+    conversation: { status: "ACTIVE" },
+    outbound: {
+      state: "VERIFIED",
+      kind: "TASK_EXECUTION",
+      task_id: "XSTORE-019A",
+      message_id: "settled-1",
+      message_digest: "digest"
+    }
+  };
+
+  assert.equal(canReplaceLostSettledConversation(base), true);
+
+  const responseComplete = structuredClone(base);
+  responseComplete.outbound.state = "RESPONSE_COMPLETE";
+  assert.equal(canReplaceLostSettledConversation(responseComplete), true);
+
+  for (const mutate of [
+    (state) => { state.conversation.status = "RETIRED"; },
+    (state) => { state.outbound.state = "RESPONSE_RUNNING"; },
+    (state) => { state.outbound.message_id = ""; },
+    (state) => { state.outbound.message_digest = ""; }
+  ]) {
+    const unsafe = structuredClone(base);
+    mutate(unsafe);
+    assert.equal(canReplaceLostSettledConversation(unsafe), false);
+  }
+});
+
+test("SC-013 restart recovery probes are bounded before settled-chat replacement", async () => {
+  const source = await fs.readFile(
+    new URL("../src/runtime/single-conversation-cli.mjs", import.meta.url),
+    "utf8"
+  );
+
+  const reusable = source.indexOf("async function probeReusableConversationPage");
+  const reusableBound = source.indexOf("RUNTIME_REBIND_REUSABLE_PAGE_PROBE", reusable);
+  const recent = source.indexOf("async function recoverConversationFromRecentSidebar");
+  const recentBound = source.indexOf("RUNTIME_REBIND_RECENT_LIST", recent);
+  const history = source.indexOf("async function recoverConversationFromBrowserHistory");
+  const historyBound = source.indexOf("RUNTIME_REBIND_HISTORY_LIST", history);
+  const restart = source.indexOf("const restartProbe = rebound?.page");
+  const restartBound = source.indexOf("RUNTIME_RESTART_OLD_PAGE_PROBE", restart);
+  const settled = source.indexOf("else if (canReplaceLostSettledConversation(current))", restart);
+  const replacement = source.indexOf('reason: "SETTLED_CONVERSATION_IDENTITY_LOST"', settled);
+  const failClosed = source.indexOf('code: "RUNTIME_RESTART_IDENTITY_NOT_VERIFIED"', replacement);
+
+  assert.ok(reusable >= 0 && reusableBound > reusable);
+  assert.ok(recent >= 0 && recentBound > recent);
+  assert.ok(history >= 0 && historyBound > history);
+  assert.ok(restart >= 0 && restartBound > restart);
+  assert.ok(settled > restartBound);
+  assert.ok(replacement > settled);
+  assert.ok(failClosed > replacement);
 });
 
 test("SC-013 lost discovery restart rolls over before generic identity fail-closed", async () => {
