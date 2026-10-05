@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "c34379dae1093d5f6cde1872a0938022cd4dd505",
+  "requested_main_sha": "bdf52a707264d76b46a733669fd8c72610515ad5",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy PR #315 Windows atomic state persistence recovery."
+  "reason": "Deploy PR #317 proof-gated restart recovery for completed task replies missing only the cycle-correlation trailer."
 }
