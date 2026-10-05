@@ -627,10 +627,12 @@ test("SC-013 task recheck waits preserve the external deadline while observing c
   assert.ok(helper >= 0 && helperEnd > helper);
   const body = source.slice(helper, helperEnd);
   assert.match(body, /TASK_RECHECK_WAIT_RECOVERY_PROBE/);
-  assert.match(body, /recoverDisposableConversationIfNeeded/);
-  assert.match(body, /const deadline = Date\.now\(\) \+ totalMs/);
+  assert.match(body, /recoveryProbe/);
+  assert.match(body, /const requestedDeadline = Number\(now\(\)\) \+ totalMs/);
+  assert.match(body, /inspectTrackedGitHubRun/);
   assert.match(body, /persistTaskRecheckWait/);
-  assert.match(body, /remainingSeconds/);
+  assert.match(body, /secondsToDecision/);
+  assert.match(body, /LOCAL_EXTERNAL_TERMINAL/);
 
   const loop = source.indexOf("if (checkOnly)");
   const send = source.indexOf("const messageId = randomUUID()", loop);
