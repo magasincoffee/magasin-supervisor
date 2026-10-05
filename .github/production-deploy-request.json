@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "815a69ab0fec775211323c980f904d0d6431ed0a",
+  "requested_main_sha": "d4d1a728f978b07bd0863e8d8a53ba195aeb465b",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy task throughput optimization: targeted QA, batch repair, obsolete SHA handling, adaptive polling, loop detection, and Owner observability."
+  "reason": "Deploy task throughput optimization after execution-policy-safe bounded target routing repair."
 }
