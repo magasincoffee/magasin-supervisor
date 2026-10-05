@@ -403,14 +403,37 @@ export async function persistTaskExecutionOptimizationIntent(statePath, {
   if (external.task_id && external.task_id !== id) {
     external.checkpoint_id = null;
     external.authoritative_sha = null;
+    external.failure_root_key = null;
     external.failure_fingerprint = null;
     external.failure_occurrence_count = 0;
+    external.loop_detected = false;
     external.repair_attempt = 0;
     external.poll_attempt = 0;
+    external.next_check_seconds = 0;
+    external.last_failure_batch_count = 0;
+    external.last_failure_batch_signature = null;
+    external.last_failure_batch_run_id = null;
+    external.last_failure_batch_commit_sha = null;
     external.obsolete_runs = [];
   }
   external.task_id = id;
-  external.execution_phase = checkOnly ? "CHECK_EXTERNAL" : "EXECUTE_TARGETED_QA";
+  const priorDecision = String(external.decision || "");
+  external.execution_phase = checkOnly
+    ? "CHECK_EXTERNAL"
+    : (
+      priorDecision === "AUTO_REPAIR"
+        ? (external.loop_detected ? "REPAIR_STRATEGY_CHANGE" : "BATCH_REPAIR")
+        : (
+          priorDecision === "VERIFY_EXTERNAL_SUCCESS"
+            ? "VERIFY_RELEASE_GATE"
+            : "EXECUTE_TARGETED_QA"
+        )
+    );
+  if (!checkOnly && external.execution_phase === "EXECUTE_TARGETED_QA") {
+    external.current_gate = "TARGETED_QA";
+    external.gate_started_at = at;
+    external.last_result = "PENDING";
+  }
   external.targeted_qa_required = true;
   external.release_regression_required = true;
   external.last_progress_at = external.last_progress_at || at;
