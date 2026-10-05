@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "b73a195edbae57089d190f3bf1cce9d606372ece",
+  "requested_main_sha": "c815424bb740d02303429db9fe7c8d85a5ad3a3a",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy orphaned in-flight restart recovery: retire stale RESPONSE_RUNNING and CHECK same task without EXECUTE replay."
+  "reason": "Deploy smart CHECK suppression for unchanged active GitHub runs and compact repeated CHECK prompts."
 }
