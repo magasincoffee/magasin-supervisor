@@ -4,6 +4,44 @@ import process from "node:process";
 import { randomUUID } from "node:crypto";
 
 const writeQueues = new Map();
+const TRANSIENT_WINDOWS_RENAME_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
+
+export async function renameAtomicSnapshotWithRetry(
+  source,
+  destination,
+  {
+    rename = fs.rename,
+    platform = process.platform,
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    maxAttempts = 8
+  } = {}
+) {
+  const attempts = Math.max(1, Math.min(20, Number(maxAttempts) || 8));
+  let attempt = 0;
+
+  while (true) {
+    attempt += 1;
+    try {
+      await rename(source, destination);
+      return;
+    } catch (error) {
+      const code = String(error?.code || "").toUpperCase();
+      const retryable = (
+        platform === "win32" &&
+        TRANSIENT_WINDOWS_RENAME_CODES.has(code) &&
+        attempt < attempts
+      );
+      if (!retryable) throw error;
+
+      // Windows can briefly deny replacement when a read-only observer,
+      // antivirus scanner, or another process still has the destination open.
+      // Keep the private temp file and retry the same atomic rename; never
+      // delete the durable destination as a workaround.
+      const delayMs = Math.min(400, 25 * (2 ** (attempt - 1)));
+      await sleep(delayMs);
+    }
+  }
+}
 
 async function writeAtomicJsonSnapshot(filePath, serialized) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -18,7 +56,7 @@ async function writeAtomicJsonSnapshot(filePath, serialized) {
       encoding: "utf8",
       flag: "wx"
     });
-    await fs.rename(temp, filePath);
+    await renameAtomicSnapshotWithRetry(temp, filePath);
   } finally {
     // If rename succeeded the temp path is already gone. If anything failed,
     // remove only this writer's private temp file.
