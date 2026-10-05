@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "03449b2d4d52008be09332d8412828e9d7637f39",
+  "requested_main_sha": "2c935fe86d77e33f1b9f0e61176a5ccedf6afb4a",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy PR #319 Owner status layout through PR #320 exact-runner routing repair."
+  "reason": "Deploy PR #319 Owner status layout with bounded exact-target routing from PR #321."
 }
