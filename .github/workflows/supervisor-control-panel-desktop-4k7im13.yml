@@ -43,60 +43,52 @@ jobs:
 
     steps:
       - name: Route to exact production target
-        shell: powershell
+        shell: cmd
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $ErrorActionPreference = 'Stop'
+          @echo off
+          setlocal EnableExtensions EnableDelayedExpansion
+          echo DEPLOY_MACHINE=%COMPUTERNAME%
+          echo DEPLOY_TRIGGER=${{ github.event_name }}
+          echo DEPLOY_SHA=%DEPLOY_SHA%
+          echo TARGET_ROUTING_ATTEMPT=%ROUTING_ATTEMPT%/%MAX_ROUTING_ATTEMPTS%
 
-          $machine = [Environment]::MachineName
-          $attempt = [int]$env:ROUTING_ATTEMPT
-          $maxAttempts = [int]$env:MAX_ROUTING_ATTEMPTS
+          if /I "%COMPUTERNAME%"=="%TARGET_COMPUTER%" (
+            echo TARGET_MATCH=True
+            echo TARGET_ROUTING_COMPLETE=True
+            exit /b 0
+          )
 
-          Write-Host "DEPLOY_MACHINE=$machine"
-          Write-Host "DEPLOY_TRIGGER=${{ github.event_name }}"
-          Write-Host "DEPLOY_SHA=$env:DEPLOY_SHA"
-          Write-Host "TARGET_ROUTING_ATTEMPT=$attempt/$maxAttempts"
+          echo TARGET_MATCH=False
+          echo TARGET_MUTATION_SKIPPED=True
 
-          if ($machine -ieq $env:TARGET_COMPUTER) {
-              Write-Host "TARGET_MATCH=True"
-              Write-Host "TARGET_ROUTING_COMPLETE=True"
-              exit 0
-          }
+          if %ROUTING_ATTEMPT% GEQ %MAX_ROUTING_ATTEMPTS% (
+            echo TARGET_ROUTING_EXHAUSTED=True
+            echo ERROR=Exact production runner was not selected within the bounded routing budget.
+            exit /b 1
+          )
 
-          Write-Host "TARGET_MATCH=False"
-          Write-Host "TARGET_MUTATION_SKIPPED=True"
+          set /a NEXT_ATTEMPT=%ROUTING_ATTEMPT%+1
+          set /a DELAY_SECONDS=15*%ROUTING_ATTEMPT%
+          if !DELAY_SECONDS! GTR 60 set DELAY_SECONDS=60
+          echo TARGET_ROUTING_BACKOFF_SECONDS=!DELAY_SECONDS!
+          timeout /t !DELAY_SECONDS! /nobreak >nul
 
-          if ($attempt -ge $maxAttempts) {
-              Write-Host "TARGET_ROUTING_EXHAUSTED=True"
-              Write-Error "Exact production runner was not selected within the bounded routing budget."
-              exit 1
-          }
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
+            "$ErrorActionPreference='Stop';" ^
+            "$headers=@{Authorization=('Bearer '+$env:GH_TOKEN);Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'};" ^
+            "$body=@{ref='main';inputs=@{deploy_sha=$env:DEPLOY_SHA;routing_attempt=$env:NEXT_ATTEMPT}}|ConvertTo-Json -Depth 4;" ^
+            "$uri='https://api.github.com/repos/'+$env:GITHUB_REPOSITORY+'/actions/workflows/'+$env:DEPLOY_WORKFLOW_FILE+'/dispatches';" ^
+            "Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType 'application/json' -Body $body | Out-Null"
+          if errorlevel 1 (
+            echo TARGET_RETRY_DISPATCH_FAILED=True
+            exit /b 1
+          )
 
-          $nextAttempt = $attempt + 1
-          $delaySeconds = [Math]::Min(60, 15 * $attempt)
-          Write-Host "TARGET_ROUTING_BACKOFF_SECONDS=$delaySeconds"
-          Start-Sleep -Seconds $delaySeconds
-
-          $headers = @{
-              Authorization = "Bearer $env:GH_TOKEN"
-              Accept = 'application/vnd.github+json'
-              'X-GitHub-Api-Version' = '2022-11-28'
-          }
-          $body = @{
-              ref = 'main'
-              inputs = @{
-                  deploy_sha = $env:DEPLOY_SHA
-                  routing_attempt = [string]$nextAttempt
-              }
-          } | ConvertTo-Json -Depth 4
-
-          $uri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/workflows/$env:DEPLOY_WORKFLOW_FILE/dispatches"
-          Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType 'application/json' -Body $body | Out-Null
-
-          Write-Host "TARGET_RETRY_DISPATCHED=True"
-          Write-Host "TARGET_NEXT_ROUTING_ATTEMPT=$nextAttempt"
-          exit 1
+          echo TARGET_RETRY_DISPATCHED=True
+          echo TARGET_NEXT_ROUTING_ATTEMPT=!NEXT_ATTEMPT!
+          exit /b 1
 
       - name: Checkout exact authorized main
         uses: actions/checkout@v4
