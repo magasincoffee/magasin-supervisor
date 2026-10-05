@@ -6,6 +6,16 @@ name: Supervisor Control Panel Deploy DESKTOP-4K7IM13
 # a dedicated deploy-request marker commit.
 on:
   workflow_dispatch:
+    inputs:
+      deploy_sha:
+        description: Exact authorized main SHA to deploy across bounded reroutes
+        required: false
+        type: string
+      routing_attempt:
+        description: Internal bounded target-routing attempt
+        required: false
+        default: '1'
+        type: string
   push:
     branches:
       - main
@@ -21,61 +31,77 @@ permissions:
   actions: write
 
 jobs:
-  pin-target-runner:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+  deploy-panel:
+    runs-on: self-hosted
+    timeout-minutes: 15
+    env:
+      DEPLOY_SHA: ${{ github.event.inputs.deploy_sha || github.sha }}
+      ROUTING_ATTEMPT: ${{ github.event.inputs.routing_attempt || '1' }}
+      TARGET_COMPUTER: DESKTOP-4K7IM13
+      MAX_ROUTING_ATTEMPTS: '12'
+      DEPLOY_WORKFLOW_FILE: supervisor-control-panel-desktop-4k7im13.yml
+
     steps:
-      - name: Bind exact production runner label
-        shell: bash
+      - name: Route to exact production target
+        shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
-          TARGET_RUNNER_NAME: DESKTOP-4K7IM13
-          TARGET_RUNNER_LABEL: magasin-target-desktop-4k7im13
         run: |
-          set -euo pipefail
+          $ErrorActionPreference = 'Stop'
 
-          mapfile -t target_rows < <(
-            gh api "repos/${GITHUB_REPOSITORY}/actions/runners" --paginate \
-              --jq ".runners[] | select(.name == \"${TARGET_RUNNER_NAME}\") | [.id,.status,.busy] | @tsv"
-          )
+          $machine = [Environment]::MachineName
+          $attempt = [int]$env:ROUTING_ATTEMPT
+          $maxAttempts = [int]$env:MAX_ROUTING_ATTEMPTS
 
-          if [ "${#target_rows[@]}" -ne 1 ]; then
-            echo "TARGET_RUNNER_RESOLUTION_FAILED=True"
-            echo "TARGET_RUNNER_MATCH_COUNT=${#target_rows[@]}"
-            exit 1
-          fi
+          Write-Host "DEPLOY_MACHINE=$machine"
+          Write-Host "DEPLOY_TRIGGER=${{ github.event_name }}"
+          Write-Host "DEPLOY_SHA=$env:DEPLOY_SHA"
+          Write-Host "TARGET_ROUTING_ATTEMPT=$attempt/$maxAttempts"
 
-          IFS=$'\t' read -r target_id target_status target_busy <<< "${target_rows[0]}"
-          echo "TARGET_RUNNER_ID=${target_id}"
-          echo "TARGET_RUNNER_STATUS=${target_status}"
-          echo "TARGET_RUNNER_BUSY=${target_busy}"
+          if ($machine -ieq $env:TARGET_COMPUTER) {
+              Write-Host "TARGET_MATCH=True"
+              Write-Host "TARGET_ROUTING_COMPLETE=True"
+              exit 0
+          }
 
-          if [ "${target_status}" != "online" ]; then
-            echo "TARGET_RUNNER_OFFLINE=True"
-            exit 1
-          fi
+          Write-Host "TARGET_MATCH=False"
+          Write-Host "TARGET_MUTATION_SKIPPED=True"
 
-          gh api --method POST \
-            "repos/${GITHUB_REPOSITORY}/actions/runners/${target_id}/labels" \
-            --input - <<JSON
-          {"labels":["${TARGET_RUNNER_LABEL}"]}
-          JSON
+          if ($attempt -ge $maxAttempts) {
+              Write-Host "TARGET_ROUTING_EXHAUSTED=True"
+              Write-Error "Exact production runner was not selected within the bounded routing budget."
+              exit 1
+          }
 
-          gh api "repos/${GITHUB_REPOSITORY}/actions/runners/${target_id}" \
-            --jq '.labels[].name' | grep -Fx "${TARGET_RUNNER_LABEL}"
+          $nextAttempt = $attempt + 1
+          $delaySeconds = [Math]::Min(60, 15 * $attempt)
+          Write-Host "TARGET_ROUTING_BACKOFF_SECONDS=$delaySeconds"
+          Start-Sleep -Seconds $delaySeconds
 
-          echo "TARGET_RUNNER_LABEL_BOUND=True"
+          $headers = @{
+              Authorization = "Bearer $env:GH_TOKEN"
+              Accept = 'application/vnd.github+json'
+              'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $body = @{
+              ref = 'main'
+              inputs = @{
+                  deploy_sha = $env:DEPLOY_SHA
+                  routing_attempt = [string]$nextAttempt
+              }
+          } | ConvertTo-Json -Depth 4
 
-  deploy-panel:
-    needs: pin-target-runner
-    runs-on:
-      - self-hosted
-      - magasin-target-desktop-4k7im13
-    timeout-minutes: 15
-    steps:
-      - name: Checkout exact main
+          $uri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/workflows/$env:DEPLOY_WORKFLOW_FILE/dispatches"
+          Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType 'application/json' -Body $body | Out-Null
+
+          Write-Host "TARGET_RETRY_DISPATCHED=True"
+          Write-Host "TARGET_NEXT_ROUTING_ATTEMPT=$nextAttempt"
+          exit 1
+
+      - name: Checkout exact authorized main
         uses: actions/checkout@v4
         with:
+          ref: ${{ env.DEPLOY_SHA }}
           fetch-depth: 1
 
       - name: Deploy exact main to DESKTOP-4K7IM13
@@ -84,15 +110,15 @@ jobs:
           @echo off
           echo DEPLOY_MACHINE=%COMPUTERNAME%
           echo DEPLOY_TRIGGER=${{ github.event_name }}
-          echo DEPLOY_SHA=${{ github.sha }}
+          echo DEPLOY_SHA=%DEPLOY_SHA%
           if /I not "%COMPUTERNAME%"=="DESKTOP-4K7IM13" (
             echo TARGET_MATCH=False
             echo TARGET_MUTATION_SKIPPED=True
-            echo ERROR=Explicit production deploy landed on a non-target runner.
+            echo ERROR=Explicit production deploy reached a non-target runner after routing.
             exit /b 1
           )
           echo TARGET_MATCH=True
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\update-latest-clean-old.ps1" -TargetComputer "DESKTOP-4K7IM13" -ExpectedMainSha "${{ github.sha }}"
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\update-latest-clean-old.ps1" -TargetComputer "DESKTOP-4K7IM13" -ExpectedMainSha "%DEPLOY_SHA%"
           exit /b %ERRORLEVEL%
 
 # Read-only SC-013 diagnostics are intentionally separate from deployment.
