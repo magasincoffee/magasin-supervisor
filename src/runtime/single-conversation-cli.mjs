@@ -466,6 +466,7 @@ export async function waitForTaskRecheckDelay({
   pollMs = 2_000,
   fetchImpl = globalThis.fetch,
   localMonitorMaxSeconds = 300,
+  now = () => Date.now(),
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 } = {}) {
   if (!adapter) throw new Error("adapter is required");
@@ -488,7 +489,7 @@ export async function waitForTaskRecheckDelay({
     };
   }
 
-  const requestedDeadline = Date.now() + totalMs;
+  const requestedDeadline = Number(now()) + totalMs;
   const healthPollMs = Math.max(
     250,
     Math.min(2_000, Math.floor(Number(pollMs) || 2_000))
@@ -519,7 +520,7 @@ export async function waitForTaskRecheckDelay({
   async function scheduleNextLocalObservation() {
     const attempt = Math.max(1, localExternalChecks);
     const delaySeconds = nextLocalMonitorSeconds(attempt);
-    nextExternalPollAt = Date.now() + delaySeconds * 1000;
+    nextExternalPollAt = Number(now()) + delaySeconds * 1000;
     await persistTaskRecheckWait(statePath, {
       taskId,
       seconds: delaySeconds
@@ -533,10 +534,10 @@ export async function waitForTaskRecheckDelay({
   // obsolete, unavailable, or bounded-heartbeat conditions wake the protocol
   // immediately; no project mutation or task execution occurs here.
   while (true) {
-    const now = Date.now();
+    const currentNow = Number(now());
     const decisionAt = localMonitoring ? nextExternalPollAt : requestedDeadline;
 
-    if (now >= decisionAt) {
+    if (currentNow >= decisionAt) {
       const observed = await observeTrackedExternal();
 
       if (
@@ -546,10 +547,10 @@ export async function waitForTaskRecheckDelay({
       ) {
         if (!localMonitoring) {
           localMonitoring = true;
-          localMonitorStartedAt = Date.now();
+          localMonitorStartedAt = Number(now());
         }
 
-        const suppressedFor = Date.now() - localMonitorStartedAt;
+        const suppressedFor = Number(now()) - localMonitorStartedAt;
         if (suppressionBudgetMs <= 0 || suppressedFor >= suppressionBudgetMs) {
           return {
             page: activePage,
@@ -584,9 +585,9 @@ export async function waitForTaskRecheckDelay({
       };
     }
 
-    const remainingBeforeDecision = decisionAt - now;
+    const remainingBeforeDecision = decisionAt - currentNow;
     await sleep(Math.min(healthPollMs, remainingBeforeDecision));
-    if (Date.now() >= decisionAt) continue;
+    if (Number(now()) >= decisionAt) continue;
 
     const recovery = await boundedRuntimeStep(
       "TASK_RECHECK_WAIT_RECOVERY_PROBE",
@@ -608,7 +609,7 @@ export async function waitForTaskRecheckDelay({
       recoveryCount += 1;
       const secondsToDecision = Math.max(
         1,
-        Math.ceil((decisionAt - Date.now()) / 1000)
+        Math.ceil((decisionAt - Number(now())) / 1000)
       );
       await persistTaskRecheckWait(statePath, {
         taskId,
