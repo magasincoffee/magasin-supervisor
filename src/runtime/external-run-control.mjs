@@ -1,6 +1,7 @@
 import {
   adaptiveExternalPollSeconds,
   deriveFailureFingerprint,
+  deriveFailureRootKey,
   deriveRunAuthority
 } from "./task-execution-optimization.mjs";
 
@@ -438,12 +439,15 @@ export function reconcileExternalRunState({
       })
     : 0;
 
+  const failureRootKey = terminalFailure || noRun
+    ? deriveFailureRootKey(evidence)
+    : (prior.failure_root_key || null);
   const fingerprint = terminalFailure || noRun
     ? deriveFailureFingerprint(evidence)
     : (prior.failure_fingerprint || null);
   let failureOccurrenceCount = Number(prior.failure_occurrence_count || 0);
   if (terminalFailure || noRun) {
-    if (!prior.failure_fingerprint || prior.failure_fingerprint !== fingerprint) {
+    if (!prior.failure_root_key || prior.failure_root_key !== failureRootKey) {
       failureOccurrenceCount = 1;
     } else if (!sameObservedRun) {
       failureOccurrenceCount += 1;
@@ -548,6 +552,7 @@ export function reconcileExternalRunState({
       last_result: lastResult,
       poll_attempt: pollAttempt,
       next_check_seconds: nextCheckSeconds,
+      failure_root_key: failureRootKey,
       failure_fingerprint: fingerprint,
       failure_occurrence_count: failureOccurrenceCount,
       loop_detected: loopDetected,
