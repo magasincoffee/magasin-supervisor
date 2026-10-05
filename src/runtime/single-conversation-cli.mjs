@@ -1459,6 +1459,96 @@ export function stableUnmarkedTaskResponseCandidate({
   };
 }
 
+export function orphanedInFlightTaskRecoveryCandidate({
+  state,
+  firstSnapshot,
+  secondSnapshot,
+  matchingUser,
+  assistantFirst,
+  assistantSecond,
+  nowMs = Date.now(),
+  minimumAgeMs = 60_000
+} = {}) {
+  const outbound = state?.outbound || {};
+  const kind = String(outbound.kind || "").toUpperCase();
+  const outboundState = String(outbound.state || "").toUpperCase();
+  const taskId = String(outbound.task_id || "").trim();
+  const messageId = String(outbound.message_id || "").trim();
+
+  if (
+    !["TASK_EXECUTION", "TASK_STATUS_CHECK"].includes(kind) ||
+    !["DELIVERED", "RESPONSE_RUNNING"].includes(outboundState) ||
+    !taskId ||
+    !messageId ||
+    matchingUser?.confirmed === true
+  ) {
+    return null;
+  }
+
+  const staleFrom =
+    outbound.response_running_at ||
+    outbound.delivered_at ||
+    outbound.enqueued_at ||
+    outbound.prepared_at ||
+    state?.updated_at ||
+    null;
+  const staleAt = Date.parse(String(staleFrom || ""));
+  if (
+    !Number.isFinite(staleAt) ||
+    Number(nowMs) - staleAt < Math.max(0, Number(minimumAgeMs) || 0)
+  ) {
+    return null;
+  }
+
+  const idleSnapshot = (snapshot) => Boolean(
+    snapshot &&
+    snapshot.responseRunning === false &&
+    snapshot.assistantBusy === false &&
+    snapshot.hasContinueControl !== true &&
+    snapshot.loginRequired !== true &&
+    snapshot.hasCaptcha !== true &&
+    snapshot.hasNetworkError !== true &&
+    snapshot.hasTransientError !== true &&
+    snapshot.conversationMissing !== true &&
+    snapshot.conversationAccessDenied !== true &&
+    snapshot.composerReady === true &&
+    snapshot.composerTextReadable === true &&
+    snapshot.composerHasText === false
+  );
+
+  if (!idleSnapshot(firstSnapshot) || !idleSnapshot(secondSnapshot)) {
+    return null;
+  }
+
+  const firstId = String(assistantFirst?.turn_id || "").trim();
+  const secondId = String(assistantSecond?.turn_id || "").trim();
+  const firstText = String(assistantFirst?.text || "");
+  const secondText = String(assistantSecond?.text || "");
+  if (Boolean(firstId) !== Boolean(secondId)) return null;
+  if (firstId && firstId !== secondId) return null;
+  if (Boolean(firstText) !== Boolean(secondText)) return null;
+  if (
+    firstText &&
+    composerInstructionDigest(firstText) !== composerInstructionDigest(secondText)
+  ) {
+    return null;
+  }
+  if (
+    assistantTurnConfirmsCycleDelivery(assistantFirst, messageId) ||
+    assistantTurnConfirmsCycleDelivery(assistantSecond, messageId)
+  ) {
+    return null;
+  }
+
+  return {
+    task_id: taskId,
+    kind,
+    outbound_state: outboundState,
+    message_id: messageId,
+    stale_age_ms: Number(nowMs) - staleAt
+  };
+}
+
 async function resumeEnqueuedTaskMessageAfterRebind({
   adapter,
   page,
@@ -1712,6 +1802,52 @@ async function resumeInFlightProtocolMessageAfterRebind({
           marker_confirmed: false,
           recovered_from_exact_user_stable_terminal_task_response: true
         };
+      }
+    }
+
+    if (
+      matchingUser?.confirmed !== true &&
+      firstProbe?.snapshot
+    ) {
+      if (typeof page.waitForTimeout === "function") {
+        await page.waitForTimeout(1_200);
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 1_200));
+      }
+
+      const orphanSecondProbe = await boundedRuntimeStep(
+        "RESTART_WAIT_RESPONSE_ORPHAN_PROBE_2",
+        () => adapter.probePage(page),
+        { timeoutMs: 10_000 }
+      ).catch((error) => {
+        if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+        return null;
+      });
+      const orphanAssistantSecond = await boundedRuntimeStep(
+        "RESTART_WAIT_RESPONSE_ORPHAN_ASSISTANT_2",
+        () => captureLatestRoleTurn(page, "assistant"),
+        { timeoutMs: 10_000 }
+      ).catch(() => null);
+
+      const orphaned = orphanedInFlightTaskRecoveryCandidate({
+        state,
+        firstSnapshot: firstProbe.snapshot,
+        secondSnapshot: orphanSecondProbe?.snapshot || null,
+        matchingUser,
+        assistantFirst,
+        assistantSecond: orphanAssistantSecond
+      });
+      if (orphaned) {
+        throw Object.assign(
+          new Error(
+            "in-flight task transaction is stale after restart while ChatGPT is stably idle"
+          ),
+          {
+            code: "RUNTIME_RESTART_ORPHANED_IN_FLIGHT_TASK",
+            task_id: orphaned.task_id,
+            message_id: orphaned.message_id
+          }
+        );
       }
     }
   }
@@ -2113,6 +2249,64 @@ async function recoverConversationFullTaskByCheck({
   };
 }
 
+async function recoverOrphanedInFlightTaskByCheck({
+  adapter,
+  page,
+  statePath,
+  sourceOfTruthUrl,
+  taskId,
+  qualificationOnly = false,
+  responseTimeoutMs,
+  pollMs
+} = {}) {
+  const task = String(taskId || "").trim();
+  if (!task) {
+    throw Object.assign(
+      new Error("orphaned in-flight task recovery requires task id"),
+      { code: "ORPHANED_IN_FLIGHT_RECOVERY_TASK_ID_MISSING" }
+    );
+  }
+
+  const replacement = await replaceDisposableConversation({
+    adapter,
+    page,
+    statePath,
+    reason: "RUNTIME_RESTART_ORPHANED_IN_FLIGHT_TASK",
+    sourceOfTruthUrl,
+    projectId: "LIVE",
+    qualificationOnly,
+    timeoutMs: responseTimeoutMs,
+    pollMs: Math.min(750, Math.max(100, pollMs))
+  });
+
+  const checkMessageId = randomUUID();
+  const checkMessage = buildSingleConversationTaskInstruction({
+    sourceOfTruthUrl,
+    taskId: task,
+    messageId: checkMessageId,
+    checkOnly: true
+  });
+  const response = await sendProtocolMessage({
+    adapter,
+    page: replacement.page,
+    statePath,
+    message: checkMessage,
+    messageId: checkMessageId,
+    kind: "TASK_STATUS_CHECK",
+    taskId: task,
+    responseTimeoutMs,
+    pollMs
+  });
+
+  return {
+    page: replacement.page,
+    response,
+    source_kind: "TASK_STATUS_CHECK",
+    task_id: task,
+    replacement
+  };
+}
+
 async function discoverTaskControl({
   adapter,
   page,
@@ -2316,26 +2510,49 @@ export async function runSingleConversationRuntime({
             pollMs
           });
         } catch (error) {
-          const replacementReason = replacementReasonForResponseWaitError(error);
-          if (!replacementReason) throw error;
+          if (
+            String(error?.code || "").toUpperCase() ===
+            "RUNTIME_RESTART_ORPHANED_IN_FLIGHT_TASK"
+          ) {
+            const taskId = String(
+              error?.task_id ||
+              current.outbound?.task_id ||
+              ""
+            ).trim();
+            const recovered = await recoverOrphanedInFlightTaskByCheck({
+              adapter,
+              page,
+              statePath,
+              sourceOfTruthUrl,
+              taskId,
+              qualificationOnly,
+              responseTimeoutMs,
+              pollMs
+            });
+            page = recovered.page;
+            bootstrapResponse = recovered.response;
+          } else {
+            const replacementReason = replacementReasonForResponseWaitError(error);
+            if (!replacementReason) throw error;
 
-          // The user turn is already durably delivered, so never actuate the
-          // old task again. Repeated response-surface failure retires only the
-          // disposable chat, records the prior outbound transaction as recovery
-          // evidence, then bootstraps a fresh generation from authoritative SOT.
-          const replacement = await replaceDisposableConversation({
-            adapter,
-            page,
-            statePath,
-            reason: replacementReason,
-            sourceOfTruthUrl,
-            projectId: "LIVE",
-            qualificationOnly,
-            timeoutMs: responseTimeoutMs,
-            pollMs: Math.min(750, Math.max(100, pollMs))
-          });
-          page = replacement.page;
-          bootstrapResponse = replacement.response;
+            // The user turn is already durably delivered, so never actuate the
+            // old task again. Repeated response-surface failure retires only the
+            // disposable chat, records the prior outbound transaction as recovery
+            // evidence, then bootstraps a fresh generation from authoritative SOT.
+            const replacement = await replaceDisposableConversation({
+              adapter,
+              page,
+              statePath,
+              reason: replacementReason,
+              sourceOfTruthUrl,
+              projectId: "LIVE",
+              qualificationOnly,
+              timeoutMs: responseTimeoutMs,
+              pollMs: Math.min(750, Math.max(100, pollMs))
+            });
+            page = replacement.page;
+            bootstrapResponse = replacement.response;
+          }
         }
         current = await readSingleConversationState(statePath);
       } else if (canRebindEnqueuedTaskDiscovery(current)) {
