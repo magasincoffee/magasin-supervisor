@@ -29,6 +29,21 @@ test("SC-013 production deploy requires explicit release authority", async () =>
   assert.match(workflow, /TARGET_MUTATION_SKIPPED=True/);
   assert.match(workflow, /exit \/b 1/);
 
+  // GitHub may have multiple online self-hosted runners. The production deploy
+  // must first bind a custom label to the exact runner name, then pin the only
+  // self-hosted mutation job to that label. Generic self-hosted routing alone
+  // is not production-safe.
+  assert.match(workflow, /TARGET_RUNNER_NAME: DESKTOP-4K7IM13/);
+  assert.match(workflow, /TARGET_RUNNER_LABEL: magasin-target-desktop-4k7im13/);
+  assert.match(workflow, /actions:\s*write/);
+  assert.match(workflow, /actions\/runners/);
+  assert.match(workflow, /TARGET_RUNNER_LABEL_BOUND=True/);
+  assert.match(
+    workflow,
+    /runs-on:[\s\S]*self-hosted[\s\S]*magasin-target-desktop-4k7im13/
+  );
+  assert.doesNotMatch(workflow, /deploy-panel:[\s\S]{0,200}runs-on:\s*self-hosted\s*$/m);
+
   // Deployment may intentionally close Chrome; diagnostic is a separate,
   // read-only lifecycle operation after runtime is started again.
   assert.doesNotMatch(
