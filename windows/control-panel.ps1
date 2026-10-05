@@ -1190,8 +1190,8 @@ function Show-SingleConversationControlPanel {
     $form = New-Object Windows.Forms.Form
     $form.Text = 'MAGASIN SUPERVISOR — TRUNG TÂM ĐIỀU KHIỂN'
     $form.StartPosition = 'CenterScreen'
-    $form.Size = New-Object Drawing.Size(980, 760)
-    $form.MinimumSize = New-Object Drawing.Size(900, 700)
+    $form.Size = New-Object Drawing.Size(980, 850)
+    $form.MinimumSize = New-Object Drawing.Size(900, 800)
     $form.AutoScaleMode = [Windows.Forms.AutoScaleMode]::Dpi
     $form.BackColor = [Drawing.Color]::FromArgb(241,245,249)
     $form.Font = New-Object Drawing.Font('Segoe UI', 9)
@@ -1274,7 +1274,7 @@ function Show-SingleConversationControlPanel {
 
     $diagnostics = New-Object Windows.Forms.Panel
     $diagnostics.Location = New-Object Drawing.Point(20, 338)
-    $diagnostics.Size = New-Object Drawing.Size(920, 342)
+    $diagnostics.Size = New-Object Drawing.Size(920, 420)
     $diagnostics.BackColor = [Drawing.Color]::White
     $diagnostics.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
     $form.Controls.Add($diagnostics)
@@ -1289,45 +1289,53 @@ function Show-SingleConversationControlPanel {
     $runtimeValue = New-Object Windows.Forms.Label
     $runtimeValue.Location = New-Object Drawing.Point(20, 50)
     $runtimeValue.Size = New-Object Drawing.Size(875, 26)
+    $runtimeValue.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
     $diagnostics.Controls.Add($runtimeValue)
 
     $flowValue = New-Object Windows.Forms.Label
-    $flowValue.Location = New-Object Drawing.Point(20, 78)
+    $flowValue.Location = New-Object Drawing.Point(20, 82)
     $flowValue.Size = New-Object Drawing.Size(875, 26)
     $flowValue.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
     $diagnostics.Controls.Add($flowValue)
 
-    $conversationValue = New-Object Windows.Forms.Label
-    $conversationValue.Location = New-Object Drawing.Point(20, 106)
-    $conversationValue.Size = New-Object Drawing.Size(875, 26)
-    $diagnostics.Controls.Add($conversationValue)
-
     $automationValue = New-Object Windows.Forms.Label
-    $automationValue.Location = New-Object Drawing.Point(20, 134)
+    $automationValue.Location = New-Object Drawing.Point(20, 114)
     $automationValue.Size = New-Object Drawing.Size(875, 26)
     $diagnostics.Controls.Add($automationValue)
 
+    $conversationValue = New-Object Windows.Forms.Label
+    $conversationValue.Location = New-Object Drawing.Point(20, 146)
+    $conversationValue.Size = New-Object Drawing.Size(875, 26)
+    $diagnostics.Controls.Add($conversationValue)
+
     $timerValue = New-Object Windows.Forms.Label
-    $timerValue.Location = New-Object Drawing.Point(20, 162)
+    $timerValue.Location = New-Object Drawing.Point(20, 178)
     $timerValue.Size = New-Object Drawing.Size(875, 26)
     $timerValue.ForeColor = [Drawing.Color]::FromArgb(30,64,175)
     $diagnostics.Controls.Add($timerValue)
 
+    $milestoneValue = New-Object Windows.Forms.Label
+    $milestoneValue.Location = New-Object Drawing.Point(20, 210)
+    $milestoneValue.Size = New-Object Drawing.Size(875, 46)
+    $milestoneValue.BackColor = [Drawing.Color]::FromArgb(248,250,252)
+    $milestoneValue.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
+    $diagnostics.Controls.Add($milestoneValue)
+
     $errorValue = New-Object Windows.Forms.Label
-    $errorValue.Location = New-Object Drawing.Point(20, 190)
-    $errorValue.Size = New-Object Drawing.Size(875, 44)
+    $errorValue.Location = New-Object Drawing.Point(20, 264)
+    $errorValue.Size = New-Object Drawing.Size(875, 48)
     $errorValue.ForeColor = [Drawing.Color]::FromArgb(185,28,28)
     $diagnostics.Controls.Add($errorValue)
 
     $actionValue = New-Object Windows.Forms.Label
-    $actionValue.Location = New-Object Drawing.Point(20, 236)
+    $actionValue.Location = New-Object Drawing.Point(20, 318)
     $actionValue.Size = New-Object Drawing.Size(875, 44)
     $actionValue.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
     $diagnostics.Controls.Add($actionValue)
 
     $syncValue = New-Object Windows.Forms.Label
-    $syncValue.Location = New-Object Drawing.Point(20, 286)
-    $syncValue.Size = New-Object Drawing.Size(875, 34)
+    $syncValue.Location = New-Object Drawing.Point(20, 370)
+    $syncValue.Size = New-Object Drawing.Size(875, 28)
     $syncValue.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
     $diagnostics.Controls.Add($syncValue)
 
@@ -1360,6 +1368,17 @@ function Show-SingleConversationControlPanel {
             return ('{0:00}:{1:00}:{2:00}' -f [int]$span.TotalHours, $span.Minutes, $span.Seconds)
         }
         return ('{0:00}:{1:00}' -f $span.Minutes, $span.Seconds)
+    }
+
+    function Format-OwnerClock([string]$Value) {
+        if (-not $Value) { return '—' }
+        try {
+            $dt = [DateTimeOffset]::Parse($Value)
+            $vn = [TimeZoneInfo]::ConvertTime($dt, $vietnamTimeZone)
+            return $vn.ToString('HH:mm:ss')
+        } catch {
+            return '—'
+        }
     }
 
     function Get-OwnerPhaseLabel([string]$Phase) {
