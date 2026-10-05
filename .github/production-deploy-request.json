@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "2c935fe86d77e33f1b9f0e61176a5ccedf6afb4a",
+  "requested_main_sha": "815a69ab0fec775211323c980f904d0d6431ed0a",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy PR #319 Owner status layout with bounded exact-target routing from PR #321."
+  "reason": "Deploy task throughput optimization: targeted QA, batch repair, obsolete SHA handling, adaptive polling, loop detection, and Owner observability."
 }
