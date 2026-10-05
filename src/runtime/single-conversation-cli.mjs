@@ -1243,6 +1243,79 @@ export function assistantTurnConfirmsCycleDelivery(turn, messageId) {
   );
 }
 
+export function stableUnmarkedTaskResponseCandidate({
+  state,
+  snapshot,
+  matchingUser,
+  assistantFirst,
+  assistantSecond
+} = {}) {
+  const outbound = state?.outbound || {};
+  const kind = String(outbound.kind || "").toUpperCase();
+  const outboundState = String(outbound.state || "").toUpperCase();
+  const expectedTaskId = String(outbound.task_id || "").trim();
+
+  if (
+    !["TASK_EXECUTION", "TASK_STATUS_CHECK"].includes(kind) ||
+    !["DELIVERED", "RESPONSE_RUNNING"].includes(outboundState) ||
+    !expectedTaskId ||
+    matchingUser?.confirmed !== true ||
+    !snapshot ||
+    snapshot.responseRunning === true ||
+    snapshot.assistantBusy === true ||
+    snapshot.hasContinueControl === true ||
+    snapshot.loginRequired === true ||
+    snapshot.hasCaptcha === true ||
+    snapshot.hasNetworkError === true ||
+    snapshot.hasTransientError === true ||
+    snapshot.conversationMissing === true ||
+    snapshot.conversationAccessDenied === true ||
+    snapshot.composerReady !== true ||
+    snapshot.composerTextReadable !== true ||
+    snapshot.composerHasText !== false
+  ) {
+    return null;
+  }
+
+  const firstId = String(assistantFirst?.turn_id || "").trim();
+  const secondId = String(assistantSecond?.turn_id || "").trim();
+  const firstText = String(assistantFirst?.text || "");
+  const secondText = String(assistantSecond?.text || "");
+  if (!firstId || !secondId || firstId !== secondId || !firstText || !secondText) {
+    return null;
+  }
+  if (composerInstructionDigest(firstText) !== composerInstructionDigest(secondText)) {
+    return null;
+  }
+
+  const messageId = String(outbound.message_id || "").trim();
+  if (assistantTurnConfirmsCycleDelivery(assistantSecond, messageId)) {
+    return null;
+  }
+
+  let control = null;
+  try {
+    control = parseTaskControl(secondText);
+  } catch {
+    return null;
+  }
+
+  const sameTask = String(control?.task_id || "").trim() === expectedTaskId;
+  const readyForSameTask = (
+    String(control?.status || "").toUpperCase() === "READY" &&
+    String(control?.next_task_id || "").trim() === expectedTaskId
+  );
+  const projectDone = String(control?.status || "").toUpperCase() === "DONE";
+  if (!sameTask && !readyForSameTask && !projectDone) {
+    return null;
+  }
+
+  return {
+    assistant_turn: assistantSecond,
+    task_control: control
+  };
+}
+
 async function resumeEnqueuedTaskMessageAfterRebind({
   adapter,
   page,
@@ -1425,6 +1498,79 @@ async function resumeInFlightProtocolMessageAfterRebind({
       new Error(`pending ${kind} response has no exact restart reconstruction`),
       { code: "RUNTIME_RESTART_WAIT_RESPONSE_UNRESOLVED" }
     );
+  }
+
+  if (["TASK_EXECUTION", "TASK_STATUS_CHECK"].includes(kind)) {
+    const matchingUser = await boundedRuntimeStep(
+      "RESTART_WAIT_RESPONSE_EXACT_USER_CORRELATION",
+      () => captureMatchingUserTurnEvidence(page, message),
+      { timeoutMs: 10_000 }
+    ).catch((error) => {
+      if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+      return null;
+    });
+
+    const firstProbe = await boundedRuntimeStep(
+      "RESTART_WAIT_RESPONSE_TERMINAL_PROBE_1",
+      () => adapter.probePage(page),
+      { timeoutMs: 10_000 }
+    ).catch((error) => {
+      if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+      return null;
+    });
+    const assistantFirst = await boundedRuntimeStep(
+      "RESTART_WAIT_RESPONSE_TERMINAL_ASSISTANT_1",
+      () => captureLatestRoleTurn(page, "assistant"),
+      { timeoutMs: 10_000 }
+    ).catch(() => null);
+
+    if (
+      matchingUser?.confirmed === true &&
+      firstProbe?.snapshot &&
+      assistantFirst?.turn_id
+    ) {
+      if (typeof page.waitForTimeout === "function") {
+        await page.waitForTimeout(1_200);
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 1_200));
+      }
+
+      const secondProbe = await boundedRuntimeStep(
+        "RESTART_WAIT_RESPONSE_TERMINAL_PROBE_2",
+        () => adapter.probePage(page),
+        { timeoutMs: 10_000 }
+      ).catch((error) => {
+        if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+        return null;
+      });
+      const assistantSecond = await boundedRuntimeStep(
+        "RESTART_WAIT_RESPONSE_TERMINAL_ASSISTANT_2",
+        () => captureLatestRoleTurn(page, "assistant"),
+        { timeoutMs: 10_000 }
+      ).catch(() => null);
+
+      const recovered = stableUnmarkedTaskResponseCandidate({
+        state,
+        snapshot: secondProbe?.snapshot || null,
+        matchingUser,
+        assistantFirst,
+        assistantSecond
+      });
+      if (recovered) {
+        await markCorrelatedInFlightTaskResponseVerified(statePath, {
+          messageId,
+          assistantTurnId: recovered.assistant_turn.turn_id || null
+        });
+        return {
+          status: "RESPONSE_COMPLETE",
+          assistant_turn: recovered.assistant_turn,
+          continue_clicks: 0,
+          saw_running: false,
+          marker_confirmed: false,
+          recovered_from_exact_user_stable_terminal_task_response: true
+        };
+      }
+    }
   }
 
   if (
