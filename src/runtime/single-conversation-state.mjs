@@ -106,6 +106,7 @@ function blankExternalWork() {
     poll_attempt: 0,
     next_check_seconds: 0,
     failure_fingerprint: null,
+    failure_root_key: null,
     failure_occurrence_count: 0,
     loop_detected: false,
     last_failure_batch_count: 0,
@@ -354,6 +355,8 @@ export function assertSingleConversationState(value) {
     requireNullableString(external.last_result, "external_work.last_result", 80);
   external.failure_fingerprint =
     requireNullableString(external.failure_fingerprint, "external_work.failure_fingerprint", 240);
+  external.failure_root_key =
+    requireNullableString(external.failure_root_key, "external_work.failure_root_key", 240);
   external.last_failure_batch_signature =
     requireNullableString(external.last_failure_batch_signature, "external_work.last_failure_batch_signature", 240);
   external.last_failure_batch_run_id =

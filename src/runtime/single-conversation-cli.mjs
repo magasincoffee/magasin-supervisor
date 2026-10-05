@@ -404,6 +404,7 @@ export async function persistTaskExecutionOptimizationIntent(statePath, {
     external.checkpoint_id = null;
     external.authoritative_sha = null;
     external.failure_fingerprint = null;
+    external.failure_root_key = null;
     external.failure_occurrence_count = 0;
     external.repair_attempt = 0;
     external.poll_attempt = 0;

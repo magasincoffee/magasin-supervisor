@@ -4,7 +4,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { adaptiveExternalPollSeconds, deriveFailureFingerprint } from "../src/runtime/task-execution-optimization.mjs";
+import {
+  adaptiveExternalPollSeconds,
+  classifyChangeImpact,
+  deriveFailureFingerprint,
+  deriveFailureRootKey
+} from "../src/runtime/task-execution-optimization.mjs";
 import { reconcileExternalRunState, reconcileTaskControlWithExternalRun } from "../src/runtime/external-run-control.mjs";
 import { buildSingleConversationTaskInstruction } from "../src/runtime/single-conversation-loop.mjs";
 import { ensureSingleConversationState, readSingleConversationState, writeSingleConversationState } from "../src/runtime/single-conversation-state.mjs";
@@ -39,6 +44,31 @@ function reconcile(previous, evidence, sourceKind = "TASK_STATUS_CHECK", control
   });
   return { ...r, taskControl: c };
 }
+
+test("change impact matrix targets known modules and safely broadens unknown impact", () => {
+  const calendar = classifyChangeImpact([
+    "src/workforce/calendar/editor.tsx",
+    "src/workforce/schedule/drag.ts"
+  ]);
+  assert.equal(calendar.breadth, "TARGETED");
+  assert.deepEqual(calendar.qa_scopes, ["scheduling_calendar"]);
+  assert.equal(calendar.fallback, false);
+
+  const auth = classifyChangeImpact(["src/auth/session.ts", "src/rpc/roles.ts"]);
+  assert.equal(auth.breadth, "BROAD");
+  assert.ok(auth.qa_scopes.includes("auth_rpc_dependents"));
+
+  const database = classifyChangeImpact([
+    "supabase/migrations/20261005_add_shift.sql"
+  ]);
+  assert.equal(database.breadth, "BROAD");
+  assert.ok(database.qa_scopes.includes("database_schema_migration"));
+
+  const unknown = classifyChangeImpact(["experimental/opaque/new-feature.bin"]);
+  assert.equal(unknown.breadth, "BROAD");
+  assert.equal(unknown.fallback, true);
+  assert.deepEqual(unknown.qa_scopes, ["broad_regression_fallback"]);
+});
 
 test("targeted QA policy precedes required full regression in EXECUTE", () => {
   const message = buildSingleConversationTaskInstruction({ sourceOfTruthUrl: "https://example.com/SOT.md", taskId: "XSTORE-019B", messageId: "m-targeted" });
@@ -149,7 +179,7 @@ test("old state without new fields uses safe defaults", async () => {
   const statePath = path.join(root, "state.json");
   try {
     const state = await ensureSingleConversationState(statePath, {sourceOfTruthUrl:"https://example.com/SOT.md",sessionId:"eff-old"});
-    for (const key of ["authoritative_sha","run_authority","execution_phase","current_gate","gate_started_at","last_result","poll_attempt","next_check_seconds","failure_fingerprint","failure_occurrence_count","loop_detected","last_failure_batch_count","last_failure_batch_signature","last_failure_batch_run_id","last_failure_batch_commit_sha","targeted_qa_required","release_regression_required","obsolete_runs"]) delete state.external_work[key];
+    for (const key of ["authoritative_sha","run_authority","execution_phase","current_gate","gate_started_at","last_result","poll_attempt","next_check_seconds","failure_fingerprint","failure_root_key","failure_occurrence_count","loop_detected","last_failure_batch_count","last_failure_batch_signature","last_failure_batch_run_id","last_failure_batch_commit_sha","targeted_qa_required","release_regression_required","obsolete_runs"]) delete state.external_work[key];
     await fs.writeFile(statePath, JSON.stringify(state,null,2));
     const restored = await readSingleConversationState(statePath);
     assert.equal(restored.external_work.run_authority,"UNKNOWN");
@@ -174,11 +204,19 @@ test("new chat generation does not erase task state", async () => {
   } finally { await fs.rm(root,{recursive:true,force:true}); }
 });
 
-test("failure fingerprint carries workflow gate signature and module evidence", () => {
-  const fp = deriveFailureFingerprint(ev({checkpoint_id:"C3_DRAG_RESIZE",failure_signature:"pointer_layering"}));
-  assert.match(fp,/XSTORE_019B_Direct_Calendar_Editing_QA/);
-  assert.match(fp,/C3_DRAG_RESIZE/);
-  assert.match(fp,/pointer_layering/);
+test("failure fingerprint carries workflow gate signature module and commit SHA", () => {
+  const evidence = ev({
+    checkpoint_id:"C3_DRAG_RESIZE",
+    failure_signature:"pointer_layering",
+    commit_sha:"abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+  });
+  const root = deriveFailureRootKey(evidence);
+  const fp = deriveFailureFingerprint(evidence);
+  assert.match(root,/XSTORE_019B_Direct_Calendar_Editing_QA/);
+  assert.match(root,/C3_DRAG_RESIZE/);
+  assert.match(root,/pointer_layering/);
+  assert.match(fp,/sha:abcdefabcdefabcdefabcdefabcdefabcdefabcd/);
+  assert.notEqual(fp, root);
 });
 
 test("legacy and optimized prompts keep the same machine protocol header", () => {
