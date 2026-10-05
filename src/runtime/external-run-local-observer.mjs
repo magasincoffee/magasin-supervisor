@@ -1,3 +1,5 @@
+import process from "node:process";
+
 const ACTIVE = new Set(["queued","pending","requested","waiting","in_progress"]);
 
 function clean(value) {
