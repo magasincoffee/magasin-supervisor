@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "2c1641a46ccc34eed09f9b98403b8b036619ab21",
+  "requested_main_sha": "569dc0e2acca9707c74e889eb6d4efac2c1b52af",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy PR #318 observed CHECK_AFTER wait, 15-minute no-progress protection, and chat-recovery timing observability."
+  "reason": "Deploy PR #319 Owner status layout fix: separate timer/milestones and recovery-event presentation."
 }
