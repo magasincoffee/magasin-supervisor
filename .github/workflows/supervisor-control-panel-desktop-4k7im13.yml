@@ -18,10 +18,59 @@ concurrency:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
+  pin-target-runner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Bind exact production runner label
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_RUNNER_NAME: DESKTOP-4K7IM13
+          TARGET_RUNNER_LABEL: magasin-target-desktop-4k7im13
+        run: |
+          set -euo pipefail
+
+          mapfile -t target_rows < <(
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runners" --paginate \
+              --jq ".runners[] | select(.name == \"${TARGET_RUNNER_NAME}\") | [.id,.status,.busy] | @tsv"
+          )
+
+          if [ "${#target_rows[@]}" -ne 1 ]; then
+            echo "TARGET_RUNNER_RESOLUTION_FAILED=True"
+            echo "TARGET_RUNNER_MATCH_COUNT=${#target_rows[@]}"
+            exit 1
+          fi
+
+          IFS=$'\t' read -r target_id target_status target_busy <<< "${target_rows[0]}"
+          echo "TARGET_RUNNER_ID=${target_id}"
+          echo "TARGET_RUNNER_STATUS=${target_status}"
+          echo "TARGET_RUNNER_BUSY=${target_busy}"
+
+          if [ "${target_status}" != "online" ]; then
+            echo "TARGET_RUNNER_OFFLINE=True"
+            exit 1
+          fi
+
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/runners/${target_id}/labels" \
+            --input - <<JSON
+          {"labels":["${TARGET_RUNNER_LABEL}"]}
+          JSON
+
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runners/${target_id}" \
+            --jq '.labels[].name' | grep -Fx "${TARGET_RUNNER_LABEL}"
+
+          echo "TARGET_RUNNER_LABEL_BOUND=True"
+
   deploy-panel:
-    runs-on: self-hosted
+    needs: pin-target-runner
+    runs-on:
+      - self-hosted
+      - magasin-target-desktop-4k7im13
     timeout-minutes: 15
     steps:
       - name: Checkout exact main
