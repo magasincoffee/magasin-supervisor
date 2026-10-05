@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "20893670b3d2e66952a1b703affdb3d772ce3048",
+  "requested_main_sha": "c34379dae1093d5f6cde1872a0938022cd4dd505",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy PR #314 bounded STARTING_BROWSER restart recovery and stale-phase watchdog fault detection after Owner-reported two-hour stall."
+  "reason": "Deploy PR #315 Windows atomic state persistence recovery."
 }
