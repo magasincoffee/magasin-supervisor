@@ -13,6 +13,9 @@ import {
   waitForTaskRecheckDelay
 } from "../src/runtime/single-conversation-cli.mjs";
 import {
+  buildSingleConversationTaskInstruction
+} from "../src/runtime/single-conversation-loop.mjs";
+import {
   ensureSingleConversationState,
   readSingleConversationState,
   writeSingleConversationState
@@ -216,4 +219,21 @@ test("local observer failure falls back to normal CHECK at original deadline", a
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+
+test("repeated CHECK prompt stays compact while preserving the existing machine protocol", () => {
+  const prompt = buildSingleConversationTaskInstruction({
+    sourceOfTruthUrl: "https://example.com/SOT.md",
+    taskId: "XSTORE-019B",
+    messageId: "compact-check",
+    checkOnly: true
+  });
+  assert.match(prompt, /^MAGASIN_CHECK_TASK_V1/m);
+  assert.match(prompt, /STATUS=<READY\|RUNNING\|COMPLETE\|BLOCKED\|DONE>/);
+  assert.match(prompt, /MAGASIN_EXTERNAL_RUN_V1/);
+  assert.match(prompt, /completed failure => READY for this same task\/AUTO_REPAIR/i);
+  assert.match(prompt, /MAGASIN_CYCLE_CORRELATION_V1 compact-check/);
+  assert.doesNotMatch(prompt, /Choose CHECK_AFTER_SECONDS from the actual active external state/);
+  assert.ok(prompt.length < 4200, `CHECK prompt unexpectedly large: ${prompt.length}`);
 });
