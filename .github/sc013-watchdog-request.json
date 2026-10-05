@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-watchdog-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "purpose": "Post-PR315 read-only qualification after Windows atomic state rename retry deployment. Verify STARTING_BROWSER clears or capture the next first failure without production mutation.",
-  "rearm_nonce": "post-pr315-state-rename-live-qualification-20261005"
+  "purpose": "Verify robot recovery immediately after deploy run 37291991490 attempt 9.",
+  "rearm_nonce": "verify-attempt9-20261005-1712"
 }
