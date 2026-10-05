@@ -399,6 +399,88 @@ export async function waitForNextCycleDelay(
   await sleep(ms);
 }
 
+export async function waitForTaskRecheckDelay({
+  adapter,
+  page,
+  statePath,
+  sourceOfTruthUrl,
+  taskId,
+  seconds,
+  qualificationOnly = false,
+  responseTimeoutMs = 5_400_000,
+  pollMs = 2_000,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+} = {}) {
+  if (!adapter) throw new Error("adapter is required");
+  if (!page) throw new Error("page is required");
+  if (!statePath) throw new Error("statePath is required");
+  if (!sourceOfTruthUrl) throw new Error("sourceOfTruthUrl is required");
+  if (!taskId) throw new Error("taskId is required");
+
+  const totalMs = Math.max(
+    0,
+    Math.min(3_600_000, Math.floor(Number(seconds) || 0) * 1000)
+  );
+  if (totalMs <= 0) {
+    return { page, recovered: false, recovery_count: 0 };
+  }
+
+  const deadline = Date.now() + totalMs;
+  const healthPollMs = Math.max(
+    250,
+    Math.min(2_000, Math.floor(Number(pollMs) || 2_000))
+  );
+  let activePage = page;
+  let recoveryCount = 0;
+
+  // SC-013: CHECK_AFTER_SECONDS is an external-work deadline, not permission
+  // to stop observing the disposable ChatGPT surface. Keep the full wait for
+  // CI/Supabase, but probe chat health read-only while waiting so a full or
+  // unusable conversation can be replaced immediately. Replacement/bootstrap
+  // never shortens the original deadline and never replays TASK_EXECUTION.
+  while (Date.now() < deadline) {
+    const remainingBeforeSleep = deadline - Date.now();
+    await sleep(Math.min(healthPollMs, remainingBeforeSleep));
+    if (Date.now() >= deadline) break;
+
+    const recovery = await boundedRuntimeStep(
+      "TASK_RECHECK_WAIT_RECOVERY_PROBE",
+      () => recoverDisposableConversationIfNeeded({
+        adapter,
+        page: activePage,
+        statePath,
+        sourceOfTruthUrl,
+        projectId: "LIVE",
+        qualificationOnly,
+        timeoutMs: responseTimeoutMs,
+        pollMs: Math.min(750, Math.max(100, pollMs))
+      }),
+      { timeoutMs: 15_000 }
+    );
+    activePage = recovery.page;
+
+    if (recovery.recovered) {
+      recoveryCount += 1;
+      const remainingSeconds = Math.max(
+        0,
+        Math.ceil((deadline - Date.now()) / 1000)
+      );
+      if (remainingSeconds > 0) {
+        await persistTaskRecheckWait(statePath, {
+          taskId,
+          seconds: remainingSeconds
+        });
+      }
+    }
+  }
+
+  return {
+    page: activePage,
+    recovered: recoveryCount > 0,
+    recovery_count: recoveryCount
+  };
+}
+
 export async function boundedRuntimeStep(
   label,
   operation,
@@ -2619,7 +2701,18 @@ export async function runSingleConversationRuntime({
         taskId,
         seconds: control.check_after_seconds
       });
-      await waitForNextCycleDelay(control.check_after_seconds * 1000);
+      const observedWait = await waitForTaskRecheckDelay({
+        adapter,
+        page,
+        statePath,
+        sourceOfTruthUrl,
+        taskId,
+        seconds: control.check_after_seconds,
+        qualificationOnly,
+        responseTimeoutMs,
+        pollMs
+      });
+      page = observedWait.page;
       await clearTaskRecheckWait(statePath);
     }
 
