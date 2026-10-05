@@ -3,7 +3,9 @@ export const WORK_WATCHDOG_SCHEMA_VERSION = "work-watchdog.v1";
 export const WORK_WATCHDOG_DEFAULTS = Object.freeze({
   longThresholdMs: 25 * 60 * 1000,
   stallThresholdMs: 30 * 60 * 1000,
-  inactivityMs: 5 * 60 * 1000,
+  // Long-running Supabase/GitHub/tool work is judged by meaningful progress,
+  // not wall-clock task age. Five minutes proved too aggressive in production.
+  inactivityMs: 15 * 60 * 1000,
   reloadCooldownMs: 10 * 60 * 1000,
   reloadBudgetPerEpoch: 1,
   continueBudgetPerEpoch: 1
