@@ -40,8 +40,13 @@ test("SC-013 production deploy requires explicit release authority", async () =>
   assert.match(workflow, /TARGET_RETRY_DISPATCHED=True/);
   assert.match(workflow, /TARGET_ROUTING_EXHAUSTED=True/);
   assert.match(workflow, /TARGET_MUTATION_SKIPPED=True/);
-  assert.match(workflow, /actions\/workflows\/\$env:DEPLOY_WORKFLOW_FILE\/dispatches/);
-  assert.match(workflow, /Start-Sleep -Seconds \$delaySeconds/);
+  assert.match(workflow, /DEPLOY_WORKFLOW_FILE/);
+  assert.match(workflow, /actions\/workflows/);
+  assert.match(workflow, /dispatches/);
+  assert.match(workflow, /timeout \/t !DELAY_SECONDS! \/nobreak/);
+  assert.match(workflow, /shell:\s*cmd/);
+  assert.match(workflow, /powershell\.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command/);
+  assert.doesNotMatch(workflow, /name: Route to exact production target[\s\S]{0,120}shell:\s*powershell/);
   assert.match(workflow, /runs-on:\s*self-hosted/);
   assert.doesNotMatch(workflow, /pin-target-runner/);
   assert.doesNotMatch(workflow, /actions\/runners/);
