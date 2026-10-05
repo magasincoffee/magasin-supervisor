@@ -51,6 +51,10 @@ import {
   reconcileExternalRunState,
   reconcileTaskControlWithExternalRun
 } from "./external-run-control.mjs";
+import {
+  inspectTrackedGitHubRun,
+  nextLocalMonitorSeconds
+} from "./external-run-local-observer.mjs";
 
 function parseArgs(argv) {
   const out = {
@@ -460,6 +464,10 @@ export async function waitForTaskRecheckDelay({
   qualificationOnly = false,
   responseTimeoutMs = 5_400_000,
   pollMs = 2_000,
+  fetchImpl = globalThis.fetch,
+  localMonitorMaxSeconds = 300,
+  now = () => Date.now(),
+  recoveryProbe = (args) => recoverDisposableConversationIfNeeded(args),
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 } = {}) {
   if (!adapter) throw new Error("adapter is required");
@@ -473,30 +481,118 @@ export async function waitForTaskRecheckDelay({
     Math.min(3_600_000, Math.floor(Number(seconds) || 0) * 1000)
   );
   if (totalMs <= 0) {
-    return { page, recovered: false, recovery_count: 0 };
+    return {
+      page,
+      recovered: false,
+      recovery_count: 0,
+      wake_reason: "NO_DELAY",
+      local_external_checks: 0
+    };
   }
 
-  const deadline = Date.now() + totalMs;
+  const requestedDeadline = Number(now()) + totalMs;
   const healthPollMs = Math.max(
     250,
     Math.min(2_000, Math.floor(Number(pollMs) || 2_000))
   );
+  const suppressionBudgetMs = Math.max(
+    0,
+    Math.min(900_000, Math.floor(Number(localMonitorMaxSeconds) || 300) * 1000)
+  );
+
   let activePage = page;
   let recoveryCount = 0;
+  let localExternalChecks = 0;
+  let localMonitoring = false;
+  let localMonitorStartedAt = null;
+  let nextExternalPollAt = requestedDeadline;
 
-  // SC-013: CHECK_AFTER_SECONDS is an external-work deadline, not permission
-  // to stop observing the disposable ChatGPT surface. Keep the full wait for
-  // CI/Supabase, but probe chat health read-only while waiting so a full or
-  // unusable conversation can be replaced immediately. Replacement/bootstrap
-  // never shortens the original deadline and never replays TASK_EXECUTION.
-  while (Date.now() < deadline) {
-    const remainingBeforeSleep = deadline - Date.now();
-    await sleep(Math.min(healthPollMs, remainingBeforeSleep));
-    if (Date.now() >= deadline) break;
+  async function observeTrackedExternal() {
+    const state = await readSingleConversationState(statePath);
+    const external = state.external_work || {};
+    localExternalChecks += 1;
+    return inspectTrackedGitHubRun({
+      externalWork: external,
+      fetchImpl,
+      timeoutMs: 5_000
+    });
+  }
+
+  async function scheduleNextLocalObservation() {
+    const attempt = Math.max(1, localExternalChecks);
+    const delaySeconds = nextLocalMonitorSeconds(attempt);
+    nextExternalPollAt = Number(now()) + delaySeconds * 1000;
+    await persistTaskRecheckWait(statePath, {
+      taskId,
+      seconds: delaySeconds
+    });
+  }
+
+  // CHECK_AFTER_SECONDS remains the earliest protocol recheck deadline.
+  // At that deadline, an authoritative tracked GitHub Actions run may be
+  // observed locally/read-only. While that exact run is still active, suppress
+  // redundant ChatGPT CHECK turns and keep observing locally. Terminal,
+  // obsolete, unavailable, or bounded-heartbeat conditions wake the protocol
+  // immediately; no project mutation or task execution occurs here.
+  while (true) {
+    const currentNow = Number(now());
+    const decisionAt = localMonitoring ? nextExternalPollAt : requestedDeadline;
+
+    if (currentNow >= decisionAt) {
+      const observed = await observeTrackedExternal();
+
+      if (
+        observed.supported &&
+        observed.authority === "AUTHORITATIVE" &&
+        observed.active === true
+      ) {
+        if (!localMonitoring) {
+          localMonitoring = true;
+          localMonitorStartedAt = Number(now());
+        }
+
+        const suppressedFor = Number(now()) - localMonitorStartedAt;
+        if (suppressionBudgetMs <= 0 || suppressedFor >= suppressionBudgetMs) {
+          return {
+            page: activePage,
+            recovered: recoveryCount > 0,
+            recovery_count: recoveryCount,
+            wake_reason: "LOCAL_EXTERNAL_HEARTBEAT",
+            local_external_checks: localExternalChecks,
+            local_observation: observed
+          };
+        }
+
+        await scheduleNextLocalObservation();
+        continue;
+      }
+
+      const wakeReason =
+        observed.supported && observed.authority === "OBSOLETE"
+          ? "LOCAL_EXTERNAL_OBSOLETE"
+          : observed.supported && observed.terminal
+            ? "LOCAL_EXTERNAL_TERMINAL"
+            : localMonitoring
+              ? "LOCAL_EXTERNAL_UNAVAILABLE"
+              : "CHECK_AFTER_DEADLINE";
+
+      return {
+        page: activePage,
+        recovered: recoveryCount > 0,
+        recovery_count: recoveryCount,
+        wake_reason: wakeReason,
+        local_external_checks: localExternalChecks,
+        local_observation: observed
+      };
+    }
+
+    const remainingBeforeDecision = decisionAt - currentNow;
+    await sleep(Math.min(healthPollMs, remainingBeforeDecision));
+    if (Number(now()) >= decisionAt) continue;
 
     const recovery = await boundedRuntimeStep(
       "TASK_RECHECK_WAIT_RECOVERY_PROBE",
-      () => recoverDisposableConversationIfNeeded({
+      () => recoveryProbe({
         adapter,
         page: activePage,
         statePath,
@@ -512,24 +608,16 @@ export async function waitForTaskRecheckDelay({
 
     if (recovery.recovered) {
       recoveryCount += 1;
-      const remainingSeconds = Math.max(
-        0,
-        Math.ceil((deadline - Date.now()) / 1000)
+      const secondsToDecision = Math.max(
+        1,
+        Math.ceil((decisionAt - Number(now())) / 1000)
       );
-      if (remainingSeconds > 0) {
-        await persistTaskRecheckWait(statePath, {
-          taskId,
-          seconds: remainingSeconds
-        });
-      }
+      await persistTaskRecheckWait(statePath, {
+        taskId,
+        seconds: secondsToDecision
+      });
     }
   }
-
-  return {
-    page: activePage,
-    recovered: recoveryCount > 0,
-    recovery_count: recoveryCount
-  };
 }
 
 export async function boundedRuntimeStep(

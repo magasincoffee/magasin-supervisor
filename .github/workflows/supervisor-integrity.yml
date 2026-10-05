@@ -60,6 +60,7 @@ jobs:
             test/single-conversation-bootstrap.test.mjs \
             test/single-conversation-cli.test.mjs \
             test/task-execution-optimization.test.mjs \
+            test/external-run-local-observer.test.mjs \
             test/sc013-production-deploy-boundary.test.mjs \
             test/sc013-live-observer-contract.test.mjs \
             test/sc013-owner-start-authority.test.mjs

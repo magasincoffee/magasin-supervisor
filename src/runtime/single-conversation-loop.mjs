@@ -266,16 +266,10 @@ export function buildSingleConversationTaskInstruction({
   if (checkOnly) {
     return [
       ...common,
-      "Inspect the durable execution evidence for this same task.",
-      "For every external CI/deployment/job, inspect its actual current status and conclusion; absence of PASS is not evidence that the run is still running.",
-      "If an external run is queued/pending/requested/waiting/in_progress, use STATUS=RUNNING with the same TASK_ID and a bounded CHECK_AFTER_SECONDS.",
-      "Choose CHECK_AFTER_SECONDS from the actual active external state; prefer bounded adaptive rechecks (roughly 20s, 30s, 60s, then 120s) instead of a fixed long sleep.",
-      "If an external run is completed+failure, do NOT wait or poll that completed run again. Read the failing job/step/log evidence and use STATUS=READY with TASK_ID=NONE and NEXT_TASK_ID equal to this same authoritative TASK_ID so the next cycle performs AUTO_REPAIR.",
-      "If an external run is completed+cancelled/timed_out/action_required, classify whether retry/repair is safe. Use STATUS=READY for the same TASK_ID unless genuine Owner input is required; only then use STATUS=BLOCKED.",
-      "If the expected external run does not exist, do NOT report RUNNING. Diagnose why it did not trigger and use STATUS=READY for this same TASK_ID so the next execution cycle creates concrete progress.",
-      "If an external run completed successfully, verify the result against SOT. If the parent task/checkpoint still needs work, use STATUS=READY for this same TASK_ID; use STATUS=COMPLETE only when this authoritative task itself is complete and a distinct next SOT task exists.",
-      "When returning READY for repair/retry/trigger of this task, keep the authoritative SOT task ID unchanged by putting it in NEXT_TASK_ID; internal checkpoint IDs must never replace TASK_ID.",
-      "If this completion finishes the whole project, use STATUS=DONE. If Owner input is required, use STATUS=BLOCKED.",
+      "Inspect only durable evidence for this same task; do not execute a different task.",
+      "Classify the tracked external run by actual status/conclusion: active => RUNNING; completed success => verify/advance; completed failure => READY for this same task/AUTO_REPAIR; cancelled/timed_out/action_required => READY unless genuine Owner input is required; not_found => READY to diagnose/trigger.",
+      "Never wait on a completed run, never infer RUNNING from missing PASS, and never replace TASK_ID with an internal checkpoint.",
+      "If the authoritative task is fully complete, use COMPLETE with the next distinct SOT task, or DONE when the project is finished.",
       ...taskControlContractLines(),
       ...externalRunContractLines(),
       `End with: MAGASIN_CYCLE_CORRELATION_V1 ${id}`
