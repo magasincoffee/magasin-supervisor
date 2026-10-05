@@ -12,6 +12,7 @@ import {
   writeSingleConversationState
 } from "./single-conversation-state.mjs";
 import { externalRunContractLines } from "./external-run-control.mjs";
+import { executionOptimizationPolicyLines } from "./task-execution-optimization.mjs";
 
 function nowIso(now) {
   const value = typeof now === "function" ? now() : now;
@@ -243,7 +244,8 @@ export function buildSingleConversationTaskInstruction({
   sourceOfTruthUrl,
   taskId,
   messageId = randomUUID(),
-  checkOnly = false
+  checkOnly = false,
+  optimizationPolicy = true
 } = {}) {
   const source = String(sourceOfTruthUrl || "").trim();
   const task = normalizeTaskId(taskId);
@@ -267,6 +269,7 @@ export function buildSingleConversationTaskInstruction({
       "Inspect the durable execution evidence for this same task.",
       "For every external CI/deployment/job, inspect its actual current status and conclusion; absence of PASS is not evidence that the run is still running.",
       "If an external run is queued/pending/requested/waiting/in_progress, use STATUS=RUNNING with the same TASK_ID and a bounded CHECK_AFTER_SECONDS.",
+      "Choose CHECK_AFTER_SECONDS from the actual active external state; prefer bounded adaptive rechecks (roughly 20s, 30s, 60s, then 120s) instead of a fixed long sleep.",
       "If an external run is completed+failure, do NOT wait or poll that completed run again. Read the failing job/step/log evidence and use STATUS=READY with TASK_ID=NONE and NEXT_TASK_ID equal to this same authoritative TASK_ID so the next cycle performs AUTO_REPAIR.",
       "If an external run is completed+cancelled/timed_out/action_required, classify whether retry/repair is safe. Use STATUS=READY for the same TASK_ID unless genuine Owner input is required; only then use STATUS=BLOCKED.",
       "If the expected external run does not exist, do NOT report RUNNING. Diagnose why it did not trigger and use STATUS=READY for this same TASK_ID so the next execution cycle creates concrete progress.",
@@ -282,6 +285,7 @@ export function buildSingleConversationTaskInstruction({
   return [
     ...common,
     "If valid, execute this task now using the available tools; do not merely report or recommend the work.",
+    ...(optimizationPolicy ? executionOptimizationPolicyLines() : []),
     "Verify concrete completion evidence before declaring COMPLETE.",
     "For work expected to take more than about 5 minutes, prefer launching a durable external job/run when available, then return promptly with STATUS=RUNNING only when that external run actually exists and is queued/pending/requested/waiting/in_progress.",
     "When STATUS=RUNNING, keep TASK_ID unchanged and choose a practical CHECK_AFTER_SECONDS (normally 30-600).",

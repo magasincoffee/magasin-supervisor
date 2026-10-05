@@ -96,7 +96,25 @@ function blankExternalWork() {
     decision: null,
     progress_token: null,
     observed_at: null,
-    history: []
+    history: [],
+    authoritative_sha: null,
+    run_authority: "UNKNOWN",
+    execution_phase: null,
+    current_gate: null,
+    gate_started_at: null,
+    last_result: null,
+    poll_attempt: 0,
+    next_check_seconds: 0,
+    failure_fingerprint: null,
+    failure_occurrence_count: 0,
+    loop_detected: false,
+    last_failure_batch_count: 0,
+    last_failure_batch_signature: null,
+    last_failure_batch_run_id: null,
+    last_failure_batch_commit_sha: null,
+    targeted_qa_required: true,
+    release_regression_required: true,
+    obsolete_runs: []
   };
 }
 
@@ -318,6 +336,52 @@ export function assertSingleConversationState(value) {
     conclusion: requireNullableString(item?.conclusion, "external_work.history.conclusion", 80),
     failure_signature: requireNullableString(item?.failure_signature, "external_work.history.failure_signature", 240),
     observed_at: requireNullableString(item?.observed_at, "external_work.history.observed_at", 64)
+  }));
+
+  external.authoritative_sha =
+    requireNullableString(external.authoritative_sha, "external_work.authoritative_sha", 80);
+  external.run_authority = String(external.run_authority || "UNKNOWN").toUpperCase();
+  if (!["UNKNOWN", "AUTHORITATIVE", "OBSOLETE"].includes(external.run_authority)) {
+    external.run_authority = "UNKNOWN";
+  }
+  external.execution_phase =
+    requireNullableString(external.execution_phase, "external_work.execution_phase", 80);
+  external.current_gate =
+    requireNullableString(external.current_gate, "external_work.current_gate", 160);
+  external.gate_started_at =
+    requireNullableString(external.gate_started_at, "external_work.gate_started_at", 64);
+  external.last_result =
+    requireNullableString(external.last_result, "external_work.last_result", 80);
+  external.failure_fingerprint =
+    requireNullableString(external.failure_fingerprint, "external_work.failure_fingerprint", 240);
+  external.last_failure_batch_signature =
+    requireNullableString(external.last_failure_batch_signature, "external_work.last_failure_batch_signature", 240);
+  external.last_failure_batch_run_id =
+    requireNullableString(external.last_failure_batch_run_id, "external_work.last_failure_batch_run_id", 80);
+  external.last_failure_batch_commit_sha =
+    requireNullableString(external.last_failure_batch_commit_sha, "external_work.last_failure_batch_commit_sha", 80);
+  for (const [field, max] of [
+    ["poll_attempt", 999],
+    ["next_check_seconds", 3600],
+    ["failure_occurrence_count", 999],
+    ["last_failure_batch_count", 999]
+  ]) {
+    const parsed = Number(external[field] || 0);
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed > max) {
+      throw new Error(`external_work.${field} must be an integer between 0 and ${max}`);
+    }
+    external[field] = parsed;
+  }
+  external.loop_detected = Boolean(external.loop_detected);
+  external.targeted_qa_required = external.targeted_qa_required !== false;
+  external.release_regression_required = external.release_regression_required !== false;
+  if (!Array.isArray(external.obsolete_runs)) external.obsolete_runs = [];
+  external.obsolete_runs = external.obsolete_runs.slice(-8).map((item) => ({
+    workflow_run_id: requireNullableString(item?.workflow_run_id, "external_work.obsolete_runs.workflow_run_id", 80),
+    commit_sha: requireNullableString(item?.commit_sha, "external_work.obsolete_runs.commit_sha", 80),
+    workflow_name: requireNullableString(item?.workflow_name, "external_work.obsolete_runs.workflow_name", 160),
+    superseded_by_sha: requireNullableString(item?.superseded_by_sha, "external_work.obsolete_runs.superseded_by_sha", 80),
+    recorded_at: requireNullableString(item?.recorded_at, "external_work.obsolete_runs.recorded_at", 64)
   }));
 
   if (!value.automation || typeof value.automation !== "object") {

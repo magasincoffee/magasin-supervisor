@@ -1,3 +1,9 @@
+import {
+  adaptiveExternalPollSeconds,
+  deriveFailureFingerprint,
+  deriveRunAuthority
+} from "./task-execution-optimization.mjs";
+
 const TASK_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/;
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const TOKEN_RE = /^[A-Za-z0-9._:/-]{1,240}$/;
@@ -340,6 +346,16 @@ function appendHistory(previous = {}, evidence, nowIso) {
   return history.slice(-8);
 }
 
+function appendObsoleteRun(list, run) {
+  const out = Array.isArray(list) ? list.map((item) => ({ ...item })) : [];
+  if (!run?.workflow_run_id && !run?.commit_sha) return out.slice(-8);
+  const key = `${run.workflow_run_id || "NONE"}|${run.commit_sha || "NONE"}`;
+  if (!out.some((item) =>
+    `${item.workflow_run_id || "NONE"}|${item.commit_sha || "NONE"}` === key
+  )) out.push(run);
+  return out.slice(-8);
+}
+
 export function reconcileExternalRunState({
   previous = null,
   evidence,
@@ -350,6 +366,7 @@ export function reconcileExternalRunState({
   if (!evidence) return { decision: "NONE", external_work: previous || null };
   const at = new Date(typeof now === "function" ? now() : now).toISOString();
   const prior = previous || {};
+  const source = String(sourceKind || "").toUpperCase();
   const active = ACTIVE_EXTERNAL_STATUSES.has(evidence.workflow_status);
   const terminalFailure = (
     evidence.workflow_status === "completed" &&
@@ -364,18 +381,85 @@ export function reconcileExternalRunState({
   const sameProgress =
     String(prior.progress_token || "") === progressToken(evidence);
 
+  let authoritativeSha = String(prior.authoritative_sha || "").trim() || null;
+  if (!authoritativeSha && evidence.commit_sha) authoritativeSha = evidence.commit_sha;
+  if (
+    source === "TASK_EXECUTION" &&
+    evidence.commit_sha &&
+    evidence.commit_sha !== prior.commit_sha
+  ) {
+    authoritativeSha = evidence.commit_sha;
+  }
+  const runAuthority = deriveRunAuthority({
+    authoritativeSha,
+    evidenceSha: evidence.commit_sha
+  });
+
+  let obsoleteRuns = Array.isArray(prior.obsolete_runs)
+    ? prior.obsolete_runs.map((item) => ({ ...item }))
+    : [];
+  if (
+    source === "TASK_EXECUTION" &&
+    prior.commit_sha &&
+    authoritativeSha &&
+    prior.commit_sha !== authoritativeSha &&
+    prior.workflow_run_id
+  ) {
+    obsoleteRuns = appendObsoleteRun(obsoleteRuns, {
+      workflow_run_id: prior.workflow_run_id,
+      commit_sha: prior.commit_sha,
+      workflow_name: prior.workflow_name || null,
+      superseded_by_sha: authoritativeSha,
+      recorded_at: at
+    });
+  }
+  if (runAuthority === "OBSOLETE") {
+    obsoleteRuns = appendObsoleteRun(obsoleteRuns, {
+      workflow_run_id: evidence.workflow_run_id,
+      commit_sha: evidence.commit_sha,
+      workflow_name: evidence.workflow_name,
+      superseded_by_sha: authoritativeSha,
+      recorded_at: at
+    });
+  }
+
+  const sameActiveRun = Boolean(
+    active &&
+    sameObservedRun &&
+    ACTIVE_EXTERNAL_STATUSES.has(String(prior.workflow_status || ""))
+  );
+  const pollAttempt = active
+    ? (sameActiveRun ? Number(prior.poll_attempt || 0) + 1 : 1)
+    : 0;
+  const nextCheckSeconds = active
+    ? adaptiveExternalPollSeconds({
+        workflowStatus: evidence.workflow_status,
+        pollAttempt
+      })
+    : 0;
+
+  const fingerprint = terminalFailure || noRun
+    ? deriveFailureFingerprint(evidence)
+    : (prior.failure_fingerprint || null);
+  let failureOccurrenceCount = Number(prior.failure_occurrence_count || 0);
+  if (terminalFailure || noRun) {
+    if (!prior.failure_fingerprint || prior.failure_fingerprint !== fingerprint) {
+      failureOccurrenceCount = 1;
+    } else if (!sameObservedRun) {
+      failureOccurrenceCount += 1;
+    } else {
+      failureOccurrenceCount = Math.max(1, failureOccurrenceCount);
+    }
+  }
+  const loopDetected = failureOccurrenceCount >= 3;
+
   let repairAttempt = Number(prior.repair_attempt || 0);
   if (terminalFailure || noRun) {
     if (!sameFailure) {
       repairAttempt = 1;
     } else if (!sameObservedRun) {
       repairAttempt += 1;
-    } else if (
-      String(sourceKind || "").toUpperCase() === "TASK_EXECUTION" &&
-      sameProgress
-    ) {
-      // An execution turn returned the same terminal evidence without a new
-      // commit/run/evidence token: that repair attempt made no concrete progress.
+    } else if (source === "TASK_EXECUTION" && sameProgress) {
       repairAttempt += 1;
     } else {
       repairAttempt = Math.max(1, repairAttempt);
@@ -388,7 +472,9 @@ export function reconcileExternalRunState({
   }
 
   let decision = "NONE";
-  if (active) {
+  if (runAuthority === "OBSOLETE") {
+    decision = "OBSOLETE_EXTERNAL";
+  } else if (active) {
     decision = "WAIT_EXTERNAL";
   } else if (
     evidence.workflow_status === "completed" &&
@@ -405,11 +491,34 @@ export function reconcileExternalRunState({
     decision = "AUTO_REPAIR";
   }
 
+  const executionPhase = ({
+    WAIT_EXTERNAL: "WAIT_RELEASE_GATE",
+    VERIFY_EXTERNAL_SUCCESS: "VERIFY_RELEASE_GATE",
+    AUTO_REPAIR: loopDetected ? "REPAIR_STRATEGY_CHANGE" : "BATCH_REPAIR",
+    TRIGGER_EXTERNAL_RUN: "TRIGGER_RELEASE_GATE",
+    OBSOLETE_EXTERNAL: "SUPERSEDED_RUN",
+    BLOCKED_REPAIR_LIMIT: "REPAIR_LOOP_BLOCKED",
+    BLOCKED_OWNER: "WAIT_OWNER"
+  })[decision] || null;
+
+  const lastResult = active
+    ? "RUNNING"
+    : (
+      evidence.workflow_status === "completed" &&
+      evidence.workflow_conclusion === "success"
+        ? "PASS"
+        : (terminalFailure ? "FAIL" : (noRun ? "NOT_FOUND" : "UNKNOWN"))
+    );
+
+  const gateStartedAt = sameObservedRun && prior.gate_started_at
+    ? prior.gate_started_at
+    : (evidence.last_progress_at || at);
+
   return {
     decision,
     external_work: {
       task_id: evidence.task_id,
-      checkpoint_id: evidence.checkpoint_id,
+      checkpoint_id: evidence.checkpoint_id || prior.checkpoint_id || null,
       repo: evidence.repo,
       commit_sha: evidence.commit_sha,
       workflow_run_id: evidence.workflow_run_id,
@@ -421,13 +530,42 @@ export function reconcileExternalRunState({
       repair_attempt: repairAttempt,
       max_repair_attempts: maxRepairAttempts,
       last_action: evidence.last_action,
-      next_action: evidence.next_action,
+      next_action:
+        loopDetected && decision === "AUTO_REPAIR"
+          ? "CHANGE_REPAIR_STRATEGY"
+          : evidence.next_action,
       last_progress_at: evidence.last_progress_at || at,
       owner_required: evidence.owner_required,
       decision,
       progress_token: progressToken(evidence),
       observed_at: at,
-      history: appendHistory(prior, evidence, at)
+      history: appendHistory(prior, evidence, at),
+      authoritative_sha: authoritativeSha,
+      run_authority: runAuthority,
+      execution_phase: executionPhase,
+      current_gate: evidence.workflow_name,
+      gate_started_at: gateStartedAt,
+      last_result: lastResult,
+      poll_attempt: pollAttempt,
+      next_check_seconds: nextCheckSeconds,
+      failure_fingerprint: fingerprint,
+      failure_occurrence_count: failureOccurrenceCount,
+      loop_detected: loopDetected,
+      last_failure_batch_count: terminalFailure
+        ? Number(evidence.failure_count || 0)
+        : Number(prior.last_failure_batch_count || 0),
+      last_failure_batch_signature: terminalFailure
+        ? (evidence.failure_signature || fingerprint)
+        : (prior.last_failure_batch_signature || null),
+      last_failure_batch_run_id: terminalFailure
+        ? evidence.workflow_run_id
+        : (prior.last_failure_batch_run_id || null),
+      last_failure_batch_commit_sha: terminalFailure
+        ? evidence.commit_sha
+        : (prior.last_failure_batch_commit_sha || null),
+      targeted_qa_required: true,
+      release_regression_required: true,
+      obsolete_runs: obsoleteRuns
     }
   };
 }
@@ -452,45 +590,34 @@ export function reconcileTaskControlWithExternalRun({
 
   const decision = String(externalWork.decision || "");
   if (decision === "WAIT_EXTERNAL") {
-    const delay = taskControl.status === "RUNNING" && taskControl.check_after_seconds > 0
+    const requested = taskControl.status === "RUNNING" && taskControl.check_after_seconds > 0
       ? taskControl.check_after_seconds
       : defaultCheckAfterSeconds;
+    const adaptive = Number(externalWork.next_check_seconds || 0) ||
+      adaptiveExternalPollSeconds({
+        workflowStatus: evidence.workflow_status,
+        pollAttempt: externalWork.poll_attempt || 1
+      }) ||
+      defaultCheckAfterSeconds;
     return {
       status: "RUNNING",
       task_id: expected,
       next_task_id: null,
-      check_after_seconds: Math.max(1, Math.min(3600, Number(delay) || 120))
+      check_after_seconds: Math.max(1, Math.min(3600, requested, adaptive))
     };
   }
 
   if (decision === "BLOCKED_OWNER" || decision === "BLOCKED_REPAIR_LIMIT") {
-    return {
-      status: "BLOCKED",
-      task_id: expected,
-      next_task_id: null,
-      check_after_seconds: 0
-    };
+    return { status: "BLOCKED", task_id: expected, next_task_id: null, check_after_seconds: 0 };
   }
 
   if (decision === "VERIFY_EXTERNAL_SUCCESS") {
-    if (["COMPLETE", "DONE", "BLOCKED"].includes(taskControl.status)) {
-      return taskControl;
-    }
-    return {
-      status: "READY",
-      task_id: null,
-      next_task_id: expected,
-      check_after_seconds: 0
-    };
+    if (["COMPLETE", "DONE", "BLOCKED"].includes(taskControl.status)) return taskControl;
+    return { status: "READY", task_id: null, next_task_id: expected, check_after_seconds: 0 };
   }
 
-  if (["AUTO_REPAIR", "TRIGGER_EXTERNAL_RUN"].includes(decision)) {
-    return {
-      status: "READY",
-      task_id: null,
-      next_task_id: expected,
-      check_after_seconds: 0
-    };
+  if (["AUTO_REPAIR", "TRIGGER_EXTERNAL_RUN", "OBSOLETE_EXTERNAL"].includes(decision)) {
+    return { status: "READY", task_id: null, next_task_id: expected, check_after_seconds: 0 };
   }
 
   return taskControl;

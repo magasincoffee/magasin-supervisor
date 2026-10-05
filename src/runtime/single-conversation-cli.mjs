@@ -390,6 +390,34 @@ export async function clearTaskRecheckWait(
   return writeSingleConversationState(statePath, state, { now: () => at });
 }
 
+export async function persistTaskExecutionOptimizationIntent(statePath, {
+  taskId,
+  checkOnly = false,
+  now = () => new Date().toISOString()
+} = {}) {
+  const id = String(taskId || "").trim();
+  if (!id) throw new Error("taskId is required");
+  const state = await readSingleConversationState(statePath);
+  const at = new Date(typeof now === "function" ? now() : now).toISOString();
+  const external = state.external_work || {};
+  if (external.task_id && external.task_id !== id) {
+    external.checkpoint_id = null;
+    external.authoritative_sha = null;
+    external.failure_fingerprint = null;
+    external.failure_occurrence_count = 0;
+    external.repair_attempt = 0;
+    external.poll_attempt = 0;
+    external.obsolete_runs = [];
+  }
+  external.task_id = id;
+  external.execution_phase = checkOnly ? "CHECK_EXTERNAL" : "EXECUTE_TARGETED_QA";
+  external.targeted_qa_required = true;
+  external.release_regression_required = true;
+  external.last_progress_at = external.last_progress_at || at;
+  state.external_work = external;
+  return writeSingleConversationState(statePath, state, { now });
+}
+
 export async function waitForNextCycleDelay(
   delayMs,
   { sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}
@@ -1056,22 +1084,32 @@ export function reconstructPendingTaskMessage(state, evidenceText = null) {
     if (!taskId) return null;
   }
 
-  let candidate = null;
+  const expectedDigest = String(state.outbound.message_digest || "");
+  const candidates = [];
   try {
-    candidate = buildSingleConversationTaskInstruction({
-      sourceOfTruthUrl: state.source_of_truth?.url,
-      taskId,
-      messageId,
-      checkOnly
-    });
+    candidates.push(
+      buildSingleConversationTaskInstruction({
+        sourceOfTruthUrl: state.source_of_truth?.url,
+        taskId,
+        messageId,
+        checkOnly,
+        optimizationPolicy: true
+      }),
+      buildSingleConversationTaskInstruction({
+        sourceOfTruthUrl: state.source_of_truth?.url,
+        taskId,
+        messageId,
+        checkOnly,
+        optimizationPolicy: false
+      })
+    );
   } catch {
     return null;
   }
 
-  return composerInstructionDigest(candidate) ===
-    String(state.outbound.message_digest || "")
-    ? candidate
-    : null;
+  return candidates.find(
+    (candidate) => composerInstructionDigest(candidate) === expectedDigest
+  ) || null;
 }
 
 export function reconstructPendingStatusCheckMessage(state, evidenceText = null) {
@@ -2715,6 +2753,11 @@ export async function runSingleConversationRuntime({
       page = observedWait.page;
       await clearTaskRecheckWait(statePath);
     }
+
+    await persistTaskExecutionOptimizationIntent(statePath, {
+      taskId,
+      checkOnly
+    });
 
     const messageId = randomUUID();
     const message = buildSingleConversationTaskInstruction({
