@@ -885,6 +885,17 @@ export function canReplaceLostReadOnlyDiscovery(state) {
   );
 }
 
+export function canReplaceLostSettledConversation(state) {
+  const outbound = state?.outbound || {};
+  const outboundState = String(outbound.state || "").toUpperCase();
+  return Boolean(
+    String(state?.conversation?.status || "").toUpperCase() === "ACTIVE" &&
+    ["RESPONSE_COMPLETE", "VERIFIED"].includes(outboundState) &&
+    String(outbound.message_id || "").trim() &&
+    String(outbound.message_digest || "").trim()
+  );
+}
+
 export function canRebindEnqueuedStatusCheck(state) {
   return Boolean(
     canRebindEnqueuedTaskMessage(state) &&
@@ -1493,7 +1504,11 @@ async function resumeInFlightProtocolMessageAfterRebind({
 
 async function probeReusableConversationPage(adapter, page) {
   if (!page) return null;
-  const probe = await adapter.probePage(page).catch(() => null);
+  const probe = await boundedRuntimeStep(
+    "RUNTIME_REBIND_REUSABLE_PAGE_PROBE",
+    () => adapter.probePage(page),
+    { timeoutMs: 10_000 }
+  ).catch(() => null);
   const snapshot = probe?.snapshot || {};
   if (
     !probe ||
@@ -1542,9 +1557,11 @@ async function recoverConversationFromRecentSidebar({
   }
 
   for (let attempt = 0; attempt < Math.max(1, Number(retries) || 1); attempt += 1) {
-    const urls = await adapter
-      .listRecentConversationUrls(discoveryPage, { limit: 50 })
-      .catch(() => []);
+    const urls = await boundedRuntimeStep(
+      "RUNTIME_REBIND_RECENT_LIST",
+      () => adapter.listRecentConversationUrls(discoveryPage, { limit: 50 }),
+      { timeoutMs: 5_000 }
+    ).catch(() => []);
     const matches = [...new Set(
       (Array.isArray(urls) ? urls : []).filter(
         (url) => opaqueRuntimeIdentity(url) === expected
@@ -1579,9 +1596,11 @@ async function recoverConversationFromBrowserHistory({
     return null;
   }
 
-  const urls = await adapter
-    .listBrowserHistoryChatGptUrls({ limit: 200 })
-    .catch(() => []);
+  const urls = await boundedRuntimeStep(
+    "RUNTIME_REBIND_HISTORY_LIST",
+    () => adapter.listBrowserHistoryChatGptUrls({ limit: 200 }),
+    { timeoutMs: 10_000 }
+  ).catch(() => []);
   const matches = [...new Set(
     (Array.isArray(urls) ? urls : []).filter(
       (url) => opaqueRuntimeIdentity(url) === expected
@@ -1958,8 +1977,17 @@ export async function runSingleConversationRuntime({
         runtimeIdMatchesPage(candidate, current.conversation.runtime_id)
       );
       if (!oldPage) return null;
-      const probe = await adapter.probePage(oldPage).catch(() => null);
-      return { page: oldPage, classification: classifyDisposableConversation(probe?.snapshot || {}) };
+      const probe = await boundedRuntimeStep(
+        "RUNTIME_RESTART_OLD_PAGE_PROBE",
+        () => adapter.probePage(oldPage),
+        { timeoutMs: 10_000 }
+      ).catch(() => null);
+      return {
+        page: oldPage,
+        classification: probe
+          ? classifyDisposableConversation(probe.snapshot || {})
+          : null
+      };
     })();
     const correlatedBootstrapRecovery =
       !rebound?.page &&
@@ -2179,6 +2207,26 @@ export async function runSingleConversationRuntime({
         page: restartProbe.page,
         statePath,
         reason: "CONVERSATION_FULL",
+        sourceOfTruthUrl,
+        projectId: "LIVE",
+        qualificationOnly,
+        timeoutMs: responseTimeoutMs,
+        pollMs: Math.min(750, Math.max(100, pollMs))
+      });
+      page = replacement.page;
+      bootstrapResponse = replacement.response;
+      current = await readSingleConversationState(statePath);
+    } else if (canReplaceLostSettledConversation(current)) {
+      // A fully settled outbound transaction has no replay risk. If restart
+      // identity recovery cannot produce one reusable conversation page within
+      // bounded read-only probes, retire only that disposable chat and
+      // bootstrap a fresh generation from SOT instead of remaining forever in
+      // STARTING_BROWSER.
+      const replacement = await replaceDisposableConversation({
+        adapter,
+        page: restartProbe?.page || recoverableBootstrapPage(adapter, current),
+        statePath,
+        reason: "SETTLED_CONVERSATION_IDENTITY_LOST",
         sourceOfTruthUrl,
         projectId: "LIVE",
         qualificationOnly,

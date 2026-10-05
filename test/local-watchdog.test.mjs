@@ -17,6 +17,9 @@ test("SC-013 local watchdog is continuous, singleton, bounded, and read-only", a
   assert.match(source, /UiProbeSeconds = 30/);
   assert.match(source, /PREPARED_STALLED/);
   assert.match(source, /ENQUEUED_STALLED/);
+  assert.match(source, /STARTING_BROWSER_STALLED/);
+  assert.match(source, /MaxStartingBrowserSeconds = 180/);
+  assert.match(source, /starting_browser_age_seconds/);
   assert.match(source, /CHATGPT_NETWORK_ERROR/);
   assert.match(source, /CHATGPT_RUNTIME_IDENTITY_MISMATCH/);
   assert.match(source, /ownerStop\.blocked/);
