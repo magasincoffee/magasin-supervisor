@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "569dc0e2acca9707c74e889eb6d4efac2c1b52af",
+  "requested_main_sha": "03449b2d4d52008be09332d8412828e9d7637f39",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy PR #319 Owner status layout fix: separate timer/milestones and recovery-event presentation."
+  "reason": "Deploy PR #319 Owner status layout through PR #320 exact-runner routing repair."
 }
