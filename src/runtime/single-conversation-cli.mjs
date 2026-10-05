@@ -467,6 +467,7 @@ export async function waitForTaskRecheckDelay({
   fetchImpl = globalThis.fetch,
   localMonitorMaxSeconds = 300,
   now = () => Date.now(),
+  recoveryProbe = (args) => recoverDisposableConversationIfNeeded(args),
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 } = {}) {
   if (!adapter) throw new Error("adapter is required");
@@ -591,7 +592,7 @@ export async function waitForTaskRecheckDelay({
 
     const recovery = await boundedRuntimeStep(
       "TASK_RECHECK_WAIT_RECOVERY_PROBE",
-      () => recoverDisposableConversationIfNeeded({
+      () => recoveryProbe({
         adapter,
         page: activePage,
         statePath,
