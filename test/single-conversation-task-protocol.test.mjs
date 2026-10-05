@@ -182,6 +182,9 @@ test("SC-011 task messages execute or check one exact id", () => {
   assert.match(execute, /execute this task now/i);
   assert.match(execute, /STATUS=RUNNING/);
   assert.match(execute, /durable external job\/run/i);
+  assert.match(execute, /narrowest task-specific\/impacted QA/i);
+  assert.match(execute, /one coherent batch commit/i);
+  assert.match(execute, /Final required\/full regression/i);
 
   const check = buildSingleConversationTaskInstruction({
     sourceOfTruthUrl: "https://example.com/SOURCE_OF_TRUTH.md",

@@ -1190,8 +1190,8 @@ function Show-SingleConversationControlPanel {
     $form = New-Object Windows.Forms.Form
     $form.Text = 'MAGASIN SUPERVISOR — TRUNG TÂM ĐIỀU KHIỂN'
     $form.StartPosition = 'CenterScreen'
-    $form.Size = New-Object Drawing.Size(980, 850)
-    $form.MinimumSize = New-Object Drawing.Size(900, 800)
+    $form.Size = New-Object Drawing.Size(980, 930)
+    $form.MinimumSize = New-Object Drawing.Size(900, 880)
     $form.AutoScaleMode = [Windows.Forms.AutoScaleMode]::Dpi
     $form.BackColor = [Drawing.Color]::FromArgb(241,245,249)
     $form.Font = New-Object Drawing.Font('Segoe UI', 9)
@@ -1274,7 +1274,7 @@ function Show-SingleConversationControlPanel {
 
     $diagnostics = New-Object Windows.Forms.Panel
     $diagnostics.Location = New-Object Drawing.Point(20, 338)
-    $diagnostics.Size = New-Object Drawing.Size(920, 420)
+    $diagnostics.Size = New-Object Drawing.Size(920, 500)
     $diagnostics.BackColor = [Drawing.Color]::White
     $diagnostics.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
     $form.Controls.Add($diagnostics)
@@ -1303,38 +1303,51 @@ function Show-SingleConversationControlPanel {
     $automationValue.Size = New-Object Drawing.Size(875, 26)
     $diagnostics.Controls.Add($automationValue)
 
+    $taskMetaValue = New-Object Windows.Forms.Label
+    $taskMetaValue.Location = New-Object Drawing.Point(20, 146)
+    $taskMetaValue.Size = New-Object Drawing.Size(875, 26)
+    $taskMetaValue.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
+    $diagnostics.Controls.Add($taskMetaValue)
+
+    $gateMetaValue = New-Object Windows.Forms.Label
+    $gateMetaValue.Location = New-Object Drawing.Point(20, 174)
+    $gateMetaValue.Size = New-Object Drawing.Size(875, 46)
+    $gateMetaValue.BackColor = [Drawing.Color]::FromArgb(248,250,252)
+    $gateMetaValue.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
+    $diagnostics.Controls.Add($gateMetaValue)
+
     $conversationValue = New-Object Windows.Forms.Label
-    $conversationValue.Location = New-Object Drawing.Point(20, 146)
+    $conversationValue.Location = New-Object Drawing.Point(20, 226)
     $conversationValue.Size = New-Object Drawing.Size(875, 26)
     $diagnostics.Controls.Add($conversationValue)
 
     $timerValue = New-Object Windows.Forms.Label
-    $timerValue.Location = New-Object Drawing.Point(20, 178)
+    $timerValue.Location = New-Object Drawing.Point(20, 258)
     $timerValue.Size = New-Object Drawing.Size(875, 26)
     $timerValue.ForeColor = [Drawing.Color]::FromArgb(30,64,175)
     $diagnostics.Controls.Add($timerValue)
 
     $milestoneValue = New-Object Windows.Forms.Label
-    $milestoneValue.Location = New-Object Drawing.Point(20, 210)
+    $milestoneValue.Location = New-Object Drawing.Point(20, 290)
     $milestoneValue.Size = New-Object Drawing.Size(875, 46)
     $milestoneValue.BackColor = [Drawing.Color]::FromArgb(248,250,252)
     $milestoneValue.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
     $diagnostics.Controls.Add($milestoneValue)
 
     $errorValue = New-Object Windows.Forms.Label
-    $errorValue.Location = New-Object Drawing.Point(20, 264)
+    $errorValue.Location = New-Object Drawing.Point(20, 344)
     $errorValue.Size = New-Object Drawing.Size(875, 48)
     $errorValue.ForeColor = [Drawing.Color]::FromArgb(185,28,28)
     $diagnostics.Controls.Add($errorValue)
 
     $actionValue = New-Object Windows.Forms.Label
-    $actionValue.Location = New-Object Drawing.Point(20, 318)
+    $actionValue.Location = New-Object Drawing.Point(20, 398)
     $actionValue.Size = New-Object Drawing.Size(875, 44)
     $actionValue.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
     $diagnostics.Controls.Add($actionValue)
 
     $syncValue = New-Object Windows.Forms.Label
-    $syncValue.Location = New-Object Drawing.Point(20, 370)
+    $syncValue.Location = New-Object Drawing.Point(20, 450)
     $syncValue.Size = New-Object Drawing.Size(875, 28)
     $syncValue.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
     $diagnostics.Controls.Add($syncValue)
@@ -1615,6 +1628,16 @@ function Show-SingleConversationControlPanel {
         $maxRepairAttempts = if ($external) { [int](Get-OptionalPropertyValue $external 'max_repair_attempts' 3) } else { 3 }
         $lastAction = if ($external) { [string](Get-OptionalPropertyValue $external 'last_action' '') } else { '' }
         $nextAction = if ($external) { [string](Get-OptionalPropertyValue $external 'next_action' '') } else { '' }
+        $authoritativeSha = if ($external) { [string](Get-OptionalPropertyValue $external 'authoritative_sha' '') } else { '' }
+        $runAuthority = if ($external) { [string](Get-OptionalPropertyValue $external 'run_authority' 'UNKNOWN') } else { 'UNKNOWN' }
+        $executionPhase = if ($external) { [string](Get-OptionalPropertyValue $external 'execution_phase' '') } else { '' }
+        $currentGate = if ($external) { [string](Get-OptionalPropertyValue $external 'current_gate' '') } else { '' }
+        $gateStartedAt = if ($external) { [string](Get-OptionalPropertyValue $external 'gate_started_at' '') } else { '' }
+        $lastResult = if ($external) { [string](Get-OptionalPropertyValue $external 'last_result' '') } else { '' }
+        $failureFingerprint = if ($external) { [string](Get-OptionalPropertyValue $external 'failure_fingerprint' '') } else { '' }
+        $failureOccurrence = if ($external) { [int](Get-OptionalPropertyValue $external 'failure_occurrence_count' 0) } else { 0 }
+        $loopDetected = if ($external) { [bool](Get-OptionalPropertyValue $external 'loop_detected' $false) } else { $false }
+        $pollAttempt = if ($external) { [int](Get-OptionalPropertyValue $external 'poll_attempt' 0) } else { 0 }
 
         $externalActive = $false
         switch ($externalDecision) {
@@ -1663,6 +1686,45 @@ function Show-SingleConversationControlPanel {
             }
         }
         }
+
+        $taskForDisplay = if ($externalTask) {
+            $externalTask
+        } elseif ($outbound) {
+            [string](Get-OptionalPropertyValue $outbound 'task_id' '')
+        } else { '' }
+        $taskMetaValue.Text =
+            'TASK: ' + $(if ($taskForDisplay) { $taskForDisplay } else { '—' }) +
+            $(if ($checkpoint) { '  •  Checkpoint: ' + $checkpoint } else { '' }) +
+            $(if ($executionPhase) { '  •  Phase: ' + $executionPhase } else { '' }) +
+            $(if ($loopDetected) { '  •  LOOP: PHÁT HIỆN' } else { '' })
+
+        $shaShort = if ($authoritativeSha.Length -ge 12) {
+            $authoritativeSha.Substring(0, 12)
+        } elseif ($authoritativeSha) { $authoritativeSha } else { '—' }
+        $fingerprintShort = if ($failureFingerprint.Length -gt 72) {
+            $failureFingerprint.Substring(0, 72) + '…'
+        } elseif ($failureFingerprint) { $failureFingerprint } else { '—' }
+        $gateAge = ''
+        if ($gateStartedAt) {
+            try {
+                $gateAgeSeconds = [int][Math]::Max(
+                    0,
+                    ([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse($gateStartedAt)).TotalSeconds
+                )
+                $gateAge = '  •  đã ' + (Format-OwnerDuration $gateAgeSeconds)
+            } catch {}
+        }
+        $gateMetaValue.Text =
+            'SHA: ' + $shaShort +
+            '  •  Gate: ' + $(if ($currentGate) { $currentGate } else { '—' }) +
+            $gateAge +
+            '  •  Result: ' + $(if ($lastResult) { $lastResult } else { '—' }) +
+            '  •  Run: ' + $runAuthority +
+            [Environment]::NewLine +
+            'Fingerprint: ' + $fingerprintShort +
+            '  •  Repair: ' + [string]$repairAttempt + '/' + [string]$maxRepairAttempts +
+            '  •  Occurrence: ' + [string]$failureOccurrence +
+            '  •  Poll: #' + [string]$pollAttempt
 
         $timerValue.Text = 'THỜI GIAN: —'
         if ($phase -eq 'REPLACE_CHAT') {

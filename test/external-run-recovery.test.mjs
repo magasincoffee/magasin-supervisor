@@ -71,7 +71,9 @@ test("SC-013 external CI in_progress remains RUNNING with bounded polling", () =
   assert.equal(result.decision, "WAIT_EXTERNAL");
   assert.equal(result.taskControl.status, "RUNNING");
   assert.equal(result.taskControl.task_id, "OPS-074");
-  assert.equal(result.taskControl.check_after_seconds, 120);
+  assert.equal(result.taskControl.check_after_seconds, 20);
+  assert.equal(result.external_work.poll_attempt, 1);
+  assert.equal(result.external_work.next_check_seconds, 20);
 });
 
 test("SC-013 completed success stops waiting and returns same task for verification/advance", () => {
