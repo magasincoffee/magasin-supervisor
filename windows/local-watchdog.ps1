@@ -3,6 +3,7 @@ param(
     [int]$UiProbeSeconds = 30,
     [int]$MaxPreparedSeconds = 180,
     [int]$MaxEnqueuedSeconds = 180,
+    [int]$MaxStartingBrowserSeconds = 180,
     [int]$FailureCaptureCooldownSeconds = 60,
     [int64]$MaxEventLogBytes = 5242880
 )
@@ -312,6 +313,7 @@ try {
 
             $preparedAge = $null
             $enqueuedAge = $null
+            $startingBrowserAge = $null
             if ($stateReadable) {
                 $automation = [string]$state.automation.status
                 $phase = [string]$state.automation.phase
@@ -331,6 +333,15 @@ try {
                     }
                     if ($retry -gt 1) {
                         [void]$faults.Add('RETRY_BUDGET_EXCEEDED')
+                    }
+
+                    if ($automation -eq 'RUNNING' -and $phase -eq 'STARTING_BROWSER' -and $state.automation.updated_at) {
+                        try {
+                            $startingBrowserAge = [int]($now - [DateTimeOffset]::Parse([string]$state.automation.updated_at)).TotalSeconds
+                            if ($startingBrowserAge -ge $MaxStartingBrowserSeconds) {
+                                [void]$faults.Add("STARTING_BROWSER_STALLED:$startingBrowserAge")
+                            }
+                        } catch {}
                     }
 
                     if ($outbound -eq 'PREPARED' -and $state.outbound.prepared_at) {
@@ -416,6 +427,7 @@ try {
                         last_error_stage = [string]$state.outbound.last_error_stage
                         prepared_age_seconds = $preparedAge
                         enqueued_age_seconds = $enqueuedAge
+                        starting_browser_age_seconds = $startingBrowserAge
                         updated_at = [string]$state.updated_at
                     }
                 } else { $null }
