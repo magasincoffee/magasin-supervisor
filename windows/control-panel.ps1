@@ -1190,8 +1190,8 @@ function Show-SingleConversationControlPanel {
     $form = New-Object Windows.Forms.Form
     $form.Text = 'MAGASIN SUPERVISOR — TRUNG TÂM ĐIỀU KHIỂN'
     $form.StartPosition = 'CenterScreen'
-    $form.Size = New-Object Drawing.Size(980, 760)
-    $form.MinimumSize = New-Object Drawing.Size(900, 700)
+    $form.Size = New-Object Drawing.Size(980, 850)
+    $form.MinimumSize = New-Object Drawing.Size(900, 800)
     $form.AutoScaleMode = [Windows.Forms.AutoScaleMode]::Dpi
     $form.BackColor = [Drawing.Color]::FromArgb(241,245,249)
     $form.Font = New-Object Drawing.Font('Segoe UI', 9)
@@ -1274,7 +1274,7 @@ function Show-SingleConversationControlPanel {
 
     $diagnostics = New-Object Windows.Forms.Panel
     $diagnostics.Location = New-Object Drawing.Point(20, 338)
-    $diagnostics.Size = New-Object Drawing.Size(920, 342)
+    $diagnostics.Size = New-Object Drawing.Size(920, 420)
     $diagnostics.BackColor = [Drawing.Color]::White
     $diagnostics.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
     $form.Controls.Add($diagnostics)
@@ -1289,45 +1289,53 @@ function Show-SingleConversationControlPanel {
     $runtimeValue = New-Object Windows.Forms.Label
     $runtimeValue.Location = New-Object Drawing.Point(20, 50)
     $runtimeValue.Size = New-Object Drawing.Size(875, 26)
+    $runtimeValue.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
     $diagnostics.Controls.Add($runtimeValue)
 
     $flowValue = New-Object Windows.Forms.Label
-    $flowValue.Location = New-Object Drawing.Point(20, 78)
+    $flowValue.Location = New-Object Drawing.Point(20, 82)
     $flowValue.Size = New-Object Drawing.Size(875, 26)
     $flowValue.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
     $diagnostics.Controls.Add($flowValue)
 
-    $conversationValue = New-Object Windows.Forms.Label
-    $conversationValue.Location = New-Object Drawing.Point(20, 106)
-    $conversationValue.Size = New-Object Drawing.Size(875, 26)
-    $diagnostics.Controls.Add($conversationValue)
-
     $automationValue = New-Object Windows.Forms.Label
-    $automationValue.Location = New-Object Drawing.Point(20, 134)
+    $automationValue.Location = New-Object Drawing.Point(20, 114)
     $automationValue.Size = New-Object Drawing.Size(875, 26)
     $diagnostics.Controls.Add($automationValue)
 
+    $conversationValue = New-Object Windows.Forms.Label
+    $conversationValue.Location = New-Object Drawing.Point(20, 146)
+    $conversationValue.Size = New-Object Drawing.Size(875, 26)
+    $diagnostics.Controls.Add($conversationValue)
+
     $timerValue = New-Object Windows.Forms.Label
-    $timerValue.Location = New-Object Drawing.Point(20, 162)
+    $timerValue.Location = New-Object Drawing.Point(20, 178)
     $timerValue.Size = New-Object Drawing.Size(875, 26)
     $timerValue.ForeColor = [Drawing.Color]::FromArgb(30,64,175)
     $diagnostics.Controls.Add($timerValue)
 
+    $milestoneValue = New-Object Windows.Forms.Label
+    $milestoneValue.Location = New-Object Drawing.Point(20, 210)
+    $milestoneValue.Size = New-Object Drawing.Size(875, 46)
+    $milestoneValue.BackColor = [Drawing.Color]::FromArgb(248,250,252)
+    $milestoneValue.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
+    $diagnostics.Controls.Add($milestoneValue)
+
     $errorValue = New-Object Windows.Forms.Label
-    $errorValue.Location = New-Object Drawing.Point(20, 190)
-    $errorValue.Size = New-Object Drawing.Size(875, 44)
+    $errorValue.Location = New-Object Drawing.Point(20, 264)
+    $errorValue.Size = New-Object Drawing.Size(875, 48)
     $errorValue.ForeColor = [Drawing.Color]::FromArgb(185,28,28)
     $diagnostics.Controls.Add($errorValue)
 
     $actionValue = New-Object Windows.Forms.Label
-    $actionValue.Location = New-Object Drawing.Point(20, 236)
+    $actionValue.Location = New-Object Drawing.Point(20, 318)
     $actionValue.Size = New-Object Drawing.Size(875, 44)
     $actionValue.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
     $diagnostics.Controls.Add($actionValue)
 
     $syncValue = New-Object Windows.Forms.Label
-    $syncValue.Location = New-Object Drawing.Point(20, 286)
-    $syncValue.Size = New-Object Drawing.Size(875, 34)
+    $syncValue.Location = New-Object Drawing.Point(20, 370)
+    $syncValue.Size = New-Object Drawing.Size(875, 28)
     $syncValue.ForeColor = [Drawing.Color]::FromArgb(71,85,105)
     $diagnostics.Controls.Add($syncValue)
 
@@ -1360,6 +1368,17 @@ function Show-SingleConversationControlPanel {
             return ('{0:00}:{1:00}:{2:00}' -f [int]$span.TotalHours, $span.Minutes, $span.Seconds)
         }
         return ('{0:00}:{1:00}' -f $span.Minutes, $span.Seconds)
+    }
+
+    function Format-OwnerClock([string]$Value) {
+        if (-not $Value) { return '—' }
+        try {
+            $dt = [DateTimeOffset]::Parse($Value)
+            $vn = [TimeZoneInfo]::ConvertTime($dt, $vietnamTimeZone)
+            return $vn.ToString('HH:mm:ss')
+        } catch {
+            return '—'
+        }
     }
 
     function Get-OwnerPhaseLabel([string]$Phase) {
@@ -1545,20 +1564,43 @@ function Show-SingleConversationControlPanel {
         $reason = if ($automation) { [string](Get-OptionalPropertyValue $automation 'reason' '') } else { '' }
         $lastCode = if ($outbound) { [string](Get-OptionalPropertyValue $outbound 'last_error_code' '') } else { '' }
 
-        if ($phase -eq 'REPLACE_CHAT' -and $watchdogMode -eq 'FAULT') {
-            $watchdogLabel = 'ĐANG PHỤC HỒI'
+        $watchdogFaults = @()
+        if ($watchdog) {
+            $watchdogFaults = @(Get-OptionalPropertyValue $watchdog 'faults' @())
+        }
+        $chatFullFaults = @(
+            $watchdogFaults | Where-Object {
+                [string]$_ -eq 'CHATGPT_CONVERSATION_FULL'
+            }
+        )
+        $nonRecoveryWatchdogFaults = @(
+            $watchdogFaults | Where-Object {
+                [string]$_ -ne 'CHATGPT_CONVERSATION_FULL'
+            }
+        )
+        $chatRecoveryInProgress = [bool](
+            $truth.wrapper_alive -and
+            $chatFullFaults.Count -gt 0 -and
+            $nonRecoveryWatchdogFaults.Count -eq 0 -and
+            $phase -in @('STARTING_BROWSER','REPLACE_CHAT','NEW_CHAT','BOOTSTRAP_RECOVERY_REQUIRED')
+        )
+
+        if ($chatRecoveryInProgress) {
+            $watchdogLabel = 'ĐANG PHỤC HỒI CHAT'
             $runtimeValue.Text =
-                'ROBOT: ' +
-                $(if ($truth.wrapper_alive) { 'ĐANG CHẠY' } else { 'ĐÃ DỪNG' }) +
+                'ROBOT: ĐANG CHẠY' +
                 '  •  CHROME/CDP: ' + $cdpLabel +
                 '  •  WATCHDOG: ' + $watchdogLabel
         }
 
         $flowValue.Text = 'BƯỚC HIỆN TẠI: ' + (Get-OwnerPhaseLabel $phase)
-        $conversationValue.Text = "CUỘC CHAT: thế hệ=$generation  •  " + (Get-OwnerConversationLabel $conversationStatus)
-        $automationValue.Text =
+        $automationValue.Text = if ($chatRecoveryInProgress) {
+            'TRẠNG THÁI: ĐANG TỰ PHỤC HỒI CHAT  •  Owner không cần thao tác'
+        } else {
             'TRẠNG THÁI: ' + (Get-OwnerAutomationLabel $automationStatus) +
-            '  •  mã kỹ thuật=' + $phase
+            '  •  PHA: ' + $phase
+        }
+        $conversationValue.Text = "CUỘC CHAT: thế hệ=$generation  •  " + (Get-OwnerConversationLabel $conversationStatus)
 
         $externalDecision = if ($external) { [string](Get-OptionalPropertyValue $external 'decision' '') } else { '' }
         $externalTask = if ($external) { [string](Get-OptionalPropertyValue $external 'task_id' '') } else { '' }
@@ -1712,41 +1754,32 @@ function Show-SingleConversationControlPanel {
         } else { '' }
 
         if ($lastSentRaw) {
-            $timingFacts.Add('Gửi gần nhất ' + (Format-VietnamTime $lastSentRaw))
+            $timingFacts.Add('Gửi ' + (Format-OwnerClock $lastSentRaw))
         }
         if ($responseDoneRaw) {
-            $timingFacts.Add('Trả lời xong ' + (Format-VietnamTime $responseDoneRaw))
+            $timingFacts.Add('Trả lời xong ' + (Format-OwnerClock $responseDoneRaw))
         }
         if ($recoveryRecordedRaw) {
             $recoveryReason = [string](Get-OptionalPropertyValue $recovery 'reason' '')
             if ($recoveryReason -like '*CONVERSATION_FULL*') {
-                $timingFacts.Add('Chat full phát hiện ' + (Format-VietnamTime $recoveryRecordedRaw))
+                $timingFacts.Add('Chat full ' + (Format-OwnerClock $recoveryRecordedRaw))
             } else {
-                $timingFacts.Add('Recovery bắt đầu ' + (Format-VietnamTime $recoveryRecordedRaw))
+                $timingFacts.Add('Recovery ' + (Format-OwnerClock $recoveryRecordedRaw))
             }
         }
         if ($rehydratedRaw) {
-            $timingFacts.Add('Chat mới sẵn sàng ' + (Format-VietnamTime $rehydratedRaw))
+            $timingFacts.Add('Chat mới ' + (Format-OwnerClock $rehydratedRaw))
         }
-        if ($timingFacts.Count -gt 0) {
-            $timerValue.Text += [Environment]::NewLine + 'MỐC: ' + ([string]::Join('  •  ', @($timingFacts)))
-        }
-
-        $watchdogFaults = @()
-        if ($watchdog) {
-            $watchdogFaults = @(Get-OptionalPropertyValue $watchdog 'faults' @())
+        $milestoneValue.Text = if ($timingFacts.Count -gt 0) {
+            'MỐC HOẠT ĐỘNG' + [Environment]::NewLine +
+            ([string]::Join('  •  ', @($timingFacts)))
+        } else {
+            'MỐC HOẠT ĐỘNG' + [Environment]::NewLine + 'Chưa có mốc mới trong phiên hiện tại.'
         }
         $errorText = Get-OwnerErrorLabel $reason $lastCode
-        if ($phase -eq 'REPLACE_CHAT') {
-            $nonRecoveryFaults = @(
-                $watchdogFaults | Where-Object {
-                    [string]$_ -ne 'CHATGPT_CONVERSATION_FULL'
-                }
-            )
-            if ($nonRecoveryFaults.Count -eq 0) {
-                $errorText = 'Chat cũ không còn dùng được; Robot đang tự phục hồi, không cần Owner thao tác.'
-                $watchdogFaults = @()
-            }
+        if ($chatRecoveryInProgress) {
+            $errorText = 'Chat đã đầy; Robot đang tự chuyển sang chat mới và tiếp tục đúng task.'
+            $watchdogFaults = @()
         }
         if ($externalActive -and $externalDecision -eq 'WAIT_EXTERNAL') {
             $errorText =
@@ -1785,10 +1818,23 @@ function Show-SingleConversationControlPanel {
         if ($watchdogFaults.Count -gt 0) {
             $errorText += '  •  Watchdog: ' + ([string]::Join(', ', @($watchdogFaults)))
         }
-        $errorValue.Text = 'LỖI / CẢNH BÁO: ' + $errorText
-        $actionValue.Text =
-            'OWNER CẦN LÀM GÌ: ' +
-            (Get-OwnerActionLabel ([bool]$truth.wrapper_alive) $phase $reason $lastCode)
+        if ($chatRecoveryInProgress) {
+            $errorValue.ForeColor = [Drawing.Color]::FromArgb(161,98,7)
+            $errorValue.Text = 'SỰ KIỆN PHỤC HỒI: ' + $errorText
+            $actionValue.Text = 'OWNER CẦN LÀM GÌ: Không cần thao tác. Robot đang tự phục hồi chat.'
+        } elseif ([string]::IsNullOrWhiteSpace($reason) -and [string]::IsNullOrWhiteSpace($lastCode) -and $watchdogFaults.Count -eq 0) {
+            $errorValue.ForeColor = [Drawing.Color]::FromArgb(22,101,52)
+            $errorValue.Text = 'SỰ KIỆN / CẢNH BÁO: Không có lỗi cần xử lý.'
+            $actionValue.Text =
+                'OWNER CẦN LÀM GÌ: ' +
+                (Get-OwnerActionLabel ([bool]$truth.wrapper_alive) $phase $reason $lastCode)
+        } else {
+            $errorValue.ForeColor = [Drawing.Color]::FromArgb(185,28,28)
+            $errorValue.Text = 'LỖI / CẢNH BÁO: ' + $errorText
+            $actionValue.Text =
+                'OWNER CẦN LÀM GÌ: ' +
+                (Get-OwnerActionLabel ([bool]$truth.wrapper_alive) $phase $reason $lastCode)
+        }
 
         $syncStatus = if ($sourceState) {
             [string](Get-OptionalPropertyValue $sourceState 'sync_status' 'UNVERIFIED')
