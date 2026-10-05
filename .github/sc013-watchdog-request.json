@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-watchdog-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "purpose": "Post-deploy verification after production run 37291991490 attempt 8 installed PR #315 state persistence recovery. Verify wrapper/CDP/watchdog and whether STARTING_BROWSER advances.",
-  "rearm_nonce": "post-deploy-pr315-20261005-1651"
+  "purpose": "Post-PR315 read-only qualification after Windows atomic state rename retry deployment. Verify STARTING_BROWSER clears or capture the next first failure without production mutation.",
+  "rearm_nonce": "post-pr315-state-rename-live-qualification-20261005"
 }
