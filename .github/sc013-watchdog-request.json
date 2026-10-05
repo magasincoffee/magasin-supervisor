@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-watchdog-request.v1",
   "target": "DESKTOP-4K7IM13",
-  "purpose": "Post-PR311 read-only sample. Verify canonical runtime installed, wrapper/CDP status, conversation generation, recovery reason/phase, and whether the previously stopped full-chat task is progressing without manual Owner intervention.",
-  "rearm_nonce": "conversation-full-post-deploy-sample-20261004-1736"
+  "purpose": "Post-PR314 read-only sample after bounded STARTING_BROWSER recovery deploy. Verify installed runtime, wrapper/CDP/watchdog health, phase progress, conversation generation, and whether the prior two-hour STARTING_BROWSER stall cleared without duplicate task send.",
+  "rearm_nonce": "starting-browser-post-deploy-20261005-1634"
 }
