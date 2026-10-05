@@ -1479,6 +1479,7 @@ test("SC-013 restart can recover a stable terminal task reply that omitted only 
   );
 });
 
+// Production regression: stale RESPONSE_RUNNING must reconcile by CHECK, never EXECUTE replay.
 test("SC-013 stale orphaned in-flight task is eligible for CHECK-only restart recovery", () => {
   const state = {
     updated_at: "2026-10-05T15:00:00.000Z",
