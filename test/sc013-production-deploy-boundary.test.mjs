@@ -29,20 +29,22 @@ test("SC-013 production deploy requires explicit release authority", async () =>
   assert.match(workflow, /TARGET_MUTATION_SKIPPED=True/);
   assert.match(workflow, /exit \/b 1/);
 
-  // GitHub may have multiple online self-hosted runners. The production deploy
-  // must first bind a custom label to the exact runner name, then pin the only
-  // self-hosted mutation job to that label. Generic self-hosted routing alone
-  // is not production-safe.
-  assert.match(workflow, /TARGET_RUNNER_NAME: DESKTOP-4K7IM13/);
-  assert.match(workflow, /TARGET_RUNNER_LABEL: magasin-target-desktop-4k7im13/);
-  assert.match(workflow, /actions:\s*write/);
-  assert.match(workflow, /actions\/runners/);
-  assert.match(workflow, /TARGET_RUNNER_LABEL_BOUND=True/);
-  assert.match(
-    workflow,
-    /runs-on:[\s\S]*self-hosted[\s\S]*magasin-target-desktop-4k7im13/
-  );
-  assert.doesNotMatch(workflow, /deploy-panel:[\s\S]{0,200}runs-on:\s*self-hosted\s*$/m);
+  // Multiple self-hosted runners may be online. Repository GITHUB_TOKEN cannot
+  // manage runner labels, so routing is bounded and fail-closed: a non-target
+  // runner dispatches one successor attempt carrying the same authorized SHA,
+  // performs no production mutation, and stops. Concurrency keeps attempts
+  // sequential and the machine-name guard remains authoritative.
+  assert.match(workflow, /deploy_sha:/);
+  assert.match(workflow, /routing_attempt:/);
+  assert.match(workflow, /MAX_ROUTING_ATTEMPTS:\s*'12'/);
+  assert.match(workflow, /TARGET_RETRY_DISPATCHED=True/);
+  assert.match(workflow, /TARGET_ROUTING_EXHAUSTED=True/);
+  assert.match(workflow, /TARGET_MUTATION_SKIPPED=True/);
+  assert.match(workflow, /actions\/workflows\/\$env:DEPLOY_WORKFLOW_FILE\/dispatches/);
+  assert.match(workflow, /Start-Sleep -Seconds \$delaySeconds/);
+  assert.match(workflow, /runs-on:\s*self-hosted/);
+  assert.doesNotMatch(workflow, /pin-target-runner/);
+  assert.doesNotMatch(workflow, /actions\/runners/);
 
   // Deployment may intentionally close Chrome; diagnostic is a separate,
   // read-only lifecycle operation after runtime is started again.
