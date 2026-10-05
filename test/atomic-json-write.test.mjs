@@ -6,7 +6,8 @@ import path from "node:path";
 
 import {
   atomicJsonWrite,
-  pendingAtomicJsonWriteCount
+  pendingAtomicJsonWriteCount,
+  renameAtomicSnapshotWithRetry
 } from "../src/runtime/atomic-json-write.mjs";
 
 test("atomicJsonWrite serializes concurrent writes and leaves the last snapshot intact", async () => {
@@ -38,6 +39,66 @@ test("atomicJsonWrite serializes concurrent writes and leaves the last snapshot 
   }
 });
 
+test("Windows atomic rename retries transient destination sharing failures without deleting state", async () => {
+  const calls = [];
+  const sleeps = [];
+  const errors = ["EPERM", "EACCES"];
+
+  await renameAtomicSnapshotWithRetry("temp.json", "state.json", {
+    platform: "win32",
+    rename: async (source, destination) => {
+      calls.push([source, destination]);
+      const code = errors.shift();
+      if (code) {
+        const error = new Error(code);
+        error.code = code;
+        throw error;
+      }
+    },
+    sleep: async (ms) => { sleeps.push(ms); },
+    maxAttempts: 5
+  });
+
+  assert.equal(calls.length, 3);
+  assert.deepEqual(sleeps, [25, 50]);
+  assert.deepEqual(calls[0], ["temp.json", "state.json"]);
+});
+
+test("atomic rename retry remains bounded and Windows-only", async () => {
+  let windowsAttempts = 0;
+  await assert.rejects(
+    renameAtomicSnapshotWithRetry("temp.json", "state.json", {
+      platform: "win32",
+      rename: async () => {
+        windowsAttempts += 1;
+        const error = new Error("locked");
+        error.code = "EPERM";
+        throw error;
+      },
+      sleep: async () => {},
+      maxAttempts: 3
+    }),
+    (error) => error?.code === "EPERM"
+  );
+  assert.equal(windowsAttempts, 3);
+
+  let linuxAttempts = 0;
+  await assert.rejects(
+    renameAtomicSnapshotWithRetry("temp.json", "state.json", {
+      platform: "linux",
+      rename: async () => {
+        linuxAttempts += 1;
+        const error = new Error("locked");
+        error.code = "EPERM";
+        throw error;
+      },
+      sleep: async () => {}
+    }),
+    (error) => error?.code === "EPERM"
+  );
+  assert.equal(linuxAttempts, 1);
+});
+
 test("atomicJsonWrite uses per-write private temp names rather than a shared .tmp path", async () => {
   const source = await fs.readFile(
     new URL("../src/runtime/atomic-json-write.mjs", import.meta.url),
@@ -48,6 +109,9 @@ test("atomicJsonWrite uses per-write private temp names rather than a shared .tm
   assert.match(source, /\.tmp\.\$\{process\.pid\}\.\$\{randomUUID\(\)\}/);
   assert.doesNotMatch(source, /const temp = `\$\{filePath\}\.tmp`;/);
   assert.match(source, /writeQueues/);
+  assert.match(source, /TRANSIENT_WINDOWS_RENAME_CODES/);
+  assert.match(source, /renameAtomicSnapshotWithRetry\(temp, filePath\)/);
+  assert.doesNotMatch(source, /rm\(filePath/);
 });
 
 test("Three-Lane runtime delegates all JSON state commits to the serialized writer", async () => {
