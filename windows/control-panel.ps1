@@ -1638,6 +1638,9 @@ function Show-SingleConversationControlPanel {
         $failureOccurrence = if ($external) { [int](Get-OptionalPropertyValue $external 'failure_occurrence_count' 0) } else { 0 }
         $loopDetected = if ($external) { [bool](Get-OptionalPropertyValue $external 'loop_detected' $false) } else { $false }
         $pollAttempt = if ($external) { [int](Get-OptionalPropertyValue $external 'poll_attempt' 0) } else { 0 }
+        $nextCheckSeconds = if ($external) { [int](Get-OptionalPropertyValue $external 'next_check_seconds' 0) } else { 0 }
+        $failureBatchCount = if ($external) { [int](Get-OptionalPropertyValue $external 'last_failure_batch_count' 0) } else { 0 }
+        $failureRootKey = if ($external) { [string](Get-OptionalPropertyValue $external 'failure_root_key' '') } else { '' }
 
         $externalActive = $false
         switch ($externalDecision) {
@@ -1658,9 +1661,13 @@ function Show-SingleConversationControlPanel {
                     $(if ($checkpoint) { '  •  Checkpoint: ' + $checkpoint } else { '' })
             }
             'AUTO_REPAIR' {
-                $flowValue.Text = 'BƯỚC HIỆN TẠI: R12 — Đang tự sửa lỗi CI'
+                $flowValue.Text = if ($loopDetected) {
+                    'BƯỚC HIỆN TẠI: R12 — Phát hiện repair loop, đang đổi chiến lược'
+                } else {
+                    'BƯỚC HIỆN TẠI: R12 — Đang batch repair lỗi CI'
+                }
                 $automationValue.Text =
-                    'TRẠNG THÁI: ĐANG TỰ SỬA LỖI CI' +
+                    $(if ($loopDetected) { 'TRẠNG THÁI: REPAIR LOOP — ĐANG ĐỔI CHIẾN LƯỢC' } else { 'TRẠNG THÁI: ĐANG BATCH REPAIR' }) +
                     $(if ($externalTask) { '  •  Task: ' + $externalTask } else { '' }) +
                     $(if ($checkpoint) { '  •  Checkpoint: ' + $checkpoint } else { '' })
             }
@@ -1714,6 +1721,9 @@ function Show-SingleConversationControlPanel {
                 $gateAge = '  •  đã ' + (Format-OwnerDuration $gateAgeSeconds)
             } catch {}
         }
+        $nextCheckText = if ($nextCheckSeconds -gt 0) {
+            [string]$nextCheckSeconds + 's'
+        } else { '—' }
         $gateMetaValue.Text =
             'SHA: ' + $shaShort +
             '  •  Gate: ' + $(if ($currentGate) { $currentGate } else { '—' }) +
@@ -1723,8 +1733,10 @@ function Show-SingleConversationControlPanel {
             [Environment]::NewLine +
             'Fingerprint: ' + $fingerprintShort +
             '  •  Repair: ' + [string]$repairAttempt + '/' + [string]$maxRepairAttempts +
+            '  •  Batch failures: ' + [string]$failureBatchCount +
             '  •  Occurrence: ' + [string]$failureOccurrence +
-            '  •  Poll: #' + [string]$pollAttempt
+            '  •  Poll: #' + [string]$pollAttempt +
+            '  •  Next check: ' + $nextCheckText
 
         $timerValue.Text = 'THỜI GIAN: —'
         if ($phase -eq 'REPLACE_CHAT') {
