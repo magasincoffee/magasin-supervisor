@@ -562,6 +562,17 @@ test("fill success without persisted text falls back to a real keyboard insertio
   assert.equal(events.at(-1), "send");
 });
 
+test("composer send treats click timeout with intact prompt as safe non-submission and falls back", async () => {
+  const source = await import("node:fs/promises").then((fs) =>
+    fs.readFile(new URL("../src/ui/actions.mjs", import.meta.url), "utf8")
+  );
+  assert.match(source, /primaryClickFailedWithPromptIntact/);
+  assert.match(source, /primary-submit-exception/);
+  assert.match(source, /composerContainsExactInstruction\(recoveryComposer, instruction\)/);
+  assert.match(source, /if \(afterFill\.sendControl && !primaryClickFailedWithPromptIntact\)/);
+  assert.match(source, /bounded Enter recovery below/);
+});
+
 test("composer send recovers an inert Send click with one bounded Enter", async () => {
   let composerText = "";
   let clicks = 0;
