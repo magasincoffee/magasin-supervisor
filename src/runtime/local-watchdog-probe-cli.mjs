@@ -56,7 +56,14 @@ try {
     timeoutMs: 5_000
   });
 
-  await adapter.open();
+  await Promise.race([
+    adapter.open(),
+    new Promise((_, reject) => setTimeout(() => {
+      const error = new Error("CDP_PROBE_OPEN_TIMEOUT");
+      error.code = "CDP_PROBE_OPEN_TIMEOUT";
+      reject(error);
+    }, 2_500))
+  ]);
   const pages = adapter.getChatGptPages();
   result.page_count = pages.length;
 
@@ -77,7 +84,14 @@ try {
   if (!page) {
     result.probe_error = "NO_CHATGPT_PAGE";
   } else {
-    const probe = await adapter.probePage(page);
+    const probe = await Promise.race([
+      adapter.probePage(page),
+      new Promise((_, reject) => setTimeout(() => {
+        const error = new Error("CDP_PROBE_PAGE_TIMEOUT");
+        error.code = "CDP_PROBE_PAGE_TIMEOUT";
+        reject(error);
+      }, 2_500))
+    ]);
     const snapshot = probe?.snapshot || {};
     const classification = probe?.classification || {};
 

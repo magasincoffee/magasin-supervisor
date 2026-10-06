@@ -14,7 +14,7 @@ test("SC-013 local watchdog is continuous, singleton, bounded, and read-only", a
   assert.match(source, /local-watchdog-events\.ndjson/);
   assert.match(source, /local-watchdog-failures/);
   assert.match(source, /PollSeconds = 5/);
-  assert.match(source, /UiProbeSeconds = 30/);
+  assert.match(source, /UiProbeSeconds = 90/);
   assert.match(source, /PREPARED_STALLED/);
   assert.match(source, /ENQUEUED_STALLED/);
   assert.match(source, /STARTING_BROWSER_STALLED/);
@@ -34,6 +34,9 @@ test("SC-013 local ChatGPT probe never navigates or sends and persists no conver
   assert.match(source, /getChatGptPages\(\)/);
   assert.match(source, /opaqueRuntimeIdentity/);
   assert.match(source, /probePage\(page\)/);
+  assert.match(source, /CDP_PROBE_OPEN_TIMEOUT/);
+  assert.match(source, /CDP_PROBE_PAGE_TIMEOUT/);
+  assert.match(source, /2_500/);
   assert.match(source, /inspectComposerDraftDigest/);
   assert.match(source, /exact_runtime_match/);
   assert.match(source, /draft_readable/);

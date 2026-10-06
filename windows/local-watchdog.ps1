@@ -1,6 +1,6 @@
 param(
     [int]$PollSeconds = 5,
-    [int]$UiProbeSeconds = 30,
+    [int]$UiProbeSeconds = 90,
     [int]$MaxPreparedSeconds = 180,
     [int]$MaxEnqueuedSeconds = 180,
     [int]$MaxStartingBrowserSeconds = 180,
