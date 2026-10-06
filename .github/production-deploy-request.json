@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-production-deploy-request.v1",
-  "requested_main_sha": "c815424bb740d02303429db9fe7c8d85a5ad3a3a",
+  "requested_main_sha": "2fa96c0003df1529ae3328e04447062df1b27f0f",
   "target": "DESKTOP-4K7IM13",
-  "reason": "Deploy smart CHECK suppression for unchanged active GitHub runs and compact repeated CHECK prompts."
+  "reason": "Deploy smart CHECK suppression send-path recovery: Send-click timeout fallback plus one bounded read-only TASK_STATUS_CHECK exact-once restart."
 }
