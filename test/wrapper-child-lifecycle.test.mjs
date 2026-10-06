@@ -83,3 +83,15 @@ test("Control Panel automatically recovers GitHub Runner with bounded backoff", 
   assert.ok(recover > get);
   assert.ok(render > recover);
 });
+
+
+test("SC-013 wrapper permits one bounded read-only TASK_STATUS_CHECK recovery but keeps EXECUTE fail-closed", async () => {
+  const wrapper = await read("../windows/run-supervisor.ps1");
+  assert.match(wrapper, /SINGLE_CONVERSATION_READONLY_CHECK_RECOVERY=True/);
+  assert.match(wrapper, /kind -eq 'TASK_STATUS_CHECK'/);
+  assert.match(wrapper, /state -eq 'ENQUEUED'/);
+  assert.match(wrapper, /retry_count -lt 1/);
+  assert.match(wrapper, /last_error_code -eq 'EXACT_ONCE_FAILED'/);
+  assert.match(wrapper, /TASK_EXECUTION never gets this exception/);
+  assert.match(wrapper, /SINGLE_CONVERSATION_BLOCKED_PAUSE=True/);
+});
