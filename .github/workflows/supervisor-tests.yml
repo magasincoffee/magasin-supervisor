@@ -58,7 +58,8 @@ jobs:
             test/snapshot-access.test.mjs `
             test/sc013-production-deploy-boundary.test.mjs `
             test/sc013-live-observer-contract.test.mjs `
-            test/sc013-owner-start-authority.test.mjs
+            test/sc013-owner-start-authority.test.mjs `
+            test/supervisor-guardian.test.mjs
       - name: Confirm no production mutation
         shell: powershell
         run: Write-Host "ZERO_PRODUCTION_MUTATION=True"

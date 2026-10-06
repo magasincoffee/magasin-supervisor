@@ -37,6 +37,7 @@ jobs:
             test/autostart-recovery.test.mjs `
             test/windows-installer-upgrade.test.mjs `
             test/windows-repair.test.mjs `
-            test/windows-powershell-syntax.test.mjs
+            test/windows-powershell-syntax.test.mjs `
+            test/supervisor-guardian.test.mjs
           Write-Host "AUTOSTART_INSTALL_CONTRACT_PASS=True"
           Write-Host "ZERO_PRODUCTION_MUTATION=True"

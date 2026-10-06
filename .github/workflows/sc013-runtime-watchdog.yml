@@ -1,8 +1,6 @@
 name: SC-013 Runtime Watchdog
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_dispatch:
   push:
     branches:
@@ -27,5 +25,5 @@ jobs:
         shell: cmd
         run: |
           @echo off
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\sc013-runtime-watchdog.ps1" -TargetComputer "DESKTOP-4K7IM13" -NonTargetHoldSeconds 0 -MaxPreparedSeconds 180 -MaxEnqueuedSeconds 180
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".github\scripts\sc013-runtime-watchdog.ps1" -TargetComputer "DESKTOP-H4A16IL" -NonTargetHoldSeconds 0 -MaxPreparedSeconds 180 -MaxEnqueuedSeconds 180
           exit /b %ERRORLEVEL%

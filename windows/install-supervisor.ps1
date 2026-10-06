@@ -28,6 +28,19 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Silen
     }
 Start-Sleep -Milliseconds 500
 
+# The autonomous guardian may recover the wrapper, so stop it before replacing
+# runtime files. It is restarted from the exact installed version after upgrade.
+Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object {
+        $_.CommandLine -and
+        $_.CommandLine -like '*supervisor-guardian.ps1*' -and
+        $_.CommandLine -notlike '*start-supervisor-guardian.ps1*' -and
+        $_.CommandLine -like "*$root*"
+    } |
+    ForEach-Object {
+        Write-Host "Stopping existing Supervisor guardian PID $($_.ProcessId) before runtime upgrade."
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    }
 # The local watchdog is independent from the Supervisor wrapper, but it reads
 # runtime scripts. Stop only that read-only observer before replacing runtime,
 # then restart it from the newly installed version after the upgrade.
@@ -193,6 +206,15 @@ if ($LASTEXITCODE -ne 0) {
     throw "Local watchdog start failed with exit code $LASTEXITCODE."
 }
 Write-Host 'LOCAL_WATCHDOG_INSTALLED_RUNNING=True'
+$startSupervisorGuardian = Join-Path $runtime 'windows\start-supervisor-guardian.ps1'
+if (-not (Test-Path $startSupervisorGuardian -PathType Leaf)) {
+    throw "Supervisor guardian launcher is missing from installed runtime: $startSupervisorGuardian"
+}
+& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $startSupervisorGuardian -WaitForHeartbeat
+if ($LASTEXITCODE -ne 0) {
+    throw "Supervisor guardian start failed with exit code $LASTEXITCODE."
+}
+Write-Host 'SUPERVISOR_GUARDIAN_INSTALLED_RUNNING=True'
 
 Write-Host "Installed runtime: $runtime"
 Write-Host "Unified control panel: $shortcutPath"
