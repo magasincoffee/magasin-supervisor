@@ -782,6 +782,8 @@ Canonical fix:
 
 43. transient Windows state-file rename contention MUST NOT cause avoidable Supervisor restart loops. Atomic JSON replacement of durable Supervisor state may retry only the known transient Windows sharing codes `EPERM`, `EACCES`, and `EBUSY` with bounded exponential backoff. The default retry window must be long enough to tolerate multi-second antivirus/read-only observer locks observed in production, while remaining bounded, Windows-only, and preserving the existing durable destination until one atomic rename succeeds. The implementation MUST NOT delete the destination as a workaround, MUST NOT retry unrelated errors, and MUST still fail closed if the bounded retry budget is exhausted.
 
+44. read-only local ChatGPT UI health probes MUST NOT compete materially with the production Supervisor runtime for the same CDP transport. The disposable probe must bound both CDP attach/open and page-probe operations to a few seconds, exit with structured error evidence on timeout, and run at a lower cadence than process/watchdog health checks. Process/runner/watchdog health remains fast; expensive UI probing is diagnostic only and must never monopolize CDP long enough to delay task-response reconciliation.
+
 ### SC-013 live first-failure progression rule
 
 For SC-013 production debugging, the Robot MUST use a real production-length workload and advance strictly one blocking stage at a time:
