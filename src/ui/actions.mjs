@@ -1123,10 +1123,29 @@ export async function sendComposerInstruction(
     // Prefer a Send control from the same composer form before falling back to
     // page-wide semantics. This prevents unrelated visible controls elsewhere in
     // a long ChatGPT conversation from being treated as the active submit button.
-    const directSend = await clickReadyDirectSendControl(page, {
-      composer: textSet.composer,
-      recorder
-    });
+    let directSend = null;
+    let primaryClickFailedWithPromptIntact = false;
+    try {
+      directSend = await clickReadyDirectSendControl(page, {
+        composer: textSet.composer,
+        recorder
+      });
+    } catch (error) {
+      await recorder.capture("primary-submit-exception").catch(() => {});
+      const recoveryComposer = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+      const stillExact = recoveryComposer
+        ? await composerContainsExactInstruction(recoveryComposer, instruction)
+        : null;
+      if (stillExact !== true) throw error;
+
+      // A click timeout while the exact prompt is still visibly present is
+      // positive non-submission evidence. Do not convert this into a durable
+      // EXACT_ONCE_FAILED block; skip the same semantic button and use the
+      // bounded Enter recovery below.
+      primaryClickFailedWithPromptIntact = true;
+      textSet.composer = recoveryComposer || textSet.composer;
+    }
+
     let sendMethod = directSend?.method || null;
     let sendSelector = directSend?.selector || null;
     let sendScope = directSend?.scope || null;
@@ -1141,7 +1160,7 @@ export async function sendComposerInstruction(
 
     if (!directSend) {
       const afterFill = await inspectActionSurface(page);
-      if (afterFill.sendControl) {
+      if (afterFill.sendControl && !primaryClickFailedWithPromptIntact) {
         sendSelector = afterFill.sendControl.testId
           ? `[data-testid="${afterFill.sendControl.testId}"]`
           : null;
