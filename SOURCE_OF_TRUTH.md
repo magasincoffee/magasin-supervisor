@@ -867,16 +867,37 @@ Current Owner-delegated overnight stabilization authority:
 - forbidden even while delegated: ambiguous resend, bypassing exact-once evidence, speculative later-stage fixes, disabling fail-closed safeguards merely to force progress, or START on any machine other than the exact delegated target;
 - after expiry, genuine Owner block, or Owner revocation, remote START authority ends automatically and the process returns to manual Owner START.
 
+
+### SC-013 current 24/7 autonomous operations delegation (2026-10-06)
+
+The Owner delegates continuous unattended operational recovery on exactly DESKTOP-H4A16IL until explicitly revoked or Owner STOP is asserted. This supersedes the expired 2026-10-04 overnight delegation for current production operation on this target only and does not authorize mutation of any other machine.
+
+Operational objective:
+- keep the Robot available 24/7 and minimize safe time-to-result across ChatGPT, GitHub Actions, and task-scoped Supabase work;
+- prefer targeted QA/change-impact checks, batch repair, authoritative-SHA tracking, and bounded adaptive polling before broad release gates;
+- do not wait on terminal external runs; completed failure transitions to same-task diagnosis/repair, and completed success transitions to verification/advance;
+- when Supabase is part of the authoritative task, prefer bounded metadata reads plus batched SQL/RPC/data operations over repeated dashboard/UI probing; the guardian itself never performs database writes.
+
+A separate process-layer guardian is authorized under these strict boundaries:
+1. it may restart the independent local watchdog if that observer is absent or its heartbeat is stale;
+2. it may start the GitHub self-hosted runner service if the configured Supervisor runner service is stopped;
+3. it may relaunch run-supervisor.ps1 only when Owner STOP is absent, a valid SINGLE_CONVERSATION_V1 control record exists, the wrapper is absent, and durable automation is RUNNING or no state exists yet;
+4. it MUST NOT clear STOP or AUTOSTART_DISABLED, send/click/type in ChatGPT, mutate single-conversation-state.json, resend an outbound transaction, alter SOT task authority, deploy code, or perform Supabase writes;
+5. it MUST NOT auto-relaunch a durable BLOCKED or DONE automation state;
+6. wrapper recovery is durably rate-limited across guardian restarts to at most five starts per hour with at least 90 seconds between starts; the recovery-attempt timestamps are persisted before process creation, and exhausted budget is evidence for deep diagnosis, not authority for an unbounded restart loop;
+7. run-supervisor.ps1 remains the final process-level STOP-latch check, so a race with a new Owner STOP fails closed.
+
+The independent read-only watchdog remains the first evidence source. The guardian is a second process/service recovery layer, not a replacement for exact-once runtime recovery. A separate ChatGPT condition-watch may inspect the target hourly, follow this SOT, diagnose the earliest failing boundary, and perform only SOT-authorized safe repairs. Owner notification is reserved for genuine Owner-required boundaries such as login/MFA/CAPTCHA, credentials/permissions, explicit business approval/decision, Owner STOP, or exhausted bounded repair.
 ### SC-013 unattended observation policy
 
 While SC-013 remains IN PROGRESS, production evidence collection is unattended:
-- `windows/local-watchdog.ps1` runs as an independent local observer on `DESKTOP-4K7IM13`, polling runtime/state truth every five seconds and sampling the live ChatGPT UI read-only every 30 seconds when CDP is healthy;
+- `windows/local-watchdog.ps1` runs as an independent local observer on `DESKTOP-H4A16IL`, polling runtime/state truth every five seconds and sampling the live ChatGPT UI read-only every 30 seconds when CDP is healthy;
 - the local observer writes a fresh `local-watchdog-status.json`, bounded `local-watchdog-events.ndjson`, and fault snapshots under `local-watchdog-failures`; persisted evidence contains state/UI health metadata and digests, not ChatGPT conversation URLs or message text;
 - the local observer survives Robot BLOCKED/STOPPED states and remains active during explicit Owner STOP; Owner STOP is recorded as authoritative and is not classified as a Robot fault;
 - Windows logon registers the local observer separately from Robot recovery, and runtime install/hotpatch restarts the observer from the exact installed version without changing project state or sending ChatGPT messages;
-- `.github/workflows/sc013-runtime-watchdog.yml` independently samples the real target every five minutes, verifies that the local heartbeat is fresh, and surfaces local ChatGPT/runtime fault codes into GitHub Actions evidence;
+- `.github/workflows/sc013-runtime-watchdog.yml` is a manual/request-marker read-only diagnostic for `DESKTOP-H4A16IL`; its five-minute schedule is intentionally removed so GitHub watchdog work cannot compete with production tasks on the self-hosted runner; continuous coverage comes from the five-second local watchdog, the process-layer guardian, and the hourly ChatGPT condition-watch;
 - when a non-Owner fault is detected and CDP remains reachable, the local observer captures the exact active-runtime match, safe UI classification, composer readiness/digest/length, and ChatGPT error controls without navigating, typing, submitting, retrying, or repairing;
-- neither watchdog may repair or send by itself; repair still follows the SC-013 first-failure rule, with tests and exact-main deployment before the production rerun;
+- the local and GitHub watchdogs remain read-only and never send/repair by themselves; the separate Supervisor guardian may perform only the bounded process/service repairs authorized by the current 24/7 delegation above, while any code/data/transaction repair still follows the SC-013 first-failure rule with tests and exact-main deployment before production rerun;
 - watchdog/diagnostic workflows are observation-only and MUST NOT be used as an implicit deployment trigger; code review, CI, and read-only inspection must leave the installed production runtime and live Robot session untouched;
 - the interactive SC-013 first-failure observer is armed only by explicit `workflow_dispatch` or `.github/sc013-live-observation-request.json`; it waits read-only for Owner START and runs one attempt only, while long-duration unattended coverage remains the responsibility of the independent local watchdog and the scheduled/condition-watch monitoring layers;
 - SC-013 remains IN PROGRESS until the required same-conversation multi-cycle production evidence is sustained without BLOCKED state, duplicate sends, or legacy workflow interference.
