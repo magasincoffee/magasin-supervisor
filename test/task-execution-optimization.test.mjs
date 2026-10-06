@@ -132,6 +132,54 @@ test("4. queued/in-progress external job uses bounded adaptive CHECK_AFTER_SECON
   assert.equal(result.control.status, "RUNNING");
   assert.equal(result.control.check_after_seconds, 20);
 });
+test("4b. repeated 20s assistant hint cannot pin the same run to 20s forever", () => {
+  let previous = null;
+  const observed = [];
+  for (let index = 0; index < 4; index += 1) {
+    const result = reconcile(
+      previous,
+      evidence({
+        workflow_status: "in_progress",
+        workflow_run_id: "37337050485"
+      }),
+      index === 0 ? "TASK_EXECUTION" : "TASK_STATUS_CHECK"
+    );
+    // The protocol keeps returning 20 seconds, as in the production XSTORE case.
+    const forcedTwentyControl = reconcileTaskControlWithExternalRun({
+      taskControl: taskControl("RUNNING", 20),
+      evidence: evidence({
+        workflow_status: "in_progress",
+        workflow_run_id: "37337050485"
+      }),
+      externalWork: result.external_work,
+      expectedTaskId: "XSTORE-019B"
+    });
+    observed.push(forcedTwentyControl.check_after_seconds);
+    previous = result.external_work;
+  }
+  assert.deepEqual(observed, [20, 30, 60, 120]);
+});
+
+test("4c. a new workflow run resets adaptive polling to the first interval", () => {
+  const first = reconcile(null, evidence({
+    workflow_status: "in_progress",
+    workflow_run_id: "37337050485"
+  }));
+  const second = reconcile(first.external_work, evidence({
+    workflow_status: "in_progress",
+    workflow_run_id: "37337050485"
+  }), "TASK_STATUS_CHECK");
+  assert.equal(second.external_work.poll_attempt, 2);
+
+  const newerRun = reconcile(second.external_work, evidence({
+    workflow_status: "queued",
+    workflow_run_id: "37337059999",
+    commit_sha: "b".repeat(40)
+  }), "TASK_EXECUTION");
+  assert.equal(newerRun.external_work.poll_attempt, 1);
+  assert.equal(newerRun.control.check_after_seconds, 20);
+});
+
 
 test("5. completed success never waits after result exists", () => {
   const result = reconcile(null, evidence({
