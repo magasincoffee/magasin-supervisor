@@ -458,9 +458,28 @@ try {
                 $singleStateAfterRun = Get-Content $singleConversationStateFile -Raw -Encoding UTF8 | ConvertFrom-Json
                 $singleAutomationAfterRun = [string]$singleStateAfterRun.automation.status
                 if ($singleAutomationAfterRun -eq 'BLOCKED') {
-                    Write-Host 'SINGLE_CONVERSATION_BLOCKED_PAUSE=True'
-                    Write-Host 'Supervisor single-conversation state is BLOCKED; stopping wrapper retry loop to prevent chat churn.'
-                    break
+                    $outboundAfterRun = $singleStateAfterRun.outbound
+                    $recoverableReadOnlyCheck = [bool](
+                        [string]$outboundAfterRun.kind -eq 'TASK_STATUS_CHECK' -and
+                        [string]$outboundAfterRun.state -eq 'ENQUEUED' -and
+                        [int]$outboundAfterRun.retry_count -lt 1 -and
+                        [string]$outboundAfterRun.last_error_code -eq 'EXACT_ONCE_FAILED' -and
+                        -not [string]::IsNullOrWhiteSpace([string]$outboundAfterRun.message_id) -and
+                        -not [string]::IsNullOrWhiteSpace([string]$outboundAfterRun.message_digest)
+                    )
+
+                    if ($recoverableReadOnlyCheck) {
+                        # TASK_STATUS_CHECK is read-only. A single bounded
+                        # runtime restart lets the exact-once reconciler prove
+                        # non-delivery from the rebound chat and retry the same
+                        # CHECK once. TASK_EXECUTION never gets this exception.
+                        Write-Host 'SINGLE_CONVERSATION_READONLY_CHECK_RECOVERY=True'
+                        Write-Host 'Recovering one ENQUEUED TASK_STATUS_CHECK after send failure; exact-once retry budget remains authoritative.'
+                    } else {
+                        Write-Host 'SINGLE_CONVERSATION_BLOCKED_PAUSE=True'
+                        Write-Host 'Supervisor single-conversation state is BLOCKED; stopping wrapper retry loop to prevent chat churn.'
+                        break
+                    }
                 }
             } catch {
                 Write-Host "Single-conversation BLOCKED-state inspection failed closed: $($_.Exception.Message)"
