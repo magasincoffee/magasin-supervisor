@@ -13,10 +13,10 @@ export async function renameAtomicSnapshotWithRetry(
     rename = fs.rename,
     platform = process.platform,
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-    maxAttempts = 8
+    maxAttempts = 14
   } = {}
 ) {
-  const attempts = Math.max(1, Math.min(20, Number(maxAttempts) || 8));
+  const attempts = Math.max(1, Math.min(20, Number(maxAttempts) || 14));
   let attempt = 0;
 
   while (true) {

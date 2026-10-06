@@ -64,6 +64,28 @@ test("Windows atomic rename retries transient destination sharing failures witho
   assert.deepEqual(calls[0], ["temp.json", "state.json"]);
 });
 
+test("Windows atomic rename default retry window survives multi-second transient locks", async () => {
+  let attempts = 0;
+  const sleeps = [];
+
+  await renameAtomicSnapshotWithRetry("temp.json", "state.json", {
+    platform: "win32",
+    rename: async () => {
+      attempts += 1;
+      if (attempts <= 10) {
+        const error = new Error("locked");
+        error.code = "EPERM";
+        throw error;
+      }
+    },
+    sleep: async (ms) => { sleeps.push(ms); }
+  });
+
+  assert.equal(attempts, 11);
+  assert.equal(sleeps.length, 10);
+  assert.ok(sleeps.reduce((sum, value) => sum + value, 0) >= 2_700);
+});
+
 test("atomic rename retry remains bounded and Windows-only", async () => {
   let windowsAttempts = 0;
   await assert.rejects(
