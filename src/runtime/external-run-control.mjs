@@ -604,11 +604,20 @@ export function reconcileTaskControlWithExternalRun({
         pollAttempt: externalWork.poll_attempt || 1
       }) ||
       defaultCheckAfterSeconds;
+    // CHECK_AFTER_SECONDS from the assistant is a valid lower-bound hint,
+    // but it must not collapse the runtime's adaptive cadence back to 20s on
+    // every CHECK of the same durable run. Preserve the larger of the assistant
+    // request and the adaptive same-run cadence. A new workflow run resets the
+    // adaptive attempt in reconcileExternalRunState, while terminal runs return
+    // through non-WAIT_EXTERNAL decisions with zero delay.
     return {
       status: "RUNNING",
       task_id: expected,
       next_task_id: null,
-      check_after_seconds: Math.max(1, Math.min(3600, requested, adaptive))
+      check_after_seconds: Math.max(
+        1,
+        Math.min(3600, Math.max(requested, adaptive))
+      )
     };
   }
 
