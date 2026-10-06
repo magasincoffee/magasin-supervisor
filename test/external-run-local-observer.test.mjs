@@ -115,6 +115,96 @@ test("local observer distinguishes active, terminal, obsolete, and unavailable r
   assert.equal(unavailable.reason, "HTTP_403");
 });
 
+test("terminal tracked run waits locally while sibling workflows on the authoritative SHA are active", async () => {
+  let call = 0;
+  const observed = await inspectTrackedGitHubRun({
+    externalWork: activeExternal(),
+    token: "",
+    fetchImpl: async () => {
+      call += 1;
+      if (call === 1) {
+        return githubResponse({ status: "completed", conclusion: "failure" });
+      }
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            workflow_runs: [
+              {
+                id: 37337050485,
+                status: "completed",
+                conclusion: "failure",
+                head_sha: "ffe5524f415c303951ff23717a833b7597ea524b"
+              },
+              {
+                id: 37337050486,
+                status: "in_progress",
+                conclusion: null,
+                head_sha: "ffe5524f415c303951ff23717a833b7597ea524b"
+              }
+            ]
+          };
+        }
+      };
+    }
+  });
+
+  assert.equal(observed.supported, true);
+  assert.equal(observed.authority, "AUTHORITATIVE");
+  assert.equal(observed.tracked_run_terminal, true);
+  assert.equal(observed.run_set_supported, true);
+  assert.equal(observed.active, true);
+  assert.equal(observed.terminal, false);
+  assert.equal(observed.status, "aggregate_in_progress");
+  assert.equal(observed.run_set_active_count, 1);
+  assert.equal(observed.run_set_failure_count, 1);
+});
+
+test("terminal tracked run wakes once all authoritative-SHA sibling workflows are terminal", async () => {
+  let call = 0;
+  const observed = await inspectTrackedGitHubRun({
+    externalWork: activeExternal(),
+    token: "",
+    fetchImpl: async () => {
+      call += 1;
+      if (call === 1) {
+        return githubResponse({ status: "completed", conclusion: "failure" });
+      }
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            workflow_runs: [
+              {
+                id: 37337050485,
+                status: "completed",
+                conclusion: "failure",
+                head_sha: "ffe5524f415c303951ff23717a833b7597ea524b"
+              },
+              {
+                id: 37337050486,
+                status: "completed",
+                conclusion: "success",
+                head_sha: "ffe5524f415c303951ff23717a833b7597ea524b"
+              }
+            ]
+          };
+        }
+      };
+    }
+  });
+
+  assert.equal(observed.supported, true);
+  assert.equal(observed.authority, "AUTHORITATIVE");
+  assert.equal(observed.run_set_supported, true);
+  assert.equal(observed.active, false);
+  assert.equal(observed.terminal, true);
+  assert.equal(observed.run_set_active_count, 0);
+  assert.equal(observed.run_set_failure_count, 1);
+});
+
 test("local monitor cadence is bounded", () => {
   assert.equal(nextLocalMonitorSeconds(1), 20);
   assert.equal(nextLocalMonitorSeconds(2), 30);
@@ -172,7 +262,7 @@ test("RUNNING wait suppresses redundant ChatGPT CHECK turns until tracked GitHub
 
     assert.equal(result.wake_reason, "LOCAL_EXTERNAL_TERMINAL");
     assert.equal(result.local_external_checks, 3);
-    assert.equal(fetchCount, 3);
+    assert.equal(fetchCount, 4);
     assert.ok(recoveryCount > 0);
     assert.equal(clock, 70_000);
 

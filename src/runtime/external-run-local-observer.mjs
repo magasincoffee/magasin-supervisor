@@ -81,6 +81,69 @@ export async function inspectTrackedGitHubRun({
       };
     }
 
+    if (status === "completed" && authoritative && headSha && sameSha(authoritative, headSha)) {
+      const runSetResponse = await fetchImpl(
+        `https://api.github.com/repos/${descriptor.repo}/actions/runs?head_sha=${encodeURIComponent(headSha)}&per_page=100`,
+        { headers, signal: controller.signal }
+      );
+
+      if (runSetResponse?.ok) {
+        const runSetBody = await runSetResponse.json();
+        const sameShaRuns = Array.isArray(runSetBody?.workflow_runs)
+          ? runSetBody.workflow_runs.filter((run) => sameSha(headSha, run?.head_sha))
+          : null;
+
+        if (sameShaRuns) {
+          const activeRuns = sameShaRuns.filter((run) =>
+            ACTIVE.has(clean(run?.status).toLowerCase())
+          );
+          const completedRuns = sameShaRuns.filter((run) =>
+            clean(run?.status).toLowerCase() === "completed"
+          );
+          const failedRuns = completedRuns.filter((run) => {
+            const value = clean(run?.conclusion).toLowerCase();
+            return Boolean(value && value !== "success" && value !== "skipped" && value !== "neutral");
+          });
+
+          if (activeRuns.length > 0) {
+            return {
+              supported: true,
+              authority: "AUTHORITATIVE",
+              terminal: false,
+              active: true,
+              status: "aggregate_in_progress",
+              conclusion: null,
+              head_sha: headSha,
+              updated_at: clean(body?.updated_at) || null,
+              tracked_run_terminal: true,
+              run_set_supported: true,
+              run_set_count: sameShaRuns.length,
+              run_set_active_count: activeRuns.length,
+              run_set_completed_count: completedRuns.length,
+              run_set_failure_count: failedRuns.length
+            };
+          }
+
+          return {
+            supported: true,
+            authority: "AUTHORITATIVE",
+            terminal: true,
+            active: false,
+            status,
+            conclusion,
+            head_sha: headSha,
+            updated_at: clean(body?.updated_at) || null,
+            tracked_run_terminal: true,
+            run_set_supported: true,
+            run_set_count: sameShaRuns.length,
+            run_set_active_count: 0,
+            run_set_completed_count: completedRuns.length,
+            run_set_failure_count: failedRuns.length
+          };
+        }
+      }
+    }
+
     return {
       supported: true,
       authority: "AUTHORITATIVE",
@@ -89,7 +152,8 @@ export async function inspectTrackedGitHubRun({
       status,
       conclusion,
       head_sha: headSha || authoritative || null,
-      updated_at: clean(body?.updated_at) || null
+      updated_at: clean(body?.updated_at) || null,
+      run_set_supported: false
     };
   } catch (error) {
     return {
