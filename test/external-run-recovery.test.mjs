@@ -170,6 +170,52 @@ test("SC-013 repair commit tracks the new run instead of the completed failed ru
   assert.equal(repaired.taskControl.status, "RUNNING");
 });
 
+test("SC-013 obsolete external run does not override terminal COMPLETE next-task advancement", () => {
+  const terminal = {
+    status: "COMPLETE",
+    task_id: "XSTORE-019H",
+    next_task_id: "XSTORE-019J",
+    check_after_seconds: 0
+  };
+  const staleEvidence = {
+    ...evidence(),
+    task_id: "XSTORE-019H",
+    workflow_status: "completed",
+    workflow_conclusion: "success"
+  };
+  const reconciled = reconcileTaskControlWithExternalRun({
+    taskControl: terminal,
+    evidence: staleEvidence,
+    externalWork: { decision: "OBSOLETE_EXTERNAL" },
+    expectedTaskId: "XSTORE-019H"
+  });
+  assert.deepEqual(reconciled, terminal);
+});
+
+test("SC-013 obsolete external run still returns the same task when control is non-terminal", () => {
+  const staleEvidence = {
+    ...evidence(),
+    task_id: "XSTORE-019H"
+  };
+  const reconciled = reconcileTaskControlWithExternalRun({
+    taskControl: {
+      status: "RUNNING",
+      task_id: "XSTORE-019H",
+      next_task_id: null,
+      check_after_seconds: 120
+    },
+    evidence: staleEvidence,
+    externalWork: { decision: "OBSOLETE_EXTERNAL" },
+    expectedTaskId: "XSTORE-019H"
+  });
+  assert.deepEqual(reconciled, {
+    status: "READY",
+    task_id: null,
+    next_task_id: "XSTORE-019H",
+    check_after_seconds: 0
+  });
+});
+
 test("SC-013 no workflow run is TRIGGER_EXTERNAL_RUN, not indefinite RUNNING", () => {
   const missing = evidence({
     workflow_run_id: null,
