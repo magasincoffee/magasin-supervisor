@@ -459,8 +459,8 @@ try {
                 $singleAutomationAfterRun = [string]$singleStateAfterRun.automation.status
                 if ($singleAutomationAfterRun -eq 'BLOCKED') {
                     $outboundAfterRun = $singleStateAfterRun.outbound
-                    $recoverableReadOnlyCheck = [bool](
-                        [string]$outboundAfterRun.kind -eq 'TASK_STATUS_CHECK' -and
+                    $recoverableTechnicalSend = [bool](
+                        [string]$outboundAfterRun.kind -in @('TASK_STATUS_CHECK','TASK_EXECUTION') -and
                         [string]$outboundAfterRun.state -eq 'ENQUEUED' -and
                         [int]$outboundAfterRun.retry_count -lt 1 -and
                         [string]$outboundAfterRun.last_error_code -eq 'EXACT_ONCE_FAILED' -and
@@ -468,13 +468,15 @@ try {
                         -not [string]::IsNullOrWhiteSpace([string]$outboundAfterRun.message_digest)
                     )
 
-                    if ($recoverableReadOnlyCheck) {
-                        # TASK_STATUS_CHECK is read-only. A single bounded
-                        # runtime restart lets the exact-once reconciler prove
-                        # non-delivery from the rebound chat and retry the same
-                        # CHECK once. TASK_EXECUTION never gets this exception.
-                        Write-Host 'SINGLE_CONVERSATION_READONLY_CHECK_RECOVERY=True'
-                        Write-Host 'Recovering one ENQUEUED TASK_STATUS_CHECK after send failure; exact-once retry budget remains authoritative.'
+                    if ($recoverableTechnicalSend) {
+                        # A single bounded runtime restart is safe for both
+                        # CHECK and EXECUTE because the exact-once reconciler
+                        # owns the decision after rebind: exact matching user
+                        # turn/correlation suppresses resend; otherwise only
+                        # positive non-delivery may consume the one retry.
+                        # The wrapper itself never actuates the composer.
+                        Write-Host 'SINGLE_CONVERSATION_TECHNICAL_SEND_RECOVERY=True'
+                        Write-Host "Recovering one ENQUEUED $([string]$outboundAfterRun.kind) after technical send failure; exact-once retry budget remains authoritative."
                     } else {
                         Write-Host 'SINGLE_CONVERSATION_BLOCKED_PAUSE=True'
                         Write-Host 'Supervisor single-conversation state is BLOCKED; stopping wrapper retry loop to prevent chat churn.'

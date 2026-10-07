@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const guardian = fs.readFileSync('windows/supervisor-guardian.ps1', 'utf8');
+const wrapper = fs.readFileSync('windows/run-supervisor.ps1', 'utf8');
 const launcher = fs.readFileSync('windows/start-supervisor-guardian.ps1', 'utf8');
 const installer = fs.readFileSync('windows/install-supervisor.ps1', 'utf8');
 const autostart = fs.readFileSync('windows/install-autostart.ps1', 'utf8');
@@ -21,8 +22,14 @@ test('SC-013 guardian is bounded and fail-closed', () => {
   assert.match(guardian, /Save-RestartHistory/);
   assert.match(guardian, /Persist the recovery attempt before process creation/);
   assert.match(guardian, /Test-OwnerStop/);
-  assert.match(guardian, /BLOCKED','DONE/);
+  assert.match(guardian, /TASK_STATUS_CHECK','TASK_EXECUTION/);
+  assert.match(guardian, /EXACT_ONCE_FAILED/);
+  assert.match(guardian, /retry_count -lt 1/);
+  assert.match(guardian, /The rebound runtime's exact-once reconciler/);
   assert.match(guardian, /run-supervisor\.ps1/);
+  assert.match(wrapper, /SINGLE_CONVERSATION_TECHNICAL_SEND_RECOVERY=True/);
+  assert.match(wrapper, /TASK_STATUS_CHECK','TASK_EXECUTION/);
+  assert.match(wrapper, /exact-once retry budget remains authoritative/);
   assert.doesNotMatch(guardian, /Clear-LifecycleOwnerStopLatches/);
   assert.doesNotMatch(guardian, /(?:Set-Content|Add-Content|Move-Item|Remove-Item)[^\n]*\$statePath/);
   assert.doesNotMatch(guardian, /composer|keyboard|click|submit/i);

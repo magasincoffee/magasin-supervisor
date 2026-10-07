@@ -136,19 +136,22 @@ test("SC-009 production wrapper does not require legacy target.json for SINGLE_C
 });
 
 
-test("SC-012 production wrapper pauses durable BLOCKED state except one bounded read-only CHECK recovery", async () => {
+test("SC-013 production wrapper pauses durable BLOCKED state except one bounded exact-once task-send recovery", async () => {
   const run = await read("../windows/run-supervisor.ps1");
   const blocked = run.indexOf("SINGLE_CONVERSATION_BLOCKED_PAUSE=True");
   const cdpRecovery = run.indexOf("$nodeExitCode -eq 75", blocked);
   assert.ok(blocked >= 0);
   assert.ok(cdpRecovery > blocked);
-  const guard = run.slice(Math.max(0, blocked - 3200), cdpRecovery);
+  const guard = run.slice(Math.max(0, blocked - 3600), cdpRecovery);
   assert.match(guard, /\$runtimeMode -eq 'SINGLE_CONVERSATION_V1'/);
   assert.match(guard, /\$singleAutomationAfterRun -eq 'BLOCKED'/);
-  assert.match(guard, /\$recoverableReadOnlyCheck/);
-  assert.match(guard, /kind -eq 'TASK_STATUS_CHECK'/);
+  assert.match(guard, /\$recoverableTechnicalSend/);
+  assert.match(guard, /TASK_STATUS_CHECK','TASK_EXECUTION/);
+  assert.match(guard, /state -eq 'ENQUEUED'/);
   assert.match(guard, /retry_count -lt 1/);
-  assert.match(guard, /SINGLE_CONVERSATION_READONLY_CHECK_RECOVERY=True/);
+  assert.match(guard, /last_error_code -eq 'EXACT_ONCE_FAILED'/);
+  assert.match(guard, /SINGLE_CONVERSATION_TECHNICAL_SEND_RECOVERY=True/);
+  assert.match(guard, /exact-once retry budget remains authoritative/);
   assert.match(guard, /SINGLE_CONVERSATION_BLOCKED_PAUSE=True/);
   assert.match(guard, /break/);
 });
