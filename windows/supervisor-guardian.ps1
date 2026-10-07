@@ -122,7 +122,28 @@ function Test-StateAllowsProcessRecovery {
     if (-not $state) { return $true }
 
     $status = [string]$state.automation.status
-    if ($status -in @('BLOCKED','DONE')) { return $false }
+    if ($status -eq 'DONE') { return $false }
+
+    if ($status -eq 'BLOCKED') {
+        $outbound = $state.outbound
+        $recoverableTechnicalSend = [bool](
+            $outbound -and
+            [string]$outbound.kind -in @('TASK_STATUS_CHECK','TASK_EXECUTION') -and
+            [string]$outbound.state -eq 'ENQUEUED' -and
+            [int]$outbound.retry_count -lt 1 -and
+            [string]$outbound.last_error_code -eq 'EXACT_ONCE_FAILED' -and
+            -not [string]::IsNullOrWhiteSpace([string]$outbound.message_id) -and
+            -not [string]::IsNullOrWhiteSpace([string]$outbound.message_digest)
+        )
+        if ($recoverableTechnicalSend) {
+            # Guardian only restarts the wrapper. It never edits state or
+            # actuates ChatGPT. The rebound runtime's exact-once reconciler
+            # must prove delivery or positive non-delivery before any retry.
+            return $true
+        }
+        return $false
+    }
+
     return [bool]($status -eq 'RUNNING' -or [string]::IsNullOrWhiteSpace($status))
 }
 
