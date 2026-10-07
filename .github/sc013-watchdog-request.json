@@ -1,6 +1,6 @@
 {
   "schema_version": "sc013-watchdog-request.v1",
-  "target": "DESKTOP-4K7IM13",
-  "purpose": "Verify orphaned in-flight restart recovery after deploy 7d16b2744b27112e995f86d141e2972b3e0735f5.",
-  "rearm_nonce": "verify-orphan-recovery-20261005-1523"
+  "target": "DESKTOP-H4A16IL",
+  "purpose": "Read-only continuity check: verify Supervisor, Guardian, local watchdog, dedicated Chrome/CDP, and current automation state; pause only for genuine Owner review/security boundary.",
+  "rearm_nonce": "continuity-check-20261007-0742"
 }
