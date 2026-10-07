@@ -201,6 +201,67 @@ test("SC-006 polls delayed post-send user-turn evidence before marking DELIVERED
   }
 });
 
+test("SC-013 submit exception reconciles an already-rendered exact user turn without BLOCKED or resend", async () => {
+  const { root, statePath } = await makeState();
+  const message = "MAGASIN_EXECUTE_TASK_V1\nid=submit-timeout-delivered\nTASK_ID=XSTORE-019H";
+  let submitted = false;
+  let sends = 0;
+  try {
+    await prepareExactOnceOutbound(statePath, {
+      messageId: "submit-timeout-delivered",
+      message,
+      kind: "TASK_EXECUTION",
+      taskId: "XSTORE-019H",
+      baselineUserTurnId: "u0"
+    });
+
+    const result = await reconcileExactOnceOutbound({
+      statePath,
+      page: { async waitForTimeout() {} },
+      messageId: "submit-timeout-delivered",
+      message,
+      reconciliationProbes: 1,
+      reconciliationPollMs: 1,
+      inspectDraft: async () => ({ ready: true, has_text: false, digest: null }),
+      captureMatchingTurn: async () => submitted
+        ? {
+            confirmed: true,
+            turn_id: "u-delivered",
+            evidence: "exact-modern-user-turn"
+          }
+        : { confirmed: false, turn_id: null },
+      captureTurn: async (_page, role) => {
+        if (role !== "user") return null;
+        return submitted
+          ? { turn_id: "u-delivered", text: message }
+          : { turn_id: "u0", text: "older user turn" };
+      },
+      sendInstruction: async () => {
+        sends += 1;
+        submitted = true;
+        throw Object.assign(new Error("locator.click timeout after browser accepted submit"), {
+          name: "TimeoutError"
+        });
+      }
+    });
+
+    assert.equal(result.action, "SEND");
+    assert.equal(result.reason, "send-exception-reconciled-by-matching-user-turn");
+    assert.equal(sends, 1);
+
+    const durable = await readSingleConversationState(statePath);
+    assert.equal(durable.outbound.state, "DELIVERED");
+    assert.equal(durable.outbound.delivered_user_turn_id, "u-delivered");
+    assert.equal(durable.outbound.retry_count, 0);
+    assert.equal(durable.outbound.last_error_code, null);
+    assert.equal(durable.automation.status, "RUNNING");
+    assert.equal(durable.automation.phase, "WAIT_RESPONSE");
+    assert.equal(durable.automation.reason, null);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("SC-006 ambiguous post-send evidence is fail-closed across restart", async () => {
   const { root, statePath } = await makeState();
   const message = "MAGASIN_SINGLE_CONVERSATION_NEXT_V1 id=ambiguous";
