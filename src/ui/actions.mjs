@@ -1132,18 +1132,36 @@ export async function sendComposerInstruction(
       });
     } catch (error) {
       await recorder.capture("primary-submit-exception").catch(() => {});
-      const recoveryComposer = await waitForReadyComposer(page, { timeoutMs: 1_500 });
-      const stillExact = recoveryComposer
-        ? await composerContainsExactInstruction(recoveryComposer, instruction)
-        : null;
-      if (stillExact !== true) throw error;
 
-      // A click timeout while the exact prompt is still visibly present is
-      // positive non-submission evidence. Do not convert this into a durable
-      // EXACT_ONCE_FAILED block; skip the same semantic button and use the
-      // bounded Enter recovery below.
-      primaryClickFailedWithPromptIntact = true;
-      textSet.composer = recoveryComposer || textSet.composer;
+      // Playwright can time out after the browser has already accepted the
+      // click. Check the local composer transition before treating the click
+      // exception as a send failure. This is actuation evidence only; exact
+      // delivery/correlation is still enforced below by the user-turn gate.
+      const postExceptionSubmission = await waitForComposerSubmission(
+        page,
+        instruction,
+        { timeoutMs: 1_000, intervalMs: 100 }
+      );
+      if (postExceptionSubmission.confirmed) {
+        directSend = {
+          method: "direct-control-exception-transition",
+          selector: null,
+          scope: "composer-form"
+        };
+      } else {
+        const recoveryComposer = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+        const stillExact = recoveryComposer
+          ? await composerContainsExactInstruction(recoveryComposer, instruction)
+          : null;
+        if (stillExact !== true) throw error;
+
+        // A click timeout while the exact prompt is still visibly present is
+        // positive non-submission evidence. Do not convert this into a durable
+        // EXACT_ONCE_FAILED block; skip the same semantic button and use the
+        // bounded Enter recovery below.
+        primaryClickFailedWithPromptIntact = true;
+        textSet.composer = recoveryComposer || textSet.composer;
+      }
     }
 
     let sendMethod = directSend?.method || null;

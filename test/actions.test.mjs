@@ -573,6 +573,63 @@ test("composer send treats click timeout with intact prompt as safe non-submissi
   assert.match(source, /bounded Enter recovery below/);
 });
 
+test("composer send treats click timeout after proven composer transition as pending submit", async () => {
+  let composerText = "";
+  let clicks = 0;
+
+  const composer = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async isEditable() { return true; },
+    async fill(value) { composerText = value; },
+    async inputValue() { return composerText; },
+    async click() {},
+    async press() {}
+  };
+  const send = {
+    first() { return this; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() {
+      clicks += 1;
+      composerText = "";
+      const error = new Error("locator.click: Timeout 2000ms exceeded");
+      error.name = "TimeoutError";
+      throw error;
+    }
+  };
+  const page = {
+    locator(selector) {
+      if (selector.includes("send-button")) return send;
+      return composer;
+    },
+    async evaluate(fn) {
+      if (String(fn).includes("data-message-author-role")) {
+        return { readable: true, totalCount: 0, exactMatchCount: 0 };
+      }
+      return [];
+    },
+    async waitForTimeout() {},
+    async bringToFront() {},
+    keyboard: { async press() {}, async insertText() {} },
+    getByRole() { return send; }
+  };
+
+  const result = await sendComposerInstruction(
+    page,
+    "submit accepted before click timeout",
+    { dryRun: false, allowPendingUserTurn: true }
+  );
+
+  assert.ok(clicks >= 1);
+  assert.equal(result.executed, true);
+  assert.equal(result.user_turn_pending, true);
+  assert.equal(result.submit_evidence, "composer-changed");
+  assert.match(result.send_method, /exception-transition/);
+  assert.equal(result.rejection_class, undefined);
+});
+
 test("composer send recovers an inert Send click with one bounded Enter", async () => {
   let composerText = "";
   let clicks = 0;

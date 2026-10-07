@@ -4,7 +4,7 @@ param(
     [int]$MaxPreparedSeconds = 180,
     [int]$MaxEnqueuedSeconds = 180,
     [int]$MaxStartingBrowserSeconds = 180,
-    [int]$FailureCaptureCooldownSeconds = 60,
+    [int]$FailureCaptureCooldownSeconds = 300,
     [int64]$MaxEventLogBytes = 5242880
 )
 
@@ -259,12 +259,26 @@ try {
             }
             $state = $null
             $stateReadable = $false
+            $ownerReview = $false
 
             if (Test-Path $statePath -PathType Leaf) {
                 try {
                     $state = Get-Content $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
                     $stateReadable = $true
+                    $ownerReview = [bool](
+                        [string]$state.automation.status -eq 'BLOCKED' -and
+                        [string]$state.automation.phase -eq 'WAIT_OWNER' -and
+                        [string]$state.automation.reason -like 'OWNER_INPUT_REQUIRED:*'
+                    )
                 } catch {}
+            }
+
+            # WAIT_OWNER is an intentional parked state. Keep Chrome/CDP available
+            # for Owner review, but stop expensive UI probing/failure capture noise
+            # until the Owner gate is cleared.
+            if ($ownerReview) {
+                $lastUiProbe = $null
+                $lastUiProbeAt = $now
             }
 
             if ($truth.wrapper_alive) {
@@ -283,6 +297,7 @@ try {
             if (
                 $truth.cdp_healthy -and
                 $stateReadable -and
+                -not $ownerReview -and
                 (($now - $lastUiProbeAt).TotalSeconds -ge [Math]::Max(10, $UiProbeSeconds))
             ) {
                 $lastUiProbeAt = $now
@@ -291,7 +306,7 @@ try {
 
             $faults = New-Object 'System.Collections.Generic.HashSet[string]'
 
-            if (-not $ownerStop.blocked) {
+            if (-not $ownerStop.blocked -and -not $ownerReview) {
                 if (
                     $null -ne $runtimeDownSince -and
                     ($now - $runtimeDownSince).TotalSeconds -ge 30
@@ -323,7 +338,7 @@ try {
                 $retry = [int]$state.outbound.retry_count
                 $lastCode = [string]$state.outbound.last_error_code
 
-                if (-not $ownerStop.blocked) {
+                if (-not $ownerStop.blocked -and -not $ownerReview) {
                     if ($automation -eq 'BLOCKED') {
                         $code = if ($lastCode) { $lastCode } elseif ($reason) { $reason } else { 'UNKNOWN' }
                         [void]$faults.Add("BLOCKED:$code")
@@ -366,24 +381,29 @@ try {
                 }
             }
 
-            if (-not $ownerStop.blocked -and $lastUiProbe) {
-                if ([bool]$lastUiProbe.login_required) { [void]$faults.Add('CHATGPT_LOGIN_REQUIRED') }
-                if ([bool]$lastUiProbe.has_captcha) { [void]$faults.Add('CHATGPT_CAPTCHA') }
-                if ([bool]$lastUiProbe.has_network_error) { [void]$faults.Add('CHATGPT_NETWORK_ERROR') }
-                if ([bool]$lastUiProbe.has_transient_error) { [void]$faults.Add('CHATGPT_TRANSIENT_ERROR') }
-                if ([bool]$lastUiProbe.has_retry_control) { [void]$faults.Add('CHATGPT_RETRY_CONTROL') }
-                if ([bool]$lastUiProbe.conversation_full) { [void]$faults.Add('CHATGPT_CONVERSATION_FULL') }
-                if ([bool]$lastUiProbe.conversation_missing) { [void]$faults.Add('CHATGPT_CONVERSATION_MISSING') }
-                if ([bool]$lastUiProbe.conversation_access_denied) { [void]$faults.Add('CHATGPT_CONVERSATION_ACCESS_DENIED') }
-                if (
-                    $stateReadable -and
-                    [string]$state.conversation.status -eq 'ACTIVE' -and
-                    [bool]$lastUiProbe.expected_runtime_id_present -and
-                    -not [bool]$lastUiProbe.exact_runtime_match
-                ) {
-                    [void]$faults.Add('CHATGPT_RUNTIME_IDENTITY_MISMATCH')
-                }
-                if ($lastUiProbe.probe_error) {
+            if (-not $ownerStop.blocked -and -not $ownerReview -and $lastUiProbe) {
+                $uiProbeReliable = [string]::IsNullOrWhiteSpace([string]$lastUiProbe.probe_error)
+                if ($uiProbeReliable) {
+                    if ([bool]$lastUiProbe.login_required) { [void]$faults.Add('CHATGPT_LOGIN_REQUIRED') }
+                    if ([bool]$lastUiProbe.has_captcha) { [void]$faults.Add('CHATGPT_CAPTCHA') }
+                    if ([bool]$lastUiProbe.has_network_error) { [void]$faults.Add('CHATGPT_NETWORK_ERROR') }
+                    if ([bool]$lastUiProbe.has_transient_error) { [void]$faults.Add('CHATGPT_TRANSIENT_ERROR') }
+                    if ([bool]$lastUiProbe.has_retry_control) { [void]$faults.Add('CHATGPT_RETRY_CONTROL') }
+                    if ([bool]$lastUiProbe.conversation_full) { [void]$faults.Add('CHATGPT_CONVERSATION_FULL') }
+                    if ([bool]$lastUiProbe.conversation_missing) { [void]$faults.Add('CHATGPT_CONVERSATION_MISSING') }
+                    if ([bool]$lastUiProbe.conversation_access_denied) { [void]$faults.Add('CHATGPT_CONVERSATION_ACCESS_DENIED') }
+                    if (
+                        $stateReadable -and
+                        [string]$state.conversation.status -eq 'ACTIVE' -and
+                        [bool]$lastUiProbe.expected_runtime_id_present -and
+                        -not [bool]$lastUiProbe.exact_runtime_match
+                    ) {
+                        [void]$faults.Add('CHATGPT_RUNTIME_IDENTITY_MISMATCH')
+                    }
+                } else {
+                    # A failed probe cannot authoritatively classify login,
+                    # conversation identity, or page semantics. Record only the
+                    # probe failure and avoid cascading false fault signatures.
                     [void]$faults.Add("CHATGPT_PROBE:$([string]$lastUiProbe.probe_error)")
                 }
             }
@@ -392,6 +412,8 @@ try {
             $faultSignature = $faultList -join '|'
             $mode = if ($ownerStop.blocked) {
                 'OWNER_STOP'
+            } elseif ($ownerReview) {
+                'OWNER_REVIEW'
             } elseif ($faultList.Count -gt 0) {
                 'FAULT'
             } else {

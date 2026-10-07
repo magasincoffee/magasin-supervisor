@@ -36,7 +36,7 @@ test("SC-013 local ChatGPT probe never navigates or sends and persists no conver
   assert.match(source, /probePage\(page\)/);
   assert.match(source, /CDP_PROBE_OPEN_TIMEOUT/);
   assert.match(source, /CDP_PROBE_PAGE_TIMEOUT/);
-  assert.match(source, /2_500/);
+  assert.match(source, /4_000/);
   assert.match(source, /inspectComposerDraftDigest/);
   assert.match(source, /exact_runtime_match/);
   assert.match(source, /draft_readable/);
@@ -164,6 +164,26 @@ test("SC-013 rebind diagnostic captures direct local probe exit evidence", async
   assert.match(source, /Remove-Item \$probeOut,\$probeErr -Force/);
 });
 
+
+test("SC-013 watchdog treats explicit Owner review as a quiet parked state", async () => {
+  const source = await read("windows/local-watchdog.ps1");
+  assert.match(source, /\$ownerReview/);
+  assert.match(source, /OWNER_INPUT_REQUIRED:\*/);
+  assert.match(source, /'OWNER_REVIEW'/);
+  assert.match(source, /-not \$ownerReview -and \$lastUiProbe/);
+  assert.match(source, /FailureCaptureCooldownSeconds = 300/);
+});
+
+test("SC-013 watchdog does not cascade identity faults from an unreliable UI probe", async () => {
+  const source = await read("windows/local-watchdog.ps1");
+  assert.match(source, /\$uiProbeReliable = \[string\]::IsNullOrWhiteSpace/);
+  assert.match(source, /if \(\$uiProbeReliable\)/);
+  assert.match(source, /CHATGPT_PROBE:/);
+  const reliableIndex = source.indexOf("if ($uiProbeReliable)");
+  const identityIndex = source.indexOf("CHATGPT_RUNTIME_IDENTITY_MISMATCH", reliableIndex);
+  assert.ok(reliableIndex >= 0);
+  assert.ok(identityIndex > reliableIndex);
+});
 
 test("SC-013 local UI probe accepts valid JSON when Windows reports a null exit code", async () => {
   const source = await read("windows/local-watchdog.ps1");
