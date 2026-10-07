@@ -188,8 +188,12 @@ class SubmitFlightRecorder {
 
   async start() {
     await fs.mkdir(this.dir, { recursive: true });
+    // Playwright tracing is expensive on long ChatGPT conversations and can
+    // produce tens of megabytes per send attempt. Keep full tracing only for
+    // explicit debug mode; the default failure-only mode still records bounded
+    // DOM snapshots/screenshots and the summary needed for first-failure repair.
     const tracing = this.page?.context?.()?.tracing;
-    if (tracing && typeof tracing.start === "function") {
+    if (this.mode === "all" && tracing && typeof tracing.start === "function") {
       try {
         await bounded(tracing.start({
           screenshots: true,
