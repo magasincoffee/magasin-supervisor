@@ -621,7 +621,19 @@ export function reconcileTaskControlWithExternalRun({
     return { status: "READY", task_id: null, next_task_id: expected, check_after_seconds: 0 };
   }
 
-  if (["AUTO_REPAIR", "TRIGGER_EXTERNAL_RUN", "OBSOLETE_EXTERNAL"].includes(decision)) {
+  if (decision === "OBSOLETE_EXTERNAL") {
+    // OBSOLETE_EXTERNAL means the attached run is no longer authoritative for
+    // the current repo head. It must stop waiting on/reusing that run, but it
+    // must not override an explicit terminal SOT task-control decision.
+    // Otherwise a task already closed in SOT can loop forever on its stale run
+    // instead of advancing to NEXT_TASK_ID.
+    if (["COMPLETE", "DONE", "BLOCKED"].includes(taskControl.status)) {
+      return taskControl;
+    }
+    return { status: "READY", task_id: null, next_task_id: expected, check_after_seconds: 0 };
+  }
+
+  if (["AUTO_REPAIR", "TRIGGER_EXTERNAL_RUN"].includes(decision)) {
     return { status: "READY", task_id: null, next_task_id: expected, check_after_seconds: 0 };
   }
 
