@@ -569,10 +569,67 @@ export async function reconcileExactOnceOutbound({
       now
     });
 
-    const sent = await sendInstruction(page, text, {
-      dryRun: false,
-      allowPendingUserTurn: allowPendingPostSendConfirmation
-    });
+    let sent = null;
+    try {
+      sent = await sendInstruction(page, text, {
+        dryRun: false,
+        allowPendingUserTurn: allowPendingPostSendConfirmation
+      });
+    } catch (sendError) {
+      // A Playwright/UI exception is not proof that submission failed. The
+      // browser can accept the message while the click promise times out. Before
+      // persisting a durable BLOCKED state, boundedly look for the exact new
+      // user turn. Positive correlation is delivery authority and never grants
+      // a resend.
+      let exceptionMatchingDelivery = null;
+      let exceptionDeliveredTurn = null;
+      const exceptionDeliveryProbes = Math.max(
+        5,
+        Number(reconciliationProbes) || 1
+      );
+      for (let index = 0; index < exceptionDeliveryProbes; index += 1) {
+        exceptionMatchingDelivery = await captureMatchingTurn(page, text).catch(() => null);
+        exceptionDeliveredTurn = await captureTurn(page, "user").catch(() => null);
+        if (
+          exceptionMatchingDelivery?.confirmed ||
+          latestTurnMatchesMessage(exceptionDeliveredTurn, digest)
+        ) {
+          break;
+        }
+        if (
+          index < exceptionDeliveryProbes - 1 &&
+          typeof page.waitForTimeout === "function"
+        ) {
+          await page.waitForTimeout(reconciliationPollMs);
+        }
+      }
+
+      if (
+        exceptionMatchingDelivery?.confirmed ||
+        latestTurnMatchesMessage(exceptionDeliveredTurn, digest)
+      ) {
+        await markExactOnceDelivered(statePath, {
+          messageId: id,
+          message: text,
+          userTurnId: latestTurnMatchesMessage(exceptionDeliveredTurn, digest)
+            ? exceptionDeliveredTurn?.turn_id || null
+            : exceptionMatchingDelivery?.turn_id || null,
+          now
+        });
+        const deliveredState = await readSingleConversationState(statePath);
+        return {
+          action: retry ? "SAFE_RETRY_SENT" : "SEND",
+          state: "DELIVERED",
+          cmd_id: deliveredState.outbound.cmd_id,
+          retry_count: deliveredState.outbound.retry_count,
+          reason: "send-exception-reconciled-by-matching-user-turn",
+          send_error_code: transactionCode(sendError),
+          send: null
+        };
+      }
+
+      throw sendError;
+    }
     if (!sent?.executed) {
       throw Object.assign(
         new Error(sent?.reason || "outbound send was not confirmed"),
