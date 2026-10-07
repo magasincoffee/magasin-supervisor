@@ -52,7 +52,7 @@ try {
   adapter = new ChatGptUiAdapter({
     cdpUrl,
     settleMs: 50,
-    actionTimeoutMs: 2_000,
+    actionTimeoutMs: 3_000,
     timeoutMs: 5_000
   });
 
@@ -62,7 +62,7 @@ try {
       const error = new Error("CDP_PROBE_OPEN_TIMEOUT");
       error.code = "CDP_PROBE_OPEN_TIMEOUT";
       reject(error);
-    }, 2_500))
+    }, 4_000))
   ]);
   const pages = adapter.getChatGptPages();
   result.page_count = pages.length;
@@ -90,7 +90,7 @@ try {
         const error = new Error("CDP_PROBE_PAGE_TIMEOUT");
         error.code = "CDP_PROBE_PAGE_TIMEOUT";
         reject(error);
-      }, 2_500))
+      }, 4_000))
     ]);
     const snapshot = probe?.snapshot || {};
     const classification = probe?.classification || {};
