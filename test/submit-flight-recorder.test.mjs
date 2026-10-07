@@ -88,9 +88,12 @@ test("submit flight recorder preserves failure evidence without raw instruction 
 
 test("default failure-only recorder deletes successful run artifacts", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "magasin-submit-flight-"));
+  let traceStarts = 0;
+  let traceStops = 0;
   const tracing = {
-    async start() {},
+    async start() { traceStarts += 1; },
     async stop({ path: tracePath }) {
+      traceStops += 1;
       await fs.writeFile(tracePath, "trace", "utf8");
     }
   };
@@ -134,6 +137,8 @@ test("default failure-only recorder deletes successful run artifacts", async () 
   });
 
   assert.equal(kept, null);
+  assert.equal(traceStarts, 0);
+  assert.equal(traceStops, 0);
   const entries = await fs.readdir(root);
   assert.deepEqual(entries, []);
   await fs.rm(root, { recursive: true, force: true });
