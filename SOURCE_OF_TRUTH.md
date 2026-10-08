@@ -894,6 +894,34 @@ A separate process-layer guardian is authorized under these strict boundaries:
 7. run-supervisor.ps1 remains the final process-level STOP-latch check, so a race with a new Owner STOP fails closed.
 
 The independent read-only watchdog remains the first evidence source. The guardian is a second process/service recovery layer, not a replacement for exact-once runtime recovery. A separate ChatGPT condition-watch may inspect the target hourly, follow this SOT, diagnose the earliest failing boundary, and perform only SOT-authorized safe repairs. Owner notification is reserved for genuine Owner-required boundaries such as login/MFA/CAPTCHA, credentials/permissions, explicit business approval/decision, Owner STOP, or exhausted bounded repair.
+### SC-013 GitHub/Supabase local dispatch delegation (Owner directive 2026-10-08)
+
+The Owner directs that routine ChatGPT-to-local robot work assignment must NOT depend on paid/per-call Remote Desktop Commander. The preferred asynchronous path is:
+
+```text
+OWNER / ChatGPT
+  -> GitHub issue or Owner-selected Supabase dispatch inbox
+  -> DESKTOP-H4A16IL outbound-polling Local Task Gateway
+  -> authenticated/validated request envelope + idempotent local SQLite inbox
+  -> Local Supervisor / robot tổng
+  -> task-specific WebApp, SAYDI, SAPO or monitoring executor
+  -> durable local outcome/checkpoint
+  -> authenticated GitHub/Supabase status writeback (only after independently qualified)
+```
+
+The existing SINGLE_CONVERSATION_V1 execution protocol and sole SOT authority are unchanged. An Issue or Supabase row is a **request**, never project authority: it cannot independently select/advance a task, authorize a deployment, bypass an Owner gate, or replace a project's canonical Source of Truth.
+
+Safety gates:
+1. Local gateway uses outbound polling and no unauthenticated public listener; owner/producer identity, schema version, target, task id and SOT path are validated; no arbitrary shell payloads.
+2. Deduplicate across retries/reboots using source issue/job identifier and durable SQLite state. Do not replay ambiguous irreversible mutations.
+3. Only **read-only health_check** routes may execute before per-robot adapters pass SOT-specific review and safety tests. `execute_task`, `render_qc`, and `sync_revenue` remain `WAIT_SOT_AUTHORITY` with no side effects until authorised.
+4. Robot tổng respects Owner STOP and AUTOSTART_DISABLED, existing transaction exact-once rules, resource budgets, correct-machine scoping, production release gates, and bounded retry.
+5. Remote Desktop Commander is **break-glass/exceptional-use only** for approved local setup, root-cause diagnostics, or hands-on repair; never the default heartbeat/queue/status transport.
+6. Supabase integration requires the Owner to choose the project and provision a dedicated RLS-constrained dispatch inbox/identity. Do not repurpose an existing business task table or expose service-role secrets in local scripts.
+7. Production cannot be considered delegated to a downstream robot merely because a message was queued: evidence of actual executor acknowledgement and completion must be persisted before reporting DONE.
+
+Implementation evidence as of 2026-10-08: `C:\MAGASIN_MCP\dispatch_gateway.py` and `local_jobs.py` on `DESKTOP-H4A16IL` validated a real GitHub Issue #336 `health_check` (local job DONE, Supervisor BLOCKED/FAULT observed without bypassing recovery gates), tested four read-only robot health routes, and supplied local watchdog restart continuity. The local implementation has **no autonomous production task execution** or automatic GitHub/Supabase writeback yet. Supabase dispatch remains disabled pending project and credential selection. These boundaries MUST remain explicit in Control Center and Owner reports.
+
 ### SC-013 unattended observation policy
 
 While SC-013 remains IN PROGRESS, production evidence collection is unattended:
