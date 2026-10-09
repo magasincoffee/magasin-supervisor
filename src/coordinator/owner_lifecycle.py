@@ -104,7 +104,8 @@ def _write_atomic(path: Path, data: dict):
 def evaluate(*, host=None, now=None, memory_gib=None,
              lifecycle_file=CONTROL_STATE, report_file=REPORT,
              tick_file=TECHNICAL_TICK, specialists_file=SPECIALISTS,
-             supervisor_root=SUPERVISOR, lock_file=LOCK_PATH):
+             supervisor_root=SUPERVISOR, lock_file=LOCK_PATH,
+             ignore_owned_lock=False):
     """Checks state and returns an honest, non-authorizing Owner control view."""
     time_now = now or utcnow()
     hostname = (host or socket.gethostname()).upper()
@@ -124,7 +125,7 @@ def evaluate(*, host=None, now=None, memory_gib=None,
     if coordinator.get("mode") != "OFF_OWNER_MANUAL":
         # A future mode may be added only through independently reviewed source.
         reasons.append("COORDINATOR_MODE_UNQUALIFIED")
-    if lock_file.exists():
+    if lock_file.exists() and not ignore_owned_lock:
         reasons.append("LIFECYCLE_LOCK_PRESENT")
     if lifecycle_file.with_suffix(".pending").exists():
         reasons.append("PENDING_LIFECYCLE_WRITE")
@@ -137,8 +138,8 @@ def evaluate(*, host=None, now=None, memory_gib=None,
         technical.get("target") != MACHINE or
         technical.get("executor") != "local_windows_scheduler" or
         not isinstance(technical.get("actions"), list) or
-        any(a.get("state") != "PASS" or a.get("exit_code") != 0
-            for a in technical["actions"] if isinstance(a, dict)) or
+        any(not isinstance(a, dict) or a.get("state") != "PASS" or a.get("exit_code") != 0
+            for a in technical["actions"]) or
         len(technical["actions"]) != 2 or
         technical.get("errors") != [] or
         age is None or age < -10 or age > MAX_HEARTBEAT_AGE_SECONDS):
@@ -152,12 +153,15 @@ def evaluate(*, host=None, now=None, memory_gib=None,
     if saved and not valid_saved:
         reasons.append("LIFECYCLE_STATE_INVALID")
     desired = current if valid_saved else "STOP"
-    fresh_monitor = desired == "MONITOR_READ_ONLY" and not reasons
+    requested = parse_time(saved.get("requested_at")) if valid_saved else None
+    cycle_after_start = bool(at and requested and at >= requested)
+    fresh_monitor = desired == "MONITOR_READ_ONLY" and not reasons and cycle_after_start
     return {
         "schema": SCHEMA,
         "desired": desired,
         "status": "MONITORING_READ_ONLY" if fresh_monitor else
-                  ("BLOCKED_SAFETY" if desired == "MONITOR_READ_ONLY" else "OWNER_STOPPED"),
+                  ("BLOCKED_SAFETY" if desired == "MONITOR_READ_ONLY" and reasons else
+                   ("ARMED_READ_ONLY" if desired == "MONITOR_READ_ONLY" else "OWNER_STOPPED")),
         "start_allowed": not reasons,
         "stop_allowed": hostname == MACHINE,
         "blockers": sorted(set(reasons)),
@@ -185,18 +189,19 @@ def perform(action: str, confirmation: str, *, source: str):
     except FileExistsError:
         return 409, {"ok": False, "message": "Cổng vòng đời đang bị khóa. Cần kiểm tra trước khi thử lại."}
     try:
-        before = evaluate(lock_file=Path(r"Z:\not-a-real-lifecycle-lock"))
+        before = evaluate(ignore_owned_lock=True)
         # evaluate() receives a synthetic absent lock while this action owns
         # the real exclusive lock. Do not skip any other gate.
         if action == "start" and not before["start_allowed"]:
             return 409, {"ok": False, "message": "START bị chặn bởi kiểm tra an toàn.",
                          "preflight": before}
         existing = read_json(CONTROL_STATE)
-        if existing and (existing.get("schema") != SCHEMA or
+        bad_prior = existing and (existing.get("schema") != SCHEMA or
                          type(existing.get("generation")) is not int or
-                         existing["generation"] < 1):
+                         existing["generation"] < 1)
+        if bad_prior and action == "start":
             return 409, {"ok": False, "message": "Trạng thái Owner không hợp lệ; cần kiểm tra."}
-        generation = existing.get("generation", 0) + 1
+        generation = (existing.get("generation", 0) if not bad_prior else 0) + 1
         next_state = {
             "schema": SCHEMA, "generation": generation,
             "desired": "MONITOR_READ_ONLY" if action == "start" else "STOP",
