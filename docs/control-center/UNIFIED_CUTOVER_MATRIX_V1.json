@@ -3,7 +3,7 @@
   "document_only": true,
   "owner_policy_approved": true,
   "production_cutover_approved": false,
-  "status": "SOURCE_ONLY_NOT_APPLIED",
+  "status": "UI_ONLY_DIAGNOSTICS_APPLIED_CHILD_CONTROLS_NOT_QUALIFIED",
   "canonical_sot": "SOURCE_OF_TRUTH.md",
   "host": "DESKTOP-H4A16IL",
   "control_center": {
@@ -149,5 +149,28 @@
     "source_hashes_recorded_in_issue_339": true,
     "credentials_and_transactions_inspected": false,
     "production_cutover_qualified": false
+  },
+  "ui_only_deployment": {
+    "applied": true,
+    "source_commit": "7147f1a95659a0a8e56a8a299ba936eb810e05af",
+    "host": "DESKTOP-H4A16IL",
+    "installed_files": [
+      "server.py",
+      "web/app.js",
+      "specialist_readiness.py",
+      "cutover_preflight.py"
+    ],
+    "new_listener_pid_at_acceptance": 14796,
+    "loopback_health_http200": true,
+    "negative_origin_http": 403,
+    "negative_csrf_http": 403,
+    "disabled_saydi_control_http": 405,
+    "precutover_status": "BLOCKED_NOT_QUALIFIED",
+    "specialist_start_stop_qualified": false,
+    "business_dispatch_enabled": false,
+    "sapofinance_written": false,
+    "legacy_schedules_changed": false,
+    "supervisor_stop_preserved": true,
+    "rollback_backup_present": true
   }
 }
