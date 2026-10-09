@@ -99,6 +99,7 @@ jobs:
             test/sc013-owner-lifecycle-control.test.mjs \
             test/sc013-specialist-readiness-ui.test.mjs \
             test/sc013-control-center-consolidation-policy.test.mjs \
+            test/sc013-unified-inventory-readonly.test.mjs \
             test/sc013-owner-control-apply.test.mjs \
             test/sc013-local-30m-tick.test.mjs \
             test/sc013-sot-adapter.test.mjs \
