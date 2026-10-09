@@ -1,0 +1,51 @@
+name: SC-013 Coordinator Readonly Stage H4A16IL
+
+# Explicitly isolated candidate staging; NEVER production apply or robot start.
+# Ordinary source/SOT merges do not trigger this workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      exact_main_sha:
+        description: Exact current main SHA to stage, 40 lowercase hex characters
+        type: string
+        required: true
+  push:
+    branches: [main]
+    paths:
+      - '.github/sc013-coordinator-stage-request.json'
+
+permissions:
+  contents: read
+
+# Do not overlap the independently qualified H4 source deployment lane.
+concurrency:
+  group: sc013-h4a16il-safe-deploy
+  cancel-in-progress: false
+
+jobs:
+  stage-coordinator-candidate:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 8
+    steps:
+      - name: Reject non-target machine before checkout or local access
+        shell: powershell
+        run: |
+          if ([Environment]::MachineName -ne 'DESKTOP-H4A16IL') {
+            Write-Host 'TARGET_MUTATION_SKIPPED=True'
+            throw 'WRONG_TARGET_MACHINE'
+          }
+          Write-Host 'TARGET_MATCH=True'
+      - name: Checkout exact current-main candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.sha || inputs.exact_main_sha }}
+          fetch-depth: 0
+      - name: Stage only verified Coordinator preflight source to D drive
+        shell: powershell
+        env:
+          STAGE_SHA: ${{ github.event_name == 'push' && github.sha || inputs.exact_main_sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:STAGE_SHA -notmatch '^[a-fA-F0-9]{40}$') { throw 'INVALID_EXACT_MAIN_SHA' }
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '.github/scripts/sc013-coordinator-readonly-stage.ps1' -ExpectedMainSha $env:STAGE_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'SC013_COORDINATOR_STAGE_FAILED' }
