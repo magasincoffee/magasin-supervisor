@@ -54,6 +54,9 @@ jobs:
       - name: Test SC-013 disposable Business Executor exact-once fixture
         shell: powershell
         run: python -m unittest discover -s test -p 'test_sc013_disposable_business_executor.py' -v
+      - name: Verify SC-013 GitHub Issue Gateway and Owner provenance read-only
+        shell: powershell
+        run: python -m unittest discover -s test -p 'test_sc013_dispatch_provenance.py' -v
       - name: Run SINGLE_CONVERSATION_V1 regression suite
         shell: powershell
         run: |
