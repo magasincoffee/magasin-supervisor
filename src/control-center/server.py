@@ -299,6 +299,18 @@ def detail(robot_id):
         except Exception as exc:
             robot["control"] = {"control_ready": False, "start_allowed":False,
                                 "stop_allowed":False, "start_blockers":["Bộ điều khiển lỗi: "+type(exc).__name__]}
+        try:
+            import supervisor_project_links
+            robot["project_links"] = supervisor_project_links.inspect()
+        except Exception:
+            robot["project_links"] = {
+                "status": "BLOCKED_UNVERIFIED",
+                "blockers": ["SOT_LINK_INSPECTION_UNAVAILABLE"],
+                "active": None, "requests": [], "save_allowed": False,
+                "new_link_activates_project": False,
+                "worker_start_allowed": False,
+                "business_dispatch_authorized": False,
+            }
     return robot
 
 
@@ -410,6 +422,30 @@ class Handler(BaseHTTPRequestHandler):
         if not hmac.compare_digest(self.headers.get("X-MAGASIN-CSRF",""),CONTROL_TOKEN):
             return self.send_data('{"ok":false,"message":"Missing control authorization"}',code=403)
         route=urlsplit(self.path).path
+        if route == "/api/supervisor/project/link":
+            # Separate Owner-confirmed URL proposal only. NEVER changes the
+            # live Supervisor SOT binding or permits process execution.
+            if self.headers.get("Content-Type","").split(";")[0] != "application/json":
+                return self.send_data('{"ok":false,"message":"Expected JSON"}',code=415)
+            try:
+                n=int(self.headers.get("Content-Length","0"))
+                if n < 2 or n > 1200:
+                    raise ValueError("Bad payload length")
+                proposal=json.loads(self.rfile.read(n))
+                if (type(proposal) is not dict or
+                        set(proposal) != {"sot_url", "confirm"}):
+                    raise ValueError("Unexpected payload")
+                import supervisor_project_links
+                outcome=supervisor_project_links.save_request(
+                    proposal["sot_url"], proposal["confirm"])
+                return self.send_data(json.dumps(outcome,ensure_ascii=False),
+                                      code=202 if outcome["status"] == "PENDING_SOT_REVIEW" else 200)
+            except (ValueError, TypeError, UnicodeDecodeError) as exc:
+                return self.send_data(json.dumps({"ok":False,"error":type(exc).__name__,
+                                                   "message":"Liên kết chưa hợp lệ hoặc Supervisor chưa ở chế độ Owner STOP."},
+                                                  ensure_ascii=False),code=400)
+            except Exception:
+                return self.send_data('{"ok":false,"message":"Không lưu được liên kết SOT."}',code=503)
         if route not in ("/api/supervisor/control","/api/coordinator/control"):
             return self.send_data('{"ok":false,"message":"Unsupported robot control"}',code=405)
         if self.headers.get("Content-Type","").split(";")[0] != "application/json":
