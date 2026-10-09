@@ -125,9 +125,11 @@ $stageManifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'ma
 
 # Strict create-new OS handle as an exclusive lock; never run in parallel.
 $lock=$null
+$ownsLock=$false
 try {
   $lock=[IO.File]::Open($lockfile,[IO.FileMode]::CreateNew,
                          [IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+  $ownsLock=$true
   AssertGuard
   if((Hash $live) -ne $approval.expected_old_sha256){throw 'LIVE_CHANGED_AFTER_STAGE'}
   $temp="$live.sc013-$sha.tmp"
@@ -188,5 +190,7 @@ catch {
 finally {
   if($lock){$lock.Dispose()}
   # Lock cleanup on this same run only. A stale lock needs explicit inspection.
-  if(Test-Path -LiteralPath $lockfile){Remove-Item -LiteralPath $lockfile -Force -ErrorAction SilentlyContinue}
+  if($ownsLock -and (Test-Path -LiteralPath $lockfile)){
+    Remove-Item -LiteralPath $lockfile -Force -ErrorAction SilentlyContinue
+  }
 }
