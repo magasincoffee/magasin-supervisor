@@ -1,0 +1,15 @@
+{
+  "schema": "MAGASIN_SC013_COORDINATOR_APPLY_V1",
+  "mode": "INSTALL_INERT_READ_ONLY_FILES",
+  "target": "DESKTOP-H4A16IL",
+  "source_commit": "346d052aea020180ba37e21644c3fd61096538ea",
+  "owner_approved": true,
+  "business_execution_enabled": false,
+  "start_robots": false,
+  "approved_scope": [
+    "sot-adapter.mjs",
+    "sot-preflight-cli.mjs",
+    "sot-preflight-python-bridge.py"
+  ],
+  "purpose": "Owner-approved single add-only install; no Coordinator integration or robot start; fail closed on STOP/OFF or drift"
+}
