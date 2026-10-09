@@ -60,6 +60,9 @@ jobs:
       - name: Verify SC-013 Python preflight guards
         shell: bash
         run: python -m unittest discover -s test -p 'test_sc013_sot_python_bridge.py' -v
+      - name: Validate read-only Coordinator cycle hook
+        shell: bash
+        run: python -m unittest discover -s test -p 'test_sc013_coordinator_cycle_preflight.py' -v
       - name: Verify SINGLE_CONVERSATION_V1 contracts
         shell: bash
         run: |
