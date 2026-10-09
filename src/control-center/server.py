@@ -302,6 +302,45 @@ def detail(robot_id):
     return robot
 
 
+
+def migration_preflight():
+    """Privacy-safe, non-actuating evidence for unified cutover readiness.
+
+    Never treat a present legacy process or a positive status as Owner START.
+    Do not expose SAPO pending export URLs or source ledger identifiers.
+    """
+    try:
+        import cutover_preflight
+        saydi_data = {}
+        try:
+            with urlopen("http://127.0.0.1:8776/api/status", timeout=1.5) as response:
+                saydi_data = json.loads(response.read(500000))
+        except (OSError, ValueError, UnicodeError):
+            pass
+        evidence = cutover_preflight.inspect(
+            sapo_state_path=SAPO / "data" / "state.json",
+            sapo_logs_dir=SAPO / "logs",
+            supervisor_state=read_json(SUP / "single-conversation-state.json"),
+            supervisor_stop=(SUP / "STOP").exists(),
+            supervisor_autostart_disabled=(SUP / "AUTOSTART_DISABLED").exists(),
+            saydi=saydi_data,
+            ram_free_gib=psutil.virtual_memory().available / 1073741824,
+            legacy_auto_start_present=True,
+        )
+        return evidence
+    except Exception:
+        return {
+            "schema": "MAGASIN_SC013_PRECUTOVER_READINESS_V1",
+            "milestone": "MIG-CC-01", "milestone_status": "IN_PROGRESS",
+            "status": "BLOCKED_NOT_QUALIFIED",
+            "qualified": False, "cutover_allowed": False,
+            "business_dispatch_enabled": False, "owner_start_authorized": False,
+            "robots": {k: {
+                "read_only": True, "ready": False,
+                "blockers": ["READ_ONLY_PRECUTOVER_EVIDENCE_UNAVAILABLE"],
+            } for k in ("supervisor", "saydi", "sapo")},
+        }
+
 def status():
     mem = psutil.virtual_memory()
     disk_c = psutil.disk_usage("C:\\")
@@ -315,7 +354,8 @@ def status():
                        "disk_d_free_gb":round(disk_d.free/1073741824,2)},
             "coordinator": detail("coordinator"),
             "robots": [detail(x) for x in ROBOTS if x not in ("gateway","coordinator")],
-            "services": [detail("gateway")]}
+            "services": [detail("gateway")],
+            "migration_preflight": migration_preflight()}
 
 
 class Handler(BaseHTTPRequestHandler):
