@@ -1,0 +1,52 @@
+name: MAGASIN Local Dispatch Receipts
+
+on:
+  issues:
+    types: [opened, reopened, edited]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Optional existing dispatch Issue number; empty checks recent open dispatch issues"
+        required: false
+        type: string
+  schedule:
+    - cron: '17,47 * * * *'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: magasin-local-dispatch-receipts
+  cancel-in-progress: false
+
+jobs:
+  local-receipt:
+    if: ${{ github.repository == 'magasincoffee/magasin-supervisor' }}
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Report validated local jobs on the authorized machine
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISPATCH_ISSUE: ${{ github.event.issue.number || inputs.issue_number || '' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([Environment]::MachineName -ne 'DESKTOP-H4A16IL') {
+            throw 'WRONG_RUNNER: local dispatch receipts require DESKTOP-H4A16IL'
+          }
+          $python = 'C:\MAGASIN_MCP\.venv\Scripts\python.exe'
+          $reporter = '.github\scripts\magasin-dispatch-reporter.py'
+          if (-not (Test-Path $python) -or -not (Test-Path $reporter)) {
+            throw 'Local MCP or reporter not installed'
+          }
+          if ($env:DISPATCH_ISSUE -match '^[0-9]+$') {
+            & $python $reporter --issue ([int]$env:DISPATCH_ISSUE)
+          } else {
+            & $python $reporter
+          }
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Local dispatch reporter failed; do not claim completion'
+          }
