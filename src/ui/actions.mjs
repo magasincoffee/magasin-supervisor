@@ -369,6 +369,7 @@ export async function discardComposerDraftIfDigest(
 
 const USER_TURN_SELECTORS = Object.freeze({
   legacy: '[data-message-author-role="user"]',
+  semantic: "main [data-markdown-text-tone='user-message'], main .rich-text-user-turn",
   modern: "main .text-size-chat.whitespace-pre-wrap"
 });
 
@@ -392,13 +393,24 @@ async function captureUserTurnState(page, instruction) {
       // only on the modern text surface. Never choose one representation and
       // discard the other. Merge both sets, exclude the active composer, and
       // deduplicate nested/identical DOM nodes by element identity.
+      const semantic = Array.from(
+        document.querySelectorAll(selectors.semantic)
+      );
       const candidates = [
         // Keep the legacy selector literal here as well as in the selector
         // contract. Besides being equivalent in production, this preserves
         // compatibility with existing deterministic UI fixtures that identify
         // the semantic user-turn probe by function source.
         ...document.querySelectorAll('[data-message-author-role="user"]'),
-        ...document.querySelectorAll(selectors.modern)
+        ...semantic,
+        ...Array.from(document.querySelectorAll(selectors.modern)).filter(
+          (node) => !semantic.some(
+            (semanticNode) =>
+              node === semanticNode ||
+              node.contains?.(semanticNode) ||
+              semanticNode.contains?.(node)
+          )
+        )
       ];
       const seen = new Set();
       const turns = [];
@@ -426,12 +438,24 @@ async function captureUserTurnState(page, instruction) {
         if (text !== wanted) continue;
         exactMatchCount += 1;
         const container = node.closest?.("[data-testid^='conversation-turn-']");
+        const searchContainer = node.closest?.(
+          "[data-chatgpt-search-message-ids],[data-turn-key],[data-chatgpt-search-unit-key],[data-content-search-unit-key]"
+        );
+        const searchIds = String(
+          searchContainer?.getAttribute?.("data-chatgpt-search-message-ids") || ""
+        ).trim();
         matchingTurnId =
           String(container?.getAttribute?.("data-testid") || "").trim() ||
+          searchIds.split(/\s+/u).filter(Boolean)[0] ||
+          String(searchContainer?.getAttribute?.("data-turn-key") || "").trim() ||
+          String(searchContainer?.getAttribute?.("data-chatgpt-search-unit-key") || "").trim() ||
+          String(searchContainer?.getAttribute?.("data-content-search-unit-key") || "").trim() ||
           `user-turn-${index}`;
         matchingEvidence = node.matches?.('[data-message-author-role="user"]')
           ? "exact-semantic-user-turn"
-          : "exact-modern-user-turn";
+          : node.matches?.("[data-markdown-text-tone='user-message'],.rich-text-user-turn")
+            ? "exact-chatgpt-user-turn"
+            : "exact-modern-user-turn";
       }
       return {
         readable: true,
@@ -1132,36 +1156,18 @@ export async function sendComposerInstruction(
       });
     } catch (error) {
       await recorder.capture("primary-submit-exception").catch(() => {});
+      const recoveryComposer = await waitForReadyComposer(page, { timeoutMs: 1_500 });
+      const stillExact = recoveryComposer
+        ? await composerContainsExactInstruction(recoveryComposer, instruction)
+        : null;
+      if (stillExact !== true) throw error;
 
-      // Playwright can time out after the browser has already accepted the
-      // click. Check the local composer transition before treating the click
-      // exception as a send failure. This is actuation evidence only; exact
-      // delivery/correlation is still enforced below by the user-turn gate.
-      const postExceptionSubmission = await waitForComposerSubmission(
-        page,
-        instruction,
-        { timeoutMs: 1_000, intervalMs: 100 }
-      );
-      if (postExceptionSubmission.confirmed) {
-        directSend = {
-          method: "direct-control-exception-transition",
-          selector: null,
-          scope: "composer-form"
-        };
-      } else {
-        const recoveryComposer = await waitForReadyComposer(page, { timeoutMs: 1_500 });
-        const stillExact = recoveryComposer
-          ? await composerContainsExactInstruction(recoveryComposer, instruction)
-          : null;
-        if (stillExact !== true) throw error;
-
-        // A click timeout while the exact prompt is still visibly present is
-        // positive non-submission evidence. Do not convert this into a durable
-        // EXACT_ONCE_FAILED block; skip the same semantic button and use the
-        // bounded Enter recovery below.
-        primaryClickFailedWithPromptIntact = true;
-        textSet.composer = recoveryComposer || textSet.composer;
-      }
+      // A click timeout while the exact prompt is still visibly present is
+      // positive non-submission evidence. Do not convert this into a durable
+      // EXACT_ONCE_FAILED block; skip the same semantic button and use the
+      // bounded Enter recovery below.
+      primaryClickFailedWithPromptIntact = true;
+      textSet.composer = recoveryComposer || textSet.composer;
     }
 
     let sendMethod = directSend?.method || null;
@@ -1456,4 +1462,3 @@ export async function executeDecision({
 
   throw new Error(`unsupported decision action: ${decision.action}`);
 }
-

@@ -67,9 +67,16 @@ test("tracked GitHub run descriptor requires authoritative active run metadata",
     trackedGitHubRunDescriptor(activeExternal({ run_authority: "OBSOLETE" })),
     null
   );
-  assert.equal(
+  // Terminal run metadata is also needed to reconcile the required
+  // same-SHA workflow set. It is read-only evidence, never a re-run trigger.
+  assert.deepEqual(
     trackedGitHubRunDescriptor(activeExternal({ workflow_status: "completed" })),
-    null
+    {
+      repo: "magasincoffee/magasincoffee.github.io",
+      run_id: "37337050485",
+      tracked_status: "completed",
+      authoritative_sha: "ffe5524f415c303951ff23717a833b7597ea524b"
+    }
   );
 });
 
