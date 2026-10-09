@@ -1,0 +1,64 @@
+name: SC-013 H4A16IL Safe Staged Deploy
+
+# Stage requests are read-only against production. Apply is workflow_dispatch
+# only, with exact main SHA, unchanged live source and explicit safety gates.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Stage (safe default) or Apply (separately authorized)
+        type: choice
+        options: [Stage, Apply]
+        required: true
+        default: Stage
+      deploy_sha:
+        description: Exact current canonical main SHA (40 hex chars)
+        required: true
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/sc013-h4a16il-stage-request.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sc013-h4a16il-safe-deploy
+  cancel-in-progress: false
+
+jobs:
+  stage-or-apply:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    steps:
+      - name: Reject wrong self-hosted runner before checkout
+        shell: powershell
+        run: |
+          if ([Environment]::MachineName -ne 'DESKTOP-H4A16IL') {
+            Write-Host 'TARGET_MUTATION_SKIPPED=True'
+            throw 'WRONG_TARGET_MACHINE'
+          }
+          Write-Host 'TARGET_MATCH=True'
+      - name: Checkout exact requested canonical main revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.deploy_sha || github.sha }}
+          fetch-depth: 1
+      - name: Stage verified source or perform separately gated apply
+        shell: powershell
+        env:
+          DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
+          DEPLOY_MODE: ${{ github.event_name == 'push' && 'Stage' || inputs.mode }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:DEPLOY_SHA -notmatch '^[a-fA-F0-9]{40}$') {
+            throw 'INVALID_DEPLOY_SHA'
+          }
+          if ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:DEPLOY_MODE -ne 'Stage') {
+            throw 'PUSH_IS_STAGE_ONLY'
+          }
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '.github/scripts/sc013-h4a16il-safe-stage-deploy.ps1' -Mode $env:DEPLOY_MODE -ExpectedMainSha $env:DEPLOY_SHA
+          if ($LASTEXITCODE -ne 0) {
+            throw 'SC013_H4_SAFE_DEPLOY_FAILED'
+          }
