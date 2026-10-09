@@ -894,6 +894,108 @@ A separate process-layer guardian is authorized under these strict boundaries:
 7. run-supervisor.ps1 remains the final process-level STOP-latch check, so a race with a new Owner STOP fails closed.
 
 The independent read-only watchdog remains the first evidence source. The guardian is a second process/service recovery layer, not a replacement for exact-once runtime recovery. A separate ChatGPT condition-watch may inspect the target hourly, follow this SOT, diagnose the earliest failing boundary, and perform only SOT-authorized safe repairs. Owner notification is reserved for genuine Owner-required boundaries such as login/MFA/CAPTCHA, credentials/permissions, explicit business approval/decision, Owner STOP, or exhausted bounded repair.
+### SC-013 GitHub/Supabase local dispatch delegation (Owner directive 2026-10-08)
+
+The Owner directs that routine ChatGPT-to-local robot work assignment must NOT depend on paid/per-call Remote Desktop Commander. The preferred asynchronous path is:
+
+```text
+OWNER / ChatGPT
+  -> GitHub issue or Owner-selected Supabase dispatch inbox
+  -> DESKTOP-H4A16IL outbound-polling Local Task Gateway
+  -> authenticated/validated request envelope + idempotent local SQLite inbox
+  -> Local Supervisor / robot tổng
+  -> task-specific WebApp, SAYDI, SAPO or monitoring executor
+  -> durable local outcome/checkpoint
+  -> authenticated GitHub/Supabase status writeback (only after independently qualified)
+```
+
+The existing SINGLE_CONVERSATION_V1 execution protocol and sole SOT authority are unchanged. An Issue or Supabase row is a **request**, never project authority: it cannot independently select/advance a task, authorize a deployment, bypass an Owner gate, or replace a project's canonical Source of Truth.
+
+Safety gates:
+1. Local gateway uses outbound polling and no unauthenticated public listener; owner/producer identity, schema version, target, task id and SOT path are validated; no arbitrary shell payloads.
+2. Deduplicate across retries/reboots using source issue/job identifier and durable SQLite state. Do not replay ambiguous irreversible mutations.
+3. Only **read-only health_check** routes may execute before per-robot adapters pass SOT-specific review and safety tests. `execute_task`, `render_qc`, and `sync_revenue` remain `WAIT_SOT_AUTHORITY` with no side effects until authorised.
+4. Robot tổng respects Owner STOP and AUTOSTART_DISABLED, existing transaction exact-once rules, resource budgets, correct-machine scoping, production release gates, and bounded retry.
+5. Remote Desktop Commander is **break-glass/exceptional-use only** for approved local setup, root-cause diagnostics, or hands-on repair; never the default heartbeat/queue/status transport.
+6. Supabase integration requires the Owner to choose the project and provision a dedicated RLS-constrained dispatch inbox/identity. Do not repurpose an existing business task table or expose service-role secrets in local scripts.
+7. Production cannot be considered delegated to a downstream robot merely because a message was queued: evidence of actual executor acknowledgement and completion must be persisted before reporting DONE.
+
+Implementation evidence as of 2026-10-08: `C:\MAGASIN_MCP\dispatch_gateway.py` and `local_jobs.py` on `DESKTOP-H4A16IL` validated a real GitHub Issue #336 `health_check` (local job DONE, Supervisor BLOCKED/FAULT observed without bypassing recovery gates), tested four read-only robot health routes, and supplied local watchdog restart continuity. The local implementation has **no autonomous production task execution** or automatic GitHub/Supabase writeback yet. Supabase dispatch remains disabled pending project and credential selection. These boundaries MUST remain explicit in Control Center and Owner reports.
+
+### SC-013 autonomous result-repair loop (Owner directive 2026-10-08)
+
+The Owner requires **automatic task completion, not notification-only failure handling**. For every SOT-authorized dispatched business task, Robot tổng owns a closed feedback loop from executor acknowledgement to verified acceptance. A failed QA/QC/CI result is evidence for the **same task's** repair iteration, NOT authority to mark DONE, select another task, or immediately require Owner intervention.
+
+Required workflow:
+
+```text
+RECEIVED -> SOT_VERIFIED -> ASSIGNED -> EXECUTING -> VERIFYING
+    -> passed: EVIDENCE_RECONCILED -> COMPLETE -> RESULT_PUBLISHED
+    -> failed: FAILURE_CLASSIFIED -> AUTO_REPAIR (same task)
+          -> changed repair plan / code / targeted segment -> EXECUTING -> VERIFYING
+          -> repeat only while budgets and proof-safe retries permit
+          -> technical escalation via authorized local diagnostics, specialist robot, or
+             separately approved AI execution budget, then verification
+    -> genuine Owner gate: WAIT_OWNER (credential/MFA/CAPTCHA, authorization,
+       irreversible business decision, production release approval where required,
+       additional spend/approval, Owner STOP)
+```
+
+Acceptance and non-interruption rules:
+1. A downstream robot's message "done" is NOT acceptance; validate artifacts, task-specific DoD, required tests/QA/QC/CI, exact commit/run evidence, and SOT state before terminal COMPLETE. Partial PASS remains IN_PROGRESS.
+2. Robot tổng automatically routes actionable failures to the responsible specialist with failure signature, latest evidence, remediation scope and checkpoint. Re-run only the affected checks first, then the required final gates. Preserve one canonical TASK_ID and exact-once transaction semantics.
+3. Prevent infinite repetitions: persist a deduplicated failure signature, retry count, distinct remediation attempted, time/cost/CPU/RAM budget, and last concrete progress. A repeated identical failure without material progress must trigger an alternative diagnosis or technical escalation, not an identical retry loop. Preserve the existing SC-013 three-attempt and other SOT-specific retry constraints; never bypass them.
+4. Distinguish **BLOCKED_TECHNICAL** from **WAIT_OWNER**. An exhausted technical repair budget is NOT automatically Owner input authority; retain a precise incident/evidence package and delegate to an available approved technical/AI path when possible. If no such path exists, surface the blockage honestly without fabricating progress.
+5. Owner is contacted for genuine required decisions and final reviews explicitly required by the authoritative project SOT. Ordinary recoverable CI failure, interrupted local process, render-pronunciation defects, or repeated status polling are NOT grounds for interrupting Owner.
+6. Keep production, database, finance/sales, and external writes behind their applicable approval and rollback gates. No automatic destructive migration, irreversible SAPO reconciliation, production release, credential change, or unbudgeted paid API usage.
+7. GitHub/Supabase completion reports must include source issue/job ID, canonical TASK_ID, status, attempt/revision, acceptance evidence, machine-readable failure signature when applicable, artifact/PR/run references and whether Owner action is actually required. Writeback must be idempotent and never assert DONE solely from worker exit code.
+8. This rule defines the **target architecture**. The current `C:\MAGASIN_MCP` implementation dispatches read-only health checks only; automatic result writeback and SOT-gated business AUTO_REPAIR are NOT yet implemented. Neither an idle ChatGPT conversation nor an inactive ChatGPT plugin can be treated as an always-on consumer: the autonomous feedback loop must run in Local Supervisor, with ChatGPT invoked only through an expressly configured and available mechanism.
+
+### Owner-controlled independent Robot Hub (new Owner directive 2026-10-09)
+
+The Owner requires **ONE unified Control Center** that lists and manages independent specialist robots, **NOT one fused multi-purpose robot**. This directive supersedes any interpretation of previous robot-tong / cross-robot automatic dispatch requirements that would launch, share runtime or redirect work between robots without Owner selection.
+
+Canonical architecture:
+
+```text
+OWNER
+  -> MAGASIN ROBOT CONTROL CENTER (one small always-available dashboard)
+     -> Supervisor / WebApp (independent project, SOT, profile, logs, working dir)
+     -> SAYDI Media / Audiobook (independent project, render/QC/artifacts)
+     -> SAPO revenue sync (independent service, credentials, sync/checkpoints)
+     -> other future robots as separately installed opt-in adapters
+```
+
+Control is the single surface for **observability and lifecycle actions only**; it is NOT a mandatory common executor or SOT. GitHub/Supabase may hold per-robot jobs, but **only the robot explicitly enabled by Owner** may process its queue; a stopped robot must never be started by incoming issues, timers, webhook, another robot, remote MCP request or a generic watchdog.
+
+Owner lifecycle contract (per robot):
+- Owner explicitly chooses START or STOP individually, with confirmation when stopping active irreversible/reconciliation tasks. Commands are idempotent, scoped to that robot's exact processes/services and safe launchers, and logged with who/when/why.
+- Startup default is **OFF for all specialist robots**; after Windows reboot they must not auto-run until Owner manually starts them again. A small localhost-only Control Center and lightweight health monitor may autostart; the monitor may observe OFF robots but must not restart them.
+- When Owner turns a particular robot ON, its own existing watchdog, SOT-authorized retry, QA/QC loop and 24/7 operation are permitted **for that enabled robot only**. Turning it OFF suppresses restart and new work; running irreversible work must either finish a bounded safe checkpoint or require explicit force-stop confirmation. No cross-robot dependency or automatic activation.
+- Robot-specific GitHub/Supabase ingress is isolated by robot ID and SOT, and may leave tasks queued as `WAIT_OWNER_ENABLE` while OFF. Cross-robot calls are opt-in, auditable and never automatically enabled as a side effect.
+- Each robot has its own configuration, source repo, credentials, logs, queue, resource budget, code lifecycle and versioning. A robot failure must not stop or restart another robot.
+- UI is in Vietnamese and displays actual process truth: `Đang chạy`, `Đã dừng`, `Đang lỗi`, `Chờ Owner`; startup toggle and stop control, progress, current phase, CPU/RAM use and recent evidence. Never show `RUNNING` solely from stale persisted status if its actual worker is dead.
+- Control UI launches as one lightweight local application window (prefer `--app=http://127.0.0.1:<port>/` or equivalent); no unsolicited console windows, duplicate IDEs, or dedicated Chrome windows for inactive robots.
+- Minimize idle consumption on the approximately 8 GB target; permit explicit concurrency limits so the Owner can decide if more than one heavy robot may run. The Control Center must not run media QC or Chrome/browser automation itself.
+- Preserve production/reconciliation safety and all independent SOT acceptance/review gates. Supabase production projects MAGASIN-NOIBO and OPS-WebApp must remain untouched; future robot coordination may use a **new, separate Owner-created Supabase project only**.
+
+Migration and rollout:
+1. Inventory each robot's existing startup entries, windows, scheduled tasks, process ownership and safe stop/start scripts; snapshot configurations and in-flight states.
+2. Build and test the new Control Center plus per-robot adapters in isolation. Never make an unqualified Start/Stop button affect live production.
+3. Qualify Owner-start, Owner-stop, crash recovery while ON, no-restart while OFF, no-window-popup, exact process scoping, no data loss, reboot OFF-by-default, independent resource limits.
+4. Only after verifying the new controls, transition old per-robot auto-start entries into manual mode during an Owner-approved cutover. Do not disable, kill or relocate currently active services merely by merging this document.
+5. Keep Remote Desktop Commander for explicitly approved break-glass repair, not the routine robot management path.
+
+Implementation checkpoint 2026-10-09 on `DESKTOP-H4A16IL`: Phase 1 of the unified **read-only** Control Center has been created at `D:\\MAGASIN_ROBOTS\\control-center` using lightweight Python localhost `127.0.0.1:8781`, with a shell/Chrome `--app` launcher and an Owner desktop shortcut. Its overview lists Supervisor, SAYDI Media and SAPO as **independent robots**, plus MCP/GitHub Gateway as separate infrastructure. Selecting any robot opens a dedicated detail view within the same UI. Health and detail HTTP endpoints, Python compilation, and JS syntax checks passed. Four organized directories under `D:\\MAGASIN_ROBOTS\\robots` contain isolated manifests, documentation/config/report slots and Windows Junctions to existing runtime roots; no production files, Chrome profiles or data have been moved. The original runtime paths remain canonical until individually requalified.
+
+**Not yet qualified**: functional per-robot Start/Stop buttons remain disabled; old startup entries/schedules remain enabled and can auto-start services, so OFF-by-default acceptance is NOT met. Chrome App window visibility was not verified via remote execution; the desktop shortcut exists and the local web server responds. SAPO business-state verification, browser-profile migration, final operational UI acceptance, independent lifecycle gates and safe cutover remain pending. C: had under 1 GB free during inventory, so new files were placed on D:. Existing Gateway/SQLite read-only functions do not confer authority to start specialist robots.
+
+### Local Coordinator/UI hierarchy checkpoint (2026-10-09)
+
+The Owner clarified that **Robot Tổng (Coordinator/Orchestrator)** is a distinct layer between GitHub/Supabase intake and the independently developed specialist robots. MCP/GitHub Gateway is **transport only**, not the Coordinator. The unified Control Center must show the flow OWNER -> GitHub / new Supabase -> Gateway -> ROBOT TỔNG (SOT validation, analysis, assignment, QA/rework loop) -> enabled Supervisor / SAYDI / SAPO -> return evidence. Each specialist remains autonomous in source, SOT, runtime, and storage and is only allowed to execute when Owner enabled that specialist.
+
+Phase-one UI/plan evidence on DESKTOP-H4A16IL: `D:\MAGASIN_ROBOTS\robots\coordinator\coordinator.py` performs read-only deterministic route analysis over validated Gateway SQLite entries and stores separate plan evidence under its own D: folder; it analyzed six historical health-check records. `D:\MAGASIN_ROBOTS\control-center\` has a top-level Coordinator card, a distinct Coordinator detail page and a separate section for three specialists plus MCP/Gateway infrastructure. Local HTTP tests passed: 1 Coordinator (status OFF), 3 specialists and 1 infrastructure service, six plan entries. The Coordinator is **NOT yet a daemon**, is OFF until Owner explicitly enables it, and **does not yet validate the live SOT, perform AI analysis, dispatch executable business tasks, implement QA/rework, or write results to GitHub/Supabase**. Existing read-only gateway health checks are not evidence that specialist tasks completed. There is no authority to start a specialist or alter production. Future activation requires per-robot Owner-enable guards, live-SOT task authority, qualified executors, durable exact-once evidence, and tested result return, with the Supabase dispatch project created separately by Owner.
+
 ### SC-013 unattended observation policy
 
 While SC-013 remains IN PROGRESS, production evidence collection is unattended:
