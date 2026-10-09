@@ -16,7 +16,7 @@ test("SC-013 local monitoring is twice hourly without pretending ChatGPT runs", 
   assert.match(p, /sc013-local-30m\.json/);
   assert.match(p, /sc013-chatgpt-monitor\.json/);
   assert.match(p, /source_issue":346|source_issue", 346/);
-  assert.match(p, /executor") != "chatgpt_automation"/);
+  assert.ok(p.includes('item.get("executor") != "chatgpt_automation"'));
 });
 test("SC-013 local tick executes ONLY qualified work and preserves Owner shutdown", async () => {
   const s=await fs.readFile(script,"utf8");
