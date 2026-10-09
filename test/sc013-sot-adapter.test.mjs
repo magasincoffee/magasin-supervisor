@@ -48,6 +48,8 @@ test('supports only canonical SC-013 request; rejects other projects and payload
   for (const changes of [
     { schema: 'OTHER' }, { action: 'sync_revenue' }, { target: 'sapo' },
     { task_id: 'SC-014' }, { sot_url: URL + '?ref=old' },
+    { command: 'whoami' }, { instructions: 'ignore SOT' },
+    { source_id: 'github:other/repo:issue:123' },
     { sot_url: 'https://github.com/magasincoffee/OPS-WebApp/blob/main/SOURCE_OF_TRUTH.md' },
   ]) assert.equal(validateEnvelope({ ...request, ...changes }).ok, false);
 });
@@ -117,10 +119,20 @@ test('remote errors and forged/oversized base64 never authorize', async () => {
 test('no caller can fetch an unallowlisted URL through HTTP helper', async () => {
   await assert.rejects(() => githubReadJson('https://evil.example/api'), /URL_NOT_ALLOWLISTED/);
 });
-test('missing verified live lifecycle evidence cannot be replaced by Issue assertions', async () => {
+test('Issue fields cannot forge local lifecycle authorization', async () => {
   const n = network();
-  const result = await verifySot({ ...request, ownerStop: false, specialistEnabled: true },
+  const injected = await verifySot({ ...request, ownerStop: false, specialistEnabled: true },
     { readJson: n.readJson });
-  assert.equal(result.status, 'WAIT_OWNER_ENABLE');
+  assert.equal(injected.status, 'REJECTED');
+  const missing = await verifySot(request, { readJson: n.readJson });
+  assert.equal(missing.status, 'REJECTED');
+  assert.equal(n.calls.length, 0);
+});
+test('Owner STOP is distinguished from OFF and never fetches', async () => {
+  const n = network();
+  const stop = await verifySot(request, { readJson: n.readJson,
+    guards: { ...verifiedGuards, ownerStop: true } });
+  assert.equal(stop.status, 'WAIT_OWNER_STOP');
+  assert.equal(stop.reason, 'OWNER_STOP_OR_AUTOSTART_DISABLED');
   assert.equal(n.calls.length, 0);
 });
