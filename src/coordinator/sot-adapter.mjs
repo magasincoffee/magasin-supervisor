@@ -91,33 +91,67 @@ export async function verifySot(request, { readJson, guards } = {}) {
     return response('WAIT_OWNER_ENABLE', { reason: 'RUNTIME_GUARDS_NOT_VERIFIED' });
   }
   if (typeof readJson !== 'function') return response('WAIT_SOT_AUTHORITY', { reason: 'SOT_FETCH_UNAVAILABLE' });
-  const base = 'https://api.github.com/repos/' + p.repo;
+  if (typeof readJson !== 'function') return response('WAIT_SOT_AUTHORITY', { reason: 'SOT_FETCH_UNAVAILABLE' });
   try {
-    // Pin the contents to a real commit and recheck main to close TOCTOU on source selection.
-    const head1 = await readJson(base + '/commits/main');
-    const commitSha = head1?.sha;
-    if (!/^[a-f0-9]{40}$/.test(commitSha ?? '')) throw new Error('INVALID_HEAD_SHA');
-    const doc = await readJson(base + '/contents/' + p.path + '?ref=' + commitSha);
-    if (doc?.type !== 'file' || doc?.encoding !== 'base64' ||
-        !/^[a-f0-9]{40}$/.test(doc?.sha ?? '') || typeof doc.content !== 'string' ||
-        doc.content.length > Math.ceil(MAX_SOT_BYTES * 4 / 3) + 10) {
-      throw new Error('SOT_CONTENT_INVALID');
-    }
-    const raw = Buffer.from(doc.content.replace(/\s/g, ''), 'base64');
-    if (raw.length > MAX_SOT_BYTES || !raw.length) throw new Error('SOT_SIZE_INVALID');
-    // Reject malformed base64 instead of silently accepting Buffer's permissive decoder.
-    if (raw.toString('base64') !== doc.content.replace(/\s/g, '')) throw new Error('SOT_BASE64_INVALID');
-    const head2 = await readJson(base + '/commits/main');
-    if (head2?.sha !== commitSha) return response('WAIT_SOT_AUTHORITY', { reason: 'SOT_REVISION_CHANGED' });
-    const result = inspectSot(raw.toString('utf8'), request.task_id);
-    const evidence = { repo: p.repo, path: p.path, task_id: request.task_id,
-      revision: commitSha, blob_sha: doc.sha };
-    if (!result.ok) return response('WAIT_SOT_AUTHORITY',
-      { reason: result.reason, task_state: result.taskState ?? null, ...evidence });
-    // Phase 1 intentionally has no business execution or downstream worker authority.
-    return response('SOT_VERIFIED_READ_ONLY', { task_state: result.taskState, ...evidence });
+    const proof = await pinnedSot(p, request.task_id, readJson);
+    if (proof.changed) return response('WAIT_SOT_AUTHORITY', { reason: 'SOT_REVISION_CHANGED' });
+    if (!proof.result.ok) return response('WAIT_SOT_AUTHORITY',
+      { reason: proof.result.reason, task_state: proof.result.taskState ?? null, ...proof.evidence });
+    return response('SOT_VERIFIED_READ_ONLY', { task_state: proof.result.taskState, ...proof.evidence });
   } catch (error) {
     return response('WAIT_SOT_AUTHORITY', { reason: 'FETCH_OR_PARSE_FAILED',
+      detail_code: /^[A-Z_]+$/.test(error?.message ?? '') ? error.message : 'SOURCE_UNAVAILABLE' });
+  }
+}
+
+
+// This performs only a GitHub GET/pin/probe. It grants no lifecycle authority.
+async function pinnedSot(policy, taskId, readJson) {
+  const base = 'https://api.github.com/repos/' + policy.repo;
+  const head1 = await readJson(base + '/commits/main');
+  const commitSha = head1?.sha;
+  if (!/^[a-f0-9]{40}$/.test(commitSha ?? '')) throw new Error('INVALID_HEAD_SHA');
+  const doc = await readJson(base + '/contents/' + policy.path + '?ref=' + commitSha);
+  if (doc?.type !== 'file' || doc?.encoding !== 'base64' ||
+      !/^[a-f0-9]{40}$/.test(doc?.sha ?? '') || typeof doc.content !== 'string' ||
+      doc.content.length > Math.ceil(MAX_SOT_BYTES * 4 / 3) + 10) {
+    throw new Error('SOT_CONTENT_INVALID');
+  }
+  const normalized = doc.content.replace(/\\s/g, '');
+  const raw = Buffer.from(normalized, 'base64');
+  if (!raw.length || raw.length > MAX_SOT_BYTES) throw new Error('SOT_SIZE_INVALID');
+  if (raw.toString('base64') !== normalized) throw new Error('SOT_BASE64_INVALID');
+  const head2 = await readJson(base + '/commits/main');
+  if (head2?.sha !== commitSha) return { changed: true };
+  return {
+    changed: false,
+    result: inspectSot(raw.toString('utf8'), taskId),
+    evidence: { repo: policy.repo, path: policy.path, task_id: taskId,
+      revision: commitSha, blob_sha: doc.sha },
+  };
+}
+
+// Read-only planning preflight for a future Python Coordinator bridge.
+// In contrast to verifySot(), this does NOT evaluate trusted Owner lifecycle
+// gates and it can NEVER confer execution/dispatch authorization.
+export async function probeSotReadOnly(request, { readJson } = {}) {
+  const checked = validateEnvelope(request);
+  if (!checked.ok) return response('REJECTED', { reason: checked.reason });
+  if (typeof readJson !== 'function') return response('SOT_PREFLIGHT_UNAVAILABLE',
+    { reason: 'SOT_FETCH_UNAVAILABLE' });
+  try {
+    const proof = await pinnedSot(checked.policy, request.task_id, readJson);
+    if (proof.changed) return response('SOT_PREFLIGHT_UNAVAILABLE',
+      { reason: 'SOT_REVISION_CHANGED' });
+    if (!proof.result.ok) return response('SOT_PREFLIGHT_BLOCKED',
+      { reason: proof.result.reason, task_state: proof.result.taskState ?? null,
+        ...proof.evidence });
+    // The next execution verifier must independently re-read SOT and
+    // verify Owner STOP, enabled-specialist state, machine and worker identity.
+    return response('SOT_PREFLIGHT_READY_NOT_AUTHORIZED',
+      { task_state: proof.result.taskState, ...proof.evidence });
+  } catch (error) {
+    return response('SOT_PREFLIGHT_UNAVAILABLE', { reason: 'FETCH_OR_PARSE_FAILED',
       detail_code: /^[A-Z_]+$/.test(error?.message ?? '') ? error.message : 'SOURCE_UNAVAILABLE' });
   }
 }
