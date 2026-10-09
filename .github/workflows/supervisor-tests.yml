@@ -73,6 +73,7 @@ jobs:
             test/sc013-coordinator-inert-apply.test.mjs `
             test/sc013-coordinator-hook-apply.test.mjs `
             test/sc013-owner-lifecycle-control.test.mjs `
+            test/sc013-owner-control-apply.test.mjs `
             test/sc013-sot-adapter.test.mjs `
             test/sc013-live-observer-contract.test.mjs `
             test/sc013-owner-start-authority.test.mjs `
@@ -95,6 +96,11 @@ jobs:
           [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD '.github/scripts/sc013-coordinator-hook-apply.ps1'),[ref]$tokens,[ref]$errors)|Out-Null
           if(@($errors).Count -ne 0){throw ('COORDINATOR_HOOK_PS_SYNTAX_INVALID: '+($errors -join '; '))}
           Write-Host 'COORDINATOR_HOOK_PS_SYNTAX_PASS=True'
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD '.github/scripts/sc013-owner-control-apply.ps1'),[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -ne 0){throw ('OWNER_CONTROL_PS_SYNTAX_INVALID: '+($errors -join '; '))}
+          Write-Host 'OWNER_CONTROL_PS_SYNTAX_PASS=True'
       - name: Parse Control Center JS without launching local services
         shell: powershell
         run: node --check src/control-center/web/app.js
