@@ -117,7 +117,7 @@ async function pinnedSot(policy, taskId, readJson) {
       doc.content.length > Math.ceil(MAX_SOT_BYTES * 4 / 3) + 10) {
     throw new Error('SOT_CONTENT_INVALID');
   }
-  const normalized = doc.content.replace(/\\s/g, '');
+  const normalized = doc.content.replace(/\s/g, '');
   const raw = Buffer.from(normalized, 'base64');
   if (!raw.length || raw.length > MAX_SOT_BYTES) throw new Error('SOT_SIZE_INVALID');
   if (raw.toString('base64') !== normalized) throw new Error('SOT_BASE64_INVALID');
