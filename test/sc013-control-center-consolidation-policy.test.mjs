@@ -38,7 +38,9 @@ test("migration milestones are not accidentally promoted to deployed or DONE",as
   assert.deepEqual(m.phases.map(p=>p.id),[
     "MIG-CC-01","MIG-CC-02","MIG-CC-03","MIG-CC-04","MIG-CC-05",
   ]);
-  assert.equal(m.phases.every(p=>p.state==="NOT_DONE"),true);
+  assert.equal(m.phases[0].state,"IN_PROGRESS");
+  assert.equal(m.phases.slice(1).every(p=>p.state==="NOT_DONE"),true);
+  assert.equal(m.phases.some(p=>p.state==="DONE"),false);
   assert.deepEqual(m.guardrails,[
     "NO_PRODUCTION_DEPLOYMENT","NO_SCHEDULE_MUTATION","NO_START_STOP",
     "NO_DELETE_OR_MOVE_WORKER_DATA","NO_REAL_BUSINESS_DISPATCH",
