@@ -136,6 +136,7 @@ if((Hash (Join-Path $backupDir 'coordinator.py')) -ne $controlHash){
   throw 'COORDINATOR_BACKUP_HASH_MISMATCH'
 }
 $created=New-Object 'System.Collections.Generic.List[string]'
+$temporary=New-Object 'System.Collections.Generic.List[string]'
 $receipt=Join-Path $stage 'installation.json'
 if(Test-Path -LiteralPath $receipt){throw 'INSTALL_RECEIPT_ALREADY_EXISTS'}
 try {
@@ -147,6 +148,7 @@ try {
     if(Test-Path -LiteralPath $destination){throw 'TARGET_CHANGED_DURING_APPLY'}
     $temp=Join-Path $root ($name+'.sc013-'+$sha+'.tmp')
     if(Test-Path -LiteralPath $temp){throw 'LEFTOVER_TEMP_REQUIRES_REVIEW'}
+    $temporary.Add($temp)
     Copy-Item -LiteralPath (Join-Path $stage $name) -Destination $temp
     if((Hash $temp) -ne $expected[$name]){Remove-Item -LiteralPath $temp -Force; throw 'TEMP_SOURCE_HASH_MISMATCH'}
     Move-Item -LiteralPath $temp -Destination $destination
@@ -194,7 +196,21 @@ try {
       $rollbackOk=$false
     }
   }
+  foreach($temp in $temporary){
+    if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue}
+    if(Test-Path -LiteralPath $temp){$rollbackOk=$false}
+  }
   if((Hash $control) -ne $controlHash){$rollbackOk=$false}
+  $failure=[ordered]@{
+    schema='MAGASIN_SC013_COORDINATOR_APPLY_FAILURE_V1'
+    exact_main_sha=$sha
+    result='FAILED_ROLLBACK_ATTEMPTED'
+    failure_code=([string]$_.Exception.Message -replace '[^A-Za-z0-9_]', '_').Substring(0,[math]::Min(90,([string]$_.Exception.Message).Length))
+    rollback_safe=$rollbackOk
+    business_execution_qualified=$false
+    chatgpt_outbound=$false
+  }
+  $failure | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'installation-failure.json') -Encoding UTF8
   Write-Host ('INSTALL_ROLLBACK_SAFE='+$rollbackOk)
   throw
 }
