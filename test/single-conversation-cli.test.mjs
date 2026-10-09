@@ -1702,16 +1702,25 @@ test("SC-013 ENQUEUED task restart checks assistant correlation before exact-onc
   const body = source.slice(start, end);
 
   const capture = body.indexOf("CAPTURE_ASSISTANT_CORRELATION");
-  const confirm = body.indexOf("assistantTurnConfirmsCycleDelivery", capture);
+  const positive = body.indexOf("correlatedAssistant?.confirmed === true", capture);
+  const confirm = body.indexOf("assistantTurnConfirmsCycleDelivery", positive);
   const delivered = body.indexOf("markExactOnceDelivered", confirm);
-  const settle = body.indexOf("settleTransactionResponse", delivered);
-  const reconcile = body.indexOf("reconcileExactOnceOutbound", settle);
+  const verified = body.indexOf("markCorrelatedInFlightTaskResponseVerified", delivered);
+  const confirmedReturn = body.indexOf("recovered_from_unique_assistant_cycle_correlation: true", verified);
+  const reconcile = body.indexOf("reconcileExactOnceOutbound", confirmedReturn);
+  const settle = body.indexOf("settleTransactionResponse", reconcile);
 
   assert.ok(capture >= 0);
-  assert.ok(confirm > capture);
+  assert.match(body, /captureAssistantCycleCorrelationEvidence\(page, messageId\)/);
+  assert.ok(positive > capture);
+  assert.ok(confirm > positive);
   assert.ok(delivered > confirm);
-  assert.ok(settle > delivered);
-  assert.ok(reconcile > settle);
+  assert.ok(verified > delivered);
+  // Proven delivery is VERIFIED and returned before generic fallback. Never resend.
+  assert.ok(confirmedReturn > verified);
+  assert.ok(reconcile > confirmedReturn);
+  assert.ok(settle > reconcile);
+  assert.doesNotMatch(body.slice(capture, confirmedReturn), /sendProtocolMessage|reconcileExactOnceOutbound/);
   assert.match(body, /userTurnId:\s*null/);
 });
 
