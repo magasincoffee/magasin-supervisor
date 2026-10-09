@@ -1,0 +1,9 @@
+{
+  "schema": "MAGASIN_SC013_H4_STAGE_REQUEST_V1",
+  "task_id": "SC-013",
+  "target": "DESKTOP-H4A16IL",
+  "mode": "STAGE_ONLY",
+  "sot": "SOURCE_OF_TRUTH.md",
+  "reason": "Read-only source SHA audit and D-drive backup before explicit production apply; never start robot or touch ambiguous outbound state",
+  "issue": 339
+}
