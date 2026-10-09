@@ -225,6 +225,20 @@ catch {
   # (or already the original). Keep stage+failure evidence for Owner review.
   $rollbackSafe=$true
   try{
+    if($stopped){
+      $runningPort=@(Get-NetTCPConnection -LocalPort 8781 -State Listen -ErrorAction SilentlyContinue)
+      if($runningPort.Count -eq 1 -and $runningPort[0].LocalAddress -eq '127.0.0.1'){
+        $runningPid=[int]$runningPort[0].OwningProcess
+        $runningProc=Get-CimInstance Win32_Process -Filter "ProcessId=$runningPid" -ErrorAction SilentlyContinue
+        if($runningProc -and $runningProc.CommandLine -like '*D:\MAGASIN_ROBOTS\control-center\server.py*'){
+          Stop-Process -Id $runningPid -ErrorAction Stop
+          for($i=0;$i -lt 20;$i++){
+            if(!(Get-NetTCPConnection -LocalPort 8781 -State Listen -ErrorAction SilentlyContinue)){break}
+            Start-Sleep -Milliseconds 150
+          }
+        }else{$rollbackSafe=$false}
+      }elseif($runningPort.Count -gt 0){$rollbackSafe=$false}
+    }
     $currentServer=if(Test-Path $liveServer){Hash $liveServer}else{''}
     $currentWeb=if(Test-Path $liveWeb){Hash $liveWeb}else{''}
     if($currentServer -in @($expectedServerHash,$expected['server.py'])){
@@ -239,8 +253,17 @@ catch {
     if((Hash $liveServer) -ne $expectedServerHash -or (Hash $liveWeb) -ne $expectedWebHash){
       $rollbackSafe=$false
     }
-    if($stopped -and !(Get-NetTCPConnection -LocalPort 8781 -State Listen -ErrorAction SilentlyContinue)){
-      & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $launch -StartOnly
+    if($stopped){
+      if(!(Get-NetTCPConnection -LocalPort 8781 -State Listen -ErrorAction SilentlyContinue)){
+        & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $launch -StartOnly
+        if($LASTEXITCODE -ne 0){$rollbackSafe=$false}
+      }else{
+        $rollbackSafe=$false
+      }
+      try{
+        $restored=Invoke-WebRequest -Uri 'http://127.0.0.1:8781/healthz' -UseBasicParsing -TimeoutSec 3
+        if($restored.StatusCode -ne 200){$rollbackSafe=$false}
+      }catch{$rollbackSafe=$false}
     }
   }catch{$rollbackSafe=$false}
   $failure=@{schema='MAGASIN_SC013_OWNER_CONTROL_APPLY_FAILURE_V1';
