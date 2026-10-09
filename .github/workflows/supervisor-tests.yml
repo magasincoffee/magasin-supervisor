@@ -86,6 +86,7 @@ jobs:
             test/sc013-coordinator-hook-apply.test.mjs `
             test/sc013-owner-lifecycle-control.test.mjs `
             test/sc013-specialist-readiness-ui.test.mjs `
+            test/sc013-control-center-consolidation-policy.test.mjs `
             test/sc013-owner-control-apply.test.mjs `
             test/sc013-sot-adapter.test.mjs `
             test/sc013-live-observer-contract.test.mjs `
