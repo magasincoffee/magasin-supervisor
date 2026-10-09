@@ -65,6 +65,7 @@ jobs:
             test/external-run-local-observer.test.mjs \
             test/sc013-production-deploy-boundary.test.mjs \
             test/sc013-h4a16il-safe-deploy.test.mjs \
+            test/sc013-local-30m-tick.test.mjs \
             test/sc013-live-observer-contract.test.mjs \
             test/sc013-owner-start-authority.test.mjs \
             test/supervisor-guardian.test.mjs
