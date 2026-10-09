@@ -11,7 +11,10 @@ test("Owner policy is one Control Center but backend/SOT separation is preserved
   assert.equal(m.document_only,true);
   assert.equal(m.owner_policy_approved,true);
   assert.equal(m.production_cutover_approved,false);
-  assert.equal(m.status,"SOURCE_ONLY_NOT_APPLIED");
+  assert.equal(m.ui_only_deployment.applied,true);
+  assert.equal(m.ui_only_deployment.specialist_start_stop_qualified,false);
+  assert.equal(m.ui_only_deployment.business_dispatch_enabled,false);
+  assert.equal(m.status,"UI_ONLY_DIAGNOSTICS_APPLIED_CHILD_CONTROLS_NOT_QUALIFIED");
   assert.equal(m.host,"DESKTOP-H4A16IL");
   assert.equal(m.control_center.address,"http://127.0.0.1:8781");
   assert.equal(m.control_center.ui_count_target,1);

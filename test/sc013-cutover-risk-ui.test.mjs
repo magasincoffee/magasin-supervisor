@@ -42,7 +42,9 @@ test("financial state and diagnostic content are never returned verbatim",async(
 test("source preview cannot promote a production cutover",async()=>{
   const m=JSON.parse(await fs.readFile(matrix,"utf8"));
   assert.equal(m.production_cutover_approved,false);
-  assert.equal(m.status,"SOURCE_ONLY_NOT_APPLIED");
+  assert.equal(m.ui_only_deployment.applied,true);
+  assert.equal(m.ui_only_deployment.disabled_saydi_control_http,405);
+  assert.equal(m.status,"UI_ONLY_DIAGNOSTICS_APPLIED_CHILD_CONTROLS_NOT_QUALIFIED");
   assert.equal(m.phases[0].state,"IN_PROGRESS");
   assert.equal(m.phases[1].state,"NOT_DONE");
   assert.equal(m.specialists.every(x=>x.cutover_state==="NOT_QUALIFIED"),true);
