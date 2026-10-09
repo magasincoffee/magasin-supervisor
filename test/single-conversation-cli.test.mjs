@@ -33,6 +33,7 @@ import {
   waitForPositiveBlankBootstrapNonDelivery
 } from "../src/runtime/single-conversation-cli.mjs";
 import { composerInstructionDigest } from "../src/ui/actions.mjs";
+import { captureAssistantCycleCorrelationEvidence } from "../src/ui/latest-turn.mjs";
 import { buildSingleConversationTaskInstruction } from "../src/runtime/single-conversation-loop.mjs";
 import {
   ensureSingleConversationState,
@@ -1854,4 +1855,45 @@ test("SC-013 repeated unresponsive CDP probes fail closed in bounded time", asyn
   }), null);
   assert.equal(probes, 2, "strict retry cap is two");
   assert.ok(Date.now() - begin < 800, "bounded failure, no infinite wait");
+});
+
+
+test("SC-013 assistant cycle recovery requires exactly one matching assistant response", async () => {
+  const messageId = "sc013-cycle-unique";
+  const marker = "MAGASIN_CYCLE_CORRELATION_V1 " + messageId;
+  let calls = 0;
+  const page = {
+    async evaluate(_fn, args) {
+      calls += 1;
+      assert.equal(args.wantedMarker, marker);
+      return { matches: [{turn_id:"unique-assistant-turn", text:"STATUS=RUNNING\n"+marker}] };
+    }
+  };
+  const evidence = await captureAssistantCycleCorrelationEvidence(page,messageId);
+  assert.equal(evidence.confirmed,true);
+  assert.equal(evidence.turn_id,"unique-assistant-turn");
+  assert.equal(evidence.match_count,1);
+  assert.equal(assistantTurnConfirmsCycleDelivery(evidence,messageId),true);
+  assert.equal(calls,1);
+});
+
+test("SC-013 missing or ambiguous assistant correlations fail closed", async () => {
+  let calls=0;
+  const page={
+    async evaluate(_fn,args) {
+      calls+=1;
+      return { matches:[
+        {turn_id:"assistant-1",text:args.wantedMarker},
+        {turn_id:"assistant-2",text:args.wantedMarker}
+      ]};
+    }
+  };
+  const ambiguous=await captureAssistantCycleCorrelationEvidence(page,"message-1");
+  assert.equal(ambiguous.confirmed,false);
+  assert.equal(ambiguous.evidence,"multiple-assistant-cycle-correlations");
+  assert.equal(assistantTurnConfirmsCycleDelivery(ambiguous,"message-1"),false);
+  const missing=await captureAssistantCycleCorrelationEvidence(page,"");
+  assert.equal(missing.confirmed,false);
+  assert.equal(missing.evidence,"missing-message-id");
+  assert.equal(calls,1,"missing message id must not query CDP");
 });
