@@ -11,7 +11,10 @@ import {
   ChatGptUiAdapter,
   isTransientNavigationError
 } from "../ui/playwright-adapter.mjs";
-import { captureLatestRoleTurn } from "../ui/latest-turn.mjs";
+import {
+  captureAssistantCycleCorrelationEvidence,
+  captureLatestRoleTurn
+} from "../ui/latest-turn.mjs";
 import {
   bootstrapFailureRecoveryReason,
   buildSingleConversationBootstrap,
@@ -153,7 +156,8 @@ export async function reconcileExternalRunResponse({
   taskControl,
   expectedTaskId = null,
   sourceKind = null,
-  now = () => new Date().toISOString()
+  now = () => new Date().toISOString(),
+  fetchImpl = globalThis.fetch
 } = {}) {
   const state = await readSingleConversationState(statePath);
   const evidence = parseExternalRunControl(text);
@@ -214,6 +218,62 @@ export async function reconcileExternalRunResponse({
   });
   state.external_work = reconciled.external_work;
 
+  // A successful tracked workflow is not sufficient when sibling required
+  // workflows for the same authoritative SHA are still active or have failed.
+  // Read the same-SHA run set locally before allowing VERIFY/BLOCKED Owner gates.
+  if (
+    evidence.workflow_status === "completed" &&
+    evidence.commit_sha &&
+    evidence.workflow_run_id &&
+    evidence.repo
+  ) {
+    const aggregate = await inspectTrackedGitHubRun({
+      externalWork: state.external_work,
+      fetchImpl,
+      timeoutMs: 5_000
+    }).catch(() => null);
+
+    if (
+      aggregate?.supported === true &&
+      aggregate.authority === "AUTHORITATIVE" &&
+      aggregate.run_set_supported === true
+    ) {
+      const activeCount = Number(aggregate.run_set_active_count || 0);
+      const failureCount = Number(aggregate.run_set_failure_count || 0);
+      state.external_work.run_set_count = Number(aggregate.run_set_count || 0);
+      state.external_work.run_set_active_count = activeCount;
+      state.external_work.run_set_completed_count = Number(
+        aggregate.run_set_completed_count || 0
+      );
+      state.external_work.run_set_failure_count = failureCount;
+      state.external_work.run_set_checked_at = new Date(
+        typeof now === "function" ? now() : now
+      ).toISOString();
+
+      if (activeCount > 0) {
+        reconciled.decision = "WAIT_EXTERNAL";
+        state.external_work.decision = "WAIT_EXTERNAL";
+        state.external_work.owner_required = false;
+        state.external_work.execution_phase = "WAIT_RELEASE_GATE";
+        state.external_work.current_gate = "SAME_SHA_REQUIRED_GATE_SET";
+        state.external_work.last_result = "RUNNING";
+        state.external_work.next_action = "WAIT_SAME_SHA_REQUIRED_GATES";
+        state.external_work.next_check_seconds = 20;
+      } else if (failureCount > 0) {
+        reconciled.decision = "AUTO_REPAIR";
+        state.external_work.decision = "AUTO_REPAIR";
+        state.external_work.owner_required = false;
+        state.external_work.execution_phase = "BATCH_REPAIR";
+        state.external_work.current_gate = "SAME_SHA_REQUIRED_GATE_SET";
+        state.external_work.last_result = "FAIL";
+        state.external_work.failure_signature =
+          `SAME_SHA_REQUIRED_GATE_FAILURES_${failureCount}`;
+        state.external_work.next_action = "INSPECT_SAME_SHA_FAILURE_SET";
+        state.external_work.next_check_seconds = 0;
+      }
+    }
+  }
+
   switch (reconciled.decision) {
     case "WAIT_EXTERNAL":
       state.automation.status = "RUNNING";
@@ -223,9 +283,11 @@ export async function reconcileExternalRunResponse({
     case "AUTO_REPAIR":
       state.automation.status = "RUNNING";
       state.automation.phase = "AUTO_REPAIR";
-      state.automation.reason = evidence.workflow_conclusion
-        ? `EXTERNAL_${String(evidence.workflow_conclusion).toUpperCase()}`
-        : "EXTERNAL_FAILURE";
+      state.automation.reason = Number(state.external_work?.run_set_failure_count || 0) > 0
+        ? `SAME_SHA_REQUIRED_GATE_FAILURES:${state.external_work.run_set_failure_count}`
+        : (evidence.workflow_conclusion
+            ? `EXTERNAL_${String(evidence.workflow_conclusion).toUpperCase()}`
+            : "EXTERNAL_FAILURE");
       break;
     case "TRIGGER_EXTERNAL_RUN":
       state.automation.status = "RUNNING";
@@ -1708,26 +1770,31 @@ async function resumeEnqueuedTaskMessageAfterRebind({
   // text match and must suppress resend during restart reconciliation.
   const correlatedAssistant = await boundedRuntimeStep(
     `RESTART_${label}_CAPTURE_ASSISTANT_CORRELATION`,
-    () => captureLatestRoleTurn(page, "assistant"),
+    () => captureAssistantCycleCorrelationEvidence(page, messageId),
     { timeoutMs: 10_000 }
   ).catch(() => null);
 
-  if (assistantTurnConfirmsCycleDelivery(correlatedAssistant, messageId)) {
+  if (
+    correlatedAssistant?.confirmed === true &&
+    assistantTurnConfirmsCycleDelivery(correlatedAssistant, messageId)
+  ) {
     await markExactOnceDelivered(statePath, {
       messageId,
       message,
       userTurnId: null
     });
-    return settleTransactionResponse({
-      adapter,
-      page,
-      statePath,
+    await markCorrelatedInFlightTaskResponseVerified(statePath, {
       messageId,
-      message,
-      baselineAssistantTurnId: null,
-      timeoutMs: responseTimeoutMs,
-      pollMs: Math.min(750, Math.max(100, pollMs))
+      assistantTurnId: correlatedAssistant.turn_id || null
     });
+    return {
+      status: "RESPONSE_COMPLETE",
+      assistant_turn: correlatedAssistant,
+      continue_clicks: 0,
+      saw_running: false,
+      marker_confirmed: true,
+      recovered_from_unique_assistant_cycle_correlation: true
+    };
   }
 
   const delivery = await reconcileExactOnceOutbound({
@@ -1779,11 +1846,14 @@ async function resumeInFlightProtocolMessageAfterRebind({
   ) {
     const correlatedAssistant = await boundedRuntimeStep(
       "RESTART_WAIT_RESPONSE_CAPTURE_ASSISTANT_CORRELATION",
-      () => captureLatestRoleTurn(page, "assistant"),
+      () => captureAssistantCycleCorrelationEvidence(page, messageId),
       { timeoutMs: 10_000 }
     ).catch(() => null);
 
-    if (assistantTurnConfirmsCycleDelivery(correlatedAssistant, messageId)) {
+    if (
+      correlatedAssistant?.confirmed === true &&
+      assistantTurnConfirmsCycleDelivery(correlatedAssistant, messageId)
+    ) {
       await markCorrelatedInFlightTaskResponseVerified(statePath, {
         messageId,
         assistantTurnId: correlatedAssistant.turn_id || null
