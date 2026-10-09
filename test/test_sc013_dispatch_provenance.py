@@ -6,6 +6,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -80,7 +81,7 @@ class ProvenanceChecks(unittest.TestCase):
         self.stop_root = self.path / "supervisor"
         self.stop_root.mkdir()
         self._write_owner()
-        with sqlite3.connect(self.db) as cx:
+        with closing(sqlite3.connect(self.db)) as cx:
             cx.execute("""CREATE TABLE dispatch_inbox (
                 source_id TEXT PRIMARY KEY, source TEXT,task_id TEXT,target TEXT,
                 action TEXT,sot_url TEXT,status TEXT,local_job_id TEXT)""")
