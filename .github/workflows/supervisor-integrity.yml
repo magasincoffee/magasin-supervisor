@@ -43,6 +43,7 @@ jobs:
           sc013-coordinator-inert-apply.yml
           sc013-coordinator-readonly-stage.yml
           sc013-h4a16il-safe-deploy.yml
+          sc013-owner-control-apply.yml
           sc013-runtime-watchdog.yml
           supervisor-autostart-install.yml
           supervisor-control-panel-desktop-4k7im13.yml
@@ -84,6 +85,7 @@ jobs:
             test/sc013-coordinator-inert-apply.test.mjs \
             test/sc013-coordinator-hook-apply.test.mjs \
             test/sc013-owner-lifecycle-control.test.mjs \
+            test/sc013-owner-control-apply.test.mjs \
             test/sc013-local-30m-tick.test.mjs \
             test/sc013-sot-adapter.test.mjs \
             test/sc013-live-observer-contract.test.mjs \
