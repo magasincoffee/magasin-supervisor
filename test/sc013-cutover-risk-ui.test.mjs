@@ -37,7 +37,7 @@ test("financial state and diagnostic content are never returned verbatim",async(
   assert.match(s,/business_dispatch_enabled": False/);
   assert.match(s,/cutover_allowed": False/);
   assert.doesNotMatch(s,/subprocess|Popen|os\.system|urlopen|Invoke-WebRequest/);
-  assert.doesNotMatch(s,/return (?:contents|data|state)\b/);
+  assert.doesNotMatch(s,/["\u0027](?:export_url|raw_path)["\u0027]\s*:/);
 });
 test("source preview cannot promote a production cutover",async()=>{
   const m=JSON.parse(await fs.readFile(matrix,"utf8"));
