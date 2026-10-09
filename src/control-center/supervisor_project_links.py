@@ -138,6 +138,7 @@ def inspect(*, current: Path = CURRENT, requests: Path = REQUESTS,
                 if identifier != row["id"] or row["status"] != "PENDING_SOT_REVIEW":
                     raise Rejected("PROJECT_REQUEST_IDENTITY_INVALID")
                 result["requests"].append({**src, "id":identifier,
+                                            "created_at":str(row["created_at"])[:50],
                                             "status":"PENDING_SOT_REVIEW",
                                             "execution_authorized":False})
         except (Rejected, OSError):
