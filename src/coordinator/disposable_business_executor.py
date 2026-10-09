@@ -19,6 +19,7 @@ import secrets
 import sqlite3
 import tempfile
 import time
+from contextlib import closing
 from pathlib import Path
 
 SCHEMA = "MAGASIN_SC013_DISPOSABLE_EXECUTOR_V1"
@@ -118,7 +119,7 @@ class DisposableExecutor:
         return cx
 
     def _initialize(self):
-        with self._db() as cx:
+        with closing(self._db()) as cx:
             cx.execute("""CREATE TABLE IF NOT EXISTS fixture_runs (
                 source_id TEXT PRIMARY KEY,
                 fingerprint TEXT NOT NULL,
@@ -150,7 +151,7 @@ class DisposableExecutor:
             raise FixtureRejected("INVALID_LEASE")
         key = request["source_id"]
         fingerprint = _fingerprint(request)
-        with self._db() as cx:
+        with closing(self._db()) as cx:
             cx.execute("BEGIN IMMEDIATE")
             row = self._row(cx, key)
             if row:
@@ -186,7 +187,7 @@ class DisposableExecutor:
         # Re-use synthetic-only Owner and STOP checks without real authority.
         fake = synthetic_request(source_id=source_id)
         _validate(fake, guards)
-        with self._db() as cx:
+        with closing(self._db()) as cx:
             cx.execute("BEGIN IMMEDIATE")
             row = self._row(cx, source_id)
             if not row or not secrets.compare_digest(row["receipt_token_hash"],
@@ -208,7 +209,7 @@ class DisposableExecutor:
         if type(token) is not str or not re.fullmatch(r"[a-f0-9]{48}", token):
             raise FixtureRejected("CLAIM_PROOF_INVALID")
         _validate(synthetic_request(source_id=source_id),guards)
-        with self._db() as cx:
+        with closing(self._db()) as cx:
             cx.execute("BEGIN IMMEDIATE")
             row=self._row(cx,source_id)
             if not row or not secrets.compare_digest(row["receipt_token_hash"],
@@ -226,7 +227,7 @@ class DisposableExecutor:
     def inspect(self, source_id):
         if type(source_id) is not str or not SYNTHETIC.fullmatch(source_id):
             raise FixtureRejected("REAL_RECEIPT_NOT_ALLOWED")
-        with self._db() as cx:
+        with closing(self._db()) as cx:
             row = self._row(cx,source_id)
             return _public(row) if row else None
 
@@ -235,7 +236,7 @@ class DisposableExecutor:
         row = self.inspect(source_id)
         if row is None:
             return {"stage":"NOT_FOUND","production_dispatch":False}
-        with self._db() as cx:
+        with closing(self._db()) as cx:
             cx.execute("BEGIN IMMEDIATE")
             raw=self._row(cx,source_id)
             if raw["stage"] in ("CLAIMED","ACKED") and self.clock() >= raw["lease_deadline"]:
