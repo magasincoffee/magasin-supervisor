@@ -1,0 +1,50 @@
+name: SC-013 Coordinator Inert Bridge Owner APPLY
+
+# One explicit Owner-approved marker PR is required after reviewed implementation.
+# Ordinary source/SOT pushes and cron MUST NEVER install on H4A16IL.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/sc013-coordinator-apply-request.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sc013-h4a16il-safe-deploy
+  cancel-in-progress: false
+
+jobs:
+  stage-and-apply-inert-files:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 12
+    steps:
+      - name: Reject wrong target before checkout or disk access
+        shell: powershell
+        run: |
+          if ([Environment]::MachineName -ne 'DESKTOP-H4A16IL') {
+            Write-Host 'TARGET_MUTATION_SKIPPED=True'
+            throw 'WRONG_TARGET_MACHINE'
+          }
+          Write-Host 'H4_TARGET_MATCH=True'
+      - name: Checkout exact approved marker commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare fresh isolated STAGE at current exact main SHA
+        shell: powershell
+        env:
+          STAGE_SHA: ${{ github.sha }}
+        run: |
+          if ($env:STAGE_SHA -notmatch '^[a-fA-F0-9]{40}$') { throw 'INVALID_MAIN_SHA' }
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '.github/scripts/sc013-coordinator-readonly-stage.ps1' -ExpectedMainSha $env:STAGE_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'FRESH_ISOLATED_STAGE_FAILED' }
+      - name: Install only staged inert Coordinator files with STOP and rollback gates
+        shell: powershell
+        env:
+          APPLY_SHA: ${{ github.sha }}
+        run: |
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '.github/scripts/sc013-coordinator-inert-apply.ps1' -ExpectedMainSha $env:APPLY_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'COORDINATOR_INERT_APPLY_FAILED' }
