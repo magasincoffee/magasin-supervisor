@@ -80,6 +80,9 @@ jobs:
       - name: Test SC-013 child robot disabled control explanations
         shell: bash
         run: python -m unittest discover -s test -p 'test_sc013_specialist_readiness.py' -v
+      - name: Verify SC-013 privacy-safe pre-cutover SAPO/SAYDI/Supervisor evidence
+        shell: bash
+        run: python -m unittest discover -s test -p 'test_sc013_cutover_preflight.py' -v
       - name: Verify SINGLE_CONVERSATION_V1 contracts
         shell: bash
         run: |
@@ -100,6 +103,7 @@ jobs:
             test/sc013-specialist-readiness-ui.test.mjs \
             test/sc013-control-center-consolidation-policy.test.mjs \
             test/sc013-unified-inventory-readonly.test.mjs \
+            test/sc013-cutover-risk-ui.test.mjs \
             test/sc013-owner-control-apply.test.mjs \
             test/sc013-local-30m-tick.test.mjs \
             test/sc013-sot-adapter.test.mjs \
