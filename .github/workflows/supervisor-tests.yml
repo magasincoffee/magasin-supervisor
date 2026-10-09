@@ -39,6 +39,12 @@ jobs:
       - name: Install dependencies without side effects
         shell: powershell
         run: npm install --ignore-scripts --no-audit --no-fund
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test SC-013 Python SOT preflight bridge
+        shell: powershell
+        run: python -m unittest discover -s test -p 'test_sc013_sot_python_bridge.py' -v
       - name: Run SINGLE_CONVERSATION_V1 regression suite
         shell: powershell
         run: |
