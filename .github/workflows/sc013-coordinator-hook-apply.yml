@@ -1,0 +1,43 @@
+name: SC-013 Coordinator Readonly Cycle Hook APPLY
+
+# Reviewed Owner marker only. Ordinary documentation and source merges do not
+# run this H4A16IL local installer; no workflow_dispatch or cron path.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/sc013-coordinator-hook-apply-request.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sc013-h4a16il-safe-deploy
+  cancel-in-progress: false
+
+jobs:
+  apply-reviewed-readonly-hook:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    steps:
+      - name: Guard H4 workstation before checkout
+        shell: powershell
+        run: |
+          if ([Environment]::MachineName -ne 'DESKTOP-H4A16IL') {
+            Write-Host 'TARGET_MUTATION_SKIPPED=True'
+            throw 'WRONG_TARGET_MACHINE'
+          }
+          Write-Host 'TARGET_MATCH=True'
+      - name: Checkout exact Owner marker main commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Safely replace only local Coordinator read-only cycle hook
+        shell: powershell
+        env:
+          HOOK_SHA: ${{ github.sha }}
+        run: |
+          if ($env:HOOK_SHA -notmatch '^[a-fA-F0-9]{40}$') { throw 'INVALID_EXPECTED_MAIN_SHA' }
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '.github/scripts/sc013-coordinator-hook-apply.ps1' -ExpectedMainSha $env:HOOK_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'SC013_READONLY_HOOK_APPLY_FAILED' }
