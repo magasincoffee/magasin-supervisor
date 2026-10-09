@@ -4,6 +4,7 @@ import sqlite3
 import subprocess
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -138,7 +139,7 @@ class CoordinatorReadOnlyCycleTests(unittest.TestCase):
             self.assertIn("SOT",out["limitations"])
             recorded=json.loads((root/"coordinator-status.json").read_text(encoding="utf-8"))
             self.assertEqual(recorded["sot_preflight"]["status"],"READ_ONLY_CLASSIFIED")
-            with sqlite3.connect(root/"plans.sqlite3") as cx:
+            with closing(sqlite3.connect(root/"plans.sqlite3")) as cx:
                 self.assertEqual(cx.execute("SELECT stage FROM plans").fetchone()[0],
                                  "WAIT_OWNER_ENABLE")
 
