@@ -64,6 +64,9 @@ jobs:
       - name: Validate read-only Coordinator cycle hook
         shell: bash
         run: python -m unittest discover -s test -p 'test_sc013_coordinator_cycle_preflight.py' -v
+      - name: Verify SC-013 read-only Owner lifecycle
+        shell: bash
+        run: python -m unittest discover -s test -p 'test_sc013_owner_lifecycle.py' -v
       - name: Verify SINGLE_CONVERSATION_V1 contracts
         shell: bash
         run: |
@@ -80,6 +83,7 @@ jobs:
             test/sc013-coordinator-readonly-stage.test.mjs \
             test/sc013-coordinator-inert-apply.test.mjs \
             test/sc013-coordinator-hook-apply.test.mjs \
+            test/sc013-owner-lifecycle-control.test.mjs \
             test/sc013-local-30m-tick.test.mjs \
             test/sc013-sot-adapter.test.mjs \
             test/sc013-live-observer-contract.test.mjs \

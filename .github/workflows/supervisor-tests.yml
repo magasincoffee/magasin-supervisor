@@ -48,6 +48,9 @@ jobs:
       - name: Validate read-only Coordinator cycle hook
         shell: powershell
         run: python -m unittest discover -s test -p 'test_sc013_coordinator_cycle_preflight.py' -v
+      - name: Verify SC-013 read-only Owner lifecycle
+        shell: powershell
+        run: python -m unittest discover -s test -p 'test_sc013_owner_lifecycle.py' -v
       - name: Run SINGLE_CONVERSATION_V1 regression suite
         shell: powershell
         run: |
@@ -69,6 +72,7 @@ jobs:
             test/sc013-coordinator-readonly-stage.test.mjs `
             test/sc013-coordinator-inert-apply.test.mjs `
             test/sc013-coordinator-hook-apply.test.mjs `
+            test/sc013-owner-lifecycle-control.test.mjs `
             test/sc013-sot-adapter.test.mjs `
             test/sc013-live-observer-contract.test.mjs `
             test/sc013-owner-start-authority.test.mjs `
@@ -91,6 +95,9 @@ jobs:
           [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD '.github/scripts/sc013-coordinator-hook-apply.ps1'),[ref]$tokens,[ref]$errors)|Out-Null
           if(@($errors).Count -ne 0){throw ('COORDINATOR_HOOK_PS_SYNTAX_INVALID: '+($errors -join '; '))}
           Write-Host 'COORDINATOR_HOOK_PS_SYNTAX_PASS=True'
+      - name: Parse Control Center JS without launching local services
+        shell: powershell
+        run: node --check src/control-center/web/app.js
       - name: Confirm no production mutation
         shell: powershell
         run: Write-Host "ZERO_PRODUCTION_MUTATION=True"
