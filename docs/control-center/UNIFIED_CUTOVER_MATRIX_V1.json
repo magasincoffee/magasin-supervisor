@@ -1,0 +1,107 @@
+{
+  "schema": "MAGASIN_SINGLE_CONTROL_CENTER_MIGRATION_MATRIX_V1",
+  "document_only": true,
+  "owner_policy_approved": true,
+  "production_cutover_approved": false,
+  "status": "SOURCE_ONLY_NOT_APPLIED",
+  "canonical_sot": "SOURCE_OF_TRUTH.md",
+  "host": "DESKTOP-H4A16IL",
+  "control_center": {
+    "address": "http://127.0.0.1:8781",
+    "ui_count_target": 1,
+    "autostart_allowed": true,
+    "lifecycle_executes_work": false,
+    "dispatcher_qualified": false
+  },
+  "target_policy": {
+    "each_robot_manual_owner_start": true,
+    "default_off_after_reboot": true,
+    "owner_stop_persists": true,
+    "read_only_health_can_autostart": true,
+    "no_automatic_cross_robot_start": true,
+    "legacy_interfaces_retire_only_after_acceptance": true,
+    "preserve_worker_engines": true,
+    "preserve_data_and_credentials": true
+  },
+  "phases": [
+    {
+      "id": "MIG-CC-01",
+      "name": "Inventory evidence and freeze",
+      "state": "NOT_DONE"
+    },
+    {
+      "id": "MIG-CC-02",
+      "name": "Unify all panels in one UI",
+      "state": "NOT_DONE"
+    },
+    {
+      "id": "MIG-CC-03",
+      "name": "Native owner lifecycle attestations",
+      "state": "NOT_DONE"
+    },
+    {
+      "id": "MIG-CC-04",
+      "name": "Per robot owner reviewed safe cutover",
+      "state": "NOT_DONE"
+    },
+    {
+      "id": "MIG-CC-05",
+      "name": "Reboot and rollback acceptance then retire old UI",
+      "state": "NOT_DONE"
+    }
+  ],
+  "specialists": [
+    {
+      "id": "supervisor",
+      "repo": "magasincoffee/magasin-supervisor",
+      "legacy_ui": "Existing Supervisor control experience",
+      "native_control": "control_adapter.py",
+      "owner_lifecycle_qualified": false,
+      "start_guard_required": true,
+      "legacy_schedule_audit_required": true,
+      "dispatched_by_coordinator": false,
+      "cutover_state": "NOT_QUALIFIED"
+    },
+    {
+      "id": "saydi",
+      "repo": "magasincoffee/magasin-media-robot",
+      "project_sot": "00_PROJECT/SOURCE_OF_TRUTH.md",
+      "legacy_ui": "C:\\SAYDI\\control\\media_control.py read-only localhost 8776",
+      "native_control": null,
+      "owner_lifecycle_qualified": false,
+      "legacy_schedulers": [
+        "SAYDI V5 CH02 QC Guardian",
+        "SAYDI NATURAL V4 Watchdog",
+        "SAYDI Full Book V4 Resume"
+      ],
+      "chapter2_min_ram_gib": 2.3,
+      "chapter2_condition": "PAUSED_RESOURCE_AS_OBSERVED_NOT_RUNTIME_LOCK",
+      "cross_sot_policy_reconciliation_required": true,
+      "dispatched_by_coordinator": false,
+      "cutover_state": "NOT_QUALIFIED"
+    },
+    {
+      "id": "sapo",
+      "repo": "magasincoffee/OPS-WebApp",
+      "legacy_ui": "%LOCALAPPDATA%\\MAGASIN\\SAPO\\control_center.py tkinter",
+      "native_control": null,
+      "owner_lifecycle_qualified": false,
+      "legacy_schedulers": [
+        "MAGASIN Sapo Nightly",
+        "MAGASIN Sapo Reconcile"
+      ],
+      "requires_financial_checkpoint_and_rollback": true,
+      "dispatched_by_coordinator": false,
+      "cutover_state": "NOT_QUALIFIED"
+    }
+  ],
+  "guardrails": [
+    "NO_PRODUCTION_DEPLOYMENT",
+    "NO_SCHEDULE_MUTATION",
+    "NO_START_STOP",
+    "NO_DELETE_OR_MOVE_WORKER_DATA",
+    "NO_REAL_BUSINESS_DISPATCH",
+    "NO_FINANCE_WRITES",
+    "NO_CREDENTIAL_CHANGES"
+  ]
+}
