@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   local-receipt:
-    if: ${{ github.repository == 'magasincoffee/magasin-supervisor' }}
+    if: ${{ github.repository == 'magasincoffee/magasin-supervisor' && (github.event_name != 'issues' || startsWith(github.event.issue.title, '[MAGASIN-DISPATCH]')) }}
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 10
     steps:
