@@ -60,6 +60,9 @@ jobs:
       - name: Verify SC-013 specialist Owner START STOP attestation contract
         shell: powershell
         run: python -m unittest discover -s test -p 'test_sc013_specialist_lifecycle_attestation.py' -v
+      - name: Test SC-013 child robot disabled control explanations
+        shell: powershell
+        run: python -m unittest discover -s test -p 'test_sc013_specialist_readiness.py' -v
       - name: Run SINGLE_CONVERSATION_V1 regression suite
         shell: powershell
         run: |
@@ -82,6 +85,7 @@ jobs:
             test/sc013-coordinator-inert-apply.test.mjs `
             test/sc013-coordinator-hook-apply.test.mjs `
             test/sc013-owner-lifecycle-control.test.mjs `
+            test/sc013-specialist-readiness-ui.test.mjs `
             test/sc013-owner-control-apply.test.mjs `
             test/sc013-sot-adapter.test.mjs `
             test/sc013-live-observer-contract.test.mjs `

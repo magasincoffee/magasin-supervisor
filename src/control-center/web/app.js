@@ -117,6 +117,34 @@ function coordinatorPlans(r){
   +(rows?'<table class="process-table"><thead><tr><th>Nhiệm vụ</th><th>Robot đích</th><th>Giai đoạn</th></tr></thead><tbody>'+rows+'</tbody></table>'
   :'<p class="mini">Chưa có hồ sơ nào.</p>')+'</section>';
 }
+const explainBlocker=(reason)=>{
+ const local={
+  "CHƯA_CÓ_BỘ_ĐIỀU_KHIỂN_START_STOP_ĐƯỢC_NGHIỆM_THU":"Chưa có bộ START/STOP được kiểm thử cho robot này",
+  "CHƯA_KIỂM_THỬ_START_STOP_THỰC_TẾ":"Chưa nghiệm thu thao tác START/STOP với robot thật",
+  "TRẠNG_THÁI_OWNER_CHƯA_XÁC_MINH_OFF":"Chưa xác minh quyền bật riêng của Owner",
+  "THIẾU_RAM_CHO_SAYDI":"RAM khả dụng dưới ngưỡng khởi động QC an toàn",
+  "CHƯA_XÁC_MINH_RAM_TRỐNG":"Không đọc được lượng RAM trống",
+  "QC_CHƯƠNG_2_ĐANG_CHỜ_TÀI_NGUYÊN":"QC chương 2 đang tạm dừng để chờ tài nguyên",
+  "MEDIA_CONTROL_CHƯA_PHẢN_HỒI":"SAYDI Media Control không phản hồi",
+  "TRẠNG_THÁI_SAYDI_CHƯA_ĐỦ_MỚI":"Trạng thái Media Control quá cũ hoặc không hợp lệ",
+  "PHÁT_HIỆN_CÔNG_VIỆC_MEDIA_ĐANG_CHẠY_KHÔNG_TỰ_DỪNG":"Có công việc media cần xử lý theo checkpoint",
+  "SAPO_CÓ_LỊCH_ĐỒNG_BỘ_CŨ_CHƯA_CHUYỂN_SANG_OWNER_CONTROL":"SAPO còn lịch đồng bộ cũ chưa chuyển sang quyền Owner",
+  "KHÔNG_ĐƯỢC_DỪNG_ĐỐI_SOÁT_HOẶC_GHI_DỮ_LIỆU_KHI_CHƯA_XÁC_MINH":"Không được dừng đối soát hoặc cập nhật doanh thu khi chưa xác minh",
+  "THIẾU_MANIFEST_ROBOT_HỢP_LỆ":"Chưa đọc được cấu hình robot hợp lệ",
+  "KHÔNG_ĐỌC_ĐƯỢC_BẰNG_CHỨNG_ĐIỀU_KHIỂN":"Bộ đọc trạng thái điều khiển không phản hồi"
+ };
+ return local[String(reason)]||String(reason||"Chưa có bằng chứng");
+};
+const specialistBlockers=(r)=>{
+ if(r.id!=="saydi"&&r.id!=="sapo")return "";
+ const blockers=(r.control?.start_blockers||[]).map(x=>'<li>'+esc(explainBlocker(x))+'</li>').join("");
+ return '<section class="panel robot-tools"><h3>Vì sao chưa thể bật / tắt?</h3>'
+  +'<p class="mini">Nút bị khóa để bảo vệ công việc đang chạy và dữ liệu thật; không phải lỗi bấm chuột.</p>'
+  +(blockers?'<ul class="mini">'+blockers+'</ul>':'<p class="mini">Chưa nhận được báo cáo kiểm tra.</p>')
+  +'<p class="mini"><b>Hướng xử lý:</b> '+esc(r.control?.recovery_hint||"Cần nghiệm thu riêng bộ điều khiển của robot.")+'</p>'
+  +'<p class="mini"><b>Đã kiểm tra quyền Owner riêng:</b> '+(r.control?.owner_authority_verified?"Có":"Chưa")+'</p>'
+  +'<p class="mini"><b>Giao việc thật:</b> Chưa được cấp quyền.</p></section>';
+};
 function renderDetail(r){
  const cells=Object.entries(r.details||{}).map(([k,v])=>`<div class="metric"><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("");
  const links=(r.links||[]).map(x=>{const url=safeHref(x.url);return url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)} ↗</a>`:""}).join("");
@@ -134,8 +162,9 @@ function renderDetail(r){
      ?("Supervisor đang được bảo vệ: "+(r.control?.start_blockers||[]).map(esc).join(" "))
      :(r.id==="coordinator"?
         ("START chỉ cấp quyền giám sát SOT. "+(r.control?.start_blockers||[]).map(esc).join(" ")):
-        "Điều khiển Start / Stop đang khóa cho đến khi kiểm thử riêng từng robot.")}</p>
+        "Nút đang khóa do thiếu điều kiện kiểm thử. Xem chi tiết nguyên nhân bên dưới.")}</p>
  </section>
+ ${specialistBlockers(r)}
  <div class="detail-columns">
    <section class="panel"><h3>Trạng thái và tiến độ</h3><dl class="metrics">${cells}</dl></section>
    <section class="panel"><h3>Thư mục và tài liệu</h3><p class="mini">${esc(r.summary)}</p><p class="mini"><b>Thư mục quản lý trên ổ D</b></p><div class="path">${esc(r.organized_folder)}</div><p class="mini"><b>Runtime hiện tại (giữ nguyên)</b></p><div class="path">${esc(r.root)}</div><div class="actions">${links}</div></section>

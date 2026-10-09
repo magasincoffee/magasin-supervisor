@@ -262,6 +262,33 @@ def detail(robot_id):
     robot["organized_folder"] = str(ROBOT_DIR / {"saydi":"saydi-media", "gateway":"mcp-gateway"}.get(robot_id,robot_id))
     robot.update(PROBES[robot_id]())
     robot["controls_ready"] = False
+    if robot_id in ("saydi", "sapo"):
+        try:
+            import specialist_readiness
+            raw = {}
+            if robot_id == "saydi":
+                try:
+                    with urlopen("http://127.0.0.1:8776/api/status", timeout=1.5) as response:
+                        raw = json.loads(response.read(500000))
+                except (OSError, ValueError, UnicodeError):
+                    pass
+            flags = read_json(ROBOT_DIR / "coordinator" / "config" / "owner_enabled.json")
+            proof = specialist_readiness.examine(
+                robot_id,
+                manifest_path=ROBOT_DIR / ("saydi-media" if robot_id == "saydi" else "sapo") / "robot.json",
+                media=raw,
+                free_ram_gb=psutil.virtual_memory().available / 1073741824,
+                specialist_enabled=flags.get(robot_id),
+            )
+            robot["control"] = proof
+            robot["controls_ready"] = False
+        except Exception:
+            robot["control"] = {
+                "control_ready": False, "start_allowed": False, "stop_allowed": False,
+                "start_blockers": ["KHÔNG_ĐỌC_ĐƯỢC_BẰNG_CHỨNG_ĐIỀU_KHIỂN"],
+                "recovery_hint": "Giữ OFF; kiểm tra bộ đọc trạng thái local của robot.",
+                "business_dispatch_authorized": False,
+            }
     if robot_id == "coordinator":
         robot["controls_ready"] = bool(robot["control"].get("control_ready"))
     if robot_id == "supervisor":
