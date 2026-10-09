@@ -15,7 +15,7 @@ test("Supervisor project link UI shows current SOT/repo and a pending-only URL f
     "Repository dự án đang gắn",
     "Gắn Source of Truth cho một dự án khác",
     "Lưu liên kết để xác minh",
-    "PENDING_SOT_REVIEW",
+    "Chờ xác minh SOT / Chưa kích hoạt",
     "Không đổi dự án đang chạy",
     "supervisorProjectPanel(r)",
     "/api/supervisor/project/link",
