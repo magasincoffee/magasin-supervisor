@@ -22,6 +22,7 @@ import {
   replacementReasonForResponseWaitError,
   recoverableConversationFullTask,
   preparedBootstrapIsStaleEnough,
+  probeReusableConversationPage,
   safeBootstrapNonDeliverySnapshot,
   safeFalseHistoricalDeliverySnapshot,
   stableUnmarkedTaskResponseCandidate,
@@ -1780,4 +1781,68 @@ test("SC-013 persists DONE separately from Owner BLOCKED", async () => {
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+
+test("SC-013 rebind retries only a transient read-only CDP probe, never sends", async () => {
+  const page = { url: () => "https://chatgpt.com/c/one-correlated-chat" };
+  let probes = 0;
+  let sends = 0;
+  const adapter = {
+    async probePage(candidate) {
+      assert.equal(candidate, page);
+      probes += 1;
+      if (probes === 1) throw Object.assign(new Error("slow hydration"), {
+        code: "CDP_RECOVERY_REQUIRED"
+      });
+      return { snapshot: { conversationPath: true, composerReady: true } };
+    },
+    async send() { sends += 1; },
+    async reopenTargetPage() { sends += 1; }
+  };
+
+  const result = await probeReusableConversationPage(adapter, page, {
+    maxAttempts: 2, timeoutMs: 100, retryDelayMs: 0
+  });
+  assert.equal(result?.snapshot?.composerReady, true);
+  assert.equal(probes, 2);
+  assert.equal(sends, 0);
+});
+
+test("SC-013 rebind refuses auth/full-chat evidence without retries", async () => {
+  for (const snapshot of [
+    { loginRequired: true },
+    { hasCaptcha: true },
+    { conversationFull: true },
+    { conversationIdentityAmbiguous: true },
+    { conversationMissing: true }
+  ]) {
+    let count = 0;
+    const adapter = {
+      async probePage() {
+        count += 1;
+        return { snapshot };
+      }
+    };
+    assert.equal(await probeReusableConversationPage(adapter, {}, {
+      maxAttempts: 2, retryDelayMs: 0
+    }), null);
+    assert.equal(count, 1);
+  }
+});
+
+test("SC-013 repeated unresponsive CDP probes fail closed in bounded time", async () => {
+  let probes = 0;
+  const adapter = {
+    async probePage() {
+      probes += 1;
+      return new Promise(() => {});
+    }
+  };
+  const begin = Date.now();
+  assert.equal(await probeReusableConversationPage(adapter, {}, {
+    maxAttempts: 99, timeoutMs: 10, retryDelayMs: 0
+  }), null);
+  assert.equal(probes, 2, "strict retry cap is two");
+  assert.ok(Date.now() - begin < 800, "bounded failure, no infinite wait");
 });
