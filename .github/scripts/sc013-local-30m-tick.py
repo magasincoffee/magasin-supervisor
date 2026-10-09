@@ -151,6 +151,20 @@ def publish(report):
     github("PATCH", "/issues/347", {"body":body})
 
 
+def fresh_windows_tick(seconds=45*60):
+    previous=read_json(MONITOR / "sc013-local-30m.json")
+    if (previous.get("schema")!="MAGASIN_LOCAL_30M_TICK_V1" or
+        previous.get("executor")!="local_windows_scheduler" or
+        previous.get("result")!="CHECKED_AND_CLASSIFIED"):
+        return False
+    try:
+        checked=datetime.fromisoformat(str(previous["checked_at"]).replace("Z","+00:00"))
+        elapsed=(datetime.now(timezone.utc)-checked.astimezone(timezone.utc)).total_seconds()
+        return 0 <= elapsed <= seconds
+    except (KeyError,ValueError,TypeError):
+        return False
+
+
 def run(dry_run=False, local_task=False):
     if socket.gethostname().upper() != "DESKTOP-H4A16IL":
         raise SystemExit("WRONG_MACHINE_FAIL_CLOSED")
@@ -193,7 +207,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--local-task", action="store_true")
+    parser.add_argument("--backup-if-stale", action="store_true")
     a = parser.parse_args()
+    if a.backup_if_stale and fresh_windows_tick():
+        print(json.dumps({"result":"WINDOWS_SCHEDULER_FRESH_SKIP","checked_at":utc()},ensure_ascii=False))
+        raise SystemExit(0)
     result = run(a.dry_run, a.local_task)
     print(json.dumps({"result":result["result"], "checked_at":result["checked_at"],
                       "actions":result["actions"], "business_execution":
