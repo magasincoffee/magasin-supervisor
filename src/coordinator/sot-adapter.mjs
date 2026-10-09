@@ -15,6 +15,20 @@ export const NON_EXECUTING = false;
 export function validateEnvelope(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return { ok: false, reason: 'INVALID_REQUEST' };
   if (input.schema !== 'MAGASIN_DISPATCH_V1') return { ok: false, reason: 'INVALID_SCHEMA' };
+  // Reject attached commands/prompts/unknown issue fields, even if other keys match.
+  const allowedFields = new Set(['schema', 'action', 'target', 'task_id', 'sot_url', 'source_id', 'status']);
+  if (Object.keys(input).some((key) => !allowedFields.has(key))) {
+    return { ok: false, reason: 'UNEXPECTED_REQUEST_FIELD' };
+  }
+  if (input.source_id !== undefined &&
+      (typeof input.source_id !== 'string' ||
+       !/^github:magasincoffee\/magasin-supervisor:issue:[0-9]{1,14}$/.test(input.source_id))) {
+    return { ok: false, reason: 'INVALID_GATEWAY_SOURCE' };
+  }
+  if (input.status !== undefined && (typeof input.status !== 'string' ||
+      !/^[A-Z_]{1,64}$/.test(input.status))) {
+    return { ok: false, reason: 'INVALID_GATEWAY_STATE' };
+  }
   if (!ACTIONS.has(input.action)) return { ok: false, reason: 'ACTION_NOT_SUPPORTED' };
   const policy = CANONICAL[input.target];
   if (!policy) return { ok: false, reason: 'TARGET_NOT_QUALIFIED' };
@@ -66,9 +80,13 @@ export async function verifySot(request, { readJson, guards } = {}) {
   if (!checked.ok) return response('REJECTED', { reason: checked.reason });
   const p = checked.policy;
   // Guards are supplied by trusted local lifecycle readers, not Issue fields.
-  if (!guards || guards.targetMachine !== 'DESKTOP-H4A16IL' ||
-      guards.ownerStop !== false || guards.autostartDisabled !== false ||
-      guards.coordinatorEnabled !== true || guards.specialistEnabled !== true ||
+  if (!guards || guards.targetMachine !== 'DESKTOP-H4A16IL') {
+    return response('REJECTED', { reason: 'TARGET_MACHINE_NOT_VERIFIED' });
+  }
+  if (guards.ownerStop !== false || guards.autostartDisabled !== false) {
+    return response('WAIT_OWNER_STOP', { reason: 'OWNER_STOP_OR_AUTOSTART_DISABLED' });
+  }
+  if (guards.coordinatorEnabled !== true || guards.specialistEnabled !== true ||
       guards.workerAlive !== true || guards.ownerAuthorizationVerified !== true) {
     return response('WAIT_OWNER_ENABLE', { reason: 'RUNTIME_GUARDS_NOT_VERIFIED' });
   }
