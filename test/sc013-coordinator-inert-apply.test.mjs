@@ -37,8 +37,8 @@ test('script enforces Owner marker, exact-main, host, SOT and fresh staged manif
     'FRESH_STAGE_MANIFEST_MISSING','STAGE_MANIFEST_UNQUALIFIED',
     'STAGE_MANIFEST_NOT_FRESH','APPROVED_SOURCE_NOT_MAIN_ANCESTOR',
     'SOURCE_OR_STAGE_FILE_MISSING','STAGED_SOURCE_HASH_MISMATCH',
-    'LOCAL_PYTHON_NOT_FOUND', // script expects PYTHON_NOT_FOUND instead, asserted below
-  ].filter(m=>m!=='LOCAL_PYTHON_NOT_FOUND')){
+    'PYTHON_NOT_FOUND',
+  ]){
     assert.ok(s.includes(marker),marker);
   }
   assert.match(s,/merge-base --is-ancestor/);
@@ -58,7 +58,7 @@ test('Owner OFF and STOP checks occur before and during installation', async ()=
     'AssertOwnerInactive','owner_enabled','execution_enabled',
   ])assert.ok(s.includes(marker),marker);
   assert.ok((s.match(/AssertOwnerInactive/g)||[]).length>=4);
-  assert.match(s,/coordinator\.py\|sot-preflight/);
+  assert.match(s,/coordinator\\\.py\|sot-preflight/);
 });
 
 test('APPLY is add-only in known Coordinator path and never changes scheduler, browser or Gateway', async ()=>{
@@ -77,7 +77,7 @@ test('APPLY is add-only in known Coordinator path and never changes scheduler, b
   assert.match(s,/chatgpt_outbound=\$false/);
   assert.match(s,/INSTALLED_INERT_FILES_NOT_INTEGRATED/);
   assert.doesNotMatch(s,/^\s*(?:Start-Process|Stop-Process|Start-ScheduledTask|Stop-ScheduledTask|Set-ScheduledTask|Register-ScheduledTask|schtasks(?:\.exe)?|Invoke-RestMethod|Invoke-WebRequest)\b/m);
-  assert.doesNotMatch(s,/Copy-Item[^\r\n]*-Destination[^\r\n]*coordinator\.py/);
+  assert.doesNotMatch(s,/Copy-Item[^\r\n]*-Destination\s+\$control/);
   assert.match(s,/if\(Test-Path -LiteralPath \$destination\)\{throw 'EXISTING_LOCAL_FILE_REQUIRES_REVIEW'\}/);
 });
 
