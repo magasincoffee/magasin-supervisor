@@ -188,7 +188,7 @@ test('GitHub line-wrapped base64 decodes, then still refuses dispatch', async ()
   assert.equal(result.dispatched, false);
 });
 test('preflight CLI rejects malformed, oversized and injected input without network', () => {
-  const script = fileURLToPath(new URL('../src/coordinator/sot-preflight-cli.mjs', import.meta.url));
+  const script = fileURLToPath(new globalThis.URL('../src/coordinator/sot-preflight-cli.mjs', import.meta.url));
   for (const text of ['{', '', 'x'.repeat(9000),
     JSON.stringify({ ...request, command: 'send-a-browser-message' }),
     JSON.stringify({ ...request, action: 'sync_revenue' })]) {
