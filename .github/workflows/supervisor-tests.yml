@@ -63,10 +63,19 @@ jobs:
             test/windows-cdp-restart.test.mjs `
             test/snapshot-access.test.mjs `
             test/sc013-production-deploy-boundary.test.mjs `
+            test/sc013-coordinator-readonly-stage.test.mjs `
             test/sc013-sot-adapter.test.mjs `
             test/sc013-live-observer-contract.test.mjs `
             test/sc013-owner-start-authority.test.mjs `
             test/supervisor-guardian.test.mjs
+      - name: Check staging PowerShell parses without running on production
+        shell: powershell
+        run: |
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD '.github/scripts/sc013-coordinator-readonly-stage.ps1'),[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -ne 0){throw 'COORDINATOR_STAGE_PS_SYNTAX_INVALID'}
+          Write-Host 'COORDINATOR_STAGE_PS_SYNTAX_PASS=True'
       - name: Confirm no production mutation
         shell: powershell
         run: Write-Host "ZERO_PRODUCTION_MUTATION=True"
