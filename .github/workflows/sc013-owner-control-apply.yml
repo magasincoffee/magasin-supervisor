@@ -1,0 +1,43 @@
+name: SC-013 Owner Readonly Control APPLY H4A16IL
+
+# Owner-review-only marker. No automatic deployment on ordinary src/SOT merges,
+# no cron, no free-form dispatch. Never starts Coordinator, Supervisor or Chrome.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/sc013-owner-control-apply-request.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sc013-h4a16il-safe-deploy
+  cancel-in-progress: false
+
+jobs:
+  apply-owner-control-only:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 12
+    steps:
+      - name: Verify authorized H4 target before any local access
+        shell: powershell
+        run: |
+          if ([Environment]::MachineName -ne 'DESKTOP-H4A16IL') {
+            Write-Host 'TARGET_MUTATION_SKIPPED=True'
+            throw 'WRONG_TARGET_MACHINE'
+          }
+          Write-Host 'TARGET_MATCH=True'
+      - name: Checkout exact approved main marker SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Stage verify apply and rollback guarded owner-only Control Center
+        shell: powershell
+        env:
+          APPROVED_SHA: ${{ github.sha }}
+        run: |
+          if ($env:APPROVED_SHA -notmatch '^[a-fA-F0-9]{40}$') { throw 'INVALID_APPROVED_SHA' }
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '.github/scripts/sc013-owner-control-apply.ps1' -ExpectedMainSha $env:APPROVED_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'SC013_OWNER_CONTROL_APPLY_FAILED' }
