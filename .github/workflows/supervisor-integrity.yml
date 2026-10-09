@@ -39,8 +39,8 @@ jobs:
           set -euo pipefail
           expected=$(cat <<'EOF'
           magasin-local-dispatch-receipts.yml
-          sc013-coordinator-inert-apply.yml
           sc013-coordinator-hook-apply.yml
+          sc013-coordinator-inert-apply.yml
           sc013-coordinator-readonly-stage.yml
           sc013-h4a16il-safe-deploy.yml
           sc013-runtime-watchdog.yml
