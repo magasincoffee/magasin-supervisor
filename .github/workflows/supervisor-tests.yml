@@ -51,6 +51,9 @@ jobs:
       - name: Verify SC-013 read-only Owner lifecycle
         shell: powershell
         run: python -m unittest discover -s test -p 'test_sc013_owner_lifecycle.py' -v
+      - name: Test SC-013 disposable Business Executor exact-once fixture
+        shell: powershell
+        run: python -m unittest discover -s test -p 'test_sc013_disposable_business_executor.py' -v
       - name: Run SINGLE_CONVERSATION_V1 regression suite
         shell: powershell
         run: |
