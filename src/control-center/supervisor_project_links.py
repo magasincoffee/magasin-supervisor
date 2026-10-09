@@ -116,14 +116,14 @@ def inspect(*, current: Path = CURRENT, requests: Path = REQUESTS,
     if (machine or os.environ.get("COMPUTERNAME", "")).upper() != HOST:
         result["blockers"].append("WRONG_MACHINE")
         return result
-    if not ((stop_root / "STOP").is_file() and
-            (stop_root / "AUTOSTART_DISABLED").is_file()):
-        result["blockers"].append("SUPERVISOR_NOT_OWNER_STOPPED")
-        return result
     try:
         result["active"] = _current_binding(current)
     except (Rejected, OSError):
         result["blockers"].append("ACTIVE_SOT_NOT_QUALIFIED")
+        return result
+    if not ((stop_root / "STOP").is_file() and
+            (stop_root / "AUTOSTART_DISABLED").is_file()):
+        result["blockers"].append("SUPERVISOR_NOT_OWNER_STOPPED")
         return result
     if requests.exists():
         try:
