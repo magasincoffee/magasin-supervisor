@@ -21,7 +21,7 @@ export function trackedGitHubRunDescriptor(externalWork = {}) {
 
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return null;
   if (!/^\d+$/.test(runId)) return null;
-  if (!ACTIVE.has(status)) return null;
+  if (!ACTIVE.has(status) && status !== "completed") return null;
   if (authority === "OBSOLETE") return null;
 
   return {
