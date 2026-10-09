@@ -21,7 +21,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(r"D:\MAGASIN_ROBOTS")
 COORD = ROOT / "robots" / "coordinator"
 MONITOR = ROOT / "control-center" / "state"
-SUP = Path(os.environ.get("LOCALAPPDATA", "")) / "MAGASIN" / "BusinessOS" / "supervisor"
+SUP = Path(r"C:\Users\admin\AppData\Local\MAGASIN\BusinessOS\supervisor")
 MCP = Path(r"C:\MAGASIN_MCP")
 ISSUE = 347
 API = "https://api.github.com/repos/magasincoffee/magasin-supervisor"
@@ -151,17 +151,17 @@ def publish(report):
     github("PATCH", "/issues/347", {"body":body})
 
 
-def run(dry_run=False):
+def run(dry_run=False, local_task=False):
     if socket.gethostname().upper() != "DESKTOP-H4A16IL":
         raise SystemExit("WRONG_MACHINE_FAIL_CLOSED")
-    if os.getenv("GITHUB_ACTIONS") != "true" and not dry_run:
+    if os.getenv("GITHUB_ACTIONS") != "true" and not dry_run and not local_task:
         raise SystemExit("ONLY_ACTIONS_OR_DRY_RUN")
-    if not TOKEN and not dry_run:
+    if not TOKEN and not dry_run and not local_task:
         raise SystemExit("ACTIONS_TOKEN_REQUIRED")
     start = time.monotonic()
     report = {"schema":SCHEMA, "checked_at":utc(), "target":"DESKTOP-H4A16IL",
               "task_id":"SC-013", "source_issue":339, "heartbeat_issue":347,
-              "cadence":"30_minutes", "executor":"local_github_runner",
+              "cadence":"30_minutes", "executor":"local_windows_scheduler" if local_task else "local_github_runner",
               "actions":[], "errors":[], "scope":"SAFE_QUALIFIED_WORK_ONLY",
               "business_execution":"NOT_QUALIFIED_NO_SOT_ADAPTER"}
 
@@ -184,15 +184,17 @@ def run(dry_run=False):
     if not dry_run:
         save_atomic(MONITOR / "sc013-local-30m.json", report)
         save_atomic(MONITOR / "sc013-chatgpt-monitor.json", report["chatgpt_monitor"])
-        publish(report)
+        if not local_task:
+            publish(report)
     return report
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--local-task", action="store_true")
     a = parser.parse_args()
-    result = run(a.dry_run)
+    result = run(a.dry_run, a.local_task)
     print(json.dumps({"result":result["result"], "checked_at":result["checked_at"],
                       "actions":result["actions"], "business_execution":
                       result["business_execution"]}, ensure_ascii=False))
