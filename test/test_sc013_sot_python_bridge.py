@@ -3,6 +3,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -101,7 +102,7 @@ class ReadOnlyBridgeTests(unittest.TestCase):
             self.assertFalse(output["execution_enabled"])
             self.assertTrue(all(r["execution_qualified"] is False
                                 and r["dispatched"] is False for r in output["results"]))
-            with sqlite3.connect(db) as cx:
+            with closing(sqlite3.connect(db)) as cx:
                 self.assertEqual(cx.execute("SELECT COUNT(*) FROM dispatch_inbox").fetchone()[0], 10)
                 self.assertEqual(
                     cx.execute("SELECT COUNT(*) FROM dispatch_inbox WHERE status='WAIT_SOT_AUTHORITY'")
