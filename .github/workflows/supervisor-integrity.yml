@@ -38,6 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           expected=$(cat <<'EOF'
+          magasin-local-dispatch-receipts.yml
           sc013-runtime-watchdog.yml
           supervisor-autostart-install.yml
           supervisor-control-panel-desktop-4k7im13.yml
