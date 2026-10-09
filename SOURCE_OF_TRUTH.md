@@ -951,6 +951,43 @@ Acceptance and non-interruption rules:
 7. GitHub/Supabase completion reports must include source issue/job ID, canonical TASK_ID, status, attempt/revision, acceptance evidence, machine-readable failure signature when applicable, artifact/PR/run references and whether Owner action is actually required. Writeback must be idempotent and never assert DONE solely from worker exit code.
 8. This rule defines the **target architecture**. The current `C:\MAGASIN_MCP` implementation dispatches read-only health checks only; automatic result writeback and SOT-gated business AUTO_REPAIR are NOT yet implemented. Neither an idle ChatGPT conversation nor an inactive ChatGPT plugin can be treated as an always-on consumer: the autonomous feedback loop must run in Local Supervisor, with ChatGPT invoked only through an expressly configured and available mechanism.
 
+### Owner-controlled independent Robot Hub (new Owner directive 2026-10-09)
+
+The Owner requires **ONE unified Control Center** that lists and manages independent specialist robots, **NOT one fused multi-purpose robot**. This directive supersedes any interpretation of previous robot-tong / cross-robot automatic dispatch requirements that would launch, share runtime or redirect work between robots without Owner selection.
+
+Canonical architecture:
+
+```text
+OWNER
+  -> MAGASIN ROBOT CONTROL CENTER (one small always-available dashboard)
+     -> Supervisor / WebApp (independent project, SOT, profile, logs, working dir)
+     -> SAYDI Media / Audiobook (independent project, render/QC/artifacts)
+     -> SAPO revenue sync (independent service, credentials, sync/checkpoints)
+     -> other future robots as separately installed opt-in adapters
+```
+
+Control is the single surface for **observability and lifecycle actions only**; it is NOT a mandatory common executor or SOT. GitHub/Supabase may hold per-robot jobs, but **only the robot explicitly enabled by Owner** may process its queue; a stopped robot must never be started by incoming issues, timers, webhook, another robot, remote MCP request or a generic watchdog.
+
+Owner lifecycle contract (per robot):
+- Owner explicitly chooses START or STOP individually, with confirmation when stopping active irreversible/reconciliation tasks. Commands are idempotent, scoped to that robot's exact processes/services and safe launchers, and logged with who/when/why.
+- Startup default is **OFF for all specialist robots**; after Windows reboot they must not auto-run until Owner manually starts them again. A small localhost-only Control Center and lightweight health monitor may autostart; the monitor may observe OFF robots but must not restart them.
+- When Owner turns a particular robot ON, its own existing watchdog, SOT-authorized retry, QA/QC loop and 24/7 operation are permitted **for that enabled robot only**. Turning it OFF suppresses restart and new work; running irreversible work must either finish a bounded safe checkpoint or require explicit force-stop confirmation. No cross-robot dependency or automatic activation.
+- Robot-specific GitHub/Supabase ingress is isolated by robot ID and SOT, and may leave tasks queued as `WAIT_OWNER_ENABLE` while OFF. Cross-robot calls are opt-in, auditable and never automatically enabled as a side effect.
+- Each robot has its own configuration, source repo, credentials, logs, queue, resource budget, code lifecycle and versioning. A robot failure must not stop or restart another robot.
+- UI is in Vietnamese and displays actual process truth: `Đang chạy`, `Đã dừng`, `Đang lỗi`, `Chờ Owner`; startup toggle and stop control, progress, current phase, CPU/RAM use and recent evidence. Never show `RUNNING` solely from stale persisted status if its actual worker is dead.
+- Control UI launches as one lightweight local application window (prefer `--app=http://127.0.0.1:<port>/` or equivalent); no unsolicited console windows, duplicate IDEs, or dedicated Chrome windows for inactive robots.
+- Minimize idle consumption on the approximately 8 GB target; permit explicit concurrency limits so the Owner can decide if more than one heavy robot may run. The Control Center must not run media QC or Chrome/browser automation itself.
+- Preserve production/reconciliation safety and all independent SOT acceptance/review gates. Supabase production projects MAGASIN-NOIBO and OPS-WebApp must remain untouched; future robot coordination may use a **new, separate Owner-created Supabase project only**.
+
+Migration and rollout:
+1. Inventory each robot's existing startup entries, windows, scheduled tasks, process ownership and safe stop/start scripts; snapshot configurations and in-flight states.
+2. Build and test the new Control Center plus per-robot adapters in isolation. Never make an unqualified Start/Stop button affect live production.
+3. Qualify Owner-start, Owner-stop, crash recovery while ON, no-restart while OFF, no-window-popup, exact process scoping, no data loss, reboot OFF-by-default, independent resource limits.
+4. Only after verifying the new controls, transition old per-robot auto-start entries into manual mode during an Owner-approved cutover. Do not disable, kill or relocate currently active services merely by merging this document.
+5. Keep Remote Desktop Commander for explicitly approved break-glass repair, not the routine robot management path.
+
+Current state: this is a newly approved **target requirement**, not yet an implemented unified UI. Existing legacy startup entries are still active until safe cutover. Existing Gateway/SQLite read-only functions do not confer authority to automatically start specialist robots.
+
 ### SC-013 unattended observation policy
 
 While SC-013 remains IN PROGRESS, production evidence collection is unattended:
