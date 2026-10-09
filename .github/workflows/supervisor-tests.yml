@@ -45,6 +45,9 @@ jobs:
       - name: Test SC-013 Python SOT preflight bridge
         shell: powershell
         run: python -m unittest discover -s test -p 'test_sc013_sot_python_bridge.py' -v
+      - name: Validate read-only Coordinator cycle hook
+        shell: powershell
+        run: python -m unittest discover -s test -p 'test_sc013_coordinator_cycle_preflight.py' -v
       - name: Run SINGLE_CONVERSATION_V1 regression suite
         shell: powershell
         run: |
