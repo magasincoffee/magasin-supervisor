@@ -8,6 +8,7 @@ import sqlite3
 import tempfile
 import threading
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 MODULE = Path(__file__).resolve().parents[1] / "src" / "coordinator" / "disposable_business_executor.py"
@@ -58,7 +59,7 @@ class BusinessExecutorFixtureTests(unittest.TestCase):
         self.assertTrue(duplicate["duplicate"])
         self.assertIsNone(duplicate["token"])
         self.assertEqual(duplicate["stage"], "COMPLETE_FIXTURE_ONLY")
-        with sqlite3.connect(self.db) as cx:
+        with closing(sqlite3.connect(self.db)) as cx:
             self.assertEqual(cx.execute("SELECT COUNT(*) FROM fixture_runs").fetchone()[0], 1)
 
     def test_duplicate_claim_is_not_a_duplicate_dispatch_even_before_ack(self):
@@ -106,7 +107,7 @@ class BusinessExecutorFixtureTests(unittest.TestCase):
         ]:
             with self.assertRaises(fx.FixtureRejected):
                 self.claim(guards=guards)
-        with sqlite3.connect(self.db) as cx:
+        with closing(sqlite3.connect(self.db)) as cx:
             self.assertEqual(cx.execute("SELECT COUNT(*) FROM fixture_runs").fetchone()[0], 0)
 
     def test_real_issue_gateway_and_code_injection_payloads_are_always_rejected(self):
@@ -128,7 +129,7 @@ class BusinessExecutorFixtureTests(unittest.TestCase):
             with self.subTest(request=request):
                 with self.assertRaises(fx.FixtureRejected):
                     self.claim(request=request)
-        with sqlite3.connect(self.db) as cx:
+        with closing(sqlite3.connect(self.db)) as cx:
             self.assertEqual(cx.execute("SELECT COUNT(*) FROM fixture_runs").fetchone()[0], 0)
 
     def test_ack_cannot_claim_real_worker_identity_or_skip_nonce(self):
