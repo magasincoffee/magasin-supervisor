@@ -144,7 +144,12 @@ def once(number, dry=False):
         for _ in range(8):
             time.sleep(2)
             item=local_state(number)
-            if item and item["status"] in ("DONE","FAILED"):
+            if item and item.get("job",{}).get("status") in ("DONE","FAILED"):
+                # A finished local worker must be reconciled into the Gateway inbox
+                # before reporting its terminal status to GitHub.
+                from dispatch_gateway import sync_once
+                sync_once()
+                item=local_state(number)
                 break
     body, digest=report(item,number)
     REPORTS.mkdir(parents=True,exist_ok=True)
