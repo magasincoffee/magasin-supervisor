@@ -1,0 +1,10 @@
+{
+  "schema": "MAGASIN_SC013_COORDINATOR_STAGE_V1",
+  "mode": "STAGE_READ_ONLY",
+  "target": "DESKTOP-H4A16IL",
+  "source_commit": "5d01b9e496ab4ba4c2356b879644dcc92c956fcb",
+  "owner_approved": true,
+  "business_execution_enabled": false,
+  "purpose": "Owner-authorized source-only candidate stage; no local runtime apply, no robot activation, no ChatGPT outbound",
+  "requested_date": "2026-10-09"
+}
