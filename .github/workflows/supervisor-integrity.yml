@@ -39,6 +39,7 @@ jobs:
           set -euo pipefail
           expected=$(cat <<'EOF'
           magasin-local-dispatch-receipts.yml
+          sc013-coordinator-readonly-stage.yml
           sc013-h4a16il-safe-deploy.yml
           sc013-runtime-watchdog.yml
           supervisor-autostart-install.yml
@@ -71,6 +72,7 @@ jobs:
             test/external-run-local-observer.test.mjs \
             test/sc013-production-deploy-boundary.test.mjs \
             test/sc013-h4a16il-safe-deploy.test.mjs \
+            test/sc013-coordinator-readonly-stage.test.mjs \
             test/sc013-local-30m-tick.test.mjs \
             test/sc013-sot-adapter.test.mjs \
             test/sc013-live-observer-contract.test.mjs \

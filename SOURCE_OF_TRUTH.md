@@ -834,6 +834,7 @@ Active workflow allowlist under `.github/workflows/`:
 - `supervisor-integrity.yml` — hosted CI/integrity only;
 - `supervisor-lifecycle-acceptance.yml` — hosted lifecycle-contract CI only;
 - `supervisor-autostart-install.yml` — hosted installer-contract CI only.
+- `sc013-coordinator-readonly-stage.yml` — H4A16IL source-only staging, manual or owner-reviewed marker; never production APPLY.
 
 Active script allowlist under `.github/scripts/`:
 - `supervisor-sc013-live-production.ps1`;
@@ -842,6 +843,7 @@ Active script allowlist under `.github/scripts/`:
 - `supervisor-sc013-rebind-diagnostic.ps1`;
 - `supervisor-sc013-rebind-diagnostic.mjs`;
 - `update-latest-clean-old.ps1`.
+- `sc013-coordinator-readonly-stage.ps1` — isolated source-only candidate staging; never installed Coordinator or live robot modification.
 
 All former PE/MBV/MIG/RBT/SC003-SC012 qualification, soak, path-diagnostic, state-maintenance, alternate-deploy, temporary-cleanup, stale-run, and control-panel diagnostic workflows/scripts were removed from the active GitHub control plane on 2026-10-02. Historical runtime source may remain inert where still needed for migration/rollback context, but it has no active GitHub Actions authority.
 
@@ -1056,9 +1058,19 @@ The reporter `.github/scripts/magasin-dispatch-reporter.py` may read `C:\MAGASIN
 
 The reporter does **not** make localhost MCP directly reachable from this ChatGPT conversation; it is an asynchronous authorized GitHub control-plane bridge. Acceptance requires: valid issue -> durable SQLite intake -> read-only worker evidence -> comment on the same issue, duplicate status -> no duplicate comment, hostile issue -> rejected, non-target runner -> fail closed, stalled business task -> `WAIT_SOT_AUTHORITY` with no side effects, post-merge exact-main evidence. This relay is independent of unresolved Supervisor browser/CDP exact-once repair.
 
+### SC-013 Coordinator isolated read-only staging (Owner 2026-10-09)
+
+**Authorization is limited to staging source candidates, NOT applying them to an installed runtime.** After PRs #352, #354, and #355 qualified the JavaScript SOT Adapter, bounded JSON preflight CLI and Python Gateway bridge at source level, the Owner delegates a **separate source-only candidate STAGE** on DESKTOP-H4A16IL. This is a narrow exception to the H4 Supervisor single-conversation runtime patch authority below; that legacy Stage/Apply workflow remains unchanged. This new Coordinator STAGE creates no runnable scheduled service, changes no production script or local Coordinator installation, and does not authorize Business Executor.
+
+Canonical additional active workflow: `.github/workflows/sc013-coordinator-readonly-stage.yml`; canonical stage script: `.github/scripts/sc013-coordinator-readonly-stage.ps1`. The workflow is **manual `workflow_dispatch` or explicitly reviewed `.github/sc013-coordinator-stage-request.json` push to `main` only**, never ordinary `src/**`, SOT or PR merges. It shares the H4 safe-deploy concurrency lock, is single-job, and must reject a non-H4A16IL runner before checkout/local access. No GitHub token writes, automation actions, or production deploy rights.
+
+STAGE qualification checks: exact checked-out SHA equals fresh authoritative `main`, narrowly allowlisted three source files (`sot-adapter.mjs`, `sot-preflight-cli.mjs`, `sot-preflight-python-bridge.py`), existing local Coordinator identity, sufficient D: space, strict source/candidate SHA-256 equality, Node syntax, Python syntax-only AST parsing, and one immutable manifest under `D:\MAGASIN_ROBOTS\deploy\sc013-coordinator-readonly\<exact-main-sha>\manifest.json`. All candidate files remain in that **isolated D: deploy directory**; they are **NOT installed** into `D:\MAGASIN_ROBOTS\robots\coordinator` or Gateway, Supervisor or scheduler paths. Duplicate staging at the same SHA must fail for inspection rather than overwrite a previous manifest. Stage may record a STOP latch read-only but may NEVER clear it, start/stop a worker, issue ChatGPT outbound, change business inbox/ledger, or report work completed.
+
+Acceptance for **this staging-only checkpoint** requires Supervisor Tests/Integrity/Lifecycle/Autostart CI GREEN on reviewed source, merge and exact-main PASS, then one explicit marker/manual stage on H4A16IL with independently inspected manifest SHA, source hashes, timestamp, and local path isolation. Any missing/failed evidence remains STAGING_NOT_QUALIFIED. A separate **future** SOT-revised PR and positive Owner approval are mandatory before any `CoordinatorApply`, Python Coordinator integration, background scheduling, Business Executor, or specialist activation. STOP/OFF remain authoritative. Never reinterpret STAGED as INSTALLED, `SOT_PREFLIGHT_READY_NOT_AUTHORIZED` as permission, or a technical health check as WebApp DONE.
+
 ### SC-013 H4A16IL isolated staging and source patch authority (Owner 2026-10-09)
 
-The Owner's newer workstation decision assigns the current SC-013 local Supervisor recovery exclusively to **DESKTOP-H4A16IL**, not to DESKTOP-4K7IM13. Older 4K7IM13 production-deploy rules and historical evidence remain intact for history; their workflow MUST NOT be used to update, recover, or start the H4A16IL Supervisor. All new H4A16IL maintenance must use the separate allowlisted `.github/workflows/sc013-h4a16il-safe-deploy.yml` and `.github/scripts/sc013-h4a16il-safe-stage-deploy.ps1` boundary.
+The Owner's newer workstation decision assigns the current SC-013 local Supervisor recovery exclusively to **DESKTOP-H4A16IL**, not to DESKTOP-4K7IM13. Older 4K7IM13 production-deploy rules and historical evidence remain intact for history; their workflow MUST NOT be used to update, recover, or start the H4A16IL Supervisor. All H4A16IL **Supervisor runtime maintenance** must use the separate allowlisted `.github/workflows/sc013-h4a16il-safe-deploy.yml` and `.github/scripts/sc013-h4a16il-safe-stage-deploy.ps1` boundary. The exclusively **isolated, non-installing Coordinator STAGE** has its own separately reviewed boundary above; it cannot be used to replace runtime source or expand the existing Supervisor APPLY scope.
 
 **STAGE** is a non-production-mutation operation, permitted by a dedicated `.github/sc013-h4a16il-stage-request.json` commit or explicit `workflow_dispatch`. Require exact runner identity `DESKTOP-H4A16IL`, checkout SHA identical to the current `main` ref, verified canonical Supervisor state/control paths, complete module set and no unexplained local source differences. Compare every installed `src/**/*.mjs` module with exact-main source. Raw byte differences caused **only** by CRLF/LF or terminal CR/LF presentation may be classified as format-only after strict text equality with those characters normalized; never normalize Unicode, internal spaces, code tokens, or other content. The full format-only path list and raw SHA-256 hashes must be saved and revalidated before APPLY. Stage only the reviewed `src/runtime/single-conversation-cli.mjs` patch if it is the **sole substantive difference**; any other substantive mismatch blocks deployment. Preserve the original source as a hash-verified D: backup and emit a durable stage manifest; no process termination, browser navigation, state mutation, profile deletion, start, outbound send, or production source replacement is allowed in STAGE.
 
