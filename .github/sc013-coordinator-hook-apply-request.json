@@ -1,0 +1,11 @@
+{
+  "schema": "MAGASIN_SC013_COORDINATOR_CYCLE_HOOK_APPLY_V1",
+  "mode": "APPLY_READ_ONLY_HOOK_ONLY",
+  "target": "DESKTOP-H4A16IL",
+  "source_commit": "7dc6c578a9d2678e1048db4e7d9be11d74a85f7a",
+  "expected_old_sha256": "cf3619e6928bbb1c650baef68b00e06e9790b011fabc3777b6fd021d15ce1bd7",
+  "owner_approved": true,
+  "business_execution_enabled": false,
+  "start_robots": false,
+  "scope": "Replace only coordinator.py with read-only SOT inspection hook after validated old hash and backup; do not change Scheduler, STOP, specialist state or ChatGPT outbound."
+}
