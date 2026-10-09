@@ -19,6 +19,8 @@ test("H4 stage checks canonical main and keeps previous source backed up", async
   for (const marker of [
     "MAIN_SHA_CHANGED_REDISPATCH_REQUIRED",
     "LOCAL_SOURCE_DRIFT_REQUIRES_REVIEW",
+    "FORMAT_ONLY_MODULES=",
+    "NormalizeLineEndings",
     "STAGE_NO_PRODUCTION_MUTATION=True",
     "STAGE_COPY_HASH_MISMATCH",
     "C:\\Users\\admin\\AppData\\Local\\MAGASIN",
@@ -34,6 +36,7 @@ test("H4 apply requires owner and transaction safety gates", async () => {
     "WRAPPER_MUST_BE_STOPPED_FOR_DEPLOY",
     "AMBIGUOUS_OUTBOUND_MUST_BE_RECONCILED_FIRST",
     "RESOURCE_GATES_NOT_GREEN",
+    "FORMAT_ONLY_SOURCE_CHANGED_AFTER_STAGE",
     "ROLLBACK_VERIFIED=",
     "NO_SUPERVISOR_START=True",
     "NO_CHROME_RESTART=True"
