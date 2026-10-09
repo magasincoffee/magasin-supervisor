@@ -60,6 +60,12 @@ $age=([datetimeoffset]::UtcNow-$stamp).TotalMinutes
 if($age -lt -1 -or $age -gt 20){throw 'STAGE_MANIFEST_NOT_FRESH'}
 
 $root='D:\MAGASIN_ROBOTS\robots\coordinator'
+if(((Get-Item -LiteralPath $root).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+  throw 'COORDINATOR_PATH_REPARSE_UNQUALIFIED'
+}
+if(((Get-Item -LiteralPath $stage).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+  throw 'STAGE_PATH_REPARSE_UNQUALIFIED'
+}
 $control=Join-Path $root 'coordinator.py'
 $statusFile=Join-Path $root 'state\coordinator-status.json'
 if(!(Test-Path -LiteralPath $control) -or !(Test-Path -LiteralPath $statusFile)){
@@ -142,7 +148,7 @@ try {
     $temp=Join-Path $root ($name+'.sc013-'+$sha+'.tmp')
     if(Test-Path -LiteralPath $temp){throw 'LEFTOVER_TEMP_REQUIRES_REVIEW'}
     Copy-Item -LiteralPath (Join-Path $stage $name) -Destination $temp
-    if((Hash $temp) -ne $expected[$name]){throw 'TEMP_SOURCE_HASH_MISMATCH'}
+    if((Hash $temp) -ne $expected[$name]){Remove-Item -LiteralPath $temp -Force; throw 'TEMP_SOURCE_HASH_MISMATCH'}
     Move-Item -LiteralPath $temp -Destination $destination
     $created.Add($destination)
     if((Hash $destination) -ne $expected[$name]){throw 'INSTALLED_HASH_MISMATCH'}
@@ -188,7 +194,7 @@ try {
       $rollbackOk=$false
     }
   }
-  if(!(Hash $control).Equals($controlHash)){$rollbackOk=$false}
+  if((Hash $control) -ne $controlHash){$rollbackOk=$false}
   Write-Host ('INSTALL_ROLLBACK_SAFE='+$rollbackOk)
   throw
 }
