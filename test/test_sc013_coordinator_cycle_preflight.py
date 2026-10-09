@@ -91,9 +91,8 @@ class CoordinatorReadOnlyCycleTests(unittest.TestCase):
                              "execution_qualified":False,"dispatched":False,"business_completed":True}]},
                 {"mode":"DISPATCHING","machine":"DESKTOP-H4A16IL","probes":0,"results":[]},
                 {"mode":"READ_ONLY","machine":"DESKTOP-H4A16IL","probes":100,"results":[]},
-                {"mode":"READ_ONLY","machine":"DESKTOP-H4A16IL","probes":0,"results":[]*5+"bad"},
             ]
-            for payload in cases[:-1]:
+            for payload in cases:
                 out=coord.safe_preflight_readonly(
                     machine="DESKTOP-H4A16IL", bridge=file,
                     run=lambda *a, data=payload, **k: SimpleNamespace(
