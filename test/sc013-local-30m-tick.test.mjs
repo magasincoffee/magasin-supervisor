@@ -33,3 +33,24 @@ test("SC-013 local tick executes ONLY qualified work and preserves Owner shutdow
   assert.match(authority,/Issue \*\*#346\*\*/);
   assert.match(authority,/Issue \*\*#347\*\*/);
 });
+
+
+test("Windows 30-minute SC-013 job has bounded Owner-session recovery contract", async () => {
+  const install=await fs.readFile(new URL("../.github/scripts/install-sc013-local-windows-task.ps1",import.meta.url),"utf8");
+  const py=await fs.readFile(script,"utf8");
+  const workflowText=await fs.readFile(workflow,"utf8");
+  const authority=await fs.readFile(sot,"utf8");
+  for(const marker of [
+    "DESKTOP-H4A16IL","MAGASIN SC013 Local 30min",
+    "/SC MINUTE /MO 30 /ST 13:47","-StartWhenAvailable",
+    "-MultipleInstances IgnoreNew","-ExecutionTimeLimit",
+    "TASK_PRINCIPAL_NOT_OWNER_SESSION", "--local-task"
+  ])assert.ok(install.includes(marker),marker);
+  assert.match(py,/--local-task/);
+  assert.match(py,/local_windows_scheduler/);
+  assert.match(py,/--backup-if-stale/);
+  assert.match(py,/WINDOWS_SCHEDULER_FRESH_SKIP/);
+  assert.match(workflowText,/--backup-if-stale/);
+  assert.match(authority,/SC-013 Windows 30-minute local execution fallback/);
+  assert.match(authority,/owner_logged_in_required|interactive.*admin|interactive.account/i);
+});

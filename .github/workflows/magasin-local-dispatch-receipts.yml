@@ -39,7 +39,7 @@ jobs:
           }
           $python = 'C:\\MAGASIN_MCP\\.venv\\Scripts\\python.exe'
           if (-not (Test-Path $python)) { throw 'MCP_PYTHON_MISSING' }
-          & $python '.github\\scripts\\sc013-local-30m-tick.py'
+          & $python '.github\\scripts\\sc013-local-30m-tick.py' --backup-if-stale
           if ($LASTEXITCODE -ne 0) {
             throw 'SC013_LOCAL_TICK_FAILED'
           }

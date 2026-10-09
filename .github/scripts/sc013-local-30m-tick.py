@@ -21,7 +21,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(r"D:\MAGASIN_ROBOTS")
 COORD = ROOT / "robots" / "coordinator"
 MONITOR = ROOT / "control-center" / "state"
-SUP = Path(os.environ.get("LOCALAPPDATA", "")) / "MAGASIN" / "BusinessOS" / "supervisor"
+SUP = Path(r"C:\Users\admin\AppData\Local\MAGASIN\BusinessOS\supervisor")
 MCP = Path(r"C:\MAGASIN_MCP")
 ISSUE = 347
 API = "https://api.github.com/repos/magasincoffee/magasin-supervisor"
@@ -151,17 +151,31 @@ def publish(report):
     github("PATCH", "/issues/347", {"body":body})
 
 
-def run(dry_run=False):
+def fresh_windows_tick(seconds=45*60):
+    previous=read_json(MONITOR / "sc013-local-30m.json")
+    if (previous.get("schema")!="MAGASIN_LOCAL_30M_TICK_V1" or
+        previous.get("executor")!="local_windows_scheduler" or
+        previous.get("result")!="CHECKED_AND_CLASSIFIED"):
+        return False
+    try:
+        checked=datetime.fromisoformat(str(previous["checked_at"]).replace("Z","+00:00"))
+        elapsed=(datetime.now(timezone.utc)-checked.astimezone(timezone.utc)).total_seconds()
+        return 0 <= elapsed <= seconds
+    except (KeyError,ValueError,TypeError):
+        return False
+
+
+def run(dry_run=False, local_task=False):
     if socket.gethostname().upper() != "DESKTOP-H4A16IL":
         raise SystemExit("WRONG_MACHINE_FAIL_CLOSED")
-    if os.getenv("GITHUB_ACTIONS") != "true" and not dry_run:
+    if os.getenv("GITHUB_ACTIONS") != "true" and not dry_run and not local_task:
         raise SystemExit("ONLY_ACTIONS_OR_DRY_RUN")
-    if not TOKEN and not dry_run:
+    if not TOKEN and not dry_run and not local_task:
         raise SystemExit("ACTIONS_TOKEN_REQUIRED")
     start = time.monotonic()
     report = {"schema":SCHEMA, "checked_at":utc(), "target":"DESKTOP-H4A16IL",
               "task_id":"SC-013", "source_issue":339, "heartbeat_issue":347,
-              "cadence":"30_minutes", "executor":"local_github_runner",
+              "cadence":"30_minutes", "executor":"local_windows_scheduler" if local_task else "local_github_runner",
               "actions":[], "errors":[], "scope":"SAFE_QUALIFIED_WORK_ONLY",
               "business_execution":"NOT_QUALIFIED_NO_SOT_ADAPTER"}
 
@@ -184,15 +198,21 @@ def run(dry_run=False):
     if not dry_run:
         save_atomic(MONITOR / "sc013-local-30m.json", report)
         save_atomic(MONITOR / "sc013-chatgpt-monitor.json", report["chatgpt_monitor"])
-        publish(report)
+        if not local_task:
+            publish(report)
     return report
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--local-task", action="store_true")
+    parser.add_argument("--backup-if-stale", action="store_true")
     a = parser.parse_args()
-    result = run(a.dry_run)
+    if a.backup_if_stale and fresh_windows_tick():
+        print(json.dumps({"result":"WINDOWS_SCHEDULER_FRESH_SKIP","checked_at":utc()},ensure_ascii=False))
+        raise SystemExit(0)
+    result = run(a.dry_run, a.local_task)
     print(json.dumps({"result":result["result"], "checked_at":result["checked_at"],
                       "actions":result["actions"], "business_execution":
                       result["business_execution"]}, ensure_ascii=False))
