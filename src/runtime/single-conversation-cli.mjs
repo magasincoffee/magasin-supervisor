@@ -2015,26 +2015,49 @@ async function resumeInFlightProtocolMessageAfterRebind({
   });
 }
 
-async function probeReusableConversationPage(adapter, page) {
-  if (!page) return null;
-  const probe = await boundedRuntimeStep(
-    "RUNTIME_REBIND_REUSABLE_PAGE_PROBE",
-    () => adapter.probePage(page),
-    { timeoutMs: 10_000 }
-  ).catch(() => null);
-  const snapshot = probe?.snapshot || {};
-  if (
-    !probe ||
-    snapshot.loginRequired ||
-    snapshot.hasCaptcha ||
-    snapshot.conversationMissing ||
-    snapshot.conversationAccessDenied ||
-    snapshot.pageClosed ||
-    classifyDisposableConversation(snapshot).action !== "KEEP_CHAT"
-  ) {
-    return null;
+export async function probeReusableConversationPage(
+  adapter,
+  page,
+  { maxAttempts = 2, timeoutMs = 12_000, retryDelayMs = 350 } = {}
+) {
+  if (!page || typeof adapter?.probePage !== "function") return null;
+
+  // Exact opaque runtime identity was checked by the caller. A single DOM/CDP
+  // probe can be inconclusive while ChatGPT hydrates under heavy system load.
+  // Retry only that read-only probe: never send, rebind an unverified page,
+  // clear ENQUEUED or transform inconclusive evidence into non-delivery proof.
+  const attempts = Math.max(1, Math.min(2, Number(maxAttempts) || 1));
+  const budget = Math.max(1, Math.min(12_000, Number(timeoutMs) || 12_000));
+  const pause = Math.max(0, Math.min(1_000, Number(retryDelayMs) || 0));
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const probe = await boundedRuntimeStep(
+      "RUNTIME_REBIND_REUSABLE_PAGE_PROBE",
+      () => adapter.probePage(page),
+      { timeoutMs: budget }
+    ).catch(() => null);
+
+    if (probe) {
+      const snapshot = probe.snapshot || {};
+      // A definite auth, identity, missing-page, or full-chat failure is
+      // terminal for this rebind attempt; never retry it as "hydration".
+      if (
+        snapshot.loginRequired ||
+        snapshot.hasCaptcha ||
+        snapshot.conversationMissing ||
+        snapshot.conversationAccessDenied ||
+        snapshot.pageClosed ||
+        classifyDisposableConversation(snapshot).action !== "KEEP_CHAT"
+      ) {
+        return null;
+      }
+      return probe;
+    }
+
+    if (attempt + 1 < attempts && pause > 0) {
+      await new Promise((resolve) => setTimeout(resolve, pause));
+    }
   }
-  return probe;
+  return null;
 }
 
 function runtimeIdMatchesPage(page, expected) {
