@@ -24,9 +24,25 @@ jobs:
   local-receipt:
     if: ${{ github.repository == 'magasincoffee/magasin-supervisor' }}
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 6
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - name: Run 30-minute SC-013 local control tick
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([Environment]::MachineName -ne 'DESKTOP-H4A16IL') {
+            throw 'WRONG_TARGET_MACHINE'
+          }
+          $python = 'C:\\MAGASIN_MCP\\.venv\\Scripts\\python.exe'
+          if (-not (Test-Path $python)) { throw 'MCP_PYTHON_MISSING' }
+          & $python '.github\\scripts\\sc013-local-30m-tick.py'
+          if ($LASTEXITCODE -ne 0) {
+            throw 'SC013_LOCAL_TICK_FAILED'
+          }
       - name: Report validated local jobs on the authorized machine
         shell: powershell
         env:
