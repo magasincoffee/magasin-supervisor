@@ -180,10 +180,10 @@ def run(dry_run=False):
                         else "PARTIAL_OR_ERROR")
     report["elapsed_seconds"] = round(time.monotonic() - start, 2)
     report["completed_at"] = utc()
-    # Publish the local snapshot first, even if GitHub writeback fails.
-    save_atomic(MONITOR / "sc013-local-30m.json", report)
-    save_atomic(MONITOR / "sc013-chatgpt-monitor.json", report["chatgpt_monitor"])
+    # A test/dry run MUST NOT masquerade as a scheduled production heartbeat.
     if not dry_run:
+        save_atomic(MONITOR / "sc013-local-30m.json", report)
+        save_atomic(MONITOR / "sc013-chatgpt-monitor.json", report["chatgpt_monitor"])
         publish(report)
     return report
 
