@@ -37,5 +37,6 @@ test("fixture-only inventory cannot itself promote migrations to live",async()=>
  assert.equal(matrix.specialists.every(x=>!x.owner_lifecycle_qualified),true);
  const sot=await fs.readFile(sotPath,"utf8");
  assert.match(sot,/MIG-CC-01 live partial inventory evidence/);
- assert.match(sot,/SUPERVISOR_STOP_LATCH/);
+ assert.match(sot,/\`AUTOSTART_DISABLED\`/);
+ assert.match(sot,/\`BLOCKED_SAFETY\`/);
 });
