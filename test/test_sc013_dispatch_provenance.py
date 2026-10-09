@@ -87,6 +87,7 @@ class ProvenanceChecks(unittest.TestCase):
                 action TEXT,sot_url TEXT,status TEXT,local_job_id TEXT)""")
             cx.execute("""INSERT INTO dispatch_inbox VALUES(?,?,?,?,?,?,?,?)""",
                        tuple(row().values()))
+            cx.commit()  # explicit commit before close() keeps fixture portable
 
     def _write_owner(self, **changes):
         saved = {
