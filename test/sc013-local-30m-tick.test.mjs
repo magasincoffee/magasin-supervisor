@@ -11,6 +11,8 @@ test("SC-013 local monitoring is twice hourly without pretending ChatGPT runs", 
   const p = await fs.readFile(script,"utf8");
   assert.match(w, /17,47 \* \* \* \*/);
   assert.match(w, /sc013-local-30m-tick\.py/);
+  assert.ok(w.includes("startsWith(github.event.issue.title, '[MAGASIN-DISPATCH]')"),
+    "Telemetry issue edits must not schedule an unnecessary self-hosted runner");
   assert.match(w, /github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'/);
   assert.match(p, /MAGASIN_LOCAL_30M_TICK_V1/);
   assert.match(p, /sc013-local-30m\.json/);
