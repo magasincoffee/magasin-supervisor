@@ -1,0 +1,15 @@
+{
+  "schema": "MAGASIN_SC013_OWNER_CONTROL_APPLY_V1",
+  "mode": "INSTALL_OWNER_READONLY_UI",
+  "target": "DESKTOP-H4A16IL",
+  "source_commit": "0fb6c6a3d843d39c4ebdde2e74b2873676e47846",
+  "owner_approved": true,
+  "business_execution_enabled": false,
+  "start_robots": false,
+  "approved_scope": [
+    "owner_lifecycle.py",
+    "server.py",
+    "app.js"
+  ],
+  "purpose": "One local Owner-read-only START/STOP UI install; preserve Coordinator OFF/STOP and specialist independence"
+}
