@@ -50,7 +50,8 @@ test("SOT explicitly supersedes separate robot control UI without touching worke
   assert.match(s,/Control Center is the sole operational interface/);
   assert.match(s,/supersedes any earlier plan that required the Owner to open Supervisor Control/);
   assert.match(s,/does not authorize deleting robot execution engines/);
-  assert.match(s,/SAYDI.*default-on Windows boot recovery/);
+  assert.match(s,/default-on Windows boot recovery/);
+  assert.match(s,/SAYDI's authoritative/);
   assert.match(s,/MIG-CC-04: One-by-one, Owner-approved safe cutover/);
   assert.match(s,/MIG-CC-05: Acceptance and retirement/);
   assert.match(s,/production Business Executor/);
