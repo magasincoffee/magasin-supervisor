@@ -25,7 +25,7 @@ MAX_LOG_FILES = 6
 SENSITIVE_KEYS = frozenset({"export_url", "raw_path", "token", "cookie", "email"})
 LOG_PATTERN = re.compile(r"^(?:diagnostic_run|robot)_\d{4}-\d\d-\d\d(?:_\d{6,8})?\.log$")
 FAILURE_CLASSES = {
-    "LOGIN_OR_AUTH": re.compile(r"\blogin\b|\bauth(?:entication|orization)?\b", re.I),
+    "LOGIN_OR_AUTH": re.compile(r"\blogin(?:\b|[_-])|\bauth(?:entication|orization)?(?:\b|[_-])", re.I),
     "TIMEOUT": re.compile(r"\btimeout\b|\btimed[\s_-]?out\b", re.I),
     "ERROR": re.compile(r"\berror\b|\bfailed?\b|\bexception\b", re.I),
 }
