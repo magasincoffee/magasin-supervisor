@@ -80,6 +80,47 @@ const coordinatorPanel=()=>{
  + '<div class="robot-footer"><span>Hồ sơ định tuyến: '+esc(c.details["Hồ sơ đã phân loại"])+'</span><strong>Chi tiết →</strong></div></article>'
  + '<div class="chain-down">↓ Giao việc khi Owner đã bật đúng robot chuyên môn</div></div>';
 };
+const migrationWarnings={
+ "SUPERVISOR_OUTBOUND_UNKNOWN_OUTCOME_NO_RESEND":"Lệnh đang chờ, chưa xác minh đã gửi thành công; không được gửi trùng",
+ "SUPERVISOR_OUTBOUND_UNVERIFIED":"Chưa xác minh trạng thái giao dịch gửi lệnh",
+ "SUPERVISOR_OUTBOUND_DELIVERY_NOT_INDEPENDENTLY_VERIFIED":"Kết quả gửi lệnh chưa được xác minh độc lập",
+ "SUPERVISOR_STOP_LATCH_PRESENT_OR_UNKNOWN":"Owner STOP hoặc khóa tự khởi động vẫn còn hiệu lực",
+ "SUPERVISOR_OWNER_LIFECYCLE_NOT_QUALIFIED":"Chưa nghiệm thu START/STOP thực tế của Supervisor",
+ "SAYDI_CHAPTER_REVIEW_NOT_FINAL":"Chương sách đã có bản nghe duyệt, chưa xác nhận FINAL",
+ "SAYDI_CHAPTER_QC_WAIT_RESOURCE":"QC chương sách đang chờ tài nguyên",
+ "SAYDI_CHAPTER_CHECKPOINT_UNVERIFIED":"Chưa xác minh checkpoint chương sách",
+ "SAYDI_WORKER_ACTIVITY_NOT_SAFE_TO_INTERRUPT":"Có công việc đang chạy; không được ép dừng",
+ "SAYDI_WORKER_UNVERIFIED":"Chưa xác minh tiến trình sách nói",
+ "SAYDI_QC_RAM_BELOW_GATE":"RAM trống dưới 2,3 GiB để chạy QC",
+ "SAYDI_FREE_RAM_UNVERIFIED":"Không xác minh được RAM trống",
+ "LEGACY_AUTOSTART_UNRECONCILED":"Lịch tự khởi động cũ chưa được chuyển đổi",
+ "SAYDI_OWNER_CONTROL_NOT_QUALIFIED":"Bộ điều khiển Owner của SAYDI chưa nghiệm thu",
+ "SAPO_PENDING_EXPORT_NOT_RECONCILED":"Còn bản xuất doanh thu chờ đối soát",
+ "SAPO_LAST_SUCCESS_NOT_INDEPENDENTLY_VERIFIED":"Kết quả đồng bộ cũ chưa được xác minh độc lập",
+ "SAPO_FINANCIAL_CHECKPOINT_UNVERIFIED":"Chưa chứng minh trạng thái đối soát an toàn",
+ "SAPO_RECENT_DIAGNOSTIC_REQUIRES_REVIEW":"Nhật ký SAPO có dấu hiệu lỗi cần kiểm tra",
+ "SAPO_FINANCIAL_STOP_CHECKPOINT_NOT_QUALIFIED":"Không được dừng hoặc chạy lại đồng bộ khi checkpoint chưa rõ",
+ "SAPO_LOGS_UNAVAILABLE":"Chưa có nhật ký SAPO đáng tin cậy",
+ "SAPO_STATE_NOT_READABLE":"Không thể đọc trạng thái SAPO",
+ "SAPO_STATE_INVALID":"Dữ liệu trạng thái SAPO không hợp lệ",
+ "READ_ONLY_PRECUTOVER_EVIDENCE_UNAVAILABLE":"Chưa kết nối được bộ kiểm tra trước chuyển đổi"
+};
+const migrationPanel=()=>{
+ const p=latest?.migration_preflight;
+ if(!p)return '<section class="panel"><h3>Chuyển đổi về một Control Center</h3><p class="mini">Chưa có dữ liệu kiểm tra trước chuyển đổi.</p></section>';
+ const names={supervisor:"Supervisor / WebApp",saydi:"SAYDI Media",sapo:"SAPO Sync"};
+ const sections=["supervisor","saydi","sapo"].map(id=>{
+  const evidence=p.robots?.[id]||{};
+  const blocked=(evidence.blockers||[]).slice(0,8).map(k=>'<li>'+esc(migrationWarnings[k]||k)+'</li>').join("");
+  return '<article class="panel"><div class="monitor-title"><strong>'+esc(names[id])+'</strong><span class="badge review">Chưa thể chuyển đổi</span></div>'
+    +'<ul class="mini">'+(blocked||'<li>Thiếu bằng chứng vận hành</li>')+'</ul>'
+    +'<p class="mini">Quyền START/STOP mới: chưa được nghiệm thu. Không thao tác với lịch cũ.</p></article>';
+ }).join("");
+ return '<section class="section-title"><h2>Chuyển đổi về một Control Center</h2><span>MIG-CC-01 · Kiểm tra an toàn trước chuyển đổi</span></section>'
+   +'<p class="mini">Dữ liệu chỉ đọc; không bật, tắt hay xóa robot. Không công bố đường dẫn xuất dữ liệu SAPO.</p>'
+   +'<div class="monitor-grid">'+sections+'</div>'
+   +'<p class="mini">Kết quả: '+esc(p.status||"Chưa rõ")+' · Cập nhật: '+esc(fmtDate(p.checked_at_utc))+'</p>';
+};
 const cards=()=>{
  const b=latest.robots.map(r=>`
  <article class="robot-card" tabindex="0" role="link" data-open="${esc(r.id)}" aria-label="Chi tiết ${esc(r.name)}">
@@ -89,6 +130,7 @@ const cards=()=>{
  </article>`).join("");
  return `<section class="callout"><strong>Owner quyết định robot nào hoạt động.</strong> Trạng thái hiển thị theo bằng chứng; Bắt đầu/Dừng chỉ có hiệu lực khi robot riêng đó qua cổng an toàn. Mở chi tiết bằng cách chọn một robot bên dưới.</section>
   ${monitorPanel()}
+  ${migrationPanel()}
   ${coordinatorPanel()}
   <div class="overview-kpis">
     <div class="kpi"><small>Robot đang hoạt động</small><strong>${count("running")}</strong><span class="unit">/${latest.robots.length}</span></div>
@@ -171,6 +213,7 @@ function renderDetail(r){
  </div>
  ${coordinatorPlans(r)}
  ${r.id==="coordinator"||r.id==="supervisor"?monitorPanel():""}
+ ${r.id==="coordinator"?migrationPanel():""}
  <div class="detail-columns robot-tools">
     <section class="panel"><h3>Tiến trình liên quan</h3>${procs?`<table class="process-table"><thead><tr><th>PID</th><th>Ứng dụng</th><th>RAM (MB)</th></tr></thead><tbody>${procs}</tbody></table>`:'<p class="mini">Không ghi nhận tiến trình chuyên môn đang chạy, hoặc chưa có bộ phát hiện được xác minh.</p>'}</section>
     <section class="panel"><h3>Thông tin vận hành</h3><p class="mini">${esc(r.notes)}</p><p class="mini">Robot này giữ SOT, tiến trình, Chrome profile, cấu hình và dữ liệu riêng. Không chia sẻ trạng thái START/STOP với robot khác.</p></section>
