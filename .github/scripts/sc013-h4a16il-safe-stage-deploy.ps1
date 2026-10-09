@@ -46,6 +46,12 @@ $state=Get-Content (Join-Path $root 'single-conversation-state.json') -Raw | Con
 function Hash([string]$Path){
   return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
+function NormalizeLineEndings([string]$Path){
+  # Whitelist presentation-only differences: CRLF versus LF, and terminal
+  # CR/LF bytes. Do NOT trim spaces, alter Unicode or normalize JS semantics.
+  $value=[System.IO.File]::ReadAllText($Path,[System.Text.Encoding]::UTF8)
+  return $value.Replace("`r`n","`n").TrimEnd([char[]]@([char]13,[char]10))
+}
 function RunningWrapper {
   $matches=@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction Stop |
     Where-Object {$_.CommandLine -and $_.CommandLine -like '*run-supervisor.ps1*' -and
@@ -57,6 +63,7 @@ if($Mode -eq 'Stage'){
   $source=@(Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -Filter '*.mjs')
   if($source.Count -lt 70){throw 'SOURCE_MODULE_SET_INCOMPLETE'}
   $diff=@()
+  $formatOnly=@()
   foreach($f in $source){
     $relative=$f.FullName.Substring($sourceRoot.Length+1)
     $live=Join-Path $liveSrc $relative
@@ -64,9 +71,14 @@ if($Mode -eq 'Stage'){
     $wanted=Hash $f.FullName
     $current=Hash $live
     if($wanted -ne $current){
-      $diff+=@{path=$relative;old_sha256=$current;new_sha256=$wanted}
+      if((NormalizeLineEndings $f.FullName) -ceq (NormalizeLineEndings $live)){
+        $formatOnly+=@{path=$relative;old_sha256=$current;new_sha256=$wanted}
+      } else {
+        $diff+=@{path=$relative;old_sha256=$current;new_sha256=$wanted}
+      }
     }
   }
+  Write-Host ('FORMAT_ONLY_MODULES='+($formatOnly.path -join ','))
   # Refuse to replace arbitrary divergent local work. Only the already-reviewed
   # and tested CLI hydration patch can be staged in this maintenance window.
   if($diff.Count -ne 1 -or $diff[0].path -ne $cliRelative){
@@ -90,6 +102,7 @@ if($Mode -eq 'Stage'){
     target='DESKTOP-H4A16IL'
     created_at=(Get-Date -Format o)
     source_module_count=$source.Count
+    format_only_modules=$formatOnly
     mode='STAGED_ONLY'
     changed_path=$cliRelative
     old_sha256=$diff[0].old_sha256
@@ -115,6 +128,18 @@ if($record.schema -ne 'MAGASIN_H4A16IL_DEPLOY_STAGE_V1' -or
    $record.target -ne 'DESKTOP-H4A16IL' -or
    $record.changed_path -ne $cliRelative -or $record.install_verified){
   throw 'STAGED_MANIFEST_NOT_QUALIFIED'
+}
+# Re-validate every format-only local source at APPLY; semantic changes
+# after the stage invalidate its authorization.
+foreach($entry in @($record.format_only_modules)){
+  $existing=Join-Path $liveSrc ([string]$entry.path)
+  $canonical=Join-Path $sourceRoot ([string]$entry.path)
+  if(!(Test-Path $existing) -or !(Test-Path $canonical) -or
+     (Hash $existing) -ne [string]$entry.old_sha256 -or
+     (Hash $canonical) -ne [string]$entry.new_sha256 -or
+     (NormalizeLineEndings $existing) -cne (NormalizeLineEndings $canonical)){
+    throw 'FORMAT_ONLY_SOURCE_CHANGED_AFTER_STAGE'
+  }
 }
 $live=Join-Path $liveSrc $cliRelative
 $candidate=Join-Path $staging 'candidate\single-conversation-cli.mjs'
