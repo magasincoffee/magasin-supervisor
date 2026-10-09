@@ -8,6 +8,7 @@ const navRobots=document.getElementById("nav-robots");
 let latest=null;
 let monitorState=null;
 let busy=false;
+let supervisorSotDraft="";
 const esc=(value)=>String(value??"—").replace(/[&<>"']/g, (c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmtDate=(v)=>{if(!v)return "Chưa có";const d=new Date(v);return Number.isNaN(d.getTime())?"Không rõ":d.toLocaleString("vi-VN")};
 const allItems=()=>[...(latest?.coordinator?[latest.coordinator]:[]),...(latest?.robots||[]),...(latest?.services||[])];
@@ -187,6 +188,29 @@ const specialistBlockers=(r)=>{
   +'<p class="mini"><b>Đã kiểm tra quyền Owner riêng:</b> '+(r.control?.owner_authority_verified?"Có":"Chưa")+'</p>'
   +'<p class="mini"><b>Giao việc thật:</b> Chưa được cấp quyền.</p></section>';
 };
+const supervisorProjectPanel=(r)=>{
+ if(r.id!=="supervisor")return "";
+ const binding=r.project_links||{};
+ const active=binding.active;
+ const source=active?.source_repo_url?'<a href="'+esc(safeHref(active.source_repo_url)||"#")+'" target="_blank" rel="noopener noreferrer">'+esc(active.repository)+'</a>':"Chưa xác minh";
+ const currentSot=active?.sot_url?'<a href="'+esc(safeHref(active.sot_url)||"#")+'" target="_blank" rel="noopener noreferrer">'+esc(active.sot_url)+'</a>':"Chưa đọc được link SOT hiện tại";
+ const pending=(binding.requests||[]).slice(0,10).map(p=>'<li><b>'+esc(p.repository)+'</b> · Chờ xác minh SOT / Chưa kích hoạt <a href="'+esc(safeHref(p.sot_url)||"#")+'" target="_blank" rel="noopener noreferrer">Xem SOT ↗</a></li>').join("");
+ const enabled=Boolean(binding.save_allowed);
+ return '<section class="panel robot-tools"><h3>Dự án Supervisor quản lý</h3>'
+   +'<p class="mini">Supervisor chỉ cần URL Source of Truth. Repository mã nguồn được nhận diện từ đường dẫn GitHub; phải xác minh SOT trước khi thực thi.</p>'
+   +'<p class="mini"><b>Repository dự án đang gắn:</b> '+source+'</p>'
+   +'<p class="mini"><b>Source of Truth hiện tại:</b> '+currentSot+'</p>'
+   +'<p class="mini"><b>Trạng thái:</b> '+esc(active?.binding||binding.status||"CHƯA_XÁC_MINH")+' — không chứng minh robot đang thực hiện.</p>'
+   +'<form id="supervisor-sot-form"><label for="supervisor-sot-url" class="mini"><b>Gắn Source of Truth cho một dự án khác</b></label>'
+   +'<input id="supervisor-sot-url" type="url" name="sot_url" required autocomplete="off" spellcheck="false"'
+   +' placeholder="https://github.com/magasincoffee/ten-repo/blob/main/SOURCE_OF_TRUTH.md"'
+   +' value="'+esc(supervisorSotDraft)+'" style="width:100%;max-width:100%;padding:11px;margin:8px 0" '+(enabled?'':'disabled')+'>'
+   +'<div class="actions"><button type="submit" class="btn" '+(enabled?'':'disabled')+'>Lưu liên kết để xác minh</button></div></form>'
+   +(pending?'<p class="mini"><b>Liên kết đang chờ:</b></p><ul class="mini">'+pending+'</ul>':'')
+   +'<p class="mini"><b>Giới hạn:</b> Lưu liên kết chỉ tạo yêu cầu chờ kiểm tra. Không đổi dự án đang chạy, không bật Supervisor, không mở khóa Owner STOP. Chỉ chấp nhận URL SOT GitHub magasincoffee trên nhánh main.</p>'
+   +(!enabled?'<p class="mini">Chỉ lưu liên kết khi Supervisor đã được Owner dừng an toàn và cấu hình runtime hiện tại đọc được.</p>':'')
+   +'</section>';
+};
 function renderDetail(r){
  const cells=Object.entries(r.details||{}).map(([k,v])=>`<div class="metric"><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("");
  const links=(r.links||[]).map(x=>{const url=safeHref(x.url);return url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)} ↗</a>`:""}).join("");
@@ -207,6 +231,7 @@ function renderDetail(r){
         "Nút đang khóa do thiếu điều kiện kiểm thử. Xem chi tiết nguyên nhân bên dưới.")}</p>
  </section>
  ${specialistBlockers(r)}
+ ${supervisorProjectPanel(r)}
  <div class="detail-columns">
    <section class="panel"><h3>Trạng thái và tiến độ</h3><dl class="metrics">${cells}</dl></section>
    <section class="panel"><h3>Thư mục và tài liệu</h3><p class="mini">${esc(r.summary)}</p><p class="mini"><b>Thư mục quản lý trên ổ D</b></p><div class="path">${esc(r.organized_folder)}</div><p class="mini"><b>Runtime hiện tại (giữ nguyên)</b></p><div class="path">${esc(r.root)}</div><div class="actions">${links}</div></section>
@@ -251,6 +276,32 @@ async function refresh(){
  finally{busy=false}
 }
 document.getElementById("refresh").addEventListener("click",refresh);
+document.addEventListener("input",(e)=>{
+ if(e.target?.id==="supervisor-sot-url")supervisorSotDraft=e.target.value;
+});
+document.addEventListener("submit",async(e)=>{
+ if(e.target?.id!=="supervisor-sot-form")return;
+ e.preventDefault();
+ const field=e.target.querySelector("#supervisor-sot-url");
+ const url=String(field?.value||"").trim();
+ if(!url){alert("Cần dán link Source of Truth.");return}
+ if(!confirm("Lưu link SOT để kiểm tra? Việc này KHÔNG đổi dự án đang chạy hay bật Supervisor."))return;
+ const button=e.target.querySelector("button[type=submit]");
+ button.disabled=true;
+ try{
+   const response=await fetch("/api/supervisor/project/link",{
+     method:"POST",
+     headers:{"Content-Type":"application/json","X-MAGASIN-CSRF":latest?.csrf||""},
+     body:JSON.stringify({sot_url:url,confirm:"SAVE_SUPERVISOR_SOT_LINK_ONLY"})
+   });
+   const data=await response.json();
+   if(!response.ok||!data.ok)throw Error(data.message||"Đường dẫn chưa hợp lệ.");
+   supervisorSotDraft="";
+   alert(data.status==="ALREADY_LINKED_ACTIVE"?"Dự án này đã được cấu hình trong Supervisor.":"Đã lưu link. Chờ xác minh SOT và duyệt chuyển dự án; chưa chạy robot.");
+ }catch(err){alert("Chưa lưu được SOT: "+(err?.message||"Lỗi cấu hình"))}
+ await refresh();
+});
+
 document.addEventListener("click",async(e)=>{
  const stop=e.target.closest("[data-owner-stop]");
  const start=e.target.closest("[data-owner-start]");
