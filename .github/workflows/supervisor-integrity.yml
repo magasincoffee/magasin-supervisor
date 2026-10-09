@@ -74,6 +74,9 @@ jobs:
       - name: Verify SC-013 GitHub Issue Gateway and Owner provenance read-only
         shell: bash
         run: python -m unittest discover -s test -p 'test_sc013_dispatch_provenance.py' -v
+      - name: Verify SC-013 specialist Owner START STOP attestation contract
+        shell: bash
+        run: python -m unittest discover -s test -p 'test_sc013_specialist_lifecycle_attestation.py' -v
       - name: Verify SINGLE_CONVERSATION_V1 contracts
         shell: bash
         run: |
