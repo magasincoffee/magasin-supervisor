@@ -27,7 +27,13 @@
     {
       "id": "MIG-CC-01",
       "name": "Inventory evidence and freeze",
-      "state": "NOT_DONE"
+      "state": "IN_PROGRESS",
+      "verified_evidence": "Read-only H4 scan 2026-10-09 at approx 21:58–22:00; source SHA + task/Startup/Registry names captured",
+      "remaining": [
+        "Verify no active media/SAPO irreversible transaction",
+        "Create durable backups and rollback/checksum manifest under reviewed staging gate",
+        "Obtain safe restore point and test scheduling state after reboot"
+      ]
     },
     {
       "id": "MIG-CC-02",
@@ -103,5 +109,45 @@
     "NO_REAL_BUSINESS_DISPATCH",
     "NO_FINANCE_WRITES",
     "NO_CREDENTIAL_CHANGES"
-  ]
+  ],
+  "inventory_checkpoint": {
+    "snapshot_kind": "READ_ONLY_PARTIAL",
+    "host": "DESKTOP-H4A16IL",
+    "control_port": "127.0.0.1:8781",
+    "controller_status": "BLOCKED_SAFETY_SUPERVISOR_STOP_LATCH",
+    "legacy_tasks": {
+      "sapo_daily": [
+        "MAGASIN Sapo Nightly",
+        "MAGASIN Sapo Reconcile"
+      ],
+      "saydi": [
+        "SAYDI V5 CH02 QC Guardian",
+        "SAYDI NATURAL V4 Watchdog"
+      ],
+      "saydi_disabled": [
+        "SAYDI Full Book V4 Resume"
+      ],
+      "read_only": [
+        "MAGASIN SC013 Local 30min"
+      ]
+    },
+    "startup_names": [
+      "SAYDI_FULL_BOOK_RESUME.cmd",
+      "MAGASIN_Local_Agent_Guard.vbs",
+      "MAGASIN_Local_MCP_Guard.vbs"
+    ],
+    "run_registry_names": [
+      "MAGASINBusinessOSAutostart",
+      "MAGASINSupervisorLocalWatchdog",
+      "MAGASINSupervisorGuardian",
+      "SAYDI_Media_Control"
+    ],
+    "supervisor_stop_present": true,
+    "supervisor_autostart_disabled_present": true,
+    "specialist_owner_advisory_all_off": true,
+    "sapo_legacy_last_result": 1,
+    "source_hashes_recorded_in_issue_339": true,
+    "credentials_and_transactions_inspected": false,
+    "production_cutover_qualified": false
+  }
 }

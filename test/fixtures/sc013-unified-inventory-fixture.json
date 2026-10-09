@@ -1,0 +1,30 @@
+{
+  "schema": "MAGASIN_SC013_UNIFIED_CONTROL_INVENTORY_FIXTURE_V1",
+  "machine": "SIMULATED_ONLY",
+  "tasks": [
+    {
+      "name": "SAYDI V5 CH02 QC Guardian",
+      "state": "Ready",
+      "trigger_enabled": true,
+      "last_result": 0
+    },
+    {
+      "name": "MAGASIN Sapo Nightly",
+      "state": "Ready",
+      "trigger_enabled": true,
+      "last_result": 1
+    },
+    {
+      "name": "MAGASIN Sapo Reconcile",
+      "state": "Ready",
+      "trigger_enabled": true,
+      "last_result": 1
+    },
+    {
+      "name": "MAGASIN SC013 Local 30min",
+      "state": "Ready",
+      "trigger_enabled": true,
+      "last_result": 0
+    }
+  ]
+}

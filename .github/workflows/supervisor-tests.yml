@@ -87,6 +87,7 @@ jobs:
             test/sc013-owner-lifecycle-control.test.mjs `
             test/sc013-specialist-readiness-ui.test.mjs `
             test/sc013-control-center-consolidation-policy.test.mjs `
+            test/sc013-unified-inventory-readonly.test.mjs `
             test/sc013-owner-control-apply.test.mjs `
             test/sc013-sot-adapter.test.mjs `
             test/sc013-live-observer-contract.test.mjs `
@@ -118,6 +119,27 @@ jobs:
       - name: Parse Control Center JS without launching local services
         shell: powershell
         run: node --check src/control-center/web/app.js
+      - name: Validate and fixture-test MIG-CC-01 inventory without host mutation
+        shell: powershell
+        run: |
+          $p=Join-Path $PWD 'windows/sc013-unified-control-inventory.ps1'
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile($p,[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -ne 0){throw ('MIG_CC_01_PS_SYNTAX_INVALID: '+($errors -join '; '))}
+          $fixture=Join-Path $PWD 'test/fixtures/sc013-unified-inventory-fixture.json'
+          $output=& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $p -FixtureOnly -FixtureJson $fixture
+          if($LASTEXITCODE -ne 0){throw 'MIG_CC_01_FIXTURE_EXEC_FAILED'}
+          $json=($output|Out-String)|ConvertFrom-Json
+          if($json.host -ne 'SIMULATED_ONLY' -or
+             $json.cutover_qualified -ne $false -or
+             $json.business_dispatch_enabled -ne $false -or
+             $json.milestone_status -ne 'IN_PROGRESS' -or
+             $json.task_evidence.Count -ne 4 -or
+             !($json.blockers -contains 'FIXTURE_NOT_PRODUCTION_EVIDENCE')){
+            throw 'MIG_CC_01_FIXTURE_FAILED_CLOSED'
+          }
+          Write-Host 'MIG_CC_01_INVENTORY_FIXTURE_GREEN=True'
       - name: Confirm no production mutation
         shell: powershell
         run: Write-Host "ZERO_PRODUCTION_MUTATION=True"
