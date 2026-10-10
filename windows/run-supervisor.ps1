@@ -6,6 +6,7 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'state-root.ps1')
 . (Join-Path $PSScriptRoot 'chatgpt-bridge-runtime.ps1')
+. (Join-Path $PSScriptRoot 'project-fault-containment.ps1')
 $root = Get-SupervisorStateRoot -Compatibility 'legacy-preserve'
 $runtime = Join-Path $root 'runtime'
 $env:SUPERVISOR_STATE_ROOT = $root
@@ -22,6 +23,8 @@ $plannerExecutorStateFile = Join-Path $root 'planner-executor-state.json'
 $plannerExecutorTransportFile = Join-Path $root 'planner-executor-transport.json'
 $singleConversationControlFile = Join-Path $root 'single-conversation-control.json'
 $singleConversationStateFile = Join-Path $root 'single-conversation-state.json'
+$projectHoldFile = Join-Path $root 'project-hold-status.json'
+$coordinatorHeartbeatFile = 'D:\MAGASIN_ROBOTS\control-center\state\sc013-local-30m.json'
 $projectAdapterPath = [string]$env:SUPERVISOR_PROJECT_ADAPTER_PATH
 $projectAdapterUrl = [string]$env:SUPERVISOR_PROJECT_ADAPTER_URL
 if (-not [string]::IsNullOrWhiteSpace($projectAdapterPath) -and -not [string]::IsNullOrWhiteSpace($projectAdapterUrl)) {
@@ -479,7 +482,13 @@ try {
                         Write-Host "Recovering one ENQUEUED $([string]$outboundAfterRun.kind) after technical send failure; exact-once retry budget remains authoritative."
                     } else {
                         Write-Host 'SINGLE_CONVERSATION_BLOCKED_PAUSE=True'
-                        Write-Host 'Supervisor single-conversation state is BLOCKED; stopping wrapper retry loop to prevent chat churn.'
+                        Write-Host 'Project is held; Supervisor stays in read-only monitoring without retrying the ambiguous message.'
+                        Invoke-SupervisorProjectHold `
+                            -StateFile $singleConversationStateFile `
+                            -HoldFile $projectHoldFile `
+                            -StopFile $stop `
+                            -AutostartDisabledFile $autostartDisabled `
+                            -CoordinatorHeartbeatFile $coordinatorHeartbeatFile
                         break
                     }
                 }
@@ -500,10 +509,24 @@ try {
         }
 
         if (-not (Test-Path $stop) -and -not (Test-Path $autostartDisabled) -and $nodeExitCode -eq 76) {
-            # Exit code 76 is an intentional autonomy pause. Do not keep an
-            # automation browser open when source-of-truth says there is no
-            # authorized work to execute.
-            Write-Host 'Supervisor entered PAUSED autonomy; closing dedicated Chrome and stopping wrapper.'
+            # A settled project DONE/Owner gate must not terminate the
+            # Supervisor's independent read-only observation layer.
+            if ($runtimeMode -eq 'SINGLE_CONVERSATION_V1') {
+                $pauseState = $null
+                try {
+                    $pauseState = Get-Content $singleConversationStateFile -Raw -Encoding UTF8 | ConvertFrom-Json
+                } catch {}
+                if ($pauseState -and [string]$pauseState.automation.status -in @('DONE','BLOCKED')) {
+                    Invoke-SupervisorProjectHold `
+                        -StateFile $singleConversationStateFile `
+                        -HoldFile $projectHoldFile `
+                        -StopFile $stop `
+                        -AutostartDisabledFile $autostartDisabled `
+                        -CoordinatorHeartbeatFile $coordinatorHeartbeatFile
+                    break
+                }
+            }
+            Write-Host 'Supervisor entered PAUSED autonomy without a qualified project; preserving fail-closed stop.'
             Stop-DedicatedChrome
             break
         }
