@@ -422,6 +422,28 @@ class Handler(BaseHTTPRequestHandler):
         if not hmac.compare_digest(self.headers.get("X-MAGASIN-CSRF",""),CONTROL_TOKEN):
             return self.send_data('{"ok":false,"message":"Missing control authorization"}',code=403)
         route=urlsplit(self.path).path
+        if route == "/api/supervisor/project/check":
+            # Re-read a *pending* GitHub SOT twice and report blockers.
+            # This does NOT select a new project or invoke START.
+            if self.headers.get("Content-Type","").split(";")[0] != "application/json":
+                return self.send_data('{"ok":false,"message":"Expected JSON"}',code=415)
+            try:
+                n=int(self.headers.get("Content-Length","0"))
+                if n < 2 or n > 360:
+                    raise ValueError("Bad payload length")
+                candidate=json.loads(self.rfile.read(n))
+                if (type(candidate) is not dict or
+                        set(candidate) != {"id", "confirm"} or
+                        candidate["confirm"] != "CHECK_SUPERVISOR_SOT_ONLY"):
+                    raise ValueError("Unexpected read-only check payload")
+                import supervisor_project_activation
+                result=supervisor_project_activation.inspect_candidate(candidate["id"])
+                return self.send_data(json.dumps(result,ensure_ascii=False),
+                                      code=200)
+            except (ValueError, TypeError, UnicodeDecodeError):
+                return self.send_data('{"ok":false,"message":"Yêu cầu kiểm tra SOT không hợp lệ."}',code=400)
+            except Exception:
+                return self.send_data('{"ok":false,"message":"Không thể xác minh SOT. Không kích hoạt."}',code=503)
         if route == "/api/supervisor/project/link":
             # Separate Owner-confirmed URL proposal only. NEVER changes the
             # live Supervisor SOT binding or permits process execution.
