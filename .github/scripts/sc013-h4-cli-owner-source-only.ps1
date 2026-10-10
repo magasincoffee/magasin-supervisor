@@ -60,8 +60,8 @@ function NotReparse([string]$p){
 }
 function Normalize([string]$p){
   $t=[IO.File]::ReadAllText($p,[Text.Encoding]::UTF8)
-  return $t.Replace(([string][char]13+[string][char]10),([string][char]10)).
-    TrimEnd([char[]]@([char]13,[char]10))
+  $normalized=$t.Replace(([string][char]13+[string][char]10),([string][char]10))
+  return $normalized.TrimEnd([char[]]@([char]13,[char]10))
 }
 function AssertProtected {
   if(!(Test-Path $stop -PathType Leaf) -or !(Test-Path $off -PathType Leaf)){
@@ -204,7 +204,7 @@ $tmp=Join-Path (Split-Path $liveCli -Parent) ("single-conversation-cli.mjs.sc013
 $localBackup=Join-Path (Split-Path $liveCli -Parent) ("single-conversation-cli.mjs.sc013-$sha.bak")
 $replaced=$false
 try {
-  if(Test-Path $tmp -or Test-Path $localBackup){throw 'AMBIGUOUS_TEMPORARY_INSTALL_STATE'}
+  if((Test-Path $tmp) -or (Test-Path $localBackup)){throw 'AMBIGUOUS_TEMPORARY_INSTALL_STATE'}
   Copy-Item -LiteralPath $candidate -Destination $tmp -ErrorAction Stop
   if((Hash $tmp) -cne $m.new_cli_sha256){throw 'TEMP_CLI_HASH_MISMATCH'}
   AssertProtected
