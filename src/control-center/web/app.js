@@ -9,6 +9,7 @@ let latest=null;
 let monitorState=null;
 let busy=false;
 let supervisorSotDraft="";
+let supervisorSotCheck=null;
 const esc=(value)=>String(value??"—").replace(/[&<>"']/g, (c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmtDate=(v)=>{if(!v)return "Chưa có";const d=new Date(v);return Number.isNaN(d.getTime())?"Không rõ":d.toLocaleString("vi-VN")};
 const allItems=()=>[...(latest?.coordinator?[latest.coordinator]:[]),...(latest?.robots||[]),...(latest?.services||[])];
@@ -194,8 +195,12 @@ const supervisorProjectPanel=(r)=>{
  const active=binding.active;
  const source=active?.source_repo_url?'<a href="'+esc(safeHref(active.source_repo_url)||"#")+'" target="_blank" rel="noopener noreferrer">'+esc(active.repository)+'</a>':"Chưa xác minh";
  const currentSot=active?.sot_url?'<a href="'+esc(safeHref(active.sot_url)||"#")+'" target="_blank" rel="noopener noreferrer">'+esc(active.sot_url)+'</a>':"Chưa đọc được link SOT hiện tại";
- const pending=(binding.requests||[]).slice(0,10).map(p=>'<li><b>'+esc(p.repository)+'</b> · Chờ xác minh SOT / Chưa kích hoạt <a href="'+esc(safeHref(p.sot_url)||"#")+'" target="_blank" rel="noopener noreferrer">Xem SOT ↗</a></li>').join("");
+ const pending=(binding.requests||[]).slice(0,10).map(p=>'<li><b>'+esc(p.repository)+'</b> · Chờ xác minh SOT / Chưa kích hoạt <a href="'+esc(safeHref(p.sot_url)||"#")+'" target="_blank" rel="noopener noreferrer">Xem SOT ↗</a> <button type="button" class="btn" data-sot-check="'+esc(p.id)+'" '+(binding.save_allowed?'':'disabled')+'>Kiểm tra trước kích hoạt</button></li>').join("");
  const enabled=Boolean(binding.save_allowed);
+ const review=supervisorSotCheck?'<div class="mini"><b>Kiểm tra gần nhất:</b> '+esc(supervisorSotCheck.status||"CHƯA_XÁC_MINH")
+   +(supervisorSotCheck.sot_evidence?.github_blob_sha?'<p>SOT đã đối chiếu GitHub blob: '+esc(supervisorSotCheck.sot_evidence.github_blob_sha.slice(0,12))+'… — không chứng minh task READY</p>':'')
+   +'<p>'+esc((supervisorSotCheck.blockers||[]).slice(0,8).join(" · "))+'</p>'
+   +'<p>Chuyển dự án: '+(supervisorSotCheck.project_switch_allowed?'Đủ điều kiện':'Chưa được phép')+'; START và thực thi nghiệp vụ: chưa được cấp quyền.</p></div>':'';
  return '<section class="panel robot-tools"><h3>Dự án Supervisor quản lý</h3>'
    +'<p class="mini">Supervisor chỉ cần URL Source of Truth. Repository mã nguồn được nhận diện từ đường dẫn GitHub; phải xác minh SOT trước khi thực thi.</p>'
    +'<p class="mini"><b>Repository dự án đang gắn:</b> '+source+'</p>'
@@ -207,7 +212,9 @@ const supervisorProjectPanel=(r)=>{
    +' value="'+esc(supervisorSotDraft)+'" style="width:100%;max-width:100%;padding:11px;margin:8px 0" '+(enabled?'':'disabled')+'>'
    +'<div class="actions"><button type="submit" class="btn" '+(enabled?'':'disabled')+'>Lưu liên kết để xác minh</button></div></form>'
    +(pending?'<p class="mini"><b>Liên kết đang chờ:</b></p><ul class="mini">'+pending+'</ul>':'')
-   +'<p class="mini"><b>Giới hạn:</b> Lưu liên kết chỉ tạo yêu cầu chờ kiểm tra. Không đổi dự án đang chạy, không bật Supervisor, không mở khóa Owner STOP. Chỉ chấp nhận URL SOT GitHub magasincoffee trên nhánh main.</p>'
+   +review
+   +'<p class="mini"><b>Quy trình:</b> Lưu link → Kiểm tra SOT gốc trên GitHub → xác minh giao dịch/Owner STOP → duyệt chuyển dự án → Owner START → robot đồng bộ task từ SOT và chỉ chạy task được phép.</p>'
+   +'<p class="mini"><b>Giới hạn:</b> Lưu hoặc kiểm tra link không đổi dự án đang chạy, không bật Supervisor, không mở khóa Owner STOP. Chỉ chấp nhận URL SOT GitHub magasincoffee trên nhánh main.</p>'
    +(!enabled?'<p class="mini">Chỉ lưu liên kết khi Supervisor đã được Owner dừng an toàn và cấu hình runtime hiện tại đọc được.</p>':'')
    +'</section>';
 };
@@ -302,6 +309,28 @@ document.addEventListener("submit",async(e)=>{
  await refresh();
 });
 
+document.addEventListener("click",async(e)=>{
+ const btn=e.target.closest("[data-sot-check]");
+ if(!btn)return;
+ const id=btn.dataset.sotCheck;
+ if(!/^[0-9a-f]{24}$/.test(id))return;
+ btn.disabled=true;
+ try{
+   const res=await fetch("/api/supervisor/project/check",{
+     method:"POST",
+     headers:{"Content-Type":"application/json","X-MAGASIN-CSRF":latest?.csrf||""},
+     body:JSON.stringify({id,confirm:"CHECK_SUPERVISOR_SOT_ONLY"})
+   });
+   const outcome=await res.json();
+   if(!res.ok||outcome.schema!=="MAGASIN_SC013_PROJECT_ACTIVATION_PREFLIGHT_V1"){
+     throw Error("Bộ kiểm tra SOT chưa sẵn sàng");
+   }
+   supervisorSotCheck=outcome;
+ }catch(err){
+   supervisorSotCheck={status:"BLOCKED_NOT_QUALIFIED",blockers:["SOT_CHECK_UNAVAILABLE"],project_switch_allowed:false};
+ }
+ await refresh();
+});
 document.addEventListener("click",async(e)=>{
  const stop=e.target.closest("[data-owner-stop]");
  const start=e.target.closest("[data-owner-start]");
