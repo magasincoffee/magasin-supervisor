@@ -2331,6 +2331,19 @@ async function sendProtocolMessage({
   const { baselineUser, baselineAssistant } =
     await captureProtocolBaselines(page);
 
+  // SC-013: a post-bootstrap task cannot be safely replayed after restart
+  // unless the prior user+assistant turns are known before PREPARED.
+  // Fail closed before writing any outbound transaction or actuating the UI.
+  if (
+    ["TASK_EXECUTION", "TASK_STATUS_CHECK"].includes(kind) &&
+    (!baselineUser?.turn_id || !baselineAssistant?.turn_id)
+  ) {
+    throw Object.assign(
+      new Error("task baseline could not be verified before exact-once PREPARED"),
+      { code: "TASK_BASELINE_UNVERIFIED" }
+    );
+  }
+
   await prepareExactOnceOutbound(statePath, {
     messageId,
     message,
