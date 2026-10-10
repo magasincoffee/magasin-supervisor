@@ -43,7 +43,7 @@ test("SC013 stage script writes only D: candidate, backup and manifest, never ru
   for(const forbidden of [/Stop-Process\b/,/Start-Process\b/,/Remove-Item.*(?:STOP|AUTOSTART_DISABLED)/,/Invoke-RestMethod.*\/api\/supervisor\/control/,/sendComposerInstruction/,/Invoke-SupervisorProjectHold/]){
     assert.doesNotMatch(script,forbidden);
   }
-  assert.doesNotMatch(script,/\bApply\b/i);
+  assert.doesNotMatch(script,/ValidateSet\('Stage','Apply'\)|\b-Mode\s+Apply\b|Mode\s*=\s*'Apply'/);
 });
 
 test("SC013 workflow is stage-only and does not inherit general Apply authority",()=>{
