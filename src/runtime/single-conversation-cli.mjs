@@ -1699,6 +1699,80 @@ export function orphanedInFlightTaskRecoveryCandidate({
   };
 }
 
+// Review-only classification of a legacy, missing-baseline ENQUEUED CHECK.
+// This is NOT non-delivery proof. It must never resend, rewrite state,
+// unlock Owner STOP, or permit H4 APPLY.
+export function classifyEnqueuedCheckForRecoveryReview({
+  state, firstRuntimeId, secondRuntimeId, firstSnapshot, secondSnapshot,
+  firstUser, secondUser, firstAssistant, secondAssistant,
+  matchingUser, assistantCorrelation, nowMs = Date.now()
+} = {}) {
+  const o = state?.outbound || {};
+  const taskId = String(o.task_id || "").trim();
+  const messageId = String(o.message_id || "").trim();
+  const runtimeId = String(state?.conversation?.runtime_id || "").trim();
+  const sot = String(state?.source_of_truth?.url || "").trim();
+  if (
+    state?.conversation?.status !== "ACTIVE" ||
+    state?.automation?.status !== "BLOCKED" ||
+    state?.automation?.reason !== "AMBIGUOUS_ENQUEUED_OUTCOME" ||
+    o.state !== "ENQUEUED" || o.kind !== "TASK_STATUS_CHECK" ||
+    o.baseline_user_turn_id || Number(o.retry_count) !== 0 ||
+    !taskId || !messageId || !o.message_digest || !runtimeId || !sot ||
+    runtimeId !== firstRuntimeId || runtimeId !== secondRuntimeId ||
+    matchingUser?.confirmed !== false ||
+    assistantCorrelation?.confirmed !== false
+  ) return null;
+  const enqueuedAt = Date.parse(String(o.enqueued_at || ""));
+  if (!Number.isFinite(enqueuedAt) || nowMs - enqueuedAt < 120_000) return null;
+  const idle = (x) => Boolean(
+    x && x.conversationPath === true &&
+    x.responseRunning === false && x.assistantBusy === false &&
+    x.composerReady === true && x.composerTextReadable === true &&
+    x.composerHasText === false &&
+    x.hasContinueControl !== true && x.hasRetryControl !== true &&
+    x.loginRequired !== true && x.hasCaptcha !== true &&
+    x.hasNetworkError !== true && x.hasTransientError !== true &&
+    x.conversationFull !== true && x.conversationMissing !== true &&
+    x.conversationAccessDenied !== true
+  );
+  if (!idle(firstSnapshot) || !idle(secondSnapshot)) return null;
+  const userId = String(firstUser?.turn_id || "").trim();
+  const assistantId = String(firstAssistant?.turn_id || "").trim();
+  const userText = String(firstUser?.text || "");
+  const assistantText = String(firstAssistant?.text || "");
+  if (
+    !userId || userId !== secondUser?.turn_id ||
+    !assistantId || assistantId !== secondAssistant?.turn_id ||
+    !userText.startsWith("MAGASIN_SINGLE_CONVERSATION_BOOTSTRAP_V1") ||
+    !userText.includes(sot) ||
+    !assistantText.includes("MAGASIN_TASK_CONTROL_V1") ||
+    !assistantText.split(/\r?\n/).some(
+      (line) => line.trim() === "TASK_ID=" + taskId ||
+        line.trim() === "NEXT_TASK_ID=" + taskId
+    ) ||
+    composerInstructionDigest(userText) !==
+      composerInstructionDigest(String(secondUser?.text || "")) ||
+    composerInstructionDigest(assistantText) !==
+      composerInstructionDigest(String(secondAssistant?.text || "")) ||
+    assistantTurnConfirmsCycleDelivery(firstAssistant, messageId) ||
+    assistantTurnConfirmsCycleDelivery(secondAssistant, messageId)
+  ) return null;
+  return {
+    classification: "REVIEW_ONLY_LEGACY_ENQUEUED_CHECK",
+    task_id: taskId,
+    message_id: messageId,
+    baseline_missing: true,
+    same_runtime_verified: true,
+    stable_prior_user_turn_id: userId,
+    stable_prior_assistant_turn_id: assistantId,
+    may_replay_pending_message: false,
+    may_mutate_outbound_state: false,
+    may_clear_owner_stop: false,
+    requires_owner_review: true
+  };
+}
+
 async function resumeEnqueuedTaskMessageAfterRebind({
   adapter,
   page,
