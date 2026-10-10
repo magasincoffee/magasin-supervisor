@@ -42,16 +42,16 @@ test("SC-013 separates project STOP from ambiguous transport and fail-closes pro
   {automation:{status:"RUNNING",reason:null},outbound:{state:"VERIFIED",kind:"TASK_EXECUTION",task_id:"XSTORE-019J"}}
  ];
  const command=". "+ps(helper)+"; $items="+ps(JSON.stringify(cases))+
-   " | ConvertFrom-Json; @($items|ForEach-Object{Get-SupervisorProjectHoldClassification -State $_})|ConvertTo-Json -Depth 8 -Compress";
+   " | ConvertFrom-Json; $results=@(); foreach($item in $items){$x=Get-SupervisorProjectHoldClassification -State $item; if($null -eq $x){$results+=@{scope='NONE'}} else {$results+=$x}}; $results|ConvertTo-Json -Depth 8 -Compress";
  const child=spawnSync("powershell.exe",["-NoProfile","-NonInteractive","-Command",command],{encoding:"utf8",timeout:15000});
  assert.equal(child.status,0,child.stderr);
  const got=JSON.parse(child.stdout);
  assert.deepEqual(got.map(x=>x?.scope||null),[
   "PROJECT_WAIT_OWNER","TRANSACTION_OUTCOME_UNRESOLVED",
   "TRANSACTION_OUTCOME_UNRESOLVED","SUPERVISOR_TECHNICAL_HOLD",
-  "PROJECT_COMPLETE",null
+  "PROJECT_COMPLETE","NONE"
  ]);
- for(const entry of got.filter(Boolean)){
+ for(const entry of got.filter(x=>x.scope!=="NONE")){
   assert.equal(entry.pending_transaction_replay_allowed,false);
   assert.equal(entry.active_project_execution_allowed,false);
   assert.equal(entry.project_switch_allowed,false);
