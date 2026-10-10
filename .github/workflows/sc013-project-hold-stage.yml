@@ -1,0 +1,49 @@
+name: SC-013 H4 Project Hold STAGE ONLY
+
+# Distinct staging boundary for Supervisor wrapper/helper. No APPLY.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/sc013-project-hold-stage-request.json'
+  workflow_dispatch:
+    inputs:
+      deploy_sha:
+        description: Exact current canonical main SHA (40 hex characters)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sc013-h4a16il-safe-deploy
+  cancel-in-progress: false
+
+jobs:
+  stage-project-hold:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    steps:
+      - name: Reject wrong host before checkout
+        shell: powershell
+        run: |
+          if ([Environment]::MachineName -cne 'DESKTOP-H4A16IL') {
+            Write-Host 'TARGET_MUTATION_SKIPPED=True'
+            throw 'WRONG_TARGET_MACHINE'
+          }
+      - name: Checkout exact canonical main
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.deploy_sha || github.sha }}
+          fetch-depth: 1
+      - name: Stage reviewed sources, backup and verify no production modification
+        shell: powershell
+        env:
+          DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
+        run: |
+          if ($env:DEPLOY_SHA -notmatch '^[a-fA-F0-9]{40}$') {
+            throw 'INVALID_MAIN_SHA'
+          }
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '.github/scripts/sc013-project-hold-stage.ps1' -ExpectedMainSha $env:DEPLOY_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'SC013_PROJECT_HOLD_STAGE_FAILED' }
