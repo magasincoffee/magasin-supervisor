@@ -86,6 +86,9 @@ jobs:
       - name: Verify Supervisor SOT link binding and Owner STOP pending proposals
         shell: bash
         run: python -m unittest discover -s test -p 'test_sc013_supervisor_project_links.py' -v
+      - name: Verify read-only Supervisor pending-project GitHub SOT checks
+        shell: bash
+        run: python -m unittest discover -s test -p 'test_sc013_project_activation_preflight.py' -v
       - name: Verify SINGLE_CONVERSATION_V1 contracts
         shell: bash
         run: |
@@ -108,6 +111,7 @@ jobs:
             test/sc013-unified-inventory-readonly.test.mjs \
             test/sc013-cutover-risk-ui.test.mjs \
             test/sc013-supervisor-project-links-ui.test.mjs \
+            test/sc013-project-activation-safe-preflight.test.mjs \
             test/sc013-owner-control-apply.test.mjs \
             test/sc013-local-30m-tick.test.mjs \
             test/sc013-sot-adapter.test.mjs \
