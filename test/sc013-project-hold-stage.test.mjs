@@ -71,8 +71,8 @@ test("SC013 stage script PowerShell AST has no errors on Windows",{
   skip:process.platform!=="win32"
 },()=>{
   const ps="powershell.exe";
-  const scriptCommand="[System.Management.Automation.Language.Parser]::ParseFile('"+
-    scriptPath.replace(/'/g,"''")+"',[ref]$null,[ref]$e)|Out-Null; if($e.Count){$e|ForEach-Object{Write-Error $_};exit 1};exit 0";
+  const scriptCommand="$t=$null;$e=$null;[System.Management.Automation.Language.Parser]::ParseFile('"+
+    scriptPath.replace(/'/g,"''")+"',[ref]$t,[ref]$e)|Out-Null; if($null -ne $e -and @($e).Count -gt 0){$e|ForEach-Object{Write-Error $_};exit 1};exit 0";
   const r=spawnSync(ps,["-NoProfile","-NonInteractive","-Command",scriptCommand],{encoding:"utf8",timeout:18000});
   assert.equal(r.status,0,r.stderr);
 });
