@@ -90,6 +90,46 @@ def _current_binding(path: Path):
     if (data.get("schema_version") != "single-conversation-control.v1"
             or data.get("mode") != "SINGLE_CONVERSATION_V1"):
         raise Rejected("LIVE_SUPERVISOR_MODE_UNQUALIFIED")
+    if data.get("project_id") == "UNASSIGNED":
+        # The Owner-retired empty project is not an invalid active SOT. Proof
+        # must come from an independent durable state, not a missing URL alone.
+        if (data.get("source_of_truth_url") is not None
+                or data.get("owner_selection") != "NONE_OWNER_UNLINKED"
+                or data.get("execution_authorized") is not False):
+            raise Rejected("OWNER_UNLINKED_CONTROL_NOT_QUALIFIED")
+        state = _read_json(path.parent / "single-conversation-state.json")
+        outbound = state.get("outbound")
+        automation = state.get("automation")
+        conversation = state.get("conversation")
+        source = state.get("source_of_truth")
+        if (state.get("schema_version") != "single-conversation-state.v1"
+                or state.get("mode") != "SINGLE_CONVERSATION_V1"
+                or state.get("project_id") != "UNASSIGNED"
+                or state.get("unlinked_only") is not True
+                or state.get("execution_authorized") is not False
+                or state.get("session_id") is not None
+                or not isinstance(source, dict)
+                or source.get("url") is not None
+                or source.get("sync_status") != "NEVER"
+                or not isinstance(outbound, dict)
+                or outbound.get("state") != "NONE"
+                or any(outbound.get(k) is not None for k in ("message_id", "task_id", "kind"))
+                or outbound.get("retry_count") != 0
+                or not isinstance(automation, dict)
+                or automation.get("status") != "STOPPED"
+                or automation.get("phase") != "STOPPED"
+                or automation.get("reason") != "OWNER_PROJECT_UNLINKED"
+                or not isinstance(conversation, dict)
+                or conversation.get("status") != "RETIRED"
+                or conversation.get("generation") != 0
+                or conversation.get("runtime_id") is not None
+                or conversation.get("page_id") is not None
+                or state.get("external_work") != {}
+                or not isinstance(data.get("updated_at"), str)
+                or not data["updated_at"]
+                or state.get("updated_at") != data["updated_at"]):
+            raise Rejected("OWNER_UNLINKED_STATE_NOT_QUALIFIED")
+        return None  # no active SOT; link requests are pending-only
     link = parse_sot_url(data.get("source_of_truth_url"))
     # These are navigational facts only, never a SOT task state or START proof.
     return {
@@ -146,7 +186,9 @@ def inspect(*, current: Path = CURRENT, requests: Path = REQUESTS,
             result["blockers"].append("REQUEST_REGISTRY_NOT_TRUSTED")
             return result
     result["save_allowed"] = True
-    result["status"] = "OWNER_STOP_SAFE_TO_SAVE_LINK_REQUEST_ONLY"
+    result["status"] = ("OWNER_UNLINKED_SAFE_TO_SAVE_LINK_REQUEST_ONLY"
+                        if result["active"] is None else
+                        "OWNER_STOP_SAFE_TO_SAVE_LINK_REQUEST_ONLY")
     return result
 
 
@@ -164,7 +206,7 @@ def save_request(url: str, confirm: str, *, current: Path = CURRENT,
     if not check["save_allowed"]:
         raise Rejected("OWNER_STOP_OR_BINDING_UNVERIFIED")
     identifier = hashlib.sha256(info["sot_url"].encode("utf-8")).hexdigest()[:24]
-    if check["active"]["sot_url"] == info["sot_url"]:
+    if check["active"] is not None and check["active"]["sot_url"] == info["sot_url"]:
         return {"ok": True, "status":"ALREADY_LINKED_ACTIVE",
                 "id":identifier, "new_link_activates_project":False,
                 "execution_authorized":False}
