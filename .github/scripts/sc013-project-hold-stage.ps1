@@ -102,11 +102,10 @@ if($running.Count -ne 0){throw 'WRAPPER_MUST_BE_STOPPED_FOR_STAGE'}
 if((Get-PSDrive D).Free -lt 2GB){throw 'STAGE_DISK_SPACE_INSUFFICIENT'}
 if(Test-Path $stage){throw 'STAGE_ALREADY_EXISTS_REVIEW_BEFORE_RETRY'}
 
-$parser=[System.Management.Automation.Language.Parser]
 foreach($p in @($sourceWrapper,$sourceHelper)){
   $tokens=$null
   $parseErrors=$null
-  $null=$parser::ParseFile($p,[ref]$tokens,[ref]$parseErrors)
+  $null=[System.Management.Automation.Language.Parser]::ParseFile($p,[ref]$tokens,[ref]$parseErrors)
   if($null -ne $parseErrors -and @($parseErrors).Count -gt 0){throw 'POWERSHELL_SYNTAX_INVALID'}
 }
 $helperSource=Get-Content -LiteralPath $sourceHelper -Raw -Encoding UTF8
