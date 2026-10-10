@@ -2296,24 +2296,37 @@ export async function resumeExistingConversationPage({
   };
 }
 
-async function captureProtocolBaselines(page) {
-  const baselineUser = await boundedRuntimeStep(
-    "TASK_CAPTURE_USER",
-    () => captureLatestRoleTurn(page, "user"),
-    { timeoutMs: 10_000 }
-  ).catch((error) => {
-    if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
-    return null;
-  });
-  const baselineAssistant = await boundedRuntimeStep(
-    "TASK_CAPTURE_ASSISTANT",
-    () => captureLatestRoleTurn(page, "assistant"),
-    { timeoutMs: 10_000 }
-  ).catch((error) => {
-    if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
-    return null;
-  });
-  return { baselineUser, baselineAssistant };
+async function captureProtocolBaselines(page, { kind = null } = {}) {
+  const requiresTaskBaseline = ["TASK_EXECUTION", "TASK_STATUS_CHECK"].includes(kind);
+  const attempts = requiresTaskBaseline ? 4 : 1;
+  let result = { baselineUser: null, baselineAssistant: null };
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const baselineUser = await boundedRuntimeStep(
+      "TASK_CAPTURE_USER", () => captureLatestRoleTurn(page, "user"),
+      { timeoutMs: 10_000 }
+    ).catch((error) => {
+      if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+      return null;
+    });
+    const baselineAssistant = await boundedRuntimeStep(
+      "TASK_CAPTURE_ASSISTANT", () => captureLatestRoleTurn(page, "assistant"),
+      { timeoutMs: 10_000 }
+    ).catch((error) => {
+      if (error?.code === "CDP_RECOVERY_REQUIRED") throw error;
+      return null;
+    });
+    result = { baselineUser, baselineAssistant };
+    if (
+      !requiresTaskBaseline ||
+      (baselineUser?.turn_id && baselineAssistant?.turn_id)
+    ) return result;
+
+    // Allow bounded ChatGPT hydration, without combining turns from
+    // different probes or creating PREPARED before a complete baseline.
+    if (attempt + 1 < attempts) await waitForNextCycleDelay(400);
+  }
+  return result;
 }
 
 async function sendProtocolMessage({
@@ -2329,7 +2342,7 @@ async function sendProtocolMessage({
   initialRetryCount = 0
 }) {
   const { baselineUser, baselineAssistant } =
-    await captureProtocolBaselines(page);
+    await captureProtocolBaselines(page, { kind });
 
   // SC-013: a post-bootstrap task cannot be safely replayed after restart
   // unless the prior user+assistant turns are known before PREPARED.
