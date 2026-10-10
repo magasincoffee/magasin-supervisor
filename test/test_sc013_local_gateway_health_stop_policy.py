@@ -26,7 +26,7 @@ def ingest(entries):
             if len(source_id)>150:
                 continue
             at=now()
-            condition="WAIT_SOT_AUTHORITY"
+            condition = "WAIT_SOT_AUTHORITY"
             local_id=None
 '''
     s+=m.OLD_HEALTH
