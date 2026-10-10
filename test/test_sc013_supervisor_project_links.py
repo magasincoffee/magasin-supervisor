@@ -47,6 +47,23 @@ class ProjectLinkTests(unittest.TestCase):
     def save(self,url=OPS,confirm="SAVE_SUPERVISOR_SOT_LINK_ONLY", **change):
         return m.save_request(url,confirm,**{**self.args,**change})
 
+    def test_actual_machine_identity_works_without_computername_environment(self):
+        from unittest.mock import patch
+        import os
+        # On actual H4 pythonw, COMPUTERNAME may be absent even though the
+        # Win32 machine is DESKTOP-H4A16IL. Fail-closed to OS hostname.
+        without_explicit_machine={k:v for k,v in self.args.items() if k!="machine"}
+        with patch.dict(os.environ, {"COMPUTERNAME": ""}), patch.object(
+            m.socket, "gethostname", return_value=m.HOST
+        ):
+            state=m.inspect(**without_explicit_machine)
+            self.assertTrue(state["save_allowed"])
+            self.assertEqual(state["active"]["repository"],"magasincoffee/magasincoffee.github.io")
+        with patch.object(m.socket, "gethostname", return_value="FOREIGN-HOST"):
+            state=m.inspect(**without_explicit_machine)
+            self.assertFalse(state["save_allowed"])
+            self.assertIn("WRONG_MACHINE",state["blockers"])
+
     def test_current_live_workforce_sot_is_discovered_but_not_qualified_to_run(self):
         state=self.check()
         self.assertEqual(state["active"]["sot_url"],WORKFORCE)
