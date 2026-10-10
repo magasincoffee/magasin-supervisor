@@ -1431,6 +1431,18 @@ DoD:
 
 ---
 
+### SC-013 project-fault isolation directive — Owner 2026-10-10
+
+**Owner decision:** A failure inside XSTORE-019J or any individual project **must not be promoted into a blanket Supervisor stop**. Supervisor should keep its independent read-only monitoring available, record the specific blocked project/task and reason, and (once a separately qualified multi-project dispatcher exists) continue monitoring other eligible projects. Project task `BLOCKED` and Supervisor global `BLOCKED` are distinct; project failure is not sufficient proof of a broken Supervisor process.
+
+**Exact-once exception:** If Supervisor's own outbound request is `PREPARED`, `ENQUEUED`, `DELIVERED`, `RESPONSE_RUNNING` or uncertain, it must fence that transaction, preserve its original ledger and evidence, and never resend, reassign, mark VERIFIED, or clear it merely to maintain robot uptime. Continue independent monitoring only; no new command-sending worker action across projects without a separately proven transaction-resolution and dispatch authority. In particular `AMBIGUOUS_ENQUEUED_OUTCOME` is a Supervisor delivery-transaction fault, **not** evidence XSTORE-019J's business logic failed.
+
+**Owner stop:** `STOP` and `AUTOSTART_DISABLED` remain authoritative; independent observational watchdog/technical ticks may inspect, but no worker auto-start, latch clearing, browser send, replacement chat, or new project dispatch is authorized by fault classification.
+
+**Source increment:** `src/runtime/project-fault-isolation.mjs` classifies project failure, uncertain outbound, and lifecycle STOP independently, with explicit no-replay/no-clearance flags. `src/runtime/single-conversation-cli.mjs` logs that decision on runtime errors without changing the existing exact-once transaction state or lifecycle exit code. This is **classification and diagnostics, not yet automatic multi-project scheduling**. `SINGLE_CONVERSATION_V1` currently operates on one source/project in a single runtime, so automatically continuing other projects requires a separate reviewed Coordinator task inventory, per-project isolation and claim ledger, Owner-qualified independent worker lifecycle, resource limits, transaction fencing and same-chat/independent monitor E2E. Do not falsely declare multi-project autonomous execution available.
+
+**Acceptance gate:** New source requires four existing hosted CI workflows GREEN, exact-main verification, and a separate Owner-reviewed H4A16IL nonmutating STAGE plus subsequent guarded APPLY. No unsafe local hotpatch or clearing existing pending `XSTORE-019J` transaction. Explicit live worker recovery is a separate gate and cannot be claimed merely by merging classification code.
+
 ## 11. Current implementation status
 
 As of 2026-09-30:
