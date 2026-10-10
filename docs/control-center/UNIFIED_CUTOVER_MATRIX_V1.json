@@ -172,5 +172,28 @@
     "legacy_schedules_changed": false,
     "supervisor_stop_preserved": true,
     "rollback_backup_present": true
+  },
+  "supervisor_project_link_ui": {
+    "installed": true,
+    "source_git_commit": "fb266318f19e6175132f40dcfc301cf6c4370db5",
+    "host": "DESKTOP-H4A16IL",
+    "http_health_code": 200,
+    "actual_control_center_pid_at_acceptance": 9344,
+    "staged_git_blob_verified": true,
+    "backup_original_hash_verified": true,
+    "current_sot_url_unchanged": true,
+    "current_project_internal_id": "LIVE",
+    "current_sot_repository": "magasincoffee/magasincoffee.github.io",
+    "origin_rejection_code": 403,
+    "csrf_rejection_code": 403,
+    "untrusted_sot_rejection_code": 400,
+    "existing_sot_link_idempotent_code": 200,
+    "unqualified_saydi_route_code": 405,
+    "pending_link_registry_created": false,
+    "project_switch_qualified": false,
+    "supervisor_owner_stop_preserved": true,
+    "specialist_start_stop_qualified": false,
+    "business_dispatch_enabled": false,
+    "production_cutover_qualified": false
   }
 }
