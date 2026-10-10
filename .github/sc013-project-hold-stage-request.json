@@ -1,0 +1,12 @@
+{
+  "schema": "MAGASIN_SC013_PROJECT_HOLD_STAGE_V1",
+  "task_id": "SC-013",
+  "target": "DESKTOP-H4A16IL",
+  "mode": "STAGE_ONLY",
+  "sot": "SOURCE_OF_TRUTH.md",
+  "owner_intent": "REVIEWED_SOURCE_STAGE_ONLY",
+  "apply": false,
+  "start_robot": false,
+  "reason": "Owner 2026-10-10 authorized continuation of independently reviewed project-fault containment staging, without altering STOP or pending ENQUEUED transaction.",
+  "issue": 339
+}
