@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import re
+import socket
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -113,7 +114,7 @@ def inspect(*, current: Path = CURRENT, requests: Path = REQUESTS,
         "business_dispatch_authorized": False,
         "read_only": True,
     }
-    if (machine or os.environ.get("COMPUTERNAME", "")).upper() != HOST:
+    if (machine if machine is not None else socket.gethostname()).upper() != HOST:
         result["blockers"].append("WRONG_MACHINE")
         return result
     try:
