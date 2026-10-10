@@ -107,7 +107,7 @@ foreach($p in @($sourceWrapper,$sourceHelper)){
   $tokens=$null
   $parseErrors=$null
   $null=$parser::ParseFile($p,[ref]$tokens,[ref]$parseErrors)
-  if(@($parseErrors).Count -ne 0){throw 'POWERSHELL_SYNTAX_INVALID'}
+  if($null -ne $parseErrors -and @($parseErrors).Count -gt 0){throw 'POWERSHELL_SYNTAX_INVALID'}
 }
 $helperSource=Get-Content -LiteralPath $sourceHelper -Raw -Encoding UTF8
 $wrapperSource=Get-Content -LiteralPath $sourceWrapper -Raw -Encoding UTF8
