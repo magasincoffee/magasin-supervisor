@@ -89,6 +89,9 @@ jobs:
       - name: Verify read-only Supervisor pending-project GitHub SOT checks
         shell: bash
         run: python -m unittest discover -s test -p 'test_sc013_project_activation_preflight.py' -v
+      - name: Verify local Gateway Owner STOP health-only policy in synthetic SQLite
+        shell: bash
+        run: python -m unittest discover -s test -p 'test_sc013_local_gateway_health_stop_policy.py' -v
       - name: Verify SINGLE_CONVERSATION_V1 contracts
         shell: bash
         run: |
@@ -112,6 +115,7 @@ jobs:
             test/sc013-cutover-risk-ui.test.mjs \
             test/sc013-supervisor-project-links-ui.test.mjs \
             test/sc013-project-activation-safe-preflight.test.mjs \
+            test/sc013-local-gateway-health-stop-policy.test.mjs \
             test/sc013-owner-control-apply.test.mjs \
             test/sc013-local-30m-tick.test.mjs \
             test/sc013-sot-adapter.test.mjs \
