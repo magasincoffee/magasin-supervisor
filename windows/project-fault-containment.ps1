@@ -2,8 +2,6 @@
 # MONITORING_ONLY never clears STOP, retries ChatGPT, restarts Node or changes
 # the durable exact-once transaction. It keeps the Owner-started wrapper alive
 # for independently scheduled/read-only supervision when a project is paused.
-Set-StrictMode -Version 2.0
-
 function Get-SupervisorProjectHoldClassification($State) {
     if (-not $State -or -not $State.automation) { return $null }
     $status = [string]$State.automation.status
