@@ -50,3 +50,25 @@ test("project link registry never modifies single-conversation-control.json or a
   assert.match(s,/os\.replace\(temp_path, requests\)/);
   assert.doesNotMatch(s,/os\.replace\(temp_path,\s*current\)|start_process|subprocess|urllib\.request/);
 });
+
+
+test("H4 live-accepted project SOT link UI never qualifies project switching",async()=>{
+  const root=new URL("../",import.meta.url);
+  const matrix=JSON.parse(await fs.readFile(new URL("docs/control-center/UNIFIED_CUTOVER_MATRIX_V1.json",root),"utf8"));
+  const sot=await fs.readFile(new URL("SOURCE_OF_TRUTH.md",root),"utf8");
+  assert.equal(matrix.supervisor_project_link_ui.installed,true);
+  assert.equal(matrix.supervisor_project_link_ui.http_health_code,200);
+  assert.equal(matrix.supervisor_project_link_ui.source_git_commit,"fb266318f19e6175132f40dcfc301cf6c4370db5");
+  assert.equal(matrix.supervisor_project_link_ui.current_sot_repository,"magasincoffee/magasincoffee.github.io");
+  assert.equal(matrix.supervisor_project_link_ui.current_project_internal_id,"LIVE");
+  assert.equal(matrix.supervisor_project_link_ui.supervisor_owner_stop_preserved,true);
+  assert.equal(matrix.supervisor_project_link_ui.project_switch_qualified,false);
+  assert.equal(matrix.supervisor_project_link_ui.business_dispatch_enabled,false);
+  assert.equal(matrix.production_cutover_approved,false);
+  assert.equal(matrix.phases[0].state,"IN_PROGRESS");
+  assert.equal(matrix.phases.slice(1).every(phase=>phase.state==="NOT_DONE"),true);
+  assert.match(sot,/Owner-approved Supervisor project SOT link Control Center UI — live installed and independently accepted/);
+  assert.match(sot,/PENDING_SOT_REVIEW/);
+  assert.match(sot,/re-saving the \*\*already-active\*\* Workforce SOT URL/);
+  assert.match(sot,/source_of_truth_url.*Workforce Cross-Store SOT/);
+});
