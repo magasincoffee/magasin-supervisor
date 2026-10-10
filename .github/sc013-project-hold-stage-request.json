@@ -7,8 +7,8 @@
   "owner_intent": "REVIEWED_SOURCE_STAGE_ONLY",
   "apply": false,
   "start_robot": false,
-  "reason": "Retry reviewed source-only H4 staging after GitHub Actions PowerShell temporary-script execution-policy rejection. Fix uses CMD host gate plus process-scoped PowerShell -ExecutionPolicy Bypass for exact reviewed STAGE script. No machine policy change, no APPLY, no START, no pending transaction mutation.",
+  "reason": "Owner 2026-10-10 explicitly approved least-privilege H4 staging access. Retest Stage-only after Windows NETWORK SERVICE exact-path traverse/read grants, dedicated D stage protected ACL and rollback evidence. Prior run 38038954381 denied reading admin-owned Supervisor root. No APPLY or Supervisor START.",
   "issue": 339,
-  "stage_attempt": 2,
-  "previous_failed_run_id": 38038571705
+  "stage_attempt": 3,
+  "previous_failed_run_id": 38038954381
 }
