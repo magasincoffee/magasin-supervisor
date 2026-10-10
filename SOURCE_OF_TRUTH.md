@@ -1533,3 +1533,34 @@ Owner supplies Source of Truth
 ```
 
 That end-to-end behavior, not an isolated unit test or manual debug session, is the final acceptance authority.
+
+### SC-013 Owner-authorized UNASSIGNED SOT link request repair (2026-10-10)
+
+**Observed root cause:** Following Owner-approved retirement of XSTORE-019J
+at main bb2ae46ed1220cf7196f5d658504ad705db121dd, H4A16IL has
+project_id=UNASSIGNED, source_of_truth_url=null, owner_selection=NONE_OWNER_UNLINKED,
+execution_authorized=false and independent state OWNER_PROJECT_UNLINKED / STOPPED,
+outbound NONE, conversation RETIRED, no active external work and physical
+STOP plus AUTOSTART_DISABLED. The existing pending-SOT UI incorrectly requires
+a nonempty active SOT, causing ACTIVE_SOT_NOT_QUALIFIED and save_allowed=false.
+The Owner explicitly approved repairing the pending-only link input.
+
+**Approved fix:** Only a positively proven Owner-unlinked control and its
+matching safe separate state may yield active=null with save_allowed=true
+while both STOP latches and the exact H4 identity hold. Reject a missing,
+corrupt or conflicting control/state, an ENQUEUED or ambiguous outbound,
+an active session/conversation, foreign host, malformed/hostile SOT URL,
+untrusted registry or missing Owner STOP latch. Continue using the existing
+magasincoffee/main SOT allowlist, same-origin, CSRF, exact confirmation,
+atomic idempotent pending-registry write. This update must not select/activate
+a project, change runtime state/control, start Supervisor or other robots,
+send a ChatGPT command, remove STOP or touch financial/audio data. A saved
+link is PENDING_SOT_REVIEW only.
+
+**Acceptance / deployment:** Targeted Python negative/positive fixtures and
+JS UI policy tests first; four hosted mandatory Supervisor PR workflows GREEN,
+reviewed squash merge, exact-main verification, then one separately gated
+hash-pinned helper-only Control Center APPLY with restorable backup, no worker
+restart and read-only post-apply proof save_allowed=true with latches preserved.
+If any gate fails, keep the UI locked and report its true state. The actual
+project selection, Owner START and Business Executor remain NOT_QUALIFIED.
