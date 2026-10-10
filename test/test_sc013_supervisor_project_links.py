@@ -47,6 +47,87 @@ class ProjectLinkTests(unittest.TestCase):
     def save(self,url=OPS,confirm="SAVE_SUPERVISOR_SOT_LINK_ONLY", **change):
         return m.save_request(url,confirm,**{**self.args,**change})
 
+    def _owner_unlinked(self):
+        ctrl={"schema_version":"single-conversation-control.v1",
+              "mode":"SINGLE_CONVERSATION_V1","project_id":"UNASSIGNED",
+              "source_of_truth_url":None,"owner_selection":"NONE_OWNER_UNLINKED",
+              "execution_authorized":False,"updated_at":"2026-10-10T13:48:37+00:00"}
+        state={"schema_version":"single-conversation-state.v1",
+               "mode":"SINGLE_CONVERSATION_V1","project_id":"UNASSIGNED",
+               "session_id":None,"source_of_truth":{"url":None,"sync_status":"NEVER"},
+               "conversation":{"generation":0,"status":"RETIRED","runtime_id":None,"page_id":None},
+               "outbound":{"state":"NONE","message_id":None,"task_id":None,"kind":None,"retry_count":0},
+               "external_work":{},"automation":{"phase":"STOPPED","status":"STOPPED",
+                                               "reason":"OWNER_PROJECT_UNLINKED"},
+               "unlinked_only":True,"execution_authorized":False,
+               "updated_at":ctrl["updated_at"]}
+        self.ctrl.write_text(json.dumps(ctrl),encoding="utf-8")
+        path=self.stop/"single-conversation-state.json"
+        path.write_text(json.dumps(state),encoding="utf-8")
+        return ctrl,state,path
+
+    def test_owner_unlinked_may_save_pending_only_without_changing_runtime(self):
+        _,_,statepath=self._owner_unlinked()
+        before_ctrl=self.ctrl.read_bytes()
+        before_state=statepath.read_bytes()
+        result=self.check()
+        self.assertIsNone(result["active"])
+        self.assertEqual(result["status"],"OWNER_UNLINKED_SAFE_TO_SAVE_LINK_REQUEST_ONLY")
+        self.assertTrue(result["save_allowed"])
+        self.assertFalse(result["worker_start_allowed"])
+        self.assertFalse(result["business_dispatch_authorized"])
+        self.assertEqual(self.save()["status"],"PENDING_SOT_REVIEW")
+        self.assertEqual(self.save()["status"],"ALREADY_PENDING_REVIEW")
+        self.assertEqual(len(self.check()["requests"]),1)
+        self.assertEqual(self.ctrl.read_bytes(),before_ctrl)
+        self.assertEqual(statepath.read_bytes(),before_state)
+
+    def test_owner_unlinked_missing_or_unsafe_state_rejects_save(self):
+        _,state,path=self._owner_unlinked()
+        path.unlink()
+        self.assertFalse(self.check()["save_allowed"])
+        with self.assertRaises(m.Rejected):self.save()
+        changes=(
+            {"outbound":{**state["outbound"],"state":"ENQUEUED"}},
+            {"outbound":{**state["outbound"],"message_id":"previous-msg"}},
+            {"outbound":{**state["outbound"],"retry_count":1}},
+            {"automation":{**state["automation"],"status":"RUNNING"}},
+            {"automation":{**state["automation"],"reason":"UNKNOWN"}},
+            {"conversation":{**state["conversation"],"status":"ACTIVE"}},
+            {"external_work":{"task":"ACTIVE"}},{"execution_authorized":True},
+            {"unlinked_only":False},{"session_id":"old"},
+            {"updated_at":"2026-01-01T00:00:00Z"},
+        )
+        for change in changes:
+            with self.subTest(change=change):
+                path.write_text(json.dumps({**state,**change}),encoding="utf-8")
+                self.assertEqual(self.check()["blockers"],["ACTIVE_SOT_NOT_QUALIFIED"])
+                with self.assertRaises(m.Rejected):self.save()
+                self.assertFalse(self.pending.exists())
+
+    def test_owner_unlinked_requires_exact_control_and_owner_stop(self):
+        ctrl,_,path=self._owner_unlinked()
+        for change in (
+            {"owner_selection":"UNKNOWN"},{"execution_authorized":True},
+            {"project_id":"XSTORE-019J"},{"source_of_truth_url":""},
+            {"schema_version":"legacy"},
+        ):
+            with self.subTest(change=change):
+                self.ctrl.write_text(json.dumps({**ctrl,**change}),encoding="utf-8")
+                self.assertFalse(self.check()["save_allowed"])
+                with self.assertRaises(m.Rejected):self.save()
+                self.assertFalse(self.pending.exists())
+        self.ctrl.write_text(json.dumps(ctrl),encoding="utf-8")
+        for key in ("STOP","AUTOSTART_DISABLED"):
+            with self.subTest(latch=key):
+                (self.stop/key).unlink()
+                self.assertFalse(self.check()["save_allowed"])
+                with self.assertRaises(m.Rejected):self.save()
+                self.assertFalse(self.pending.exists())
+                (self.stop/key).touch()
+        with self.assertRaises(m.Rejected):self.save(machine="UNAUTHORIZED-PC")
+        self.assertFalse(self.pending.exists())
+
     def test_actual_machine_identity_works_without_computername_environment(self):
         from unittest.mock import patch
         import os
