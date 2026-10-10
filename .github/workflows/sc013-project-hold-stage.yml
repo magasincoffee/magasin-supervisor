@@ -26,24 +26,28 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Reject wrong host before checkout
-        shell: powershell
+        shell: cmd
         run: |
-          if ([Environment]::MachineName -cne 'DESKTOP-H4A16IL') {
-            Write-Host 'TARGET_MUTATION_SKIPPED=True'
-            throw 'WRONG_TARGET_MACHINE'
-          }
+          @echo off
+          for /f "delims=" %%H in ('hostname') do set "TARGET_MACHINE=%%H"
+          if /I not "%TARGET_MACHINE%"=="DESKTOP-H4A16IL" (
+            echo TARGET_MUTATION_SKIPPED=True
+            exit /b 1
+          )
+          echo TARGET_MATCH=True
       - name: Checkout exact canonical main
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.deploy_sha || github.sha }}
           fetch-depth: 1
       - name: Stage reviewed sources, backup and verify no production modification
-        shell: powershell
+        shell: cmd
         env:
           DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
         run: |
-          if ($env:DEPLOY_SHA -notmatch '^[a-fA-F0-9]{40}$') {
-            throw 'INVALID_MAIN_SHA'
-          }
-          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '.github/scripts/sc013-project-hold-stage.ps1' -ExpectedMainSha $env:DEPLOY_SHA
-          if ($LASTEXITCODE -ne 0) { throw 'SC013_PROJECT_HOLD_STAGE_FAILED' }
+          @echo off
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ".github\scripts\sc013-project-hold-stage.ps1" -ExpectedMainSha "%DEPLOY_SHA%"
+          if errorlevel 1 (
+            echo SC013_PROJECT_HOLD_STAGE_FAILED=True
+            exit /b 1
+          )
