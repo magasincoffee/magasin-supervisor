@@ -51,6 +51,11 @@ test("SC013 workflow is stage-only and does not inherit general Apply authority"
   assert.match(workflow,/paths:\s*\n\s*- '\.github\/sc013-project-hold-stage-request\.json'/);
   assert.match(workflow,/group: sc013-h4a16il-safe-deploy/);
   assert.match(workflow,/DESKTOP-H4A16IL/);
+  assert.match(workflow,/shell: cmd/);
+  assert.match(workflow,/for \/f "delims=" %%H in \('hostname'\)/);
+  assert.match(workflow,/ExecutionPolicy Bypass -File/);
+  assert.doesNotMatch(workflow,/shell: powershell/);
+  assert.doesNotMatch(workflow,/Set-ExecutionPolicy|Registry::|REG ADD/i);
   assert.match(workflow,/ExpectedMainSha/);
   assert.match(workflow,/runs-on: \[self-hosted, Windows, X64\]/);
   assert.doesNotMatch(workflow,/options:.*Apply/);
