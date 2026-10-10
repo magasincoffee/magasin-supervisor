@@ -214,7 +214,7 @@ const supervisorProjectPanel=(r)=>{
    +(pending?'<p class="mini"><b>Liên kết đang chờ:</b></p><ul class="mini">'+pending+'</ul>':'')
    +review
    +'<p class="mini"><b>Quy trình:</b> Lưu link → Kiểm tra SOT gốc trên GitHub → xác minh giao dịch/Owner STOP → duyệt chuyển dự án → Owner START → robot đồng bộ task từ SOT và chỉ chạy task được phép.</p>'
-   +'<p class="mini"><b>Giới hạn:</b> Lưu hoặc kiểm tra link không đổi dự án đang chạy, không bật Supervisor, không mở khóa Owner STOP. Chỉ chấp nhận URL SOT GitHub magasincoffee trên nhánh main.</p>'
+   +'<p class="mini"><b>Giới hạn:</b> Không đổi dự án đang chạy: thao tác lưu/kiểm tra SOT không bật Supervisor và không mở khóa Owner STOP. Chỉ chấp nhận URL SOT GitHub magasincoffee trên nhánh main.</p>'
    +(!enabled?'<p class="mini">Chỉ lưu liên kết khi Supervisor đã được Owner dừng an toàn và cấu hình runtime hiện tại đọc được.</p>':'')
    +'</section>';
 };
