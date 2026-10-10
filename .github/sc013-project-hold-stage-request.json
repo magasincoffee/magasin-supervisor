@@ -7,6 +7,8 @@
   "owner_intent": "REVIEWED_SOURCE_STAGE_ONLY",
   "apply": false,
   "start_robot": false,
-  "reason": "Owner 2026-10-10 authorized continuation of independently reviewed project-fault containment staging, without altering STOP or pending ENQUEUED transaction.",
-  "issue": 339
+  "reason": "Retry reviewed source-only H4 staging after GitHub Actions PowerShell temporary-script execution-policy rejection. Fix uses CMD host gate plus process-scoped PowerShell -ExecutionPolicy Bypass for exact reviewed STAGE script. No machine policy change, no APPLY, no START, no pending transaction mutation.",
+  "issue": 339,
+  "stage_attempt": 2,
+  "previous_failed_run_id": 38038571705
 }
