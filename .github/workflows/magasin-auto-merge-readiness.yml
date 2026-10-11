@@ -1,0 +1,25 @@
+name: MAGASIN Auto-Merge Readiness (Read Only)
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '21 * * * *'
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Confirm non-actuating policy only
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test test/magasin-auto-merge-policy.test.mjs
+          test -f .github/scripts/magasin-auto-merge-policy.mjs
+          echo "MAGASIN_AUTO_MERGE_STAGE=G1_READ_ONLY"
+          echo "MERGE_EXECUTOR_ENABLED=false"
+          echo "OWNER_STOP_UNCHANGED=true"

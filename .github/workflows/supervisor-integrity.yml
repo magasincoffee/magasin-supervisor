@@ -38,6 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           expected=$(cat <<'EOF'
+          magasin-auto-merge-readiness.yml
           magasin-local-dispatch-receipts.yml
           sc013-coordinator-hook-apply.yml
           sc013-coordinator-inert-apply.yml
@@ -116,6 +117,7 @@ jobs:
             test/sc013-cutover-risk-ui.test.mjs \
             test/sc013-supervisor-project-links-ui.test.mjs \
             test/mpc001-readonly-source-audit.test.mjs \
+            test/magasin-auto-merge-policy.test.mjs \
             test/sc013-project-activation-safe-preflight.test.mjs \
             test/sc013-local-gateway-health-stop-policy.test.mjs \
             test/sc013-owner-control-apply.test.mjs \
