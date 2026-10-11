@@ -1,0 +1,25 @@
+name: MAGASIN Auto-Merge Readiness (Read Only)
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '21 * * * *'
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Gate fixtures (no mutation)
+        shell: bash
+        run: node --test test/magasin-auto-merge-policy.test.mjs
+      - name: Read-only PR readiness audit
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: node .github/scripts/magasin-auto-merge-readiness.mjs
