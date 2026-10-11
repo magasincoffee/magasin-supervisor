@@ -59,7 +59,7 @@ function item(x,type,parentId,projectRevision) {
   required(x.claims===undefined || Array.isArray(x.claims),type+".claims");
   const malformedClaims=Array.isArray(x.claims) && x.claims.some(s=>typeof s!=="string" || !SCOPE_STATES.includes(s));
   const hasConflictingClaims=Array.isArray(x.claims) && new Set([scope,...x.claims].filter(s=>s!=="UNKNOWN")).size>1;
-  const resolved=malformedClaims ? "UNKNOWN" : (divergent || hasConflictingClaims || !sameSource) ? "CONFLICT" : scope==="VERIFIED_DONE" && !hasDoD ? "UNKNOWN" : scope;
+  const resolved=(divergent || hasConflictingClaims || !sameSource) ? "CONFLICT" : malformedClaims ? "UNKNOWN" : scope==="VERIFIED_DONE" && !hasDoD ? "UNKNOWN" : scope;
   return {id:x.id,title:x.title,type,parentId,revision:snapshot,evidence:proof,scopeStatus:resolved,transportStatus:state(x.transportStatus,TRANSPORT_STATES),ciStatus:state(x.ciStatus,CI_STATES),releaseStatus:state(x.releaseStatus,RELEASE_STATES)};
 }
 export function buildProjectReadModel(projects) {
