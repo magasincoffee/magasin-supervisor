@@ -34,7 +34,7 @@ function evidence(x) {
 }
 const state = (value,values) => values.includes(value) ? value : "UNKNOWN";
 function item(x,type,parentId,projectRevision) {
-  required(isObj(x) && ID.test(x.id ?? ""), type+".id");
+  required(isObj(x) && typeof x.id === "string" && ID.test(x.id), type+".id");
   required(typeof x.title === "string" && x.title.trim().length > 0 && x.title.length <= 200,type+".title");
   const proof=(x.evidence??[]).map(evidence);
   const snapshot=x.revision ? revision(x.revision) : projectRevision;
