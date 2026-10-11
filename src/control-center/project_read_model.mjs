@@ -7,20 +7,29 @@ const SHA = /^[0-9a-f]{40}$/;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
 const isObj = x => x !== null && typeof x === "object" && !Array.isArray(x);
 const required = (ok, message) => { if (!ok) throw new TypeError(message); };
-const safeUrl = url => typeof url === "string" && /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/blob\/[A-Za-z0-9_.\/-]+$/.test(url);
+const blobUrl = url => typeof url === "string" && /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/blob\/[A-Za-z0-9_.\/-]+$/.test(url);
+const evidenceUrl = (url,kind) => {
+  if(typeof url !== "string") return false;
+  const base = "^https:\\/\\/github\\.com\\/[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+\\/";
+  const suffix = kind==="pr" ? "pull\\/[1-9][0-9]*" :
+    kind==="ci" ? "actions\\/runs\\/[1-9][0-9]*" :
+    kind==="owner_acceptance" ? "(?:issues\\/[1-9][0-9]*|pull\\/[1-9][0-9]*|blob\\/[A-Za-z0-9_.\\/-]+)" :
+    "blob\\/[A-Za-z0-9_.\\/-]+";
+  return new RegExp(base+suffix+"$").test(url);
+};
 function revision(x) {
   required(isObj(x) && typeof x.repo === "string" && /^[\w.-]+\/[\w.-]+$/.test(x.repo), "revision.repo");
   required(typeof x.path === "string" && x.path.length > 0 && !x.path.includes(".."), "revision.path");
   required(SHA.test(x.sha), "revision.sha must be immutable commit SHA");
-  required(safeUrl(x.url), "revision.url");
+  required(blobUrl(x.url), "revision.url");
   return {repo:x.repo,path:x.path,sha:x.sha,url:x.url};
 }
 function evidence(x) {
-  required(isObj(x) && ID.test(x.id ?? ""), "evidence.id");
+  required(isObj(x) && typeof x.id === "string" && ID.test(x.id), "evidence.id");
   required(["canonical_sot","task_dod","qa","pr","ci","exact_main","owner_acceptance"].includes(x.kind), "evidence.kind");
   required(typeof x.verified === "boolean", "evidence.verified");
   required(isObj(x.revision) && SHA.test(x.revision.sha ?? ""), "evidence.revision");
-  required(safeUrl(x.url), "evidence.url");
+  required(evidenceUrl(x.url,x.kind), "evidence.url");
   return {id:x.id,kind:x.kind,verified:x.verified,revision:revision(x.revision),url:x.url};
 }
 const state = (value,values) => values.includes(value) ? value : "UNKNOWN";
@@ -29,12 +38,13 @@ function item(x,type,parentId,projectRevision) {
   required(typeof x.title === "string" && x.title.trim().length > 0 && x.title.length <= 200,type+".title");
   const proof=(x.evidence??[]).map(evidence);
   const snapshot=x.revision ? revision(x.revision) : projectRevision;
-  const sameSource=proof.every(e=>e.revision.repo===snapshot.repo && e.revision.path===snapshot.path);
+  const sourceBoundary=snapshot.repo===projectRevision.repo && snapshot.path===projectRevision.path;
+  const sameSource=sourceBoundary && proof.every(e=>e.revision.repo===snapshot.repo && e.revision.path===snapshot.path);
   const divergent=proof.some(e=>e.kind==="canonical_sot" && e.verified && e.revision.sha!==snapshot.sha);
   const scope=state(x.scopeStatus,SCOPE_STATES);
   const verifiedKinds=new Set(proof.filter(e=>e.verified && e.revision.sha===snapshot.sha).map(e=>e.kind));
   const hasDoD=verifiedKinds.has("canonical_sot") && verifiedKinds.has("task_dod") && verifiedKinds.has("qa") && verifiedKinds.has("exact_main");
-  const hasConflictingClaims=Array.isArray(x.claims) && new Set(x.claims.filter(s=>SCOPE_STATES.includes(s))).size>1;
+  const hasConflictingClaims=Array.isArray(x.claims) && new Set([scope,...x.claims.filter(s=>SCOPE_STATES.includes(s))].filter(s=>s!=="UNKNOWN")).size>1;
   const resolved=(divergent || hasConflictingClaims || !sameSource) ? "CONFLICT" : scope==="VERIFIED_DONE" && !hasDoD ? "UNKNOWN" : scope;
   return {id:x.id,title:x.title,type,parentId,revision:snapshot,evidence:proof,scopeStatus:resolved,transportStatus:state(x.transportStatus,TRANSPORT_STATES),ciStatus:state(x.ciStatus,CI_STATES),releaseStatus:state(x.releaseStatus,RELEASE_STATES)};
 }
@@ -42,7 +52,7 @@ export function buildProjectReadModel(projects) {
   required(Array.isArray(projects), "projects must be array");
   const ids=new Set();
   const output=projects.map(p=>{
-    required(isObj(p) && ID.test(p.id??""), "project.id");
+    required(isObj(p) && typeof p.id === "string" && ID.test(p.id), "project.id");
     const rev=revision(p.revision);
     const nodes=[];
     const add=(x,type,parent) => {const node=item(x,type,parent,rev); const key=p.id+":"+type+":"+node.id;required(!ids.has(key),"duplicate node");ids.add(key);nodes.push(node);return node;};
