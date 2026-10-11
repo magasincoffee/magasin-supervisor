@@ -56,3 +56,8 @@ A failing gate pauses only its dependent tasks; independent read-only functional
 
 ## Immediate next work
 Execute **MPC-001 only**. Inspect `src/control-center` and relevant endpoints/security/tests/workflows, propose concrete read-only integration seam, provide evidence and update this subordinate backlog. Do not activate Supervisor; no H4 installation; no production writes.
+
+
+## MPC-001 execution evidence (2026-10-11)
+
+Source audit report: [MPC-001_READ_ONLY_SOURCE_AUDIT_2026-10-11.md](MPC-001_READ_ONLY_SOURCE_AUDIT_2026-10-11.md). The inspected baseline is 90785ed60e8c1cb47a080b92b7602bb0de6e4800. Inventory confirms existing Python loopback server and JS UI seam, no authenticated Owner RBAC for project write actions, and unresolved `web/index.html` / `web/styles.css` source-path 404s. **MPC-001 G0 evidence collected; verification/release gates pending; do not declare VERIFIED_DONE merely from this document.** No Supervisor START, selection, dispatch, H4 apply, or production mutations performed. MPC-002 remains dependent on verified G0.
