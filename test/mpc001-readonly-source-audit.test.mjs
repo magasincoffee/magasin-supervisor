@@ -14,11 +14,11 @@ test("MPC-001 documents real read-only Control Center integration seams", async 
   assert.match(plan, /MPC-001 execution evidence/);
   assert.match(plan, /MPC-001 G0 source audit VERIFIED/);
   assert.match(plan, /a06690c81e00ab09e406021579f36e11022f3542/);
-  assert.match(audit, /G0.*evidence drafted/);
-  assert.match(audit, /not release-qualified/);
+  assert.match(audit, /G0.*source audit VERIFIED/);
+  assert.match(audit, /follow-up verification candidate/);
   for (const [text, pattern] of [
     [server, /class Handler\(BaseHTTPRequestHandler\):/],
-    [server, /if p==="\/api\/overview":/],
+    [server, /if p=="\/api\/overview":/],
     [server, /if route == "\/api\/supervisor\/project\/link":/],
     [server, /X-MAGASIN-CSRF/],
     [server, /HOST = "127\.0\.0\.1"/],
