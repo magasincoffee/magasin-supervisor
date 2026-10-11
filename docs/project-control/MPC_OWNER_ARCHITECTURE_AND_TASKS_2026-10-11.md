@@ -1,6 +1,6 @@
 # MAGASIN PROJECT CONTROL — Owner-approved architecture and execution backlog
 Date: 2026-10-11 Asia/Ho_Chi_Minh
-Status: OWNER APPROVED DESIGN; IMPLEMENTATION NOT STARTED
+Status: OWNER APPROVED DESIGN; MPC-001 G0 VERIFIED (SOURCE/QA ONLY); MPC-002 NEXT, NOT STARTED
 Authority: This is a subordinate implementation plan. `SOURCE_OF_TRUTH.md` is the sole authority for Supervisor SC-013. Every domain project retains its own canonical SOT. No content here grants START, production deployment, merge, business dispatch, or change to STOP/AUTOSTART_DISABLED.
 
 ## Owner outcome
@@ -25,7 +25,7 @@ An Owner-facing Vietnamese project tree inside the existing Supervisor Control C
 ## Delivery tasks (small, serializable; each task requires scoped QA and evidence)
 | ID | Dependency | Deliverable | Acceptance gate |
 |---|---|---|---|
-| MPC-001 | none | Inspect Control Center routes/auth, build/release workflows, source inventory; document exact paths and authority | read-only audit, no write endpoints |
+| MPC-001 (G0 VERIFIED) | none | Inspect Control Center routes/auth, build/release workflows, source inventory; document exact paths and authority | read-only audit, no write endpoints |
 | MPC-002 | 001 | Canonical read model/schema for project > feature > task, revision/evidence/status separation | schema fixtures for UNKNOWN/conflicts |
 | MPC-003 | 002 | Safe read-only GitHub/SOT adapter with allowlisted repositories and bounded caching/retries | 404/rate limit/stale/main-diverged fail visibly |
 | MPC-004 | 003 | Owner-facing project tree UI, search, expand/collapse, breadcrumb | desktop/mobile UI QA, no writes |
@@ -55,9 +55,9 @@ G6: four required hosted Supervisor CI GREEN at exact head -> reviewed merge -> 
 A failing gate pauses only its dependent tasks; independent read-only functionality may progress.
 
 ## Immediate next work
-Execute **MPC-001 only**. Inspect `src/control-center` and relevant endpoints/security/tests/workflows, propose concrete read-only integration seam, provide evidence and update this subordinate backlog. Do not activate Supervisor; no H4 installation; no production writes.
+After independently reviewed MPC-001 G0 audit acceptance, **MPC-002 is the sole next executable task (SOURCE/QA ONLY)**. MPC-002 may design the canonical read model/schema and fixtures, but cannot activate Supervisor, switch projects, deploy H4, introduce write endpoints or bypass the separate release/Owner gates.
 
 
 ## MPC-001 execution evidence (2026-10-11)
 
-Source audit report: [MPC-001_READ_ONLY_SOURCE_AUDIT_2026-10-11.md](MPC-001_READ_ONLY_SOURCE_AUDIT_2026-10-11.md). The inspected baseline is 90785ed60e8c1cb47a080b92b7602bb0de6e4800. Inventory confirms existing Python loopback server and JS UI seam, no authenticated Owner RBAC for project write actions, and unresolved `web/index.html` / `web/styles.css` source-path 404s. **MPC-001 G0 evidence collected; verification/release gates pending; do not declare VERIFIED_DONE merely from this document.** No Supervisor START, selection, dispatch, H4 apply, or production mutations performed. MPC-002 remains dependent on verified G0.
+Source audit report: [MPC-001_READ_ONLY_SOURCE_AUDIT_2026-10-11.md](MPC-001_READ_ONLY_SOURCE_AUDIT_2026-10-11.md). The inspected baseline is 90785ed60e8c1cb47a080b92b7602bb0de6e4800. Inventory confirms existing Python loopback server and JS UI seam, no authenticated Owner RBAC for project write actions, and unresolved `web/index.html` / `web/styles.css` source-path 404s. **MPC-001 G0 source audit VERIFIED (not a deployed-product acceptance).** PR #407 approved and merged on 2026-10-11: exact PR head `a06690c81e00ab09e406021579f36e11022f3542`; four hosted Supervisor gates successful (`38149412397`, `38149412390`, `38149412395`, `38149412389`); reviewed squash merge `7bd3ccf3b2349dfe6aa7ec71fed1429b07be7a64`; exact-main audit file confirmed. No H4 installation or operational release is in scope for G0. Future product deployment/Owner acceptance remains separately gated. No Supervisor START, selection, dispatch, H4 apply, or production mutations performed. MPC-002 remains dependent on verified G0.
