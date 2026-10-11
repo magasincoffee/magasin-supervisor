@@ -22,8 +22,14 @@ function revision(x) {
   required(typeof x.path === "string" && x.path.length > 0 && !x.path.includes(".."), "revision.path");
   required(SHA.test(x.sha), "revision.sha must be immutable commit SHA");
   required(blobUrl(x.url), "revision.url");
+  // Parse the entire blob path: suffix matching can accept docs/SOURCE_OF_TRUTH.md.
+  // Only plain main or the exact immutable snapshot SHA may identify the ref.
   const prefix="https://github.com/"+x.repo+"/blob/";
-  required(x.url.startsWith(prefix) && x.url.endsWith("/"+x.path), "revision.url must match repo/path");
+  const suffix=x.url.startsWith(prefix) ? x.url.slice(prefix.length) : "";
+  const at=suffix.indexOf("/");
+  const ref=at<0 ? "" : suffix.slice(0,at);
+  const blobPath=at<0 ? "" : suffix.slice(at+1);
+  required((ref==="main" || ref===x.sha) && blobPath===x.path, "revision.url must match repo/path");
   return {repo:x.repo,path:x.path,sha:x.sha,url:x.url};
 }
 function evidence(x) {
