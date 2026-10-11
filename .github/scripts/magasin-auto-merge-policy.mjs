@@ -28,8 +28,9 @@ export function assessAutoMergeGate(input) {
   }
   const ai=x.aiReview||{};
   if(ai.provider !== "chatgpt-codex-connector" || ai.completed !== true || ai.headSha !== x.headSha || ai.unresolvedThreads !== 0 || ai.reviewHasFindings === true) reasons.push("AI_REVIEW_NOT_CLEAN_AT_HEAD");
+  if(typeof x.branchRequiresApprovals !== "boolean") reasons.push("APPROVAL_POLICY_UNVERIFIED");
   const approvals=Array.isArray(x.approvals) ? x.approvals : [];
-  if(!approvals.some(a=>a && a.state === "APPROVED" && a.headSha === x.headSha && a.author && a.author !== x.author && a.author !== "github-actions[bot]")) reasons.push("INDEPENDENT_APPROVAL_NOT_VERIFIED");
+  if(x.branchRequiresApprovals !== false && !approvals.some(a=>a && a.state === "APPROVED" && a.headSha === x.headSha && a.author && a.author !== x.author && a.author !== "github-actions[bot]")) reasons.push("INDEPENDENT_APPROVAL_NOT_VERIFIED");
   if(x.changesRequested === true) reasons.push("CHANGES_REQUESTED");
   if(x.branchProtectionPassed !== true) reasons.push("GITHUB_BRANCH_PROTECTION_UNVERIFIED");
   if(x.autoMergeEnabled !== true) reasons.push("GITHUB_AUTOMERGE_DISABLED");

@@ -23,10 +23,11 @@ else {
     if(prList.length===100)throw Error("PR_LIST_PAGE_LIMIT");
     const candidates=prList.filter(p=>p.labels?.some(l=>l.name==="magasin-auto-merge-eligible")).slice(0,20);
     if(candidates.length===20)throw Error("CANDIDATE_LIST_LIMIT");
-    let branchProtectionPassed=false;
+    let branchProtectionPassed=false,branchRequiresApprovals=null;
     try {
       const protection=await api("/repos/"+repo+"/branches/main/protection");
-      branchProtectionPassed=!!(protection.required_status_checks && protection.required_pull_request_reviews);
+      branchProtectionPassed=!!protection.required_status_checks;
+      branchRequiresApprovals=Number(protection.required_pull_request_reviews?.required_approving_review_count??0)>0;
     } catch { /* unavailable metadata => HOLD */ }
     for(const p of candidates) {
       const number=p.number;
@@ -42,16 +43,15 @@ else {
         const threads=threadResponse?.repository?.pullRequest?.reviewThreads;
         if(!threads || threads.pageInfo.hasNextPage)throw Error("REVIEW_THREAD_PAGINATION");
         const codexSummary=comments.some(c=>c.user?.login==="chatgpt-codex-connector[bot]" && c.body?.includes("✅ **Completed**") && c.body?.includes(p.head.sha.slice(0,7)));
-        const hasCodexReview=allReviews.some(r=>r.user?.login?.startsWith("chatgpt-codex-connector") && r.commit_id===p.head.sha);
         const unresolvedThreads=threads.nodes.filter(x=>!x.isResolved).length;
         const result=assessAutoMergeGate({
           files:files.map(x=>x.filename),headSha:p.head.sha,base:p.base.ref,state:p.state,draft:p.draft,author:p.user?.login,
           explicitDelegation:true,
           ciRuns:runs.workflow_runs.filter(x=>REQUIRED_CI.includes(x.name)).map(x=>({name:x.name,headSha:x.head_sha,status:x.status,conclusion:x.conclusion})),
-          aiReview:{provider:"chatgpt-codex-connector",completed:codexSummary&&hasCodexReview,headSha:p.head.sha,unresolvedThreads,reviewHasFindings:unresolvedThreads>0},
+          aiReview:{provider:"chatgpt-codex-connector",completed:codexSummary,headSha:p.head.sha,unresolvedThreads,reviewHasFindings:unresolvedThreads>0},
           approvals:allReviews.filter(r=>r.state==="APPROVED").map(r=>({author:r.user?.login,headSha:r.commit_id,state:r.state})),
           changesRequested:allReviews.some(r=>r.state==="CHANGES_REQUESTED"),
-          branchProtectionPassed,autoMergeEnabled:repoMeta.allow_auto_merge===true,
+          branchProtectionPassed,branchRequiresApprovals,autoMergeEnabled:repoMeta.allow_auto_merge===true,
           releaseOrStartRequested:false
         });
         console.log(JSON.stringify({pr:number,headSha:p.head.sha,stage:"G1_READ_ONLY",...result}));
