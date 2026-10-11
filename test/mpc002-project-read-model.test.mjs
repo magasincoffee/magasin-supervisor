@@ -1,0 +1,15 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {buildProjectReadModel} from "../src/control-center/project_read_model.mjs";
+const sha="a".repeat(40), other="b".repeat(40);
+const rev=(hash=sha)=>({repo:"magasincoffee/magasin-supervisor",path:"SOURCE_OF_TRUTH.md",sha:hash,url:"https://github.com/magasincoffee/magasin-supervisor/blob/main/SOURCE_OF_TRUTH.md"});
+const ev=(kind,hash=sha,verified=true)=>({id:kind,kind,verified,revision:rev(hash),url:rev().url});
+const subject=(task={id:"MPC-002",title:"Canonical schema",scopeStatus:"UNKNOWN"})=>[{id:"control",title:"Project control",revision:rev(),features:[{id:"tree",title:"Tree",tasks:[task]}]}];
+const task=m=>buildProjectReadModel(subject(m)).projects[0].nodes[2];
+test("hierarchy preserves project > feature > task with immutable revision",()=>{const x=buildProjectReadModel(subject());assert.equal(x.schemaVersion,"magasin-project-read-model.v1");assert.deepEqual(x.projects[0].nodes.map(n=>n.parentId),[null,"control","tree"]);assert.equal(x.projects[0].nodes[2].revision.sha,sha);});
+test("unknown status remains UNKNOWN and never inherits transport or CI",()=>{let x=task({id:"MPC-002",title:"Schema",scopeStatus:"VERIFIED_DONE",transportStatus:"RUNNING",ciStatus:"SUCCESS",releaseStatus:"ACCEPTED"});assert.equal(x.scopeStatus,"UNKNOWN");assert.equal(x.transportStatus,"RUNNING");assert.equal(x.ciStatus,"SUCCESS");assert.equal(x.releaseStatus,"ACCEPTED");});
+test("only same revision verified canonical SOT + DoD + QA + exact-main qualifies completion",()=>{const e=["canonical_sot","task_dod","qa","exact_main"].map(k=>ev(k));assert.equal(task({id:"MPC-002",title:"Schema",scopeStatus:"VERIFIED_DONE",evidence:e}).scopeStatus,"VERIFIED_DONE");assert.equal(task({id:"MPC-002",title:"Schema",scopeStatus:"VERIFIED_DONE",evidence:e.slice(0,3)}).scopeStatus,"UNKNOWN");});
+test("conflicting SOT revision explicitly CONFLICT",()=>{assert.equal(task({id:"MPC-002",title:"Schema",scopeStatus:"READY",evidence:[ev("canonical_sot",other)]}).scopeStatus,"CONFLICT");});
+test("contradictory source claims explicitly CONFLICT",()=>{assert.equal(task({id:"MPC-002",title:"Schema",scopeStatus:"READY",claims:["READY","BLOCKED"]}).scopeStatus,"CONFLICT");});
+test("reject unsafe revision, duplicate IDs, fake evidence",()=>{assert.throws(()=>buildProjectReadModel(subject({id:"MPC-002",title:"Schema",revision:{...rev(),sha:"main"}})));assert.throws(()=>buildProjectReadModel([...subject(),...subject()]));assert.throws(()=>task({id:"MPC-002",title:"Schema",evidence:[{...ev("qa"),verified:"yes"}]}));});
+test("project read model is metadata-only and retains unknowns across separate repos",()=>{const projects=subject();projects.push({id:"ops",title:"OPS",revision:{repo:"magasincoffee/OPS-WebApp",path:"SOURCE_OF_TRUTH.md",sha,url:"https://github.com/magasincoffee/OPS-WebApp/blob/main/SOURCE_OF_TRUTH.md"}});const x=buildProjectReadModel(projects);assert.equal(x.projects[1].nodes[0].scopeStatus,"UNKNOWN");assert.equal(x.projects[0].repository,"magasincoffee/magasin-supervisor");});
