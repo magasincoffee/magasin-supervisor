@@ -49,7 +49,7 @@ function item(x,type,parentId,projectRevision) {
   required(typeof x.title === "string" && x.title.trim().length > 0 && x.title.length <= 200,type+".title");
   required(x.evidence===undefined || Array.isArray(x.evidence),type+".evidence");
   const proof=(x.evidence??[]).map(evidence);
-  const snapshot=x.revision ? revision(x.revision) : projectRevision;
+  const snapshot=x.revision === undefined ? projectRevision : revision(x.revision);
   const sourceBoundary=snapshot.repo===projectRevision.repo && snapshot.path===projectRevision.path;
   const sameSource=sourceBoundary && proof.every(e=>e.revision.repo===snapshot.repo && e.revision.path===snapshot.path);
   const divergent=proof.some(e=>e.kind==="canonical_sot" && e.verified && e.revision.sha!==snapshot.sha);
@@ -57,8 +57,9 @@ function item(x,type,parentId,projectRevision) {
   const verifiedKinds=new Set(proof.filter(e=>e.verified && e.revision.sha===snapshot.sha).map(e=>e.kind));
   const hasDoD=verifiedKinds.has("canonical_sot") && verifiedKinds.has("task_dod") && verifiedKinds.has("qa") && verifiedKinds.has("exact_main");
   required(x.claims===undefined || Array.isArray(x.claims),type+".claims");
-  const hasConflictingClaims=Array.isArray(x.claims) && new Set([scope,...x.claims.filter(s=>SCOPE_STATES.includes(s))].filter(s=>s!=="UNKNOWN")).size>1;
-  const resolved=(divergent || hasConflictingClaims || !sameSource) ? "CONFLICT" : scope==="VERIFIED_DONE" && !hasDoD ? "UNKNOWN" : scope;
+  const malformedClaims=Array.isArray(x.claims) && x.claims.some(s=>typeof s!=="string" || !SCOPE_STATES.includes(s));
+  const hasConflictingClaims=Array.isArray(x.claims) && new Set([scope,...x.claims].filter(s=>s!=="UNKNOWN")).size>1;
+  const resolved=malformedClaims ? "UNKNOWN" : (divergent || hasConflictingClaims || !sameSource) ? "CONFLICT" : scope==="VERIFIED_DONE" && !hasDoD ? "UNKNOWN" : scope;
   return {id:x.id,title:x.title,type,parentId,revision:snapshot,evidence:proof,scopeStatus:resolved,transportStatus:state(x.transportStatus,TRANSPORT_STATES),ciStatus:state(x.ciStatus,CI_STATES),releaseStatus:state(x.releaseStatus,RELEASE_STATES)};
 }
 export function buildProjectReadModel(projects) {

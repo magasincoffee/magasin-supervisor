@@ -26,3 +26,6 @@ test("revision blob URL must match complete declared path and valid ref",()=>{fo
 
 test("reject coerced array hashes in project and evidence revisions",()=>{assert.throws(()=>buildProjectReadModel([{...subject()[0],revision:{...rev(),sha:[sha]}}]));assert.throws(()=>task({id:"MPC-002",title:"Schema",evidence:[{...ev("qa"),revision:{...rev(),sha:[sha]}}]}));});
 test("reject malformed claims collections rather than ignoring contradictions",()=>{assert.throws(()=>task({id:"MPC-002",title:"Schema",scopeStatus:"READY",claims:"BLOCKED"}));assert.throws(()=>task({id:"MPC-002",title:"Schema",scopeStatus:"READY",claims:{status:"BLOCKED"}}));});
+
+test("reject explicitly malformed falsey child revision instead of inheriting",()=>{for(const revision of [null,false,0,""]){assert.throws(()=>task({id:"MPC-002",title:"Schema",revision,scopeStatus:"VERIFIED_DONE"}));}});
+test("unsupported claim elements fail closed even with verified evidence",()=>{const evidence=["canonical_sot","task_dod","qa","exact_main"].map(kind=>ev(kind));for(const claims of [["BLOCKED_TYPO"],[["BLOCKED"]],[null],["VERIFIED_DONE",2]]){assert.equal(task({id:"MPC-002",title:"Schema",scopeStatus:"VERIFIED_DONE",claims,evidence}).scopeStatus,"UNKNOWN");}});
