@@ -29,3 +29,5 @@ test("reject malformed claims collections rather than ignoring contradictions",(
 
 test("reject explicitly malformed falsey child revision instead of inheriting",()=>{for(const revision of [null,false,0,""]){assert.throws(()=>task({id:"MPC-002",title:"Schema",revision,scopeStatus:"VERIFIED_DONE"}));}});
 test("unsupported claim elements fail closed even with verified evidence",()=>{const evidence=["canonical_sot","task_dod","qa","exact_main"].map(kind=>ev(kind));for(const claims of [["BLOCKED_TYPO"],[["BLOCKED"]],[null],["VERIFIED_DONE",2]]){assert.equal(task({id:"MPC-002",title:"Schema",scopeStatus:"VERIFIED_DONE",claims,evidence}).scopeStatus,"UNKNOWN");}});
+
+test("reject IDs reused across hierarchy levels in one project",()=>{const same=subject();same[0].features[0].id="control";assert.throws(()=>buildProjectReadModel(same),/duplicate node/);const nested=subject();nested[0].features[0].tasks[0].id="tree";assert.throws(()=>buildProjectReadModel(nested),/duplicate node/);});

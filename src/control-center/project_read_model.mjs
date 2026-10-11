@@ -69,7 +69,7 @@ export function buildProjectReadModel(projects) {
     required(isObj(p) && typeof p.id === "string" && ID.test(p.id), "project.id");
     const rev=revision(p.revision);
     const nodes=[];
-    const add=(x,type,parent) => {const node=item(x,type,parent,rev); const key=p.id+":"+type+":"+node.id;required(!ids.has(key),"duplicate node");ids.add(key);nodes.push(node);return node;};
+    const add=(x,type,parent) => {const node=item(x,type,parent,rev); const key=p.id+":"+node.id;required(!ids.has(key),"duplicate node");ids.add(key);nodes.push(node);return node;};
     const root=add(p,"project",null);
     required(p.features===undefined || Array.isArray(p.features),"project.features");
     for(const f of (p.features??[])){
