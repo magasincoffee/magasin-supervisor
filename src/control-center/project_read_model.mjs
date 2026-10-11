@@ -20,7 +20,7 @@ const evidenceUrl = (url,kind) => {
 function revision(x) {
   required(isObj(x) && typeof x.repo === "string" && /^[\w.-]+\/[\w.-]+$/.test(x.repo), "revision.repo");
   required(typeof x.path === "string" && x.path.length > 0 && !x.path.includes(".."), "revision.path");
-  required(SHA.test(x.sha), "revision.sha must be immutable commit SHA");
+  required(typeof x.sha === "string" && SHA.test(x.sha), "revision.sha must be immutable commit SHA");
   required(blobUrl(x.url), "revision.url");
   // Parse the entire blob path: suffix matching can accept docs/SOURCE_OF_TRUTH.md.
   // Only plain main or the exact immutable snapshot SHA may identify the ref.
@@ -36,7 +36,7 @@ function evidence(x) {
   required(isObj(x) && typeof x.id === "string" && ID.test(x.id), "evidence.id");
   required(["canonical_sot","task_dod","qa","pr","ci","exact_main","owner_acceptance"].includes(x.kind), "evidence.kind");
   required(typeof x.verified === "boolean", "evidence.verified");
-  required(isObj(x.revision) && SHA.test(x.revision.sha ?? ""), "evidence.revision");
+  required(isObj(x.revision) && typeof x.revision.sha === "string" && SHA.test(x.revision.sha), "evidence.revision");
   required(evidenceUrl(x.url,x.kind), "evidence.url");
   const eRev=revision(x.revision);
   required(x.url.startsWith("https://github.com/"+eRev.repo+"/"), "evidence.url repo mismatch");
@@ -56,6 +56,7 @@ function item(x,type,parentId,projectRevision) {
   const scope=state(x.scopeStatus,SCOPE_STATES);
   const verifiedKinds=new Set(proof.filter(e=>e.verified && e.revision.sha===snapshot.sha).map(e=>e.kind));
   const hasDoD=verifiedKinds.has("canonical_sot") && verifiedKinds.has("task_dod") && verifiedKinds.has("qa") && verifiedKinds.has("exact_main");
+  required(x.claims===undefined || Array.isArray(x.claims),type+".claims");
   const hasConflictingClaims=Array.isArray(x.claims) && new Set([scope,...x.claims.filter(s=>SCOPE_STATES.includes(s))].filter(s=>s!=="UNKNOWN")).size>1;
   const resolved=(divergent || hasConflictingClaims || !sameSource) ? "CONFLICT" : scope==="VERIFIED_DONE" && !hasDoD ? "UNKNOWN" : scope;
   return {id:x.id,title:x.title,type,parentId,revision:snapshot,evidence:proof,scopeStatus:resolved,transportStatus:state(x.transportStatus,TRANSPORT_STATES),ciStatus:state(x.ciStatus,CI_STATES),releaseStatus:state(x.releaseStatus,RELEASE_STATES)};
