@@ -5,7 +5,7 @@ const sha = v => typeof v === "string" && /^[0-9a-f]{40}$/.test(v);
 const allowed = path => {
   if(typeof path !== "string" || path.includes("..") || path.startsWith("/")) return "HIGH";
   if(/^test\/mpc[0-9]{3}[-\w]*\.test\.mjs$/.test(path)) return "LOW";
-  if(/^docs\/project-control\/MPC-[0-9]{3}_[A-Z0-9_]+\.md$/.test(path)) return "LOW";
+  if(/^docs\/project-control\/MPC-[0-9]{3}_[A-Z0-9_-]+\.md$/.test(path)) return "LOW";
   if(path === "src/control-center/project_read_model.mjs") return "MEDIUM";
   return "HIGH"; // SOT, workflows, auth, SQL, worker, deployment, and unknown paths fail closed
 };
