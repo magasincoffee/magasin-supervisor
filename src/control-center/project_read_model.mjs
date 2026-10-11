@@ -22,6 +22,8 @@ function revision(x) {
   required(typeof x.path === "string" && x.path.length > 0 && !x.path.includes(".."), "revision.path");
   required(SHA.test(x.sha), "revision.sha must be immutable commit SHA");
   required(blobUrl(x.url), "revision.url");
+  const prefix="https://github.com/"+x.repo+"/blob/";
+  required(x.url.startsWith(prefix) && x.url.endsWith("/"+x.path), "revision.url must match repo/path");
   return {repo:x.repo,path:x.path,sha:x.sha,url:x.url};
 }
 function evidence(x) {
@@ -30,12 +32,16 @@ function evidence(x) {
   required(typeof x.verified === "boolean", "evidence.verified");
   required(isObj(x.revision) && SHA.test(x.revision.sha ?? ""), "evidence.revision");
   required(evidenceUrl(x.url,x.kind), "evidence.url");
+  const eRev=revision(x.revision);
+  required(x.url.startsWith("https://github.com/"+eRev.repo+"/"), "evidence.url repo mismatch");
+  if(["canonical_sot","task_dod","qa","exact_main"].includes(x.kind)) required(x.url===eRev.url, "evidence.url revision mismatch");
   return {id:x.id,kind:x.kind,verified:x.verified,revision:revision(x.revision),url:x.url};
 }
 const state = (value,values) => values.includes(value) ? value : "UNKNOWN";
 function item(x,type,parentId,projectRevision) {
   required(isObj(x) && typeof x.id === "string" && ID.test(x.id), type+".id");
   required(typeof x.title === "string" && x.title.trim().length > 0 && x.title.length <= 200,type+".title");
+  required(x.evidence===undefined || Array.isArray(x.evidence),type+".evidence");
   const proof=(x.evidence??[]).map(evidence);
   const snapshot=x.revision ? revision(x.revision) : projectRevision;
   const sourceBoundary=snapshot.repo===projectRevision.repo && snapshot.path===projectRevision.path;
@@ -57,8 +63,10 @@ export function buildProjectReadModel(projects) {
     const nodes=[];
     const add=(x,type,parent) => {const node=item(x,type,parent,rev); const key=p.id+":"+type+":"+node.id;required(!ids.has(key),"duplicate node");ids.add(key);nodes.push(node);return node;};
     const root=add(p,"project",null);
+    required(p.features===undefined || Array.isArray(p.features),"project.features");
     for(const f of (p.features??[])){
       const feature=add(f,"feature",root.id);
+      required(f.tasks===undefined || Array.isArray(f.tasks),"feature.tasks");
       for(const t of (f.tasks??[])) add(t,"task",feature.id);
     }
     return {id:root.id,repository:rev.repo,revision:rev,nodes};
