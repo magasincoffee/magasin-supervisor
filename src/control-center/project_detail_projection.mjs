@@ -20,7 +20,7 @@ function modelFromSot(content){
  const first=start+MODEL_BEGIN.length;
  if(content[first]!=="\n")return null;
  const end=content.indexOf("\n"+MODEL_END,first+1);
- if(end<0||content.indexOf(MODEL_END,end+1)!==-1)return null;
+ if(end<0||content.indexOf(MODEL_END,end+1+MODEL_END.length)!==-1)return null;
  const data=content.slice(first+1,end);
  if(data.length===0||data.length>131072)return null;
  try{
