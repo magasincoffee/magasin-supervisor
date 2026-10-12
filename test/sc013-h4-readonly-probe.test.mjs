@@ -110,12 +110,13 @@ test('RTRY01 exact H4 read-only field receipt never grants START, MCP pairing or
   // status remains in the same SOT section.
   // Normalize Markdown code/emphasis without stripping underscores from field names.
   const plain = value => value.replace(/[`*]/g, '');
-  const forbiddenAuthority = /(?:^|[^\w])_*(?:owner_lifecycle_authenticated|worker_ownership_verified|saydi_audio_sha_verified|approved_to_start|approved_to_dispatch|production_modified|worker_started|owner_stop_changed|task_completed)_*\s*[:=]\s*_*(?:true)(?=$|[^A-Za-z0-9])|(?:^|[^\w])_*mcp_transport_connected_*\s*[:=]\s*_*(?!UNVERIFIED\b)[A-Z]+(?:_[A-Z]+)*(?=$|[^A-Za-z0-9])/im;
+  const forbiddenAuthority = /(?:^|[^\w])_*(?:owner_lifecycle_authenticated|worker_ownership_verified|saydi_audio_sha_verified|approved_to_start|approved_to_dispatch|production_modified|worker_started|owner_stop_changed|task_completed)_*\s*[:=]\s*_*(?:true)(?=$|[^A-Za-z0-9])|(?:^|[^\w])_*mcp_transport_connected_*\s*[:=]\s*_*(?!UNVERIFIED(?=$|[^A-Za-z0-9]))[A-Z]+(?:_[A-Z]+)*(?=$|[^A-Za-z0-9])/im;
   // Match natural-language Markdown task completion too: backticks, emphasis,
   // "V6 step 1.1" and other intervening prose do not convey authorization.
   const forbiddenCompletion = /(?:SAYDI002-VN-001|V6 step 1\.1)[^\r\n]{0,160}\b(?:DONE|COMPLETE(?:D)?|FINAL)\b/i;
   assert.doesNotMatch(plain(receipt), forbiddenAuthority);
   assert.doesNotMatch(plain(receipt), forbiddenCompletion);
+  assert.doesNotMatch(plain(receipt + '\n' + 'mcp_transport_connected = _UNVERIFIED_'), forbiddenAuthority);
   for (const injected of [
     'approved_to_start=true',
     'mcp_transport_connected=VERIFIED',
