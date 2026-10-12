@@ -1,0 +1,25 @@
+# MPC-005 — Feature/task detail, provenance and status truth (SOURCE/QA candidate)
+Date: 2026-10-12 · Scope: MPC-005 only · Not Owner operational acceptance.
+
+## Deliverable
+- `src/control-center/web/project_detail_view.mjs` implements Vietnamese, responsive detail for the selected project/feature/task inside the existing **Dự án** tree. A selected task now shows its title and secondary technical ID, source link, optional pinned revision, and separate read-only dimensions: **scope/DoD**, **robot transport**, **hosted CI**, **release/Owner acceptance**. PR, workflow run, QA and exact-main links appear only when a proof record has been checked against an allowlisted repository and revision.
+- `src/control-center/project_detail_projection.mjs` is a pure SOURCE/QA projection atop existing MPC-002 `buildProjectReadModel` and MPC-003 approved-source declarations. It rejects unrelated project IDs/paths, wrong repository/SOT revision, stale/main-diverged GitHub snapshots, unsupported hierarchy, malformed evidence, and unsupported synthetic status. It separates technical CI PASS and STOP from DoD completion and release.
+- **Critical current runtime boundary:** `GET /api/projects` remains an unverified local-navigation catalogue. The Control Center's Python server does not yet invoke the MPC-003 Node adapter, and this PR does **not** invent a bridge, expose a GitHub credential to the browser, or interpret locally scraped SOT text as authoritative task completion. As a result all live catalogue items currently default to UNKNOWN, with a genuine navigable source reference and a concrete explanation of missing canonical proof. Source/QA proof-backed `VERIFIED_DONE` and CONFLICT handling is demonstrated using synthetic validated-model fixtures; it does **not** assert real domain task statuses.
+- No new POST endpoint, Owner mutation, project selection, worker START/STOP, business executor, dispatch, domain SOT writeback or H4 production apply is authorized.
+
+## Source and evidence trust rules
+- Allowlist of canonical project repositories/SOT files is inherited from the MPC-003 adapter. A detail link is accepted only if it belongs to the selected item's original project repository and matches an allowed GitHub blob/pull/workflow URL form; external domains, URL credentials/parameters and path traversals fail closed.
+- Optional authoritative projection requires a server-owned `snapshot` that matches the canonical repository/path/SHA, a canonical project model for the same pinned SOT revision, exact project/feature/task ancestry and MPC-002 validated evidence types. No browser or navigation-catalogue field is upgraded into proof. A verified SOT alone is not sufficient; task VERIFIED_DONE requires matching canonical_sot + task_dod + qa + exact_main.
+- Separate labels for CI SUCCESS vs task VERIFIED_DONE vs release ACCEPTED vs worker RUNNING; no single field promotes another. If a result is unavailable, 404, stale, rate limited, unauthorized or main diverged, the task remains UNKNOWN (CONFLICT reason is disclosed when sources diverge), not a false DONE.
+
+## QA / acceptance
+- Targeted `node --test test/mpc005-project-detail.test.mjs` includes verified DoD fixtures, missing gate denial, conflicting claims, rate-limit/stale/404/invalid input, cross-project path isolation, XSS and hostile URL protection, mobile CSS/keyboard/static route checks, preserved Supervisor controls, and local unverified navigation handling.
+- Both hosted `Supervisor Tests` and `Supervisor Integrity` run these tests; the `Supervisor Lifecycle Acceptance` and `Supervisor Autostart Install` gates remain required. Exact PR head CI 4/4, independent review, reviewed merge, exact-main verification and SOT update are prerequisites for SOURCE/QA acceptance.
+- **Explicitly deferred outside MPC-005:** any new Python-to-Node live adapter bridge requiring separately qualified process, authenticated token, timeout and access tests; runtime deployment or Owner proof of usability on H4; Owner change request submission (MPC-006); any business robot activation. The display must not imply these are finished.
+
+## Codex P1/P2 revision and source-ID hardening
+- The static Python navigation ID `print-ops` maps only to the MPC-003 adapter key `print_ops`. It is not a cross-project permission or data merge.
+- The selected feature/task revision must match the fetched CURRENT canonical SOT SHA, path, repository **and immutable blob URL**; every evidence revision must be pinned to that same exact snapshot. A `blob/main` proof, stale task SHA or mismatched evidence revision fails closed as CONFLICT/UNKNOWN. The renderer repeats the immutable-URL check before displaying VERIFIED_DONE.
+
+## UI defence against misrouted revision feeds
+Browser detail renderer also verifies the selected project's approved canonical SOT **path** against a fixed project-ID allowlist (`supervisor`, `workforce`, `print-ops`), in addition to pinned revision SHA, repo and matching evidence. A same-repository blob for unrelated documents can never render VERIFIED_DONE, even if four fake evidence kinds are present; a forged display feed remains UNKNOWN.
