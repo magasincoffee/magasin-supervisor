@@ -117,6 +117,7 @@ jobs:
             test/sc013-supervisor-project-links-ui.test.mjs \
             test/mpc001-readonly-source-audit.test.mjs \
             test/mpc002-project-read-model.test.mjs \
+            test/mpc003-readonly-sot-adapter.test.mjs \
             test/sc013-project-activation-safe-preflight.test.mjs \
             test/sc013-local-gateway-health-stop-policy.test.mjs \
             test/sc013-owner-control-apply.test.mjs \
