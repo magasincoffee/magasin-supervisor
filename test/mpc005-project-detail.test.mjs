@@ -302,3 +302,25 @@ test("new immutable SOT revision does not require a self-referential embedded SH
  assert.equal(data.authority.revision.sha,OTHER);
  assert.equal(data.authority.scope,"VERIFIED_DONE");
 });
+
+
+test("embedded standalone sha on any model or evidence node fails closed",()=>{
+ const base=authorable(canonical());
+ const cases=[
+   p=>{p.sha=OTHER;},
+   p=>{p.features[0].sha=OTHER;},
+   p=>{p.features[0].tasks[0].sha=OTHER;},
+   p=>{p.features[0].tasks[0].evidence[0].sha=OTHER;}
+ ];
+ for(const mutate of cases){
+   const poisoned=structuredClone(base);
+   mutate(poisoned);
+   const content="# Canonical SOT\\n<!-- MAGASIN_CANONICAL_PROJECT_MODEL_V1_BEGIN -->\\n"+
+      JSON.stringify({schema:"magasin-canonical-project-model.v1",project:poisoned})+
+      "\\n<!-- MAGASIN_CANONICAL_PROJECT_MODEL_V1_END -->\\n";
+   const data=project(snapshot({content}));
+   assert.equal(data.authority.source,"CONFLICT");
+   assert.equal(data.authority.scope,"UNKNOWN");
+   assert.notEqual(data.authority.scope,"VERIFIED_DONE");
+ }
+});
