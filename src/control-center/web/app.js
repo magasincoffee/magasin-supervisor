@@ -257,12 +257,38 @@ function renderDetail(r){
     <section class="panel"><h3>Thông tin vận hành</h3><p class="mini">${esc(r.notes)}</p><p class="mini">Robot này giữ SOT, tiến trình, Chrome profile, cấu hình và dữ liệu riêng. Không chia sẻ trạng thái START/STOP với robot khác.</p></section>
  </div>`;
 }
+// Capture only keyboard focus inside the project content, not the sidebar or robot controls.
+function captureProjectFocus(){
+ const active=document.activeElement;
+ if(!active||!root.contains(active))return null;
+ if(active.id==="project-search") return {kind:"search",start:active.selectionStart,end:active.selectionEnd};
+ if(active.dataset?.projectToggle!==undefined)return {kind:"toggle",key:active.dataset.projectToggle};
+ if(active.dataset?.projectFocus!==undefined)return {kind:"focus",key:active.dataset.projectFocus};
+ return null;
+}
+function restoreProjectFocus(saved){
+ if(!saved)return;
+ let target=null;
+ if(saved.kind==="search")target=root.querySelector("#project-search");
+ else{
+   const attribute=saved.kind==="toggle"?"data-project-toggle":"data-project-focus";
+   target=[...root.querySelectorAll("["+attribute+"]")].find(x=>x.getAttribute(attribute)===saved.key)||null;
+ }
+ if(!target)return;
+ target.focus({preventScroll:true});
+ if(saved.kind==="search"&&Number.isInteger(saved.start)&&Number.isInteger(saved.end)){
+   const end=String(target.value||"").length;
+   target.setSelectionRange(Math.min(saved.start,end),Math.min(saved.end,end));
+ }
+}
 function openPage(id,historyUpdate=true){
  const page=id==="projects"?"projects":id==="home"||!allItems().some(x=>x.id===id)?"home":id;
+ const previousProjectFocus=page==="projects"?captureProjectFocus():null;
  if(historyUpdate)history.pushState({page},"",page==="home"?"/":page==="projects"?"/projects":"/robot/"+page);
  nameTitle.textContent=page==="home"?"Trung tâm điều khiển Robot":page==="projects"?"Dự án":allItems().find(x=>x.id===page).name;
  subtitle.textContent=page==="projects"?"Cây dự án · trạng thái chưa xác minh được hiển thị rõ ràng":page==="home"?"Mỗi robot độc lập, một nơi để theo dõi và điều khiển.":"Xem trạng thái và chi tiết robot trong cùng một bảng điều khiển.";
  root.innerHTML=page==="projects"?renderProjectTree({catalogue:projectCatalogue,query:projectQuery,selected:projectSelected,expanded:[...projectExpanded]}):!latest?'<p class="panel">Chưa tải dữ liệu điều khiển robot.</p>':page==="home"?cards():renderDetail(allItems().find(x=>x.id===page));
+ restoreProjectFocus(previousProjectFocus);
  document.querySelectorAll("[data-page]").forEach(x=>x.classList.toggle("selected",x.dataset.page===page));
  if(historyUpdate)window.scrollTo({top:0,behavior:"auto"});
 }

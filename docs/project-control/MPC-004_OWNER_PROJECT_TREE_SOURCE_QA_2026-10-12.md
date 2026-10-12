@@ -13,3 +13,7 @@ This release does not deploy to local machines, authorize Supervisor START, or q
 
 ## MPC-004 post-review route/accessibility checks
 All browser-history popstate transitions revalidate the current destination via a read-only refresh, preventing stale robot actions after leaving the project view. Tree project/feature/task/breadcrumb selection now restores keyboard focus to the corresponding replacement button (or the search field if the selected root breadcrumb is no longer a button).
+
+## Polling and screen-reader hardening
+- Every automatic project-tree rerender captures the active search field (including caret selection) or project row/toggle key, then restores focus after rendering using the corresponding data attribute and `preventScroll`. Keyboard focus outside project content is not moved.
+- The main interactive container is no longer an `aria-live` region; periodic status updates remain confined to the adjacent `role="status"` element. Neither change activates robot controls or writes project data.

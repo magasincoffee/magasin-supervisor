@@ -128,3 +128,20 @@ test("history popstate revalidates operational state and project selection prese
  assert.match(app,/dataset\.projectFocus===key/);
  assert.match(app,/\(replacement\|\|root\.querySelector\("#project-search"\)\)\?\.focus\(\)/);
 });
+
+test("MPC-004 polling preserves tree toggle, row and search keyboard focus",async()=>{
+ const [app,index]=await Promise.all([read("src/control-center/web/app.js"),read("src/control-center/web/index.html")]);
+ assert.match(app,/function captureProjectFocus\(\)/);
+ assert.match(app,/function restoreProjectFocus\(saved\)/);
+ assert.match(app,/root\.contains\(active\)/);
+ assert.match(app,/active\.id==="project-search"/);
+ assert.match(app,/active\.dataset\?\.projectToggle!==undefined/);
+ assert.match(app,/active\.dataset\?\.projectFocus!==undefined/);
+ assert.match(app,/const previousProjectFocus=page==="projects"\?captureProjectFocus\(\):null/);
+ assert.match(app,/restoreProjectFocus\(previousProjectFocus\)/);
+ assert.match(app,/target\.focus\(\{preventScroll:true\}\)/);
+ assert.match(app,/target\.setSelectionRange\(/);
+ assert.match(index,/<main id="main-content" tabindex="-1"><\/main>/);
+ assert.doesNotMatch(index,/<main[^>]*aria-live/);
+ assert.match(index,/<p id="loading"[^>]*role="status"/);
+});
