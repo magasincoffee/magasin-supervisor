@@ -29,11 +29,19 @@ const canonical=(evidence=fullEvidence,extra={})=>({
    }]
  }]
 });
+const embedModel=p=>"# Canonical SOT\n<!-- MAGASIN_CANONICAL_PROJECT_MODEL_V1_BEGIN -->\n"+
+ JSON.stringify({schema:"magasin-canonical-project-model.v1",project:p})+
+ "\n<!-- MAGASIN_CANONICAL_PROJECT_MODEL_V1_END -->\n";
 const snapshot=(x={})=>({ok:true,status:"CURRENT",
  source:{repo:REPO,path:source},revision:revision(),content:"# Canonical SOT",...x});
-const project=(snapshotOverride=snapshot(),canonicalProject=canonical())=>projectDetailProjection({
- catalogue:navigation(),selected:path,authority:{snapshot:snapshotOverride,canonicalProject}
-});
+const project=(snapshotOverride=snapshot(),canonicalProject=canonical())=>{
+ // Positive fixture: the model is INSIDE the fetched SOT bytes. A caller
+ // passing canonicalProject alone cannot promote a status to VERIFIED_DONE.
+ const snap=snapshotOverride.content==="# Canonical SOT"?
+   {...snapshotOverride,content:embedModel(canonicalProject)}:snapshotOverride;
+ return projectDetailProjection({catalogue:navigation(),selected:path,
+   authority:{snapshot:snap,canonicalProject}});
+};
 const read=name=>readFile(new URL("../"+name,import.meta.url),"utf8");
 
 test("tree selections are exact, allowlisted and isolated between projects",()=>{
@@ -204,4 +212,51 @@ test("mutable authority URL rejects all claimed statuses, not only VERIFIED_DONE
    assert.doesNotMatch(html,/>CI PASS|>Đang chạy|>Đã được chấp thuận|>Sẵn sàng|>Đang thực hiện|>Hoàn thành đã xác minh/);
    assert.match(html,/Chưa xác minh SHA/);
  }
+});
+
+test("pinned SOT Markdown without embedded authoritative model cannot claim task status",()=>{
+ const fake=canonical(fullEvidence);
+ const data=project(snapshot({content:"# Canonical SOT\nMPC-005 is VERIFIED_DONE with four proofs."}),fake);
+ assert.equal(data.authority.source,"UNVERIFIED");
+ assert.equal(data.authority.scope,"UNKNOWN");
+ assert.equal(data.authority.ci,"UNKNOWN");
+ assert.doesNotMatch(renderProjectDetail({catalogue:navigation(),selected:path,detail:data}),/>CI PASS|Hoàn thành đã xác minh/);
+});
+
+test("caller-provided fabricated or stale canonicalProject cannot override SOT model bytes",()=>{
+ const real=canonical([], {scopeStatus:"BLOCKED",ciStatus:"FAILURE",transportStatus:"STOPPED"});
+ const snapshotSource=snapshot({content:embedModel(real)});
+ const forged=projectDetailProjection({catalogue:navigation(),selected:path,
+   authority:{snapshot:snapshotSource,canonicalProject:canonical(fullEvidence)}});
+ assert.equal(forged.authority.source,"CANONICAL_MODEL");
+ assert.equal(forged.authority.scope,"BLOCKED");
+ assert.equal(forged.authority.ci,"FAILURE");
+ assert.notEqual(forged.authority.scope,"VERIFIED_DONE");
+ const missing=canonical(fullEvidence.filter(e=>e.kind!=="task_dod"));
+ const alsoForged=projectDetailProjection({catalogue:navigation(),selected:path,
+   authority:{snapshot:snapshot({content:embedModel(missing)}),canonicalProject:canonical(fullEvidence)}});
+ assert.equal(alsoForged.authority.scope,"UNKNOWN");
+});
+
+test("malformed, duplicate, and oversized SOT project-model markers fail closed",()=>{
+ const valid=embedModel(canonical());
+ const cases=[valid+valid,
+   "# SOT\n<!-- MAGASIN_CANONICAL_PROJECT_MODEL_V1_BEGIN -->\nnot-json\n<!-- MAGASIN_CANONICAL_PROJECT_MODEL_V1_END -->",
+   "# SOT\n<!-- MAGASIN_CANONICAL_PROJECT_MODEL_V1_BEGIN -->\n"+
+      "x".repeat(131073)+"\n<!-- MAGASIN_CANONICAL_PROJECT_MODEL_V1_END -->"];
+ for(const content of cases){
+   const data=project(snapshot({content}));
+   assert.equal(data.authority.scope,"UNKNOWN");
+   assert.equal(data.authority.ci,"UNKNOWN");
+   assert.equal(data.authority.source,"UNVERIFIED");
+ }
+});
+
+test("canonical project SOT and subordinate plan are visibly different links",()=>{
+ const html=renderProjectDetail({catalogue:navigation(),selected:path});
+ assert.match(html,/SOT chuẩn của dự án \(liên kết điều hướng\)/);
+ assert.match(html,/https:\/\/github.com\/magasincoffee\/magasin-supervisor\/blob\/main\/SOURCE_OF_TRUTH.md/);
+ assert.match(html,/Tài liệu mô tả mục \(chỉ tham khảo, không phải SOT\)/);
+ assert.match(html,/docs\/project-control\/MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md/);
+ assert.doesNotMatch(html,/SOT của dự án: <a[^>]*MPC_OWNER_ARCHITECTURE/);
 });
