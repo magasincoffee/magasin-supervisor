@@ -16,7 +16,40 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify-exact-single-file-owner-request:
+    if: ${{ github.repository == 'magasincoffee/magasin-supervisor' && github.actor == 'magasincoffee' && github.triggering_actor == 'magasincoffee' && github.run_attempt == 1 && github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Reject mixed-file, multi-commit, forced or untrusted request BEFORE H4 routing
+        uses: actions/github-script@v7
+        env:
+          EXPECTED_ONLY_PATH: .github/sc013-h4-readonly-probe-request.json
+        with:
+          script: |
+            const before = context.payload.before;
+            const after = context.sha;
+            if (!/^[a-f0-9]{40}$/.test(before || '') || /^0{40}$/.test(before) ||
+                !/^[a-f0-9]{40}$/.test(after || '') || context.payload.forced === true) {
+              core.setFailed('H4_REQUEST_COMMIT_NOT_BOUNDED');
+              return;
+            }
+            const r = await github.rest.repos.compareCommitsWithBasehead({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              basehead: before + '...' + after,
+            });
+            const files = r.data.files || [];
+            if (r.data.total_commits !== 1 || files.length !== 1 ||
+                files[0].filename !== process.env.EXPECTED_ONLY_PATH ||
+                !['added', 'modified'].includes(files[0].status) ||
+                r.data.status !== 'ahead') {
+              core.setFailed('H4_REQUEST_PUSH_MIXED_OR_UNVERIFIED');
+              return;
+            }
+            core.info('H4_REQUEST_ONE_FILE_ONLY=True');
   h4-only-readonly-observation:
+    needs: verify-exact-single-file-owner-request
     if: ${{ github.repository == 'magasincoffee/magasin-supervisor' && github.actor == 'magasincoffee' && github.triggering_actor == 'magasincoffee' && github.run_attempt == 1 && github.event_name == 'push' }}
     runs-on: [self-hosted, Windows, X64, magasin-h4a16il]
     timeout-minutes: 4
