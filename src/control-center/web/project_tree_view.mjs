@@ -37,6 +37,7 @@ export function projectTreeTrail(catalogue,selected="") {
   return trail;
 }
 export function renderProjectTree({catalogue,query="",expanded=[],selected=""}={}) {
+  if(catalogue==null) return '<section class="project-page" role="status">Đang tải danh mục dự án từ Control Center…</section>';
   const projects=Array.isArray(catalogue?.projects)?catalogue.projects:[];
   const opened=new Set(expanded);
   const term=compact(String(query).slice(0,120));

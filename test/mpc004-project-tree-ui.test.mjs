@@ -95,3 +95,13 @@ test("Control Center serves the actual shell, read-only API and module without r
  assert.match(cat,/businessDispatchAllowed": False/);
  assert.doesNotMatch(cat,/"scopeStatus": "VERIFIED_DONE"|START_SUPERVISOR|os\.system|subprocess|urllib/);
 });
+
+test("overlapping robot refresh queues project loading and never treats null as no verified projects",async()=>{
+ const app=await read("src/control-center/web/app.js");
+ assert.match(app,/let refreshPending=false/);
+ assert.match(app,/if\(busy\)\{refreshPending=true;return;\}/);
+ assert.match(app,/if\(refreshPending\)\{refreshPending=false;void refresh\(\);\}/);
+ const pending=renderProjectTree({catalogue:null});
+ assert.match(pending,/Đang tải danh mục dự án/);
+ assert.doesNotMatch(pending,/Chưa có dự án được xác minh/);
+});

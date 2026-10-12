@@ -9,6 +9,7 @@ const navRobots=document.getElementById("nav-robots");
 let latest=null;
 let monitorState=null;
 let busy=false;
+let refreshPending=false;
 let supervisorSotDraft="";
 let supervisorSotCheck=null;
 let projectCatalogue=null;
@@ -271,7 +272,8 @@ function currentPage(){
  return parts.length===3&&parts[1]==="robot"&&["coordinator","supervisor","saydi","sapo","gateway"].includes(parts[2])?parts[2]:"home";
 }
 async function refresh(){
- if(busy)return;busy=true;
+ if(busy){refreshPending=true;return;}
+ busy=true;
  try{
    if(currentPage()==="projects"){
      const response=await fetch("/api/projects",{cache:"no-store"});
@@ -296,7 +298,10 @@ async function refresh(){
    alertBox.hidden=true;
    const page=currentPage();openPage(page,false);
  }catch(err){alertBox.hidden=false;alertBox.textContent="Không đọc được trạng thái local. "+(err?.message||"Hãy kiểm tra dịch vụ Control Center.");}
- finally{busy=false}
+ finally{
+   busy=false;
+   if(refreshPending){refreshPending=false;void refresh();}
+ }
 }
 document.getElementById("refresh").addEventListener("click",refresh);
 document.addEventListener("input",(e)=>{
