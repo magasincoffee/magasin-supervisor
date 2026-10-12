@@ -32,7 +32,18 @@ test('single request-only workflow with explicit Owner and H4 gates, never PR/sc
   assert.match(yaml, /context.payload.forced === true/);
   assert.ok(yaml.indexOf("needs: verify-exact-single-file-owner-request") < yaml.indexOf("runs-on: [self-hosted, Windows, X64, magasin-h4a16il]"));
   assert.match(yaml, /runs-on: \[self-hosted, Windows, X64, magasin-h4a16il\]/);
-  assert.match(yaml, /MachineName -cne 'DESKTOP-H4A16IL'/);
+  // H4 refuses PowerShell script wrappers by default, so the pre-checkout
+  // host guard must use cmd/hostname and reject 4K7 without filesystem reads.
+  assert.match(yaml, /name: Deny non-H4 before checkout and all local reads\s+shell: cmd/);
+  assert.match(yaml, /for \/f "delims=" %%H in \('hostname'\)/);
+  assert.match(yaml, /if not "%SC013_ACTUAL_HOST%"=="DESKTOP-H4A16IL"/);
+  assert.match(yaml, /exit \/b 1/);
+  assert.match(yaml, /echo SC013_H4_IDENTITY_PASS=True/);
+  assert.match(yaml, /name: Inspect H4 SOT-approved safe presence and resource summary only\s+shell: cmd/);
+  assert.match(yaml, /powershell\.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File/);
+  assert.match(yaml, /-ExpectedSha "%EXPECTED_MAIN_SHA%"/);
+  assert.doesNotMatch(yaml, /Set-ExecutionPolicy|CurrentUser|LocalMachine/);
+  assert.equal((yaml.match(/shell: cmd/g)||[]).length, 2);
   assert.ok(yaml.indexOf('Deny non-H4') < yaml.indexOf('uses: actions/checkout'));
   assert.match(yaml, /ref: \$\{\{ github\.sha \}\}/);
   assert.match(yaml, /persist-credentials: false/);
