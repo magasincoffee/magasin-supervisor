@@ -279,7 +279,9 @@ async function refresh(){
      const response=await fetch("/api/projects",{cache:"no-store"});
      projectCatalogue=response.ok?await response.json():{status:"UNAVAILABLE",projects:[]};
      alertBox.hidden=true;
-     openPage("projects",false);
+     // Ignore stale project responses when navigation moved to another page.
+     if(currentPage()==="projects")openPage("projects",false);
+     else refreshPending=true;
      return;
    }
    const [res,monRes]=await Promise.all([
@@ -365,7 +367,11 @@ document.addEventListener("click",async(e)=>{
  if(toggle){
    const key=toggle.dataset.projectToggle;
    if(projectExpanded.has(key))projectExpanded.delete(key);else projectExpanded.add(key);
-   openPage("projects",false);return;
+   openPage("projects",false);
+   // Rerendering the tree replaces the original button; preserve keyboard focus.
+   const replacement=[...root.querySelectorAll("[data-project-toggle]")].find(x=>x.dataset.projectToggle===key);
+   replacement?.focus();
+   return;
  }
  const focus=e.target.closest("[data-project-focus]");
  if(focus){
@@ -408,8 +414,10 @@ document.addEventListener("click",async(e)=>{
  }
  const button=e.target.closest("[data-open]");
  if(button){
+   const previousPage=currentPage();
    openPage(button.dataset.open);
-   if(button.dataset.open==="projects" || !latest)await refresh();
+   // A long stay on Projects must never reuse old operational/robot state.
+   if(button.dataset.open==="projects" || previousPage==="projects" || !latest)await refresh();
  }
 });
 document.addEventListener("keydown",(e)=>{if(e.key==="Enter"&&e.target.matches(".robot-card"))openPage(e.target.dataset.open)});

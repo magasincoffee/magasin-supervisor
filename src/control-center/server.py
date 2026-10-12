@@ -404,7 +404,7 @@ class Handler(BaseHTTPRequestHandler):
                 if key not in ROBOTS:
                     return self.send_data('{"error":"unknown robot"}',code=404)
                 return self.send_data(json.dumps(detail(key),ensure_ascii=False))
-            if p in ("/","/index.html","/projects") or p.startswith("/robot/"):
+            if p in ("/","/index.html","/projects","/projects/") or p.startswith("/robot/"):
                 return self.send_data((WEB/"index.html").read_bytes(),mime="text/html; charset=utf-8")
             if p=="/app.js":
                 return self.send_data((WEB/"app.js").read_bytes(),mime="application/javascript; charset=utf-8")

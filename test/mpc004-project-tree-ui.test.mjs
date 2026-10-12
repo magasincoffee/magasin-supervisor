@@ -72,7 +72,7 @@ test("Control Center serves the actual shell, read-only API and module without r
   read("src/control-center/web/index.html"),read("src/control-center/web/styles.css"),
   read("src/control-center/project_tree_catalogue.py")
  ]);
- for(const s of ['if p=="/api/projects":','if p in ("/","/index.html","/projects")','if p=="/project_tree_view.mjs":'])
+ for(const s of ['if p=="/api/projects":','if p in ("/","/index.html","/projects","/projects/")','if p=="/project_tree_view.mjs":'])
   assert.ok(server.includes(s),s);
  assert.match(server,/from project_tree_catalogue import read_only_project_catalogue/);
  assert.match(index,/<meta name="viewport" content="width=device-width,initial-scale=1">/);
@@ -104,4 +104,18 @@ test("overlapping robot refresh queues project loading and never treats null as 
  const pending=renderProjectTree({catalogue:null});
  assert.match(pending,/Đang tải danh mục dự án/);
  assert.doesNotMatch(pending,/Chưa có dự án được xác minh/);
+});
+
+test("MPC-004 route races do not render stale project results over the current page",async()=>{
+ const [app,server]=await Promise.all([read("src/control-center/web/app.js"),read("src/control-center/server.py")]);
+ assert.match(app,/if\(currentPage\(\)==="projects"\)openPage\("projects",false\);\s*else refreshPending=true;/);
+ assert.match(app,/const previousPage=currentPage\(\);\s*openPage\(button\.dataset\.open\);/);
+ assert.match(app,/previousPage==="projects" \|\| !latest\)await refresh\(\)/);
+ assert.match(server,/if p in \("\/","\/index\.html","\/projects","\/projects\/"\)/);
+});
+test("MPC-004 keyboard toggles restore focus to the matching replacement button",async()=>{
+ const app=await read("src/control-center/web/app.js");
+ assert.match(app,/root\.querySelectorAll\("\[data-project-toggle\]"\)/);
+ assert.match(app,/x\.dataset\.projectToggle===key/);
+ assert.match(app,/replacement\?\.focus\(\)/);
 });
