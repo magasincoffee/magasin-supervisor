@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
 import {buildProjectReadModel} from "../src/control-center/project_read_model.mjs";
 const sha="a".repeat(40), other="b".repeat(40);
 const rev=(hash=sha)=>({repo:"magasincoffee/magasin-supervisor",path:"SOURCE_OF_TRUTH.md",sha:hash,url:"https://github.com/magasincoffee/magasin-supervisor/blob/main/SOURCE_OF_TRUTH.md"});
@@ -35,3 +36,5 @@ test("reject IDs reused across hierarchy levels in one project",()=>{const same=
 test("source conflict remains CONFLICT when claims contain malformed elements",()=>{const foreign={...rev(),repo:"magasincoffee/OPS-WebApp",url:"https://github.com/magasincoffee/OPS-WebApp/blob/main/SOURCE_OF_TRUTH.md"};const conflicted=task({id:"MPC-002",title:"Schema",revision:foreign,scopeStatus:"VERIFIED_DONE",claims:["TYPO"]});assert.equal(conflicted.scopeStatus,"CONFLICT");const evidence=[ "canonical_sot","task_dod","qa","exact_main" ].map(kind=>ev(kind));assert.equal(task({id:"MPC-002",title:"Schema",scopeStatus:"VERIFIED_DONE",claims:["TYPO"],evidence}).scopeStatus,"UNKNOWN");});
 
 test("malformed claim ignored for conflict comparison but never accepted as verified",()=>{const evidence=["canonical_sot","task_dod","qa","exact_main"].map(kind=>ev(kind));assert.equal(task({id:"MPC-002",title:"Schema",scopeStatus:"VERIFIED_DONE",claims:["BOGUS"],evidence}).scopeStatus,"UNKNOWN");assert.equal(task({id:"MPC-002",title:"Schema",scopeStatus:"READY",claims:["BLOCKED","BOGUS"],evidence}).scopeStatus,"CONFLICT");assert.equal(task({id:"MPC-002",title:"Schema",scopeStatus:"VERIFIED_DONE",claims:[null],evidence}).scopeStatus,"UNKNOWN");});
+
+test("MPC-002 authoritative SOT handoff contains exact-main completion evidence and preserved STOP",()=>{const sot=readFileSync(new URL("../docs/project-control/MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md",import.meta.url),"utf8");assert.match(sot,/MPC-002 \(VERIFIED\)/);assert.match(sot,/MPC-003 is the sole next executable task/);assert.match(sot,/efe593ffab72f4fea08c1cdcbf006d1ee784b9f4/);assert.match(sot,/14cc34318190a6691b656697c22846a0109ed5ec/);assert.match(sot,/No Supervisor START/);});

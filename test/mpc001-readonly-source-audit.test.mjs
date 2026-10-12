@@ -10,7 +10,8 @@ test("MPC-001 documents real read-only Control Center integration seams", async 
     read("src/control-center/server.py"), read("src/control-center/web/app.js"),
     read("SOURCE_OF_TRUTH.md")
   ]);
-  assert.match(plan, /MPC-002 is the sole next executable task/);
+  // MPC-001 audit acceptance is permanent; do not pin a transient "next task" pointer.
+  assert.match(plan, /MPC-001 G0 VERIFIED/);
   assert.match(plan, /MPC-001 execution evidence/);
   assert.match(plan, /MPC-001 G0 source audit VERIFIED/);
   assert.match(plan, /a06690c81e00ab09e406021579f36e11022f3542/);

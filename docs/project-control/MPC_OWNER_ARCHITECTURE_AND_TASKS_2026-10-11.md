@@ -1,6 +1,6 @@
 # MAGASIN PROJECT CONTROL — Owner-approved architecture and execution backlog
 Date: 2026-10-11 Asia/Ho_Chi_Minh
-Status: OWNER APPROVED DESIGN; MPC-001 G0 VERIFIED (SOURCE/QA ONLY); MPC-002 NEXT, NOT STARTED
+Status: OWNER APPROVED DESIGN; MPC-001 G0 VERIFIED; MPC-002 SOURCE/QA VERIFIED (reviewed merge and exact-main); MPC-003 NEXT
 Authority: This is a subordinate implementation plan. `SOURCE_OF_TRUTH.md` is the sole authority for Supervisor SC-013. Every domain project retains its own canonical SOT. No content here grants START, production deployment, merge, business dispatch, or change to STOP/AUTOSTART_DISABLED.
 
 ## Owner outcome
@@ -26,7 +26,7 @@ An Owner-facing Vietnamese project tree inside the existing Supervisor Control C
 | ID | Dependency | Deliverable | Acceptance gate |
 |---|---|---|---|
 | MPC-001 (G0 VERIFIED) | none | Inspect Control Center routes/auth, build/release workflows, source inventory; document exact paths and authority | read-only audit, no write endpoints |
-| MPC-002 | 001 | Canonical read model/schema for project > feature > task, revision/evidence/status separation | schema fixtures for UNKNOWN/conflicts |
+| MPC-002 (VERIFIED) | 001 | Canonical read model/schema for project > feature > task, revision/evidence/status separation | schema fixtures for UNKNOWN/conflicts; four exact-head CI GREEN, reviewed merge, exact-main verified |
 | MPC-003 | 002 | Safe read-only GitHub/SOT adapter with allowlisted repositories and bounded caching/retries | 404/rate limit/stale/main-diverged fail visibly |
 | MPC-004 | 003 | Owner-facing project tree UI, search, expand/collapse, breadcrumb | desktop/mobile UI QA, no writes |
 | MPC-005 | 004 | Feature/task detail with authoritative links, status explanation, PR/CI/evidence provenance | reject synthetic DONE and unverified status |
@@ -55,9 +55,13 @@ G6: four required hosted Supervisor CI GREEN at exact head -> reviewed merge -> 
 A failing gate pauses only its dependent tasks; independent read-only functionality may progress.
 
 ## Immediate next work
-After independently reviewed MPC-001 G0 audit acceptance, **MPC-002 is the sole next executable task (SOURCE/QA ONLY)**. MPC-002 may design the canonical read model/schema and fixtures, but cannot activate Supervisor, switch projects, deploy H4, introduce write endpoints or bypass the separate release/Owner gates.
+After verified MPC-002 source/QA acceptance and exact-main merge, **MPC-003 is the sole next executable task (SOURCE/QA ONLY)**. MPC-003 may implement only the safe read-only allowlisted GitHub/SOT adapter with bounded retries/caching and explicit 404/rate-limit/stale/main-diverged handling. No Supervisor START, project switch, H4 apply, write endpoints, dispatch, or bypass of the separate Owner/release gates.
 
 
 ## MPC-001 execution evidence (2026-10-11)
 
 Source audit report: [MPC-001_READ_ONLY_SOURCE_AUDIT_2026-10-11.md](MPC-001_READ_ONLY_SOURCE_AUDIT_2026-10-11.md). The inspected baseline is 90785ed60e8c1cb47a080b92b7602bb0de6e4800. Inventory confirms existing Python loopback server and JS UI seam, no authenticated Owner RBAC for project write actions, and unresolved `web/index.html` / `web/styles.css` source-path 404s. **MPC-001 G0 source audit VERIFIED (not a deployed-product acceptance).** PR #407 approved and merged on 2026-10-11: exact PR head `a06690c81e00ab09e406021579f36e11022f3542`; four hosted Supervisor gates successful (`38149412397`, `38149412390`, `38149412395`, `38149412389`); reviewed squash merge `7bd3ccf3b2349dfe6aa7ec71fed1429b07be7a64`; exact-main audit file confirmed. No H4 installation or operational release is in scope for G0. Future product deployment/Owner acceptance remains separately gated. No Supervisor START, selection, dispatch, H4 apply, or production mutations performed. MPC-002 remains dependent on verified G0.
+
+## MPC-002 completion evidence (2026-10-12)
+
+**MPC-002 canonical read model/schema SOURCE/QA VERIFIED (not a production release or deployed-product acceptance).** Implemented in `src/control-center/project_read_model.mjs`, documented by `docs/project-control/MPC-002_READ_MODEL_CONTRACT_2026-10-11.md`, and exercised by `test/mpc002-project-read-model.test.mjs`, including fail-closed UNKNOWN/CONFLICT and repository/revision/status isolation. [PR #409](https://github.com/magasincoffee/magasin-supervisor/pull/409) independently reviewed at exact head `efe593ffab72f4fea08c1cdcbf006d1ee784b9f4` (Codex review marked completed with no new findings; all prior inline review threads resolved). Four mandatory hosted Supervisor workflows succeeded at this exact head: Supervisor Tests `38187129287`, Supervisor Integrity `38187129277`, Supervisor Lifecycle Acceptance `38187129311`, Supervisor Autostart Install `38187129285`. Reviewed squash merge `14cc34318190a6691b656697c22846a0109ed5ec`; exact-main readback confirmed the source, regression tests and contract file at that commit. The SOT status update itself is documentation of existing verified evidence; it does not grant H4 deployment, Owner acceptance, business executor activation or change the Supervisor STOP/AUTOSTART_DISABLED latches. **Next authorized backlog task: MPC-003.**
