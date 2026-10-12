@@ -63,7 +63,8 @@ export function renderProjectDetail({catalogue,selected,detail=null}={}){
  if(!item)return '<section class="project-detail" role="alert"><strong>Không tìm thấy mục đã chọn</strong><p>Đường dẫn không thuộc danh mục được phép. Không suy đoán trạng thái.</p></section>';
  const a=detail?.ok===true&&detail?.selected?.key===selected&&detail?.selected?.projectId===item.projectId &&
    detail?.authority?.source==="CANONICAL_MODEL"&&
-   detail?.authority?.revision?.repo===item.repo&&detail?.authority?.revision?.path===SOT_PATHS[item.projectId]&&SHA.test(detail?.authority?.revision?.sha??"")?
+   detail?.authority?.revision?.repo===item.repo&&detail?.authority?.revision?.path===SOT_PATHS[item.projectId]&&SHA.test(detail?.authority?.revision?.sha??"")&&
+   detail?.authority?.revision?.url==="https://github.com/"+item.repo+"/blob/"+detail.authority.revision.sha+"/"+SOT_PATHS[item.projectId]?
      detail.authority:null;
  const divergence=detail?.ok===true&&detail?.selected?.key===selected&&detail?.selected?.projectId===item.projectId&&detail?.authority?.source==="CONFLICT";
  const scope=divergence?"CONFLICT":a&&Object.hasOwn(scopeLabels,a.scope)?a.scope:"UNKNOWN";
