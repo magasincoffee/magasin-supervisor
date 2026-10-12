@@ -315,9 +315,9 @@ test("embedded standalone sha on any model or evidence node fails closed",()=>{
  for(const mutate of cases){
    const poisoned=structuredClone(base);
    mutate(poisoned);
-   const content="# Canonical SOT\\n<!-- MAGASIN_CANONICAL_PROJECT_MODEL_V1_BEGIN -->\\n"+
+   const content="# Canonical SOT\n<!-- MAGASIN_CANONICAL_PROJECT_MODEL_V1_BEGIN -->\n"+
       JSON.stringify({schema:"magasin-canonical-project-model.v1",project:poisoned})+
-      "\\n<!-- MAGASIN_CANONICAL_PROJECT_MODEL_V1_END -->\\n";
+      "\n<!-- MAGASIN_CANONICAL_PROJECT_MODEL_V1_END -->\n";
    const data=project(snapshot({content}));
    assert.equal(data.authority.source,"CONFLICT");
    assert.equal(data.authority.scope,"UNKNOWN");
