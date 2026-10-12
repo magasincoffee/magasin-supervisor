@@ -24,6 +24,17 @@ Rules:
 
 If any source conflicts with this file, **this file wins**.
 
+### 0.1 Owner directive — complete the whole task before independent Codex review (2026-10-12)
+
+For implementation tasks in this Supervisor repository, including MAGASIN PROJECT CONTROL (MPC), the Owner explicitly chooses **task-batched independent Codex review**, not review after every small change.
+
+1. First implement the **entire approved task scope** and its targeted tests, including self-checks, QA and coherent root-cause repairs. Keep each task's boundaries and acceptance criteria unchanged. Ordinary commits, interim CI results and individual bugfixes are **not** separate Codex-review checkpoints.
+2. Once that task's candidate is implementation-complete and the PR HEAD is stable, verify the four mandatory hosted Supervisor CI workflows at that **exact HEAD**, and request **one independent Codex review of the finished candidate**. Never repeatedly request review merely because another small commit or check occurred.
+3. If independent review identifies actionable P1/P2 defects, group related fixes into a bounded repair batch, run focused tests and four exact-head CI again, then request **one fresh independent review of the newly finished repair candidate**. A review of an older commit never qualifies a newer HEAD. Escalate only a genuine Owner decision, a security gate or an exhausted bounded repair; do not spin on repetitive review/repair loops.
+4. Preserve all existing quality and release safeguards: no merge until independent current-head review findings are reconciled, required exact-head CI is GREEN and applicable approval gates are met; verify exact-main after reviewed merge. Documentation/CI runs created automatically by GitHub are not a reason to invoke extra manual reviews.
+5. Distinguish **IMPLEMENTATION_COMPLETE / AWAITING_INDEPENDENT_REVIEW** from **SOURCE_QA_VERIFIED**. A finished implementation is not DONE until its task-specific review, CI, merge and exact-main criteria are evidenced. Report meaningful milestones to Owner rather than each technical adjustment.
+6. This changes **review timing only**. It grants no Supervisor START/STOP change, project selection, business execution, production deployment, H4 apply, canonical SOT rewrite in other projects, or waiver of independent Owner/release gates. For MPC-005 PR #418, any already-requested review counts only if it covers the stable final PR HEAD.
+
 ---
 
 ## 1. Architecture decision
