@@ -18,6 +18,15 @@ test('single request-only workflow with explicit Owner and H4 gates, never PR/sc
   assert.match(yaml, /runs-on: ubuntu-latest/);
   assert.match(yaml, /needs: verify-exact-single-file-owner-request/);
   assert.match(yaml, /r.data.total_commits !== 1/);
+  assert.match(yaml, /actions: read/);
+  assert.match(yaml, /listWorkflowRunsForRepo/);
+  assert.match(yaml, /head_sha: before/);
+  assert.match(yaml, /H4_BASE_EXACT_MAIN_FOUR_CI_NOT_GREEN/);
+  for (const gate of ['Supervisor Tests','Supervisor Integrity','Supervisor Lifecycle Acceptance','Supervisor Autostart Install']) {
+    assert.ok(yaml.includes(gate), gate);
+  }
+  assert.match(yaml, /latestByName\.size !== required\.size/);
+  assert.match(yaml, /latestByName\.get\(name\)\?\.conclusion !== 'success'/);
   assert.match(yaml, /files.length !== 1/);
   assert.match(yaml, /files\[0\]\.filename !== process.env.EXPECTED_ONLY_PATH/);
   assert.match(yaml, /context.payload.forced === true/);
