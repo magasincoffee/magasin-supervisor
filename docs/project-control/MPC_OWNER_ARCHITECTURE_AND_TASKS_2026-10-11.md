@@ -1,6 +1,6 @@
 # MAGASIN PROJECT CONTROL — Owner-approved architecture and execution backlog
 Date: 2026-10-11 Asia/Ho_Chi_Minh
-Status: OWNER APPROVED DESIGN; MPC-001 G0 VERIFIED; MPC-002 SOURCE/QA VERIFIED (reviewed merge and exact-main); MPC-003 NEXT
+Status: OWNER APPROVED DESIGN; MPC-001 G0 VERIFIED; MPC-002 SOURCE/QA VERIFIED; MPC-003 SOURCE/QA VERIFIED (reviewed merge and exact-main); MPC-004 NEXT
 Authority: This is a subordinate implementation plan. `SOURCE_OF_TRUTH.md` is the sole authority for Supervisor SC-013. Every domain project retains its own canonical SOT. No content here grants START, production deployment, merge, business dispatch, or change to STOP/AUTOSTART_DISABLED.
 
 ## Owner outcome
@@ -27,7 +27,7 @@ An Owner-facing Vietnamese project tree inside the existing Supervisor Control C
 |---|---|---|---|
 | MPC-001 (G0 VERIFIED) | none | Inspect Control Center routes/auth, build/release workflows, source inventory; document exact paths and authority | read-only audit, no write endpoints |
 | MPC-002 (VERIFIED) | 001 | Canonical read model/schema for project > feature > task, revision/evidence/status separation | schema fixtures for UNKNOWN/conflicts; four exact-head CI GREEN, reviewed merge, exact-main verified |
-| MPC-003 | 002 | Safe read-only GitHub/SOT adapter with allowlisted repositories and bounded caching/retries | 404/rate limit/stale/main-diverged fail visibly |
+| MPC-003 (VERIFIED) | 002 | Safe read-only GitHub/SOT adapter with allowlisted repositories and bounded caching/retries | 404/rate limit/stale/main-diverged fail visibly; four exact-head CI GREEN, independently reviewed merge, exact-main verified |
 | MPC-004 | 003 | Owner-facing project tree UI, search, expand/collapse, breadcrumb | desktop/mobile UI QA, no writes |
 | MPC-005 | 004 | Feature/task detail with authoritative links, status explanation, PR/CI/evidence provenance | reject synthetic DONE and unverified status |
 | MPC-006 | 001,005 | Owner-only request draft form, screenshot references, idempotent submission with audit | CSRF/RBAC/duplicate/attachment validation |
@@ -55,7 +55,7 @@ G6: four required hosted Supervisor CI GREEN at exact head -> reviewed merge -> 
 A failing gate pauses only its dependent tasks; independent read-only functionality may progress.
 
 ## Immediate next work
-After verified MPC-002 source/QA acceptance and exact-main merge, **MPC-003 is the sole next executable task (SOURCE/QA ONLY)**. MPC-003 may implement only the safe read-only allowlisted GitHub/SOT adapter with bounded retries/caching and explicit 404/rate-limit/stale/main-diverged handling. No Supervisor START, project switch, H4 apply, write endpoints, dispatch, or bypass of the separate Owner/release gates.
+After verified MPC-003 SOURCE/QA acceptance and exact-main merge, **MPC-004 is the sole next executable task (SOURCE/QA ONLY)**. MPC-004 may implement only the Owner-facing project tree UI with search, expand/collapse, breadcrumb, mobile/desktop read-only QA, and no writes. No Supervisor START, project switch, H4 apply, Owner write endpoints, dispatch, production deployment, or bypass of separate Owner/release gates.
 
 
 ## MPC-001 execution evidence (2026-10-11)
@@ -65,3 +65,10 @@ Source audit report: [MPC-001_READ_ONLY_SOURCE_AUDIT_2026-10-11.md](MPC-001_READ
 ## MPC-002 completion evidence (2026-10-12)
 
 **MPC-002 canonical read model/schema SOURCE/QA VERIFIED (not a production release or deployed-product acceptance).** Implemented in `src/control-center/project_read_model.mjs`, documented by `docs/project-control/MPC-002_READ_MODEL_CONTRACT_2026-10-11.md`, and exercised by `test/mpc002-project-read-model.test.mjs`, including fail-closed UNKNOWN/CONFLICT and repository/revision/status isolation. [PR #409](https://github.com/magasincoffee/magasin-supervisor/pull/409) independently reviewed at exact head `efe593ffab72f4fea08c1cdcbf006d1ee784b9f4` (Codex review marked completed with no new findings; all prior inline review threads resolved). Four mandatory hosted Supervisor workflows succeeded at this exact head: Supervisor Tests `38187129287`, Supervisor Integrity `38187129277`, Supervisor Lifecycle Acceptance `38187129311`, Supervisor Autostart Install `38187129285`. Reviewed squash merge `14cc34318190a6691b656697c22846a0109ed5ec`; exact-main readback confirmed the source, regression tests and contract file at that commit. The SOT status update itself is documentation of existing verified evidence; it does not grant H4 deployment, Owner acceptance, business executor activation or change the Supervisor STOP/AUTOSTART_DISABLED latches. **Next authorized backlog task: MPC-003.**
+
+
+## MPC-003 completion evidence (2026-10-12)
+
+**MPC-003 safe read-only GitHub/SOT adapter SOURCE/QA VERIFIED (not a runtime deployment or production acceptance).** Implemented in `src/control-center/project_sot_adapter.mjs`, documented by `docs/project-control/MPC-003_READ_ONLY_SOT_ADAPTER_CONTRACT_2026-10-12.md`, and exercised by `test/mpc003-readonly-sot-adapter.test.mjs`. This is a server-side, allowlisted metadata/SOT reader only (Supervisor, Workforce and separately governed OPS): immutable main revision reads, explicit 404, primary/secondary rate limit, network/timeout, stale and main-diverged handling, cache isolation, fatal UTF-8 decoding, and failure-mode fixtures. No UI route, write endpoint, SOT writeback, project selection, Owner START/STOP, H4 apply, or business dispatch was introduced.
+
+[PR #413](https://github.com/magasincoffee/magasin-supervisor/pull/413) completed independent Codex review on exact head `693ef90aae4b8bffc96b25dd7e663947cd809408` on 2026-10-12 (review completed, no further actionable findings; all review threads resolved). The four mandatory hosted Supervisor workflows completed **success** at that exact head: Supervisor Tests `38199566140`, Supervisor Integrity `38199566154`, Supervisor Lifecycle Acceptance `38199566148`, Supervisor Autostart Install `38199566139`. Reviewed squash merge `b0d12372b3f141826e606d4f6d074c65c5739720` landed on `main` (2026-10-12T03:53:44Z); independent exact-main readback confirmed main at that SHA and **matching git tree** `22607c697ae8f66739975f3286f517aad953c08d` on both approved PR head and merge. This entry records prior verified source/QA completion only; it grants no runtime deployment or autonomous business activity. **Next authorized task: MPC-004.**
