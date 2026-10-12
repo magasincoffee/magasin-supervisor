@@ -37,10 +37,10 @@ function modelFromSot(content){
 function bindSnapshotRevision(input,revision){
  const proofBound=new Set(["canonical_sot","task_dod","qa","exact_main"]);
  const node=n=>{
-   if(!record(n)||Object.hasOwn(n,"revision"))throw new Error("EMBEDDED_NODE_REVISION");
+   if(!record(n)||Object.hasOwn(n,"revision")||Object.hasOwn(n,"sha"))throw new Error("EMBEDDED_NODE_REVISION");
    const out={...n,revision:{...revision}};
    if(Array.isArray(n.evidence))out.evidence=n.evidence.map(e=>{
-     if(!record(e)||Object.hasOwn(e,"revision"))throw new Error("EMBEDDED_EVIDENCE_REVISION");
+     if(!record(e)||Object.hasOwn(e,"revision")||Object.hasOwn(e,"sha"))throw new Error("EMBEDDED_EVIDENCE_REVISION");
      return {...e,revision:{...revision},url:proofBound.has(e.kind)&&e.url===undefined?revision.url:e.url};
    });
    if(Array.isArray(n.features))out.features=n.features.map(node);
