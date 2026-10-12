@@ -20,3 +20,6 @@ Date: 2026-10-12 · Scope: MPC-005 only · Not Owner operational acceptance.
 ## Codex P1/P2 revision and source-ID hardening
 - The static Python navigation ID `print-ops` maps only to the MPC-003 adapter key `print_ops`. It is not a cross-project permission or data merge.
 - The selected feature/task revision must match the fetched CURRENT canonical SOT SHA, path, repository **and immutable blob URL**; every evidence revision must be pinned to that same exact snapshot. A `blob/main` proof, stale task SHA or mismatched evidence revision fails closed as CONFLICT/UNKNOWN. The renderer repeats the immutable-URL check before displaying VERIFIED_DONE.
+
+## UI defence against misrouted revision feeds
+Browser detail renderer also verifies the selected project's approved canonical SOT **path** against a fixed project-ID allowlist (`supervisor`, `workforce`, `print-ops`), in addition to pinned revision SHA, repo and matching evidence. A same-repository blob for unrelated documents can never render VERIFIED_DONE, even if four fake evidence kinds are present; a forged display feed remains UNKNOWN.

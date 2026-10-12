@@ -178,3 +178,18 @@ test("revision-bound evidence at blob/main never authorizes immutable DoD",()=>{
  })),revision:{...revision(),url:mutableUrl}}};
  assert.doesNotMatch(renderProjectDetail({catalogue:navigation(),selected:path,detail:forged}),/Hoàn thành đã xác minh/);
 });
+
+test("display-only forged same-repo wrong SOT path never becomes VERIFIED_DONE",()=>{
+ const valid=project();
+ const badPath="docs/OTHER_DOCUMENT.md";
+ const wrongRevision={...valid.authority.revision,path:badPath,url:"https://github.com/"+REPO+"/blob/"+SHA+"/"+badPath};
+ const kinds=["canonical_sot","task_dod","qa","exact_main"];
+ const forged={...valid,authority:{...valid.authority,revision:wrongRevision,evidence:[
+   ...kinds.map(kind=>({id:kind,kind,verified:true,sha:SHA,url:wrongRevision.url})),
+   {id:"ci",kind:"ci",verified:true,sha:SHA,url:"https://github.com/"+REPO+"/actions/runs/38221516484"}
+ ]}};
+ const html=renderProjectDetail({catalogue:navigation(),selected:path,detail:forged});
+ assert.doesNotMatch(html,/Hoàn thành đã xác minh/);
+ assert.doesNotMatch(html,/OTHER_DOCUMENT/);
+ assert.match(html,/Chưa xác minh/);
+});

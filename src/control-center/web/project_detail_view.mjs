@@ -5,6 +5,11 @@ const ALLOWED={
  workforce:"magasincoffee/magasincoffee.github.io",
  "print-ops":"magasincoffee/OPS-WebApp"
 };
+const SOT_PATHS={
+ supervisor:"SOURCE_OF_TRUTH.md",
+ workforce:"01_DOCS/MAGASIN/05_SYSTEM/WORKFORCE_CROSS_STORE_SCHEDULING_TEMP_SOURCE_OF_TRUTH.md",
+ "print-ops":"SOURCE_OF_TRUTH.md"
+};
 const IDENT=/^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
 const SHA=/^[a-f0-9]{40}$/;
 const scopeLabels={UNKNOWN:"Chưa xác minh",CONFLICT:"Xung đột nguồn",PLANNED:"Đã lên kế hoạch",
@@ -58,7 +63,7 @@ export function renderProjectDetail({catalogue,selected,detail=null}={}){
  if(!item)return '<section class="project-detail" role="alert"><strong>Không tìm thấy mục đã chọn</strong><p>Đường dẫn không thuộc danh mục được phép. Không suy đoán trạng thái.</p></section>';
  const a=detail?.ok===true&&detail?.selected?.key===selected&&detail?.selected?.projectId===item.projectId &&
    detail?.authority?.source==="CANONICAL_MODEL"&&
-   detail?.authority?.revision?.repo===item.repo&&SHA.test(detail?.authority?.revision?.sha??"")?
+   detail?.authority?.revision?.repo===item.repo&&detail?.authority?.revision?.path===SOT_PATHS[item.projectId]&&SHA.test(detail?.authority?.revision?.sha??"")?
      detail.authority:null;
  const divergence=detail?.ok===true&&detail?.selected?.key===selected&&detail?.selected?.projectId===item.projectId&&detail?.authority?.source==="CONFLICT";
  const scope=divergence?"CONFLICT":a&&Object.hasOwn(scopeLabels,a.scope)?a.scope:"UNKNOWN";
