@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="vi">
+<head>
+ <meta charset="utf-8">
+ <meta name="viewport" content="width=device-width,initial-scale=1">
+ <meta name="color-scheme" content="light">
+ <title>MAGASIN · Control Center</title>
+ <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+ <div class="shell">
+  <aside class="sidebar" aria-label="Điều hướng">
+   <a class="brand" href="/" aria-label="MAGASIN Control Center"><span class="brand-mark">M</span><span><strong>MAGASIN</strong><small>CONTROL CENTER</small></span></a>
+   <nav class="main-nav" aria-label="Trang">
+    <button type="button" class="nav-link" data-page="home" data-open="home"><span class="nav-ico">▦</span><span>Tổng quan</span></button>
+    <button type="button" class="nav-link" data-page="projects" data-open="projects"><span class="nav-ico">♧</span><span>Dự án</span></button>
+   </nav>
+   <p class="nav-heading">ROBOT</p>
+   <nav id="nav-robots" class="main-nav" aria-label="Robot"></nav>
+   <div class="sidebar-note">Cổng Owner STOP và quyền thực thi vẫn tách biệt khỏi giao diện theo dõi.</div>
+  </aside>
+  <div class="workspace">
+   <header class="topbar">
+    <div class="page-heading"><div class="eyebrow">MAGASIN / ĐIỀU HÀNH</div><h1 id="page-title">Trung tâm điều khiển Robot</h1><p id="page-subtitle">Cập nhật trạng thái theo bằng chứng</p></div>
+    <div class="top-actions"><span id="updated">Chưa cập nhật</span><button id="refresh" type="button" class="btn">↻ Làm mới</button></div>
+   </header>
+   <main id="main-content" tabindex="-1" aria-live="polite"></main>
+   <p id="loading" class="loading" role="status">Đang đọc trạng thái Control Center…</p>
+   <footer class="footer">MAGASIN · Chỉ thể hiện thông tin đã kiểm tra. Không suy đoán trạng thái hoàn thành.</footer>
+  </div>
+ </div>
+ <script type="module" src="/app.js"></script>
+</body>
+</html>

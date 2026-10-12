@@ -1,4 +1,5 @@
 "use strict";
+import {renderProjectTree} from "./project_tree_view.mjs";
 const ROOT="/";
 const root=document.getElementById("main-content");
 const alertBox=document.getElementById("loading");
@@ -10,6 +11,10 @@ let monitorState=null;
 let busy=false;
 let supervisorSotDraft="";
 let supervisorSotCheck=null;
+let projectCatalogue=null;
+let projectQuery="";
+let projectSelected="";
+const projectExpanded=new Set(["supervisor","supervisor/project-control"]);
 const esc=(value)=>String(value??"—").replace(/[&<>"']/g, (c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmtDate=(v)=>{if(!v)return "Chưa có";const d=new Date(v);return Number.isNaN(d.getTime())?"Không rõ":d.toLocaleString("vi-VN")};
 const allItems=()=>[...(latest?.coordinator?[latest.coordinator]:[]),...(latest?.robots||[]),...(latest?.services||[])];
@@ -252,18 +257,29 @@ function renderDetail(r){
  </div>`;
 }
 function openPage(id,historyUpdate=true){
- const page=id==="home"||!allItems().some(x=>x.id===id)?"home":id;
- if(historyUpdate)history.pushState({page},"",page==="home"?"/":"/robot/"+page);
- nameTitle.textContent=page==="home"?"Trung tâm điều khiển Robot":allItems().find(x=>x.id===page).name;
- subtitle.textContent=page==="home"?"Mỗi robot độc lập, một nơi để theo dõi và điều khiển.":"Xem trạng thái và chi tiết robot trong cùng một bảng điều khiển.";
- root.innerHTML=page==="home"?cards():renderDetail(allItems().find(x=>x.id===page));
+ const page=id==="projects"?"projects":id==="home"||!allItems().some(x=>x.id===id)?"home":id;
+ if(historyUpdate)history.pushState({page},"",page==="home"?"/":page==="projects"?"/projects":"/robot/"+page);
+ nameTitle.textContent=page==="home"?"Trung tâm điều khiển Robot":page==="projects"?"Dự án":allItems().find(x=>x.id===page).name;
+ subtitle.textContent=page==="projects"?"Cây dự án · trạng thái chưa xác minh được hiển thị rõ ràng":page==="home"?"Mỗi robot độc lập, một nơi để theo dõi và điều khiển.":"Xem trạng thái và chi tiết robot trong cùng một bảng điều khiển.";
+ root.innerHTML=page==="projects"?renderProjectTree({catalogue:projectCatalogue,query:projectQuery,selected:projectSelected,expanded:[...projectExpanded]}):!latest?'<p class="panel">Chưa tải dữ liệu điều khiển robot.</p>':page==="home"?cards():renderDetail(allItems().find(x=>x.id===page));
  document.querySelectorAll("[data-page]").forEach(x=>x.classList.toggle("selected",x.dataset.page===page));
  if(historyUpdate)window.scrollTo({top:0,behavior:"auto"});
 }
-function currentPage(){const x=location.pathname.match(/^\/robot\/(coordinator|supervisor|saydi|sapo|gateway)$/);return x?x[1]:"home"}
+function currentPage(){
+ if(location.pathname==="/projects"||location.pathname==="/projects/")return "projects";
+ const parts=location.pathname.split("/");
+ return parts.length===3&&parts[1]==="robot"&&["coordinator","supervisor","saydi","sapo","gateway"].includes(parts[2])?parts[2]:"home";
+}
 async function refresh(){
  if(busy)return;busy=true;
  try{
+   if(currentPage()==="projects"){
+     const response=await fetch("/api/projects",{cache:"no-store"});
+     projectCatalogue=response.ok?await response.json():{status:"UNAVAILABLE",projects:[]};
+     alertBox.hidden=true;
+     openPage("projects",false);
+     return;
+   }
    const [res,monRes]=await Promise.all([
      fetch("/api/overview",{cache:"no-store"}),
      fetch("/api/monitor",{cache:"no-store"}).catch(()=>null)
@@ -285,6 +301,14 @@ async function refresh(){
 document.getElementById("refresh").addEventListener("click",refresh);
 document.addEventListener("input",(e)=>{
  if(e.target?.id==="supervisor-sot-url")supervisorSotDraft=e.target.value;
+ if(e.target?.id==="project-search"){
+   const field=e.target;
+   const caret=field.selectionStart;
+   projectQuery=field.value.slice(0,120);
+   openPage("projects",false);
+   const restored=document.getElementById("project-search");
+   if(restored){restored.focus();restored.setSelectionRange(caret,caret);}
+ }
 });
 document.addEventListener("submit",async(e)=>{
  if(e.target?.id!=="supervisor-sot-form")return;
@@ -332,6 +356,21 @@ document.addEventListener("click",async(e)=>{
  await refresh();
 });
 document.addEventListener("click",async(e)=>{
+ const toggle=e.target.closest("[data-project-toggle]");
+ if(toggle){
+   const key=toggle.dataset.projectToggle;
+   if(projectExpanded.has(key))projectExpanded.delete(key);else projectExpanded.add(key);
+   openPage("projects",false);return;
+ }
+ const focus=e.target.closest("[data-project-focus]");
+ if(focus){
+   const key=focus.dataset.projectFocus;
+   projectSelected=key;
+   const parts=key.split("/");
+   if(parts[0])projectExpanded.add(parts[0]);
+   if(parts.length>1)projectExpanded.add(parts.slice(0,2).join("/"));
+   openPage("projects",false);return;
+ }
  const stop=e.target.closest("[data-owner-stop]");
  const start=e.target.closest("[data-owner-start]");
  const chosen=stop||start;
@@ -363,9 +402,17 @@ document.addEventListener("click",async(e)=>{
    return;
  }
  const button=e.target.closest("[data-open]");
- if(button)openPage(button.dataset.open);
+ if(button){
+   openPage(button.dataset.open);
+   if(button.dataset.open==="projects" || !latest)await refresh();
+ }
 });
 document.addEventListener("keydown",(e)=>{if(e.key==="Enter"&&e.target.matches(".robot-card"))openPage(e.target.dataset.open)});
-window.addEventListener("popstate",()=>{if(latest)openPage(currentPage(),false)});
+window.addEventListener("popstate",()=>{
+ const page=currentPage();
+ if(page==="projects"){openPage(page,false);void refresh();}
+ else if(latest)openPage(page,false);
+ else void refresh();
+});
 setInterval(()=>{if(!document.hidden)refresh()},20000);
 refresh();

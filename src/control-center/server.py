@@ -396,15 +396,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_data(json.dumps(status(),ensure_ascii=False))
             if p=="/api/monitor":
                 return self.send_data(json.dumps(observability.get_monitor(),ensure_ascii=False))
+            if p=="/api/projects":
+                from project_tree_catalogue import read_only_project_catalogue
+                return self.send_data(json.dumps(read_only_project_catalogue(),ensure_ascii=False))
             if p.startswith("/api/robot/"):
                 key=p.rsplit("/",1)[-1]
                 if key not in ROBOTS:
                     return self.send_data('{"error":"unknown robot"}',code=404)
                 return self.send_data(json.dumps(detail(key),ensure_ascii=False))
-            if p in ("/","/index.html") or p.startswith("/robot/"):
+            if p in ("/","/index.html","/projects") or p.startswith("/robot/"):
                 return self.send_data((WEB/"index.html").read_bytes(),mime="text/html; charset=utf-8")
             if p=="/app.js":
                 return self.send_data((WEB/"app.js").read_bytes(),mime="application/javascript; charset=utf-8")
+            if p=="/project_tree_view.mjs":
+                return self.send_data((WEB/"project_tree_view.mjs").read_bytes(),mime="application/javascript; charset=utf-8")
             if p=="/styles.css":
                 return self.send_data((WEB/"styles.css").read_bytes(),mime="text/css; charset=utf-8")
             return self.send_data('{"error":"not-found"}',code=404)
