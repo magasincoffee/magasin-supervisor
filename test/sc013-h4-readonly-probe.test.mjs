@@ -32,7 +32,11 @@ test('single request-only workflow with explicit Owner and H4 gates, never PR/sc
   assert.match(yaml, /context.payload.forced === true/);
   assert.ok(yaml.indexOf("needs: verify-exact-single-file-owner-request") < yaml.indexOf("runs-on: [self-hosted, Windows, X64, magasin-h4a16il]"));
   assert.match(yaml, /runs-on: \[self-hosted, Windows, X64, magasin-h4a16il\]/);
-  assert.match(yaml, /MachineName -cne 'DESKTOP-H4A16IL'/);
+  assert.match(yaml, /for \/f "delims=" %%H in \('hostname'\)/);
+  assert.match(yaml, /if \/I not "%TARGET_MACHINE%"=="DESKTOP-H4A16IL"/);
+  assert.match(yaml, /shell: cmd/);
+  assert.match(yaml, /-ExecutionPolicy Bypass -File/);
+  assert.doesNotMatch(yaml, /Set-ExecutionPolicy|Start-Process|Stop-Process/);
   assert.ok(yaml.indexOf('Deny non-H4') < yaml.indexOf('uses: actions/checkout'));
   assert.match(yaml, /ref: \$\{\{ github\.sha \}\}/);
   assert.match(yaml, /persist-credentials: false/);
