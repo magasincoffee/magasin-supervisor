@@ -10,6 +10,8 @@ on:
       - 'SOURCE_OF_TRUTH.md'
       - 'package.json'
       - '.github/workflows/supervisor-tests.yml'
+      - '.github/workflows/sc013-h4-readonly-probe.yml'
+      - '.github/scripts/sc013-h4-readonly-probe.ps1'
   pull_request:
     paths:
       - 'src/**'
@@ -18,6 +20,8 @@ on:
       - 'SOURCE_OF_TRUTH.md'
       - 'package.json'
       - '.github/workflows/supervisor-tests.yml'
+      - '.github/workflows/sc013-h4-readonly-probe.yml'
+      - '.github/scripts/sc013-h4-readonly-probe.ps1'
   workflow_dispatch:
 
 permissions:
@@ -45,6 +49,19 @@ jobs:
       - name: Test SC-013 Python SOT preflight bridge
         shell: powershell
         run: python -m unittest discover -s test -p 'test_sc013_sot_python_bridge.py' -v
+      - name: Verify H4 one-shot diagnostics PowerShell self-test and parser
+        shell: powershell
+        run: |
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD '.github/scripts/sc013-h4-readonly-probe.ps1'),[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -ne 0){throw 'H4_DIAG_POWERSHELL_PARSE_FAILED'}
+          $proof = & '.github/scripts/sc013-h4-readonly-probe.ps1' -SelfTest
+          if (-not $?) { throw 'H4_DIAG_SELFTEST_FAILED' }
+          if ($proof -notcontains 'SC013_H4_READONLY_PROBE_SYNTHETIC_PASS=True') {
+            throw 'H4_DIAG_SELFTEST_RECEIPT_MISSING'
+          }
+          Write-Output $proof
       - name: Verify MPC-004 read-only project-tree catalogue fixtures
         shell: powershell
         run: python -m unittest discover -s test -p 'test_mpc004_project_tree_catalogue.py' -v
@@ -109,6 +126,7 @@ jobs:
             test/mpc002-project-read-model.test.mjs `
             test/mpc003-readonly-sot-adapter.test.mjs `
             test/mpc004-project-tree-ui.test.mjs `
+            test/sc013-h4-readonly-probe.test.mjs `
             test/sc013-project-activation-safe-preflight.test.mjs `
             test/sc013-local-gateway-health-stop-policy.test.mjs `
             test/sc013-owner-control-apply.test.mjs `

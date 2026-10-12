@@ -1,0 +1,110 @@
+name: SC-013 H4 one-shot read-only diagnostic
+
+# Explicit one-shot Owner request-file push only; no PR, schedule or rerun.
+# GitHub reruns keep github.actor from the initial run: guard triggering_actor and attempt.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/sc013-h4-readonly-probe-request.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: sc013-h4a16il-safe-deploy
+  cancel-in-progress: false
+
+jobs:
+  verify-exact-single-file-owner-request:
+    if: ${{ github.repository == 'magasincoffee/magasin-supervisor' && github.actor == 'magasincoffee' && github.triggering_actor == 'magasincoffee' && github.run_attempt == 1 && github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Reject mixed-file, multi-commit, forced or untrusted request BEFORE H4 routing
+        uses: actions/github-script@v7
+        env:
+          EXPECTED_ONLY_PATH: .github/sc013-h4-readonly-probe-request.json
+        with:
+          script: |
+            const before = context.payload.before;
+            const after = context.sha;
+            if (!/^[a-f0-9]{40}$/.test(before || '') || /^0{40}$/.test(before) ||
+                !/^[a-f0-9]{40}$/.test(after || '') || context.payload.forced === true) {
+              core.setFailed('H4_REQUEST_COMMIT_NOT_BOUNDED');
+              return;
+            }
+            const r = await github.rest.repos.compareCommitsWithBasehead({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              basehead: before + '...' + after,
+            });
+            const files = r.data.files || [];
+            if (r.data.total_commits !== 1 || files.length !== 1 ||
+                files[0].filename !== process.env.EXPECTED_ONLY_PATH ||
+                !['added', 'modified'].includes(files[0].status) ||
+                r.data.status !== 'ahead') {
+              core.setFailed('H4_REQUEST_PUSH_MIXED_OR_UNVERIFIED');
+              return;
+            }
+            const required = new Set([
+              'Supervisor Tests',
+              'Supervisor Integrity',
+              'Supervisor Lifecycle Acceptance',
+              'Supervisor Autostart Install',
+            ]);
+            const runs = await github.rest.actions.listWorkflowRunsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head_sha: before,
+              per_page: 100,
+            });
+            if (runs.data.total_count > 100) {
+              core.setFailed('H4_BASE_CI_HISTORY_UNBOUNDED');
+              return;
+            }
+            const latestByName = new Map();
+            for (const run of runs.data.workflow_runs || []) {
+              if (run.head_sha !== before || run.head_branch !== 'main' ||
+                  run.event !== 'push' || !required.has(run.name)) continue;
+              if (!latestByName.has(run.name)) latestByName.set(run.name, run);
+            }
+            if (latestByName.size !== required.size ||
+                [...required].some(name =>
+                  latestByName.get(name)?.status !== 'completed' ||
+                  latestByName.get(name)?.conclusion !== 'success')) {
+              core.setFailed('H4_BASE_EXACT_MAIN_FOUR_CI_NOT_GREEN');
+              return;
+            }
+            core.info('H4_BASE_EXACT_MAIN_FOUR_CI_GREEN=True');
+            core.info('H4_REQUEST_ONE_FILE_ONLY=True');
+  h4-only-readonly-observation:
+    needs: verify-exact-single-file-owner-request
+    if: ${{ github.repository == 'magasincoffee/magasin-supervisor' && github.actor == 'magasincoffee' && github.triggering_actor == 'magasincoffee' && github.run_attempt == 1 && github.event_name == 'push' }}
+    runs-on: [self-hosted, Windows, X64, magasin-h4a16il]
+    timeout-minutes: 4
+    steps:
+      - name: Deny non-H4 before checkout and all local reads
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([Environment]::MachineName -cne 'DESKTOP-H4A16IL') {
+            Write-Output 'SC013_H4_READONLY_HOLD=WRONG_MACHINE'
+            throw 'WRONG_TARGET_MACHINE'
+          }
+          Write-Output 'SC013_H4_IDENTITY_PASS=True'
+      - name: Checkout exact requested main commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Inspect H4 SOT-approved safe presence and resource summary only
+        shell: powershell
+        env:
+          EXPECTED_MAIN_SHA: ${{ github.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & '.github/scripts/sc013-h4-readonly-probe.ps1' -ExpectedSha $env:EXPECTED_MAIN_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'READONLY_PROBE_FAILED' }

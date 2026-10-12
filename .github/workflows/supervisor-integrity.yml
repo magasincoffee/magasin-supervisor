@@ -42,6 +42,7 @@ jobs:
           sc013-coordinator-hook-apply.yml
           sc013-coordinator-inert-apply.yml
           sc013-coordinator-readonly-stage.yml
+          sc013-h4-readonly-probe.yml
           sc013-h4a16il-safe-deploy.yml
           sc013-owner-control-apply.yml
           sc013-project-hold-stage.yml
@@ -122,6 +123,7 @@ jobs:
             test/mpc002-project-read-model.test.mjs \
             test/mpc003-readonly-sot-adapter.test.mjs \
             test/mpc004-project-tree-ui.test.mjs \
+            test/sc013-h4-readonly-probe.test.mjs \
             test/sc013-project-activation-safe-preflight.test.mjs \
             test/sc013-local-gateway-health-stop-policy.test.mjs \
             test/sc013-owner-control-apply.test.mjs \
