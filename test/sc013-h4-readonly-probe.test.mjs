@@ -108,16 +108,24 @@ test('RTRY01 exact H4 read-only field receipt never grants START, MCP pairing or
   ]) assert.match(receipt, required);
   // Reject contradictory authorization even if the original negative
   // status remains in the same SOT section.
-  const forbidden = /(?:owner_lifecycle_authenticated|worker_ownership_verified|saydi_audio_sha_verified|approved_to_start|approved_to_dispatch|production_modified|worker_started|owner_stop_changed|task_completed)=true\b|mcp_transport_connected=(?!UNVERIFIED)\w+|SAYDI002-VN-001\s*[:=\- ]+\s*(?:DONE|COMPLETE|FINAL)\b/i;
-  assert.doesNotMatch(receipt, forbidden);
+  const forbiddenAuthority = /(?:owner_lifecycle_authenticated|worker_ownership_verified|saydi_audio_sha_verified|approved_to_start|approved_to_dispatch|production_modified|worker_started|owner_stop_changed|task_completed)=true\b|mcp_transport_connected=(?!UNVERIFIED)\w+/i;
+  // Match natural-language Markdown task completion too: backticks, emphasis,
+  // "V6 step 1.1" and other intervening prose do not convey authorization.
+  const forbiddenCompletion = /(?:SAYDI002-VN-001|V6 step 1\.1)[^\r\n]{0,160}\b(?:DONE|COMPLETE(?:D)?|FINAL)\b/i;
+  assert.doesNotMatch(receipt, forbiddenAuthority);
+  assert.doesNotMatch(receipt, forbiddenCompletion);
   for (const injected of [
     'approved_to_start=true',
     'mcp_transport_connected=VERIFIED',
     'task_completed=true',
     'SAYDI002-VN-001 = DONE',
+    '\`SAYDI002-VN-001\` V6 step 1.1 **DONE**',
+    '\`SAYDI002-VN-001\` — V6 step 1.1 is now **COMPLETED**',
+    'V6 step 1.1 **FINAL**',
   ]) {
-    assert.match(receipt + '\n' + injected, forbidden,
-      'positive authorization must never escape the section validator');
+    const sample = receipt + '\n' + injected;
+    assert.ok(forbiddenAuthority.test(sample) || forbiddenCompletion.test(sample),
+      'contradictory approval or formatted completion must always be rejected: ' + injected);
   }
   // This consumed request must not be replayable by a workflow trigger.
   assert.doesNotMatch(yaml, /^\s*workflow_dispatch:|^\s*schedule:/m);
