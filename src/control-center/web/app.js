@@ -5,6 +5,7 @@ const root=document.getElementById("main-content");
 const alertBox=document.getElementById("loading");
 const nameTitle=document.getElementById("page-title");
 const subtitle=document.getElementById("page-subtitle");
+const navigationStatus=document.getElementById("page-navigation-status");
 const navRobots=document.getElementById("nav-robots");
 let latest=null;
 let monitorState=null;
@@ -281,6 +282,9 @@ function restoreProjectFocus(saved){
    target.setSelectionRange(Math.min(saved.start,end),Math.min(saved.end,end));
  }
 }
+function announceNavigation(){
+ navigationStatus.textContent="Đã mở trang: "+nameTitle.textContent;
+}
 function openPage(id,historyUpdate=true){
  const page=id==="projects"?"projects":id==="home"||!allItems().some(x=>x.id===id)?"home":id;
  const previousProjectFocus=page==="projects"?captureProjectFocus():null;
@@ -290,7 +294,7 @@ function openPage(id,historyUpdate=true){
  root.innerHTML=page==="projects"?renderProjectTree({catalogue:projectCatalogue,query:projectQuery,selected:projectSelected,expanded:[...projectExpanded]}):!latest?'<p class="panel">Chưa tải dữ liệu điều khiển robot.</p>':page==="home"?cards():renderDetail(allItems().find(x=>x.id===page));
  restoreProjectFocus(previousProjectFocus);
  document.querySelectorAll("[data-page]").forEach(x=>x.classList.toggle("selected",x.dataset.page===page));
- if(historyUpdate)window.scrollTo({top:0,behavior:"auto"});
+ if(historyUpdate){announceNavigation();window.scrollTo({top:0,behavior:"auto"});}
 }
 function currentPage(){
  if(location.pathname==="/projects"||location.pathname==="/projects/")return "projects";
@@ -452,7 +456,7 @@ document.addEventListener("click",async(e)=>{
 document.addEventListener("keydown",(e)=>{if(e.key==="Enter"&&e.target.matches(".robot-card"))openPage(e.target.dataset.open)});
 window.addEventListener("popstate",()=>{
  const page=currentPage();
- if(page==="projects" || latest)openPage(page,false);
+ if(page==="projects" || latest){openPage(page,false);announceNavigation();}
  // History traversal always revalidates the destination status; a cached
  // robot snapshot from before visiting Projects cannot authorize controls.
  void refresh();

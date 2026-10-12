@@ -145,3 +145,17 @@ test("MPC-004 polling preserves tree toggle, row and search keyboard focus",asyn
  assert.doesNotMatch(index,/<main[^>]*aria-live/);
  assert.match(index,/<p id="loading"[^>]*role="status"/);
 });
+
+test("MPC-004 announces explicit client route changes without announcing each poll rerender",async()=>{
+ const [app,html,css]=await Promise.all([read("src/control-center/web/app.js"),read("src/control-center/web/index.html"),read("src/control-center/web/styles.css")]);
+ assert.match(html,/<main id="main-content" tabindex="-1"><\/main>/);
+ assert.doesNotMatch(html,/<main[^>]*aria-live/);
+ assert.match(html,/<p id="page-navigation-status"[^>]*role="status"[^>]*aria-live="polite"/);
+ assert.match(css,/\.sr-only\{/);
+ assert.match(app,/const navigationStatus=document\.getElementById\("page-navigation-status"\)/);
+ assert.match(app,/function announceNavigation\(\)/);
+ assert.match(app,/navigationStatus\.textContent="Đã mở trang: "\+nameTitle\.textContent/);
+ assert.match(app,/if\(historyUpdate\)\{announceNavigation\(\);window\.scrollTo/);
+ assert.match(app,/if\(page==="projects" \|\| latest\)\{openPage\(page,false\);announceNavigation\(\);\}/);
+ assert.doesNotMatch(app,/if\(currentPage\(\)==="projects"\)\{?announceNavigation/);
+});

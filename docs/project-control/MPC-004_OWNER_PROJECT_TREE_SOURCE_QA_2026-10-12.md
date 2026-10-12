@@ -17,3 +17,9 @@ All browser-history popstate transitions revalidate the current destination via 
 ## Polling and screen-reader hardening
 - Every automatic project-tree rerender captures the active search field (including caret selection) or project row/toggle key, then restores focus after rendering using the corresponding data attribute and `preventScroll`. Keyboard focus outside project content is not moved.
 - The main interactive container is no longer an `aria-live` region; periodic status updates remain confined to the adjacent `role="status"` element. Neither change activates robot controls or writes project data.
+
+## Announce route changes without poll noise
+Client-side page navigation now has a separate visually hidden Vietnamese status node (not inside polled main) with aria-live polite. The application announces only explicit navigation (sidebar clicks/history popstate), not the 20-second refresh. This preserves the strict separation between navigation announcements and operational/verification status.
+
+## Mainline reconciliation
+The candidate is reconciled against the mainline Supervisor SOT cost-policy change dated 2026-10-12. Preserve that mainline authority and the improved historical MPC-002/003 test evidence. Historical proof tests must not lock a transient NEXT_TASK_ID; they now assert MPC-004's canonical task row rather than MPC-004 permanently remaining NEXT.
