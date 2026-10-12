@@ -1,8 +1,8 @@
 name: SC-013 H4 one-shot read-only diagnostic
 
-# Explicit Owner source-gated trigger only. Never from arbitrary PR or merge.
+# Explicit one-shot Owner request-file push only; no PR, schedule or rerun.
+# GitHub reruns keep github.actor from the initial run: guard triggering_actor and attempt.
 on:
-  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   h4-only-readonly-observation:
-    if: ${{ github.repository == 'magasincoffee/magasin-supervisor' && github.actor == 'magasincoffee' }}
+    if: ${{ github.repository == 'magasincoffee/magasin-supervisor' && github.actor == 'magasincoffee' && github.triggering_actor == 'magasincoffee' && github.run_attempt == 1 && github.event_name == 'push' }}
     runs-on: [self-hosted, Windows, X64, magasin-h4a16il]
     timeout-minutes: 4
     steps:
