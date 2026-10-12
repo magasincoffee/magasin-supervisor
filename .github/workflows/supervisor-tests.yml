@@ -45,6 +45,9 @@ jobs:
       - name: Test SC-013 Python SOT preflight bridge
         shell: powershell
         run: python -m unittest discover -s test -p 'test_sc013_sot_python_bridge.py' -v
+      - name: Verify MPC-004 read-only project-tree catalogue fixtures
+        shell: powershell
+        run: python -m unittest discover -s test -p 'test_mpc004_project_tree_catalogue.py' -v
       - name: Validate read-only Coordinator cycle hook
         shell: powershell
         run: python -m unittest discover -s test -p 'test_sc013_coordinator_cycle_preflight.py' -v
@@ -105,6 +108,7 @@ jobs:
             test/mpc001-readonly-source-audit.test.mjs `
             test/mpc002-project-read-model.test.mjs `
             test/mpc003-readonly-sot-adapter.test.mjs `
+            test/mpc004-project-tree-ui.test.mjs `
             test/sc013-project-activation-safe-preflight.test.mjs `
             test/sc013-local-gateway-health-stop-policy.test.mjs `
             test/sc013-owner-control-apply.test.mjs `
