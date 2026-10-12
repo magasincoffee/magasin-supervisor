@@ -88,3 +88,57 @@ test('current SOT permits only a read-only H4 check under STOP', () => {
   assert.match(sot, /P1 NEXT \/ SOURCE AND QA ONLY/);
   assert.match(sot, /SC-013 remains \*\*IN PROGRESS\*\*/);
 });
+
+test('RTRY01 exact H4 read-only field receipt never grants START, MCP pairing or SAYDI DONE', () => {
+  const title = '### SC-013 H4 one-shot read-only diagnostic retry RTRY01';
+  const start = sot.indexOf(title);
+  assert.notEqual(start, -1, 'RTRY01 receipt is missing');
+  const next = sot.indexOf('\n### ', start + title.length);
+  const receipt = sot.slice(start, next === -1 ? undefined : next);
+  for (const required of [
+    /38243025301/, /H4RO-20261012-RTRY01/, /READ_ONLY_OBSERVED_UNATTESTED/,
+    /mcp_transport_connected=UNVERIFIED/,
+    /owner_lifecycle_authenticated=false/,
+    /worker_ownership_verified=false/, /saydi_audio_sha_verified=false/,
+    /approved_to_start=false/, /approved_to_dispatch=false/,
+    /production_modified=false/, /worker_started=false/,
+    /owner_stop_changed=false/, /task_completed=false/,
+    /1\.20 GiB/, /SAYDI002-VN-001/, /IN_PROGRESS/,
+    /no second marker|single retry authorization/,
+  ]) assert.match(receipt, required);
+  // Reject contradictory authorization even if the original negative
+  // status remains in the same SOT section.
+  // Normalize Markdown code/emphasis without stripping underscores from field names.
+  const plain = value => value.replace(/[`*]/g, '');
+  const forbiddenAuthority = /(?:^|[^\w])_*(?:owner_lifecycle_authenticated|worker_ownership_verified|saydi_audio_sha_verified|approved_to_start|approved_to_dispatch|production_modified|worker_started|owner_stop_changed|task_completed)_*\s*[:=]\s*_*(?:true)(?=$|[^A-Za-z0-9])|(?:^|[^\w])_*mcp_transport_connected_*\s*[:=]\s*_*(?!UNVERIFIED(?=$|[^A-Za-z0-9]))[A-Z]+(?:_[A-Z]+)*(?=$|[^A-Za-z0-9])/im;
+  // Match natural-language Markdown task completion too: backticks, emphasis,
+  // "V6 step 1.1" and other intervening prose do not convey authorization.
+  const forbiddenCompletion = /(?:SAYDI002-VN-001|V6 step 1\.1)[^\r\n]{0,160}\b(?:DONE|COMPLETE(?:D)?|FINAL)\b/i;
+  assert.doesNotMatch(plain(receipt), forbiddenAuthority);
+  assert.doesNotMatch(plain(receipt), forbiddenCompletion);
+  assert.doesNotMatch(plain(receipt + '\n' + 'mcp_transport_connected = _UNVERIFIED_'), forbiddenAuthority);
+  for (const injected of [
+    'approved_to_start=true',
+    'mcp_transport_connected=VERIFIED',
+    'task_completed=true',
+    'SAYDI002-VN-001 = DONE',
+    '\`SAYDI002-VN-001\` V6 step 1.1 **DONE**',
+    '\`SAYDI002-VN-001\` — V6 step 1.1 is now **COMPLETED**',
+    'V6 step 1.1 **FINAL**',
+    '`approved_to_start = true`',
+    'mcp_transport_connected = VERIFIED',
+    '**task_completed** = **true**',
+    '`approved_to_dispatch` : `true`',
+    'approved_to_start = _true_',
+    'mcp_transport_connected = _VERIFIED_',
+    '_approved_to_start_ = _true_',
+    '_mcp_transport_connected_ : _VERIFIED_',
+  ]) {
+    const sample = receipt + '\n' + injected;
+    assert.ok(forbiddenAuthority.test(plain(sample)) || forbiddenCompletion.test(plain(sample)),
+      'contradictory approval or formatted completion must always be rejected: ' + injected);
+  }
+  // This consumed request must not be replayable by a workflow trigger.
+  assert.doesNotMatch(yaml, /^\s*workflow_dispatch:|^\s*schedule:/m);
+  assert.match(yaml, /run_attempt == 1/);
+});
