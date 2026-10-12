@@ -98,7 +98,8 @@ export function renderProjectDetail({catalogue,selected,detail=null}={}){
   +span("CI / kiểm thử",ciLabels[ci])
   +span("Nghiệm thu / phát hành",releaseLabels[release])
   +'</dl>'
-  +'<div class="detail-evidence"><h3>Nguồn thông tin</h3><p>SOT của dự án: '+li(item.source,"Mở nguồn tham khảo",item.repo)+'</p>'
+  +'<div class="detail-evidence"><h3>Nguồn thông tin</h3><p>SOT chuẩn của dự án (liên kết điều hướng): '+li("https://github.com/"+item.repo+"/blob/main/"+SOT_PATHS[item.projectId],"Mở Source of Truth",item.repo)+'</p>'
+  +(item.source&&item.source!=="https://github.com/"+item.repo+"/blob/main/"+SOT_PATHS[item.projectId]?'<p>Tài liệu mô tả mục (chỉ tham khảo, không phải SOT): '+li(item.source,"Mở tài liệu tham khảo",item.repo)+'</p>':"")
   +'<p>Phiên bản đã kiểm tra: '+(revision?li(revision,a.revision.sha,item.repo):'<strong>Chưa xác minh SHA</strong>')+'</p>'
   +'<h3>PR, CI và bằng chứng</h3>'
   +(evidenceHtml?'<ul>'+evidenceHtml+'</ul>':'<p>Chưa có PR, CI hoặc hồ sơ DoD đủ điều kiện xác nhận ở nguồn chuẩn.</p>')
