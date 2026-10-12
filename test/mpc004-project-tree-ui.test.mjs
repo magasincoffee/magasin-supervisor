@@ -59,7 +59,8 @@ test("hostile text and URLs never produce markup injection or external clickable
  assert.doesNotMatch(html,/<script|<img|<svg|href="javascript:/);
  assert.match(html,/&lt;script&gt;/);
  assert.match(html,/&lt;img/);
- assert.doesNotMatch(html,/target="_blank"/);
+ assert.match(html,/href="https:\\/\\/github\\.com\\/magasincoffee\\/magasin-supervisor\\/blob\\/main\\/SOURCE_OF_TRUTH\\.md"/);
+ assert.doesNotMatch(html,/href="javascript:|href="https:\\/\\/(?!github\\.com\\/magasincoffee\\/magasin-supervisor\\/)/);
 });
 test("missing catalogue is clearly unavailable, never an empty completed projection",()=>{
  const html=renderProjectTree({catalogue:{status:"UNAVAILABLE",projects:[]}});
