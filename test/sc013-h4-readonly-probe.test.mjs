@@ -47,7 +47,7 @@ test('read-only diagnostics emits only allowlisted sanitized facts; no worker ac
 });
 
 test('current SOT permits only a read-only H4 check under STOP', () => {
-  assert.match(sot, /read-only H4-local watcher/);
+  assert.match(sot, /Owner one-shot H4 read-only diagnostics pilot/);
   assert.match(sot, /STOP\/AUTOSTART_DISABLED/);
   assert.match(sot, /P1 NEXT \/ SOURCE AND QA ONLY/);
   assert.match(sot, /SC-013 remains \*\*IN PROGRESS\*\*/);
