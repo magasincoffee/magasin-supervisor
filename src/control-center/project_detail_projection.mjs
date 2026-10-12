@@ -7,6 +7,29 @@ const SHA=/^[a-f0-9]{40}$/;
 const IDENT=/^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
 const record=x=>x!==null&&typeof x==="object"&&!Array.isArray(x);
 const isKey=x=>typeof x==="string"&&x.length<=250&&x.split("/").length<=3&&x.split("/").every(s=>IDENT.test(s));
+const MODEL_BEGIN="<!-- MAGASIN_CANONICAL_PROJECT_MODEL_V1_BEGIN -->";
+const MODEL_END="<!-- MAGASIN_CANONICAL_PROJECT_MODEL_V1_END -->";
+// The model must be DERIVED from the exact immutable SOT bytes returned by
+// MPC-003, not supplied independently by a caller with copied revision fields.
+// Legacy Markdown without this explicit machine-readable section has no
+// trustworthy task-status projection and therefore remains UNKNOWN.
+function modelFromSot(content){
+ if(typeof content!=="string")return null;
+ const start=content.indexOf(MODEL_BEGIN);
+ if(start<0||content.indexOf(MODEL_BEGIN,start+MODEL_BEGIN.length)!==-1)return null;
+ const first=start+MODEL_BEGIN.length;
+ if(content[first]!=="\n")return null;
+ const end=content.indexOf("\n"+MODEL_END,first+1);
+ if(end<0||content.indexOf(MODEL_END,end+1)!==-1)return null;
+ const data=content.slice(first+1,end);
+ if(data.length===0||data.length>131072)return null;
+ try{
+   const parsed=JSON.parse(data);
+   return record(parsed)&&parsed.schema==="magasin-canonical-project-model.v1"&&
+     record(parsed.project)?parsed.project:null;
+ }catch{return null;}
+}
+
 export function resolveProjectSelection(catalogue,selected){
  if(!isKey(selected)||!record(catalogue)||!Array.isArray(catalogue.projects))return null;
  const ids=selected.split("/");
@@ -41,10 +64,12 @@ export function projectDetailProjection({catalogue,selected,authority=null}={}){
    !record(snap.revision)||snap.revision.repo!==source.repo||snap.revision.path!==source.path||
    typeof snap.revision.sha!=="string"||!SHA.test(snap.revision.sha)||
    snap.revision.url!=="https://github.com/"+source.repo+"/blob/"+snap.revision.sha+"/"+source.path||
-   typeof snap.content!=="string"||!record(authority.canonicalProject))return fail("CONFLICT","SOURCE_REVISION_MISMATCH");
- // The canonical SOT of the project is not necessarily the subordinate
- // project's feature/task SOT: both boundaries must agree, or fail closed.
- const canonical=authority.canonicalProject;
+   typeof snap.content!=="string")return fail("CONFLICT","SOURCE_REVISION_MISMATCH");
+ // A separately passed canonicalProject cannot prove anything. Only a
+ // structured model INSIDE the fetched immutable source is allowed to supply
+ // statuses. Missing, malformed or duplicate markers fail closed.
+ const canonical=modelFromSot(snap.content);
+ if(!canonical)return fail("UNVERIFIED","CANONICAL_MODEL_NOT_BOUND_TO_SOT");
  if(canonical.id!==chosen.projectId||!record(canonical.revision)||
    canonical.revision.sha!==snap.revision.sha||canonical.revision.url!==snap.revision.url||
    canonical.revision.repo!==source.repo||canonical.revision.path!==source.path)return fail("CONFLICT","PROJECT_REVISION_MISMATCH");
