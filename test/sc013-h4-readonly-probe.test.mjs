@@ -9,7 +9,9 @@ const sot = readFileSync(new URL('../SOURCE_OF_TRUTH.md', import.meta.url), 'utf
 
 test('single request-only workflow with explicit Owner and H4 gates, never PR/schedule', () => {
   assert.match(yaml, /sc013-h4-readonly-probe-request\.json/);
-  assert.match(yaml, /github\.actor == 'magasincoffee'/);
+  assert.match(yaml, /github.actor == 'magasincoffee'/);
+  assert.match(yaml, /github.triggering_actor == 'magasincoffee'/);
+  assert.match(yaml, /github.run_attempt == 1/);
   assert.match(yaml, /github\.repository == 'magasincoffee\/magasin-supervisor'/);
   assert.match(yaml, /runs-on: \[self-hosted, Windows, X64, magasin-h4a16il\]/);
   assert.match(yaml, /MachineName -cne 'DESKTOP-H4A16IL'/);
@@ -18,7 +20,7 @@ test('single request-only workflow with explicit Owner and H4 gates, never PR/sc
   assert.match(yaml, /persist-credentials: false/);
   assert.match(yaml, /permissions:\s+contents: read/);
   assert.match(yaml, /concurrency:[\s\S]+?sc013-h4a16il-safe-deploy/);
-  assert.doesNotMatch(yaml, /^\s*pull_request:|^\s*schedule:|^\s*issues:/m);
+  assert.doesNotMatch(yaml, /^\s*pull_request:|^\s*schedule:|^\s*issues:|^\s*workflow_dispatch:/m);
   assert.match(integrity, /sc013-h4-readonly-probe\.yml/);
 });
 
@@ -28,6 +30,8 @@ test('read-only diagnostics emits only allowlisted sanitized facts; no worker ac
     'MAGASIN_H4_READONLY_RECEIPT_V1',
     'Test-ProbeEnvelope',
     'INVALID_OR_CHANGED_MAIN_SHA',
+    "GITHUB_RUN_ATTEMPT -cne '1'",
+    "GITHUB_TRIGGERING_ACTOR -cne 'magasincoffee'",
     'CHECKOUT_NOT_EXACT_COMMIT',
     'WRONG_TARGET_MACHINE',
     'READ_ONLY_OBSERVED_UNATTESTED',
