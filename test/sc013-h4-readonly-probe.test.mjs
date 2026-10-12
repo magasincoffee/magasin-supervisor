@@ -88,3 +88,25 @@ test('current SOT permits only a read-only H4 check under STOP', () => {
   assert.match(sot, /P1 NEXT \/ SOURCE AND QA ONLY/);
   assert.match(sot, /SC-013 remains \*\*IN PROGRESS\*\*/);
 });
+
+test('RTRY01 exact H4 read-only field receipt never grants START, MCP pairing or SAYDI DONE', () => {
+  assert.match(sot, /SC-013 H4 one-shot read-only diagnostic retry RTRY01/);
+  assert.match(sot, /38243025301/);
+  assert.match(sot, /H4RO-20261012-RTRY01/);
+  assert.match(sot, /READ_ONLY_OBSERVED_UNATTESTED/);
+  assert.match(sot, /mcp_transport_connected=UNVERIFIED/);
+  assert.match(sot, /owner_lifecycle_authenticated=false/);
+  assert.match(sot, /worker_ownership_verified=false/);
+  assert.match(sot, /saydi_audio_sha_verified=false/);
+  assert.match(sot, /approved_to_start=false/);
+  assert.match(sot, /approved_to_dispatch=false/);
+  assert.match(sot, /production_modified=false/);
+  assert.match(sot, /task_completed=false/);
+  assert.match(sot, /1\.20 GiB/);
+  assert.match(sot, /SAYDI002-VN-001/);
+  assert.match(sot, /in-progress|IN_PROGRESS/);
+  assert.match(sot, /no second marker|single retry authorization/);
+  // Source code must never automatically replay this consumed request.
+  assert.doesNotMatch(yaml, /^\s*workflow_dispatch:|^\s*schedule:/m);
+  assert.match(yaml, /run_attempt == 1/);
+});
