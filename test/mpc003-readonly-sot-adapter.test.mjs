@@ -174,3 +174,37 @@ test("malformed 200 JSON is BAD_RESPONSE without retry for commit and SOT conten
     assert.equal(f.calls.length,malformedContent?2:1);
   }
 });
+
+test("invalid UTF-8 bytes fail closed as BAD_CONTENT without retry or fabricated CURRENT",async()=>{
+  for(const bytes of [
+    Buffer.from([0xc3,0x28]),  // invalid continuation
+    Buffer.from([0xe2,0x82]),  // truncated multibyte sequence
+    Buffer.from([0xff]),       // illegal UTF-8 byte
+    Buffer.from([0xed,0xa0,0x80]) // surrogate codepoint
+  ]){
+    const f=fixture({body:bytes});
+    const result=await make(f.fetchImpl,{maxRetries:2}).read("supervisor");
+    assert.equal(result.ok,false);
+    assert.equal(result.status,"BAD_CONTENT");
+    assert.equal(result.content,null);
+    assert.equal(f.calls.length,2);
+  }
+});
+test("invalid UTF-8 cannot enter cache and a later valid pinned file is read afresh",async()=>{
+  let invalid=true;
+  const f=fixture({onRequest:url=>{
+    if(url.endsWith("/commits/main")) return response(200,{sha:A});
+    const bytes=invalid?Buffer.from([0xff]):Buffer.from("Đúng dữ liệu SOT","utf8");
+    return response(200,{type:"file",encoding:"base64",content:bytes.toString("base64")});
+  }});
+  const adapter=make(f.fetchImpl,{cacheTtlMs:300000,now:()=>1000});
+  assert.equal((await adapter.read("supervisor")).status,"BAD_CONTENT");
+  invalid=false;
+  const fresh=await adapter.read("supervisor");
+  assert.equal(fresh.status,"CURRENT");
+  assert.equal(fresh.content,"Đúng dữ liệu SOT");
+  assert.equal(f.calls.length,5);
+  const cached=await adapter.read("supervisor");
+  assert.equal(cached.fromCache,true);
+  assert.equal(cached.content,"Đúng dữ liệu SOT");
+});

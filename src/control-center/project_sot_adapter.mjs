@@ -17,7 +17,9 @@ function decodeFile(result,maxBytes) {
   ensure(encoded.length>0 && encoded.length<=Math.ceil(maxBytes/3)*4+4 && /^[A-Za-z0-9+/]+={0,2}$/.test(encoded),"BAD_CONTENT");
   const bytes=Buffer.from(encoded,"base64");
   ensure(bytes.length>0 && bytes.length<=maxBytes && bytes.toString("base64")===encoded,"BAD_CONTENT");
-  return bytes.toString("utf8");
+  // Fatal decoding prevents replacement characters from rewriting pinned SOT bytes.
+  try { return new TextDecoder("utf-8",{fatal:true,ignoreBOM:true}).decode(bytes); }
+  catch { throw new ReadFailure("BAD_CONTENT"); }
 }
 // Each consumer gets a separate projection. Neither the first response nor a
 // cache hit can mutate the adapter's cached authority snapshot.
