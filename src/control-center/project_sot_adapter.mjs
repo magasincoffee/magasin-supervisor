@@ -52,9 +52,20 @@ export function createReadOnlySotAdapter({
         ensure(isObject(response) && Number.isInteger(response.status),"BAD_RESPONSE");
         if(response.status!==200) {
           const remaining=response.headers?.get?.("x-ratelimit-remaining");
+          const retryAfter=response.headers?.get?.("retry-after");
           const status=response.status;
+          let throttled=status===429 || (status===403 &&
+            (remaining==="0" || (typeof retryAfter==="string" && retryAfter.trim()!=="")));
+          // Secondary API limits may return 403 without zero remaining quota.
+          if(status===403 && !throttled) {
+            try {
+              const detail=await response.json();
+              const message=typeof detail?.message==="string" ? detail.message : "";
+              throttled=/secondary rate limit|rate limit exceeded|abuse detection|too many requests/i.test(message);
+            } catch { /* Non-JSON 403 stays ACCESS_DENIED. */ }
+          }
           throw new ReadFailure(status===404 ? "NOT_FOUND" :
-            status===429 || (status===403 && remaining==="0") ? "RATE_LIMIT" :
+            throttled ? "RATE_LIMIT" :
             status===401 || status===403 ? "ACCESS_DENIED" :
             status>=500 ? "UPSTREAM_ERROR" : "BAD_RESPONSE");
         }

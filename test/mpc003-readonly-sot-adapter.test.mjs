@@ -208,3 +208,25 @@ test("invalid UTF-8 cannot enter cache and a later valid pinned file is read afr
   assert.equal(cached.fromCache,true);
   assert.equal(cached.content,"Đúng dữ liệu SOT");
 });
+
+test("secondary GitHub 403 throttles classify RATE_LIMIT even when quota is nonzero",async()=>{
+  const variants=[
+    response(403,{message:"forbidden"},{"x-ratelimit-remaining":"100","retry-after":"15"}),
+    response(403,{message:"You have exceeded a secondary rate limit."},{"x-ratelimit-remaining":"99"}),
+    response(403,{message:"API rate limit exceeded for user"},{"x-ratelimit-remaining":"12"})
+  ];
+  for(const denied of variants){
+    const f=fixture({onRequest:()=>denied});
+    const x=await make(f.fetchImpl,{maxRetries:2}).read("supervisor");
+    assert.equal(x.status,"RATE_LIMIT");
+    assert.equal(x.ok,false);
+    assert.equal(f.calls.length,1);
+  }
+});
+test("plain permission-denied GitHub 403 remains ACCESS_DENIED and has no retry",async()=>{
+  const f=fixture({onRequest:()=>response(403,{message:"Resource not accessible by integration"},{"x-ratelimit-remaining":"200"})});
+  const x=await make(f.fetchImpl,{maxRetries:2}).read("supervisor");
+  assert.equal(x.status,"ACCESS_DENIED");
+  assert.equal(x.ok,false);
+  assert.equal(f.calls.length,1);
+});
