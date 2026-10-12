@@ -111,7 +111,7 @@ test("one missing task DoD gate denies synthetic VERIFIED_DONE even with success
  assert.match(html,/CI PASS/); // CI is separate from task completion.
 });
 test("mismatched source/path or moved main never resolves to success",()=>{
- const mismatched=project(snapshot({revision:revision(OTHER)}));
+ const mismatched=project(snapshot({revision:{...revision(OTHER),url:revision().url}}));
  assert.equal(mismatched.authority.scope,"UNKNOWN");
  assert.equal(mismatched.authority.source,"CONFLICT");
  const moved=project(snapshot({ok:false,status:"MAIN_DIVERGED"}));
@@ -293,4 +293,12 @@ test("authorable SOT model has no self-referential SHA; adapter supplies revisio
  const rejected=project(snapshot({content:poison}));
  assert.equal(rejected.authority.source,"CONFLICT");
  assert.equal(rejected.authority.scope,"UNKNOWN");
+});
+
+test("new immutable SOT revision does not require a self-referential embedded SHA",()=>{
+ const changed=snapshot({revision:revision(OTHER)});
+ const data=project(changed);
+ assert.equal(data.authority.source,"CANONICAL_MODEL");
+ assert.equal(data.authority.revision.sha,OTHER);
+ assert.equal(data.authority.scope,"VERIFIED_DONE");
 });
