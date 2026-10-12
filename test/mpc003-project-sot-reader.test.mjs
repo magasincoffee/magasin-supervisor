@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createProjectSotReader, PROJECT_SOT_SOURCES, SOT_READ_STATUSES } from '../src/project_sot_reader.mjs';
+import { createProjectSotReader, PROJECT_SOT_SOURCES, SOT_READ_STATUSES } from '../src/control-center/project_sot_reader.mjs';
 const sha = 'a'.repeat(40), next = 'b'.repeat(40);
 const apiJson = (data, status = 200, headers = {}) => ({
   status, headers: { get: k => headers[k] ?? null }, async json() { return data; },
