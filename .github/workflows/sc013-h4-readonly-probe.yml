@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: sc013-h4a16il-safe-deploy
@@ -47,6 +48,36 @@ jobs:
               core.setFailed('H4_REQUEST_PUSH_MIXED_OR_UNVERIFIED');
               return;
             }
+            const required = new Set([
+              'Supervisor Tests',
+              'Supervisor Integrity',
+              'Supervisor Lifecycle Acceptance',
+              'Supervisor Autostart Install',
+            ]);
+            const runs = await github.rest.actions.listWorkflowRunsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head_sha: before,
+              per_page: 100,
+            });
+            if (runs.data.total_count > 100) {
+              core.setFailed('H4_BASE_CI_HISTORY_UNBOUNDED');
+              return;
+            }
+            const latestByName = new Map();
+            for (const run of runs.data.workflow_runs || []) {
+              if (run.head_sha !== before || run.head_branch !== 'main' ||
+                  run.event !== 'push' || !required.has(run.name)) continue;
+              if (!latestByName.has(run.name)) latestByName.set(run.name, run);
+            }
+            if (latestByName.size !== required.size ||
+                [...required].some(name =>
+                  latestByName.get(name)?.status !== 'completed' ||
+                  latestByName.get(name)?.conclusion !== 'success')) {
+              core.setFailed('H4_BASE_EXACT_MAIN_FOUR_CI_NOT_GREEN');
+              return;
+            }
+            core.info('H4_BASE_EXACT_MAIN_FOUR_CI_GREEN=True');
             core.info('H4_REQUEST_ONE_FILE_ONLY=True');
   h4-only-readonly-observation:
     needs: verify-exact-single-file-owner-request
