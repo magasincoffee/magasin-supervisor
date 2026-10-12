@@ -52,8 +52,12 @@ jobs:
           $errors=$null
           [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD '.github/scripts/sc013-h4-readonly-probe.ps1'),[ref]$tokens,[ref]$errors)|Out-Null
           if(@($errors).Count -ne 0){throw 'H4_DIAG_POWERSHELL_PARSE_FAILED'}
-          & '.github/scripts/sc013-h4-readonly-probe.ps1' -SelfTest
-          if ($LASTEXITCODE -ne 0) { throw 'H4_DIAG_SELFTEST_FAILED' }
+          $proof = & '.github/scripts/sc013-h4-readonly-probe.ps1' -SelfTest
+          if (-not $?) { throw 'H4_DIAG_SELFTEST_FAILED' }
+          if ($proof -notcontains 'SC013_H4_READONLY_PROBE_SYNTHETIC_PASS=True') {
+            throw 'H4_DIAG_SELFTEST_RECEIPT_MISSING'
+          }
+          Write-Output $proof
       - name: Verify MPC-004 read-only project-tree catalogue fixtures
         shell: powershell
         run: python -m unittest discover -s test -p 'test_mpc004_project_tree_catalogue.py' -v
