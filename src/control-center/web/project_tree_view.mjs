@@ -1,3 +1,4 @@
+import {renderProjectDetail} from "./project_detail_view.mjs";
 // MPC-004: pure read-only project-tree rendering. No mutation or worker controls.
 const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({
   "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
@@ -79,18 +80,6 @@ export function renderProjectTree({catalogue,query="",expanded=[],selected=""}={
   const crumbs='<nav class="project-breadcrumb" aria-label="Đường dẫn dự án">'+trail.map((part,i)=>i===trail.length-1?
     '<span aria-current="page">'+escapeHtml(part.name)+'</span>':
     '<button type="button" data-project-focus="'+escapeHtml(part.key)+'">'+escapeHtml(part.name)+'</button><span aria-hidden="true">›</span>').join("")+'</nav>';
-  const selectedLink=(()=>{
-    for(const p of projects) {
-      if(!safeId(p.id)||!(selected===p.id||selected.startsWith(p.id+"/")))continue;
-      if(selected===p.id)return link(p.sourceUrl);
-      for(const f of p.features??[]) {
-        if(!safeId(f.id)||!(selected===p.id+"/"+f.id||selected.startsWith(p.id+"/"+f.id+"/")))continue;
-        if(selected===p.id+"/"+f.id)return link(f.sourceUrl||p.sourceUrl);
-        for(const t of f.tasks??[])if(safeId(t.id)&&selected===p.id+"/"+f.id+"/"+t.id)return link(t.sourceUrl||f.sourceUrl||p.sourceUrl);
-      }
-    }
-    return "";
-  })();
   const error=catalogue?.status==="UNAVAILABLE";
   return '<section class="project-page" aria-label="Cây quản lý dự án">'
     +'<div class="project-intro"><strong>Danh mục dự án · chỉ đọc</strong><p>Trạng thái chưa có bằng chứng đủ điều kiện được giữ là <b>Chưa xác minh</b>. Không có chức năng START, giao việc hoặc chỉnh sửa SOT ở màn hình này.</p></div>'
@@ -99,7 +88,7 @@ export function renderProjectTree({catalogue,query="",expanded=[],selected=""}={
     +(error?'<p role="alert" class="project-error">Không đọc được danh mục dự án. Chưa có dữ liệu xác minh.</p>':'')
     +'<ul class="project-tree" aria-label="Danh sách dự án">'+tree.join("")+'</ul>'
     +(!visible?'<p class="project-empty" role="status">'+(term?'Không tìm thấy mục phù hợp.':'Chưa có dự án được xác minh.')+'</p>':'')
-    +(selected?'<div class="project-selection"><strong>Thông tin mục đang chọn</strong><p>Trạng thái: Chưa xác minh · Chưa có dữ liệu nghiệp vụ được phê duyệt.</p>'+selectedLink+'</div>':'')
+    +renderProjectDetail({catalogue,selected})
     +'<p class="project-footer">Danh sách từ nguồn SOT nội bộ chỉ dùng để điều hướng. Kiểm tra phiên bản GitHub, bằng chứng CI, trạng thái hoàn thành và tác vụ chi tiết thuộc các bước nghiệm thu tiếp theo.</p>'
     +'</section>';
 }
