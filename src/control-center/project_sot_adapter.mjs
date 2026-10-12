@@ -62,7 +62,11 @@ export function createReadOnlySotAdapter({
               const detail=await response.json();
               const message=typeof detail?.message==="string" ? detail.message : "";
               throttled=/secondary rate limit|rate limit exceeded|abuse detection|too many requests/i.test(message);
-            } catch { /* Non-JSON 403 stays ACCESS_DENIED. */ }
+            } catch(error) {
+              // Invalid JSON still means denied; transport abort/network errors
+              // must reach the outer timeout/retry classifier.
+              if(!(error instanceof SyntaxError)) throw error;
+            }
           }
           throw new ReadFailure(status===404 ? "NOT_FOUND" :
             throttled ? "RATE_LIMIT" :

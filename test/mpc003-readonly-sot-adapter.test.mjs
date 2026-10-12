@@ -230,3 +230,32 @@ test("plain permission-denied GitHub 403 remains ACCESS_DENIED and has no retry"
   assert.equal(x.ok,false);
   assert.equal(f.calls.length,1);
 });
+
+test("403 response body AbortError is TIMEOUT with bounded retry, never ACCESS_DENIED",async()=>{
+  const f=fixture({onRequest:()=>({
+    status:403,headers:{get:()=>null},
+    json:async()=>{const e=new Error("body read aborted");e.name="AbortError";throw e;}
+  })});
+  const x=await make(f.fetchImpl,{maxRetries:1}).read("supervisor");
+  assert.equal(x.ok,false);
+  assert.equal(x.status,"TIMEOUT");
+  assert.equal(f.calls.length,2);
+});
+test("403 response body network error escapes for retry and does not hide recovery",async()=>{
+  let count=0;
+  const f=fixture({onRequest:()=>{
+    count++;
+    if(count===1)return {status:403,headers:{get:()=>null},json:async()=>{throw new TypeError("disconnected")}};
+    return response(403,{message:"Resource not accessible by integration"});
+  }});
+  const x=await make(f.fetchImpl,{maxRetries:1}).read("supervisor");
+  assert.equal(x.status,"ACCESS_DENIED");
+  assert.equal(x.ok,false);
+  assert.equal(f.calls.length,2);
+});
+test("unparseable 403 error JSON remains ACCESS_DENIED without retry",async()=>{
+  const f=fixture({onRequest:()=>({status:403,headers:{get:()=>null},json:async()=>{throw new SyntaxError("non-json 403 body")}})});
+  const x=await make(f.fetchImpl,{maxRetries:2}).read("supervisor");
+  assert.equal(x.status,"ACCESS_DENIED");
+  assert.equal(f.calls.length,1);
+});
