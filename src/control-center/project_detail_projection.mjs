@@ -11,7 +11,8 @@ export function resolveProjectSelection(catalogue,selected){
  if(!isKey(selected)||!record(catalogue)||!Array.isArray(catalogue.projects))return null;
  const ids=selected.split("/");
  const project=catalogue.projects.find(p=>record(p)&&p.id===ids[0]);
- if(!project||!Object.hasOwn(APPROVED_SOT_SOURCES,project.id))return null;
+ const sourceId=project?.id==="print-ops"?"print_ops":project?.id;
+ if(!project||!Object.hasOwn(APPROVED_SOT_SOURCES,sourceId))return null;
  const feature=ids.length>1&&Array.isArray(project.features)?project.features.find(f=>record(f)&&f.id===ids[1]):null;
  if(ids.length>1&&!feature)return null;
  const task=ids.length>2&&Array.isArray(feature?.tasks)?feature.tasks.find(t=>record(t)&&t.id===ids[2]):null;
@@ -30,7 +31,9 @@ export function projectDetailProjection({catalogue,selected,authority=null}={}){
  if(authority==null)return result;
  const fail=(source,reason)=>({...result,authority:{...blank(),source,reason}});
  if(!record(authority)||!record(authority.snapshot))return fail("UNVERIFIED","MALFORMED_AUTHORITY");
- const snap=authority.snapshot, source=APPROVED_SOT_SOURCES[chosen.projectId];
+ const snap=authority.snapshot;
+ const sourceId=chosen.projectId==="print-ops"?"print_ops":chosen.projectId;
+ const source=APPROVED_SOT_SOURCES[sourceId];
  if(snap.ok!==true||snap.status!=="CURRENT")return fail(
    snap.status==="MAIN_DIVERGED"||snap.status==="CONFLICT"?"CONFLICT":"UNVERIFIED",
    typeof snap.status==="string"?snap.status:"UNAVAILABLE");
@@ -56,6 +59,16 @@ export function projectDetailProjection({catalogue,selected,authority=null}={}){
  // Even CURRENT GitHub SOT text is not a verified DoD: the MPC-002 schema
  // validates all evidence and degrades unsupported VERIFIED_DONE to UNKNOWN.
  const revision=node.revision;
+ const pinned="https://github.com/"+source.repo+"/blob/"+snap.revision.sha+"/"+source.path;
+ // Never substitute the mutable /blob/main URL for the exact reviewed SHA.
+ if(revision.repo!==source.repo||revision.path!==source.path||
+    revision.sha!==snap.revision.sha||revision.url!==pinned)
+   return fail("CONFLICT","NODE_REVISION_DIVERGED");
+ const revisionBound=new Set(["canonical_sot","task_dod","qa","exact_main"]);
+ if(node.evidence.some(e=>e.revision.repo!==source.repo||e.revision.path!==source.path||
+   e.revision.sha!==snap.revision.sha||e.revision.url!==pinned||
+   (revisionBound.has(e.kind)&&e.url!==pinned)))
+   return fail("CONFLICT","EVIDENCE_REVISION_DIVERGED");
  const evidence=node.evidence.map(e=>({
    id:e.id,kind:e.kind,verified:e.verified,
    url:e.url,sha:e.revision.sha

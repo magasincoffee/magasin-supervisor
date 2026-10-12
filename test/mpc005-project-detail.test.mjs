@@ -41,6 +41,7 @@ test("tree selections are exact, allowlisted and isolated between projects",()=>
  assert.equal(resolveProjectSelection(catalogue,path).kind,"task");
  assert.equal(resolveProjectSelection(catalogue,"supervisor/project-control").kind,"feature");
  assert.equal(resolveProjectSelection(catalogue,"supervisor").kind,"project");
+ assert.equal(resolveProjectSelection(catalogue,"print-ops").kind,"project");
  for(const key of ["../../x","supervisor/project-control/MPC-005/extra","workforce/project-control/MPC-005",
  "print-ops/project-control/MPC-005","prototype/project-control/MPC-005","__proto__/x/y","supervisor//MPC-005"]){
    assert.equal(resolveProjectSelection(catalogue,key),null,key);
@@ -155,4 +156,25 @@ test("current status without pinned immutable URL or fetched content fails close
  assert.equal(noBody.authority.source,"CONFLICT");
  const mismatchedCanonical=project(snapshot(),canonical(fullEvidence,{revision:revision(OTHER)}));
  assert.notEqual(mismatchedCanonical.authority.scope,"VERIFIED_DONE");
+});
+
+test("stale task SHA B cannot be VERIFIED_DONE against CURRENT canonical SHA A",()=>{
+ const otherProof=["canonical_sot","task_dod","qa","exact_main"].map(kind=>ev(kind,OTHER));
+ const data=project(snapshot(),canonical(otherProof,{revision:revision(OTHER)}));
+ assert.equal(data.authority.source,"CONFLICT");
+ assert.equal(data.authority.scope,"UNKNOWN");
+});
+test("revision-bound evidence at blob/main never authorizes immutable DoD",()=>{
+ const mutableUrl="https://github.com/"+REPO+"/blob/main/"+source;
+ const fake=fullEvidence.map(e=>({
+   ...e,revision:{...e.revision,url:mutableUrl},
+   url:["canonical_sot","task_dod","qa","exact_main"].includes(e.kind)?mutableUrl:e.url
+ }));
+ const data=project(snapshot(),canonical(fake));
+ assert.equal(data.authority.source,"CONFLICT");
+ assert.equal(data.authority.scope,"UNKNOWN");
+ const forged={...project(),authority:{...project().authority,evidence:fake.map(e=>({
+   id:e.id,kind:e.kind,verified:true,sha:SHA,url:e.url
+ })),revision:{...revision(),url:mutableUrl}}};
+ assert.doesNotMatch(renderProjectDetail({catalogue:navigation(),selected:path,detail:forged}),/Hoàn thành đã xác minh/);
 });

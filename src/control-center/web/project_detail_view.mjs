@@ -65,8 +65,12 @@ export function renderProjectDetail({catalogue,selected,detail=null}={}){
  const transport=a&&Object.hasOwn(transportLabels,a.transport)?a.transport:"UNKNOWN";
  const ci=a&&Object.hasOwn(ciLabels,a.ci)?a.ci:"UNKNOWN";
  const release=a&&Object.hasOwn(releaseLabels,a.release)?a.release:"UNKNOWN";
- const evidence=a&&Array.isArray(a.evidence)?a.evidence.filter(e=>e&&Object.hasOwn(evidenceKinds,e.kind)&&
-   e.verified===true&&e.sha===a.revision.sha&&safeUrl(e.url,item.repo)):[];
+ const immutableRevision=!!a?.revision?.url&&typeof a.revision.path==="string"&&
+   a.revision.url==="https://github.com/"+item.repo+"/blob/"+a.revision.sha+"/"+a.revision.path;
+ const revisionBound=new Set(["canonical_sot","task_dod","qa","exact_main"]);
+ const evidence=a&&immutableRevision&&Array.isArray(a.evidence)?a.evidence.filter(e=>e&&Object.hasOwn(evidenceKinds,e.kind)&&
+   e.verified===true&&e.sha===a.revision.sha&&safeUrl(e.url,item.repo)&&
+   (!revisionBound.has(e.kind)||e.url===a.revision.url)):[];
  // Defence in depth: complete requires the minimum canonical DoD proof set,
  // regardless of any claimed scopeStatus in a display feed.
  const kinds=new Set(evidence.map(x=>x.kind));
@@ -77,7 +81,7 @@ export function renderProjectDetail({catalogue,selected,detail=null}={}){
    !a?"Chưa có bộ bằng chứng nhiệm vụ được xác thực từ nguồn SOT chuẩn.":
    safeScope==="VERIFIED_DONE"?"Các điều kiện hoàn thành đã có bằng chứng được xác minh cùng phiên bản.":
    "Trạng thái nguồn đã đọc, nhưng chưa có đủ bằng chứng để xác nhận hoàn thành.";
- const revision=a?.revision?.url&&safeUrl(a.revision.url,item.repo)?a.revision.url:null;
+ const revision=immutableRevision&&safeUrl(a.revision.url,item.repo)?a.revision.url:null;
  const evidenceHtml=evidence.map(e=>'<li><strong>'+escape(evidenceKinds[e.kind])+'</strong> · '+li(e.url,"Xem bằng chứng",item.repo)+'</li>').join("");
  return '<section class="project-detail" aria-label="Chi tiết mục đã chọn">'
   +'<div class="detail-heading"><div><span class="detail-kicker">'+escape(item.level)+'</span><h2>'+escape(item.title)+'</h2><p class="detail-code">Mã kỹ thuật: '+escape(item.id)+'</p></div><span class="project-unknown">'+escape(scopeLabels[safeScope])+'</span></div>'
