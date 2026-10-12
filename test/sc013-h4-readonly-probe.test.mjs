@@ -13,6 +13,14 @@ test('single request-only workflow with explicit Owner and H4 gates, never PR/sc
   assert.match(yaml, /github.triggering_actor == 'magasincoffee'/);
   assert.match(yaml, /github.run_attempt == 1/);
   assert.match(yaml, /github\.repository == 'magasincoffee\/magasin-supervisor'/);
+  assert.match(yaml, /verify-exact-single-file-owner-request/);
+  assert.match(yaml, /runs-on: ubuntu-latest/);
+  assert.match(yaml, /needs: verify-exact-single-file-owner-request/);
+  assert.match(yaml, /r.data.total_commits !== 1/);
+  assert.match(yaml, /files.length !== 1/);
+  assert.match(yaml, /files\[0\]\.filename !== process.env.EXPECTED_ONLY_PATH/);
+  assert.match(yaml, /context.payload.forced === true/);
+  assert.ok(yaml.indexOf("needs: verify-exact-single-file-owner-request") < yaml.indexOf("runs-on: [self-hosted, Windows, X64, magasin-h4a16il]"));
   assert.match(yaml, /runs-on: \[self-hosted, Windows, X64, magasin-h4a16il\]/);
   assert.match(yaml, /MachineName -cne 'DESKTOP-H4A16IL'/);
   assert.ok(yaml.indexOf('Deny non-H4') < yaml.indexOf('uses: actions/checkout'));
