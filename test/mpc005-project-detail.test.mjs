@@ -138,7 +138,7 @@ test("browser route serves detail module, preserves mobile and existing robot co
  read("src/control-center/server.py"),read("src/control-center/web/project_tree_view.mjs"),
  read("src/control-center/web/app.js"),read("src/control-center/web/styles.css"),
  read("docs/project-control/MPC-005_READ_ONLY_DETAIL_HANDOFF_2026-10-12.md")]);
- assert.match(server,/if p==="\/project_detail_view\.mjs":/);
+ assert.match(server,/if p=="\/project_detail_view\.mjs":/);
  assert.match(view,/import \{renderProjectDetail\} from "\.\/project_detail_view\.mjs"/);
  assert.match(view,/renderProjectDetail\(\{catalogue,selected\}\)/);
  assert.match(style,/@media\(max-width:500px\)/);
@@ -146,4 +146,13 @@ test("browser route serves detail module, preserves mobile and existing robot co
  assert.match(app,/\/api\/supervisor\/control/);
  assert.match(doc,/read-only/i);
  assert.doesNotMatch(server,/if p==="\/api\/projects\/write":/);
+});
+
+test("current status without pinned immutable URL or fetched content fails closed",()=>{
+ const wrong=project(snapshot({revision:{...revision(),url:"https://github.com/"+REPO+"/blob/main/"+source}}));
+ assert.equal(wrong.authority.source,"CONFLICT");
+ const noBody=project(snapshot({content:null}));
+ assert.equal(noBody.authority.source,"CONFLICT");
+ const mismatchedCanonical=project(snapshot(),canonical(fullEvidence,{revision:revision(OTHER)}));
+ assert.notEqual(mismatchedCanonical.authority.scope,"VERIFIED_DONE");
 });

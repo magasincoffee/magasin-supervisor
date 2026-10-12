@@ -37,12 +37,13 @@ export function projectDetailProjection({catalogue,selected,authority=null}={}){
  if(!record(snap.source)||snap.source.repo!==source.repo||snap.source.path!==source.path||
    !record(snap.revision)||snap.revision.repo!==source.repo||snap.revision.path!==source.path||
    typeof snap.revision.sha!=="string"||!SHA.test(snap.revision.sha)||
-   !record(authority.canonicalProject))return fail("CONFLICT","SOURCE_REVISION_MISMATCH");
+   snap.revision.url!=="https://github.com/"+source.repo+"/blob/"+snap.revision.sha+"/"+source.path||
+   typeof snap.content!=="string"||!record(authority.canonicalProject))return fail("CONFLICT","SOURCE_REVISION_MISMATCH");
  // The canonical SOT of the project is not necessarily the subordinate
  // project's feature/task SOT: both boundaries must agree, or fail closed.
  const canonical=authority.canonicalProject;
  if(canonical.id!==chosen.projectId||!record(canonical.revision)||
-   canonical.revision.sha!==snap.revision.sha||
+   canonical.revision.sha!==snap.revision.sha||canonical.revision.url!==snap.revision.url||
    canonical.revision.repo!==source.repo||canonical.revision.path!==source.path)return fail("CONFLICT","PROJECT_REVISION_MISMATCH");
  let node;
  try{
