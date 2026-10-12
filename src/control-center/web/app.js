@@ -380,7 +380,10 @@ document.addEventListener("click",async(e)=>{
    const parts=key.split("/");
    if(parts[0])projectExpanded.add(parts[0]);
    if(parts.length>1)projectExpanded.add(parts.slice(0,2).join("/"));
-   openPage("projects",false);return;
+   openPage("projects",false);
+   const replacement=[...root.querySelectorAll("[data-project-focus]")].find(x=>x.dataset.projectFocus===key);
+   (replacement||root.querySelector("#project-search"))?.focus();
+   return;
  }
  const stop=e.target.closest("[data-owner-stop]");
  const start=e.target.closest("[data-owner-start]");
@@ -423,9 +426,10 @@ document.addEventListener("click",async(e)=>{
 document.addEventListener("keydown",(e)=>{if(e.key==="Enter"&&e.target.matches(".robot-card"))openPage(e.target.dataset.open)});
 window.addEventListener("popstate",()=>{
  const page=currentPage();
- if(page==="projects"){openPage(page,false);void refresh();}
- else if(latest)openPage(page,false);
- else void refresh();
+ if(page==="projects" || latest)openPage(page,false);
+ // History traversal always revalidates the destination status; a cached
+ // robot snapshot from before visiting Projects cannot authorize controls.
+ void refresh();
 });
 setInterval(()=>{if(!document.hidden)refresh()},20000);
 refresh();

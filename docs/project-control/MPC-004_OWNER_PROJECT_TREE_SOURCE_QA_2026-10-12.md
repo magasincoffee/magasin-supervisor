@@ -10,3 +10,6 @@ Authority: MAGASIN PROJECT CONTROL backlog on main; Supervisor ROOT SOT and each
 ## QA and release boundaries
 Synthetic Node tests cover tree hierarchy, search, collapse, breadcrumb, XSS/URL sanitization, fail-closed unavailable states, asset routes, desktop/mobile CSS breakpoints and preservation of existing robot write-route boundaries. Python tests cover static allowlists, real task-ID parsing, duplicated/missing/bad UTF-8 SOT inputs and UNKNOWN statuses. Required four hosted Supervisor CI workflows at the exact head, independently reviewed PR, merge, exact-main readback are the source/QA completion gate.
 This release does not deploy to local machines, authorize Supervisor START, or qualify operational acceptance.
+
+## MPC-004 post-review route/accessibility checks
+All browser-history popstate transitions revalidate the current destination via a read-only refresh, preventing stale robot actions after leaving the project view. Tree project/feature/task/breadcrumb selection now restores keyboard focus to the corresponding replacement button (or the search field if the selected root breadcrumb is no longer a button).

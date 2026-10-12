@@ -119,3 +119,12 @@ test("MPC-004 keyboard toggles restore focus to the matching replacement button"
  assert.match(app,/x\.dataset\.projectToggle===key/);
  assert.match(app,/replacement\?\.focus\(\)/);
 });
+
+test("history popstate revalidates operational state and project selection preserves focus",async()=>{
+ const app=await read("src/control-center/web/app.js");
+ assert.match(app,/if\(page==="projects" \|\| latest\)openPage\(page,false\);/);
+ assert.match(app,/History traversal always revalidates the destination status/);
+ assert.match(app,/void refresh\(\);\s*\}\);\s*setInterval/);
+ assert.match(app,/dataset\.projectFocus===key/);
+ assert.match(app,/\(replacement\|\|root\.querySelector\("#project-search"\)\)\?\.focus\(\)/);
+});
