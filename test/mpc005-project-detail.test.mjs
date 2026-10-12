@@ -29,8 +29,26 @@ const canonical=(evidence=fullEvidence,extra={})=>({
    }]
  }]
 });
+const authorable=p=>{
+ const copy=JSON.parse(JSON.stringify(p));
+ const known=JSON.stringify(revision());
+ const bound=new Set(["canonical_sot","task_dod","qa","exact_main"]);
+ const clean=n=>{
+   // Legitimate SOT authoring never includes its own unrecoverable commit SHA.
+   // Preserve intentionally foreign revision fixtures to assert fail-closed.
+   if(JSON.stringify(n.revision)===known)delete n.revision;
+   for(const e of n.evidence??[]){
+     if(JSON.stringify(e.revision)===known)delete e.revision;
+     if(bound.has(e.kind)&&e.url===revision().url)delete e.url;
+   }
+   for(const child of n.features??[])clean(child);
+   for(const child of n.tasks??[])clean(child);
+ };
+ clean(copy);
+ return copy;
+};
 const embedModel=p=>"# Canonical SOT\n<!-- MAGASIN_CANONICAL_PROJECT_MODEL_V1_BEGIN -->\n"+
- JSON.stringify({schema:"magasin-canonical-project-model.v1",project:p})+
+ JSON.stringify({schema:"magasin-canonical-project-model.v1",project:authorable(p)})+
  "\n<!-- MAGASIN_CANONICAL_PROJECT_MODEL_V1_END -->\n";
 const snapshot=(x={})=>({ok:true,status:"CURRENT",
  source:{repo:REPO,path:source},revision:revision(),content:"# Canonical SOT",...x});
@@ -259,4 +277,20 @@ test("canonical project SOT and subordinate plan are visibly different links",()
  assert.match(html,/Tài liệu mô tả mục \(chỉ tham khảo, không phải SOT\)/);
  assert.match(html,/docs\/project-control\/MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md/);
  assert.doesNotMatch(html,/SOT của dự án: <a[^>]*MPC_OWNER_ARCHITECTURE/);
+});
+
+test("authorable SOT model has no self-referential SHA; adapter supplies revision",()=>{
+ const raw=embedModel(canonical());
+ assert.doesNotMatch(raw,/"sha":|"revision":/);
+ const data=project(snapshot({content:raw}));
+ assert.equal(data.authority.source,"CANONICAL_MODEL");
+ assert.equal(data.authority.revision.sha,SHA);
+ assert.equal(data.authority.scope,"VERIFIED_DONE");
+ const illegal={...authorable(canonical()),revision:revision()};
+ const poison="# Canonical SOT\n<!-- MAGASIN_CANONICAL_PROJECT_MODEL_V1_BEGIN -->\n"+
+   JSON.stringify({schema:"magasin-canonical-project-model.v1",project:illegal})+
+   "\n<!-- MAGASIN_CANONICAL_PROJECT_MODEL_V1_END -->\n";
+ const rejected=project(snapshot({content:poison}));
+ assert.equal(rejected.authority.source,"CONFLICT");
+ assert.equal(rejected.authority.scope,"UNKNOWN");
 });
