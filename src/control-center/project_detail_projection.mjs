@@ -30,6 +30,25 @@ function modelFromSot(content){
  }catch{return null;}
 }
 
+// SOT content cannot encode its own final commit hash. Structured authoring
+// records therefore contain NO revision/SHA field: attach the verified adapter
+// revision after the immutable snapshot was read. Any embedded attempt to
+// declare an independent revision fails closed, including nested evidence.
+function bindSnapshotRevision(input,revision){
+ const proofBound=new Set(["canonical_sot","task_dod","qa","exact_main"]);
+ const node=n=>{
+   if(!record(n)||Object.hasOwn(n,"revision"))throw new Error("EMBEDDED_NODE_REVISION");
+   const out={...n,revision:{...revision}};
+   if(Array.isArray(n.evidence))out.evidence=n.evidence.map(e=>{
+     if(!record(e)||Object.hasOwn(e,"revision"))throw new Error("EMBEDDED_EVIDENCE_REVISION");
+     return {...e,revision:{...revision},url:proofBound.has(e.kind)&&e.url===undefined?revision.url:e.url};
+   });
+   if(Array.isArray(n.features))out.features=n.features.map(node);
+   if(Array.isArray(n.tasks))out.tasks=n.tasks.map(node);
+   return out;
+ };
+ return node(input);
+}
 export function resolveProjectSelection(catalogue,selected){
  if(!isKey(selected)||!record(catalogue)||!Array.isArray(catalogue.projects))return null;
  const ids=selected.split("/");
@@ -68,8 +87,11 @@ export function projectDetailProjection({catalogue,selected,authority=null}={}){
  // A separately passed canonicalProject cannot prove anything. Only a
  // structured model INSIDE the fetched immutable source is allowed to supply
  // statuses. Missing, malformed or duplicate markers fail closed.
- const canonical=modelFromSot(snap.content);
- if(!canonical)return fail("UNVERIFIED","CANONICAL_MODEL_NOT_BOUND_TO_SOT");
+ const modelInSot=modelFromSot(snap.content);
+ if(!modelInSot)return fail("UNVERIFIED","CANONICAL_MODEL_NOT_BOUND_TO_SOT");
+ let canonical;
+ try {canonical=bindSnapshotRevision(modelInSot,snap.revision);}
+ catch {return fail("CONFLICT","EMBEDDED_SOURCE_REVISION_FORBIDDEN");}
  if(canonical.id!==chosen.projectId||!record(canonical.revision)||
    canonical.revision.sha!==snap.revision.sha||canonical.revision.url!==snap.revision.url||
    canonical.revision.repo!==source.repo||canonical.revision.path!==source.path)return fail("CONFLICT","PROJECT_REVISION_MISMATCH");
