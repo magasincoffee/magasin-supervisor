@@ -193,3 +193,15 @@ test("display-only forged same-repo wrong SOT path never becomes VERIFIED_DONE",
  assert.doesNotMatch(html,/OTHER_DOCUMENT/);
  assert.match(html,/Chưa xác minh/);
 });
+
+test("mutable authority URL rejects all claimed statuses, not only VERIFIED_DONE",()=>{
+ const valid=project();
+ const mutable="https://github.com/"+REPO+"/blob/main/"+source;
+ for(const scope of ["READY","IN_PROGRESS","VERIFIED_DONE"]){
+   const forged={...valid,authority:{...valid.authority,scope,transport:"RUNNING",ci:"SUCCESS",release:"ACCEPTED",revision:{...revision(),url:mutable}}};
+   const html=renderProjectDetail({catalogue:navigation(),selected:path,detail:forged});
+   assert.match(html,/Chưa xác minh/);
+   assert.doesNotMatch(html,/>CI PASS|>Đang chạy|>Đã được chấp thuận|>Sẵn sàng|>Đang thực hiện|>Hoàn thành đã xác minh/);
+   assert.match(html,/Chưa xác minh SHA/);
+ }
+});
