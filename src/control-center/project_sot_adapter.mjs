@@ -19,6 +19,14 @@ function decodeFile(result,maxBytes) {
   ensure(bytes.length>0 && bytes.length<=maxBytes && bytes.toString("base64")===encoded,"BAD_CONTENT");
   return bytes.toString("utf8");
 }
+// Each consumer gets a separate projection. Neither the first response nor a
+// cache hit can mutate the adapter's cached authority snapshot.
+const copySnapshot = (snapshot,fromCache) => ({
+  ...snapshot,
+  source:{...snapshot.source},
+  revision:{...snapshot.revision},
+  fromCache
+});
 export function createReadOnlySotAdapter({
   fetchImpl=globalThis.fetch, now=()=>Date.now(),
   sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),
@@ -48,7 +56,12 @@ export function createReadOnlySotAdapter({
             status===401 || status===403 ? "ACCESS_DENIED" :
             status>=500 ? "UPSTREAM_ERROR" : "BAD_RESPONSE");
         }
-        const json=await response.json();
+        let json;
+        try { json=await response.json(); }
+        catch(error) {
+          if(error instanceof SyntaxError) throw new ReadFailure("BAD_RESPONSE");
+          throw error;
+        }
         ensure(isObject(json),"BAD_RESPONSE");
         return json;
       } catch(error) {
@@ -70,9 +83,10 @@ export function createReadOnlySotAdapter({
       return {ok:false,status:"BAD_REVISION",projectId,content:null};
     const saved=cached.get(projectId);
     const moment=now();
-    if(saved && moment>=saved.fetchedAt && moment-saved.fetchedAt<cacheTtlMs &&
-      (expectedSha===undefined || expectedSha===saved.revision.sha)) {
-      return {...saved,fromCache:true};
+    // Explicit immutable revision checks must always revalidate live main.
+    if(saved && expectedSha===undefined && moment>=saved.fetchedAt &&
+       moment-saved.fetchedAt<cacheTtlMs) {
+      return copySnapshot(saved,true);
     }
     const root="https://api.github.com/repos/"+source.repo;
     const mainUrl=root+"/commits/main";
@@ -95,12 +109,16 @@ export function createReadOnlySotAdapter({
           url:"https://github.com/"+source.repo+"/blob/"+observedMainSha+"/"+source.path},
         content,fetchedAt,fromCache:false
       };
-      cached.set(projectId,snapshot);
-      return snapshot;
+      cached.set(projectId,Object.freeze({
+        ...snapshot,
+        source:Object.freeze({...snapshot.source}),
+        revision:Object.freeze({...snapshot.revision})
+      }));
+      return copySnapshot(snapshot,false);
     } catch(error) {
       const code=error instanceof ReadFailure ? error.code : "NETWORK_ERROR";
       // No stale content is ever presented as fresh authoritative data.
-      return {ok:false,status:saved ? "STALE" : code,
+      return {ok:false,status:code==="MAIN_DIVERGED" ? code : saved ? "STALE" : code,
         reason:saved ? code : undefined,projectId,source:{...source},
         observedMainSha,expectedSha:expectedSha??null,
         cachedAt:saved?.fetchedAt??null,content:null};

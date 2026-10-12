@@ -116,3 +116,61 @@ test("invalid SHA input fails before network and bounded configuration is enforc
   assert.throws(()=>make(f.fetchImpl,{maxRetries:100}),/BAD_CONFIGURATION/);
   assert.throws(()=>make(f.fetchImpl,{cacheTtlMs:Infinity}),/BAD_CONFIGURATION/);
 });
+
+test("expected revision revalidates main within TTL and reports divergence, never CURRENT cache",async()=>{
+  const f=fixture({shas:[A,A,B]});
+  const adapter=make(f.fetchImpl,{cacheTtlMs:300000,now:()=>1000});
+  assert.equal((await adapter.read("supervisor")).status,"CURRENT");
+  const changed=await adapter.read("supervisor",{expectedSha:A});
+  assert.equal(changed.ok,false);
+  assert.equal(changed.status,"MAIN_DIVERGED");
+  assert.equal(changed.observedMainSha,B);
+  assert.equal(changed.content,null);
+  assert.equal(f.calls.length,4);
+});
+test("expected revision always rechecks GitHub even with a fresh, matching cache",async()=>{
+  const f=fixture();
+  const adapter=make(f.fetchImpl,{cacheTtlMs:300000,now:()=>1000});
+  const first=await adapter.read("supervisor");
+  assert.equal(first.fromCache,false);
+  const same=await adapter.read("supervisor",{expectedSha:A});
+  assert.equal(same.ok,true);
+  assert.equal(same.fromCache,false);
+  assert.equal(f.calls.length,6);
+});
+test("mutating successful and cached responses cannot poison cached source, revision or timestamps",async()=>{
+  const f=fixture();
+  const adapter=make(f.fetchImpl,{cacheTtlMs:300000,now:()=>1000});
+  const original=await adapter.read("supervisor");
+  original.revision.sha=B;
+  original.source.repo="attacker/repo";
+  original.content="FORGED";
+  original.fetchedAt=900000;
+  const cached=await adapter.read("supervisor");
+  assert.equal(cached.fromCache,true);
+  assert.equal(cached.content,"# Canonical SOURCE_OF_TRUTH");
+  assert.equal(cached.revision.sha,A);
+  assert.equal(cached.source.repo,"magasincoffee/magasin-supervisor");
+  assert.equal(cached.fetchedAt,1000);
+  cached.content="CORRUPTED";
+  cached.revision.sha=B;
+  cached.source.path="bad.md";
+  const again=await adapter.read("supervisor");
+  assert.equal(again.content,"# Canonical SOURCE_OF_TRUTH");
+  assert.equal(again.revision.sha,A);
+  assert.equal(again.source.path,"SOURCE_OF_TRUTH.md");
+  assert.equal(f.calls.length,3);
+});
+test("malformed 200 JSON is BAD_RESPONSE without retry for commit and SOT content",async()=>{
+  for(const malformedContent of [false,true]){
+    const f=fixture({onRequest:url=>{
+      if(malformedContent && url.endsWith("/commits/main"))return response(200,{sha:A});
+      return {status:200,headers:{get:()=>null},json:async()=>{throw new SyntaxError("malformed JSON")}};
+    }});
+    const result=await make(f.fetchImpl,{maxRetries:2}).read("supervisor");
+    assert.equal(result.ok,false);
+    assert.equal(result.status,"BAD_RESPONSE");
+    assert.equal(result.content,null);
+    assert.equal(f.calls.length,malformedContent?2:1);
+  }
+});
