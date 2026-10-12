@@ -1,0 +1,46 @@
+name: SC-013 H4 one-shot read-only diagnostic
+
+# Explicit Owner source-gated trigger only. Never from arbitrary PR or merge.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/sc013-h4-readonly-probe-request.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sc013-h4a16il-safe-deploy
+  cancel-in-progress: false
+
+jobs:
+  h4-only-readonly-observation:
+    if: ${{ github.repository == 'magasincoffee/magasin-supervisor' && github.actor == 'magasincoffee' }}
+    runs-on: [self-hosted, Windows, X64, magasin-h4a16il]
+    timeout-minutes: 4
+    steps:
+      - name: Deny non-H4 before checkout and all local reads
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([Environment]::MachineName -cne 'DESKTOP-H4A16IL') {
+            Write-Output 'SC013_H4_READONLY_HOLD=WRONG_MACHINE'
+            throw 'WRONG_TARGET_MACHINE'
+          }
+          Write-Output 'SC013_H4_IDENTITY_PASS=True'
+      - name: Checkout exact requested main commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Inspect H4 SOT-approved safe presence and resource summary only
+        shell: powershell
+        env:
+          EXPECTED_MAIN_SHA: ${{ github.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & '.github/scripts/sc013-h4-readonly-probe.ps1' -ExpectedSha $env:EXPECTED_MAIN_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'READONLY_PROBE_FAILED' }
