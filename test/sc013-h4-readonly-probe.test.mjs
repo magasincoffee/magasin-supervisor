@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 const ps = readFileSync(new URL('../.github/scripts/sc013-h4-readonly-probe.ps1', import.meta.url), 'utf8');
 const yaml = readFileSync(new URL('../.github/workflows/sc013-h4-readonly-probe.yml', import.meta.url), 'utf8');
 const integrity = readFileSync(new URL('../.github/workflows/supervisor-integrity.yml', import.meta.url), 'utf8');
+const hostedWindows = readFileSync(new URL('../.github/workflows/supervisor-tests.yml', import.meta.url), 'utf8');
 const sot = readFileSync(new URL('../SOURCE_OF_TRUTH.md', import.meta.url), 'utf8');
 
 test('single request-only workflow with explicit Owner and H4 gates, never PR/schedule', () => {
@@ -30,6 +31,9 @@ test('single request-only workflow with explicit Owner and H4 gates, never PR/sc
   assert.match(yaml, /concurrency:[\s\S]+?sc013-h4a16il-safe-deploy/);
   assert.doesNotMatch(yaml, /^\s*pull_request:|^\s*schedule:|^\s*issues:|^\s*workflow_dispatch:/m);
   assert.match(integrity, /sc013-h4-readonly-probe\.yml/);
+  assert.equal((hostedWindows.match(/\.github\/workflows\/sc013-h4-readonly-probe\.yml/g)||[]).length, 2);
+  assert.equal((hostedWindows.match(/\.github\/scripts\/sc013-h4-readonly-probe\.ps1/g)||[]).length >= 3, true);
+  assert.match(hostedWindows, /H4_DIAG_SELFTEST_RECEIPT_MISSING/);
 });
 
 test('read-only diagnostics emits only allowlisted sanitized facts; no worker actuation', () => {
