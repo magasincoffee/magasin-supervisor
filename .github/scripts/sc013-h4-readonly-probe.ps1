@@ -41,7 +41,10 @@ if (-not (Test-TargetHost $machine)) {
 }
 if ($env:GITHUB_REPOSITORY -cne 'magasincoffee/magasin-supervisor' -or
     $env:GITHUB_REF -cne 'refs/heads/main' -or
-    $env:GITHUB_EVENT_NAME -notin @('push','workflow_dispatch')) {
+    $env:GITHUB_EVENT_NAME -cne 'push' -or
+    $env:GITHUB_ACTOR -cne 'magasincoffee' -or
+    $env:GITHUB_TRIGGERING_ACTOR -cne 'magasincoffee' -or
+    $env:GITHUB_RUN_ATTEMPT -cne '1') {
   throw 'UNQUALIFIED_GITHUB_CONTEXT'
 }
 if ($ExpectedSha -cnotmatch '^[a-f0-9]{40}$' -or $env:GITHUB_SHA -cne $ExpectedSha) {
