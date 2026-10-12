@@ -90,23 +90,36 @@ test('current SOT permits only a read-only H4 check under STOP', () => {
 });
 
 test('RTRY01 exact H4 read-only field receipt never grants START, MCP pairing or SAYDI DONE', () => {
-  assert.match(sot, /SC-013 H4 one-shot read-only diagnostic retry RTRY01/);
-  assert.match(sot, /38243025301/);
-  assert.match(sot, /H4RO-20261012-RTRY01/);
-  assert.match(sot, /READ_ONLY_OBSERVED_UNATTESTED/);
-  assert.match(sot, /mcp_transport_connected=UNVERIFIED/);
-  assert.match(sot, /owner_lifecycle_authenticated=false/);
-  assert.match(sot, /worker_ownership_verified=false/);
-  assert.match(sot, /saydi_audio_sha_verified=false/);
-  assert.match(sot, /approved_to_start=false/);
-  assert.match(sot, /approved_to_dispatch=false/);
-  assert.match(sot, /production_modified=false/);
-  assert.match(sot, /task_completed=false/);
-  assert.match(sot, /1\.20 GiB/);
-  assert.match(sot, /SAYDI002-VN-001/);
-  assert.match(sot, /in-progress|IN_PROGRESS/);
-  assert.match(sot, /no second marker|single retry authorization/);
-  // Source code must never automatically replay this consumed request.
+  const title = '### SC-013 H4 one-shot read-only diagnostic retry RTRY01';
+  const start = sot.indexOf(title);
+  assert.notEqual(start, -1, 'RTRY01 receipt is missing');
+  const next = sot.indexOf('\n### ', start + title.length);
+  const receipt = sot.slice(start, next === -1 ? undefined : next);
+  for (const required of [
+    /38243025301/, /H4RO-20261012-RTRY01/, /READ_ONLY_OBSERVED_UNATTESTED/,
+    /mcp_transport_connected=UNVERIFIED/,
+    /owner_lifecycle_authenticated=false/,
+    /worker_ownership_verified=false/, /saydi_audio_sha_verified=false/,
+    /approved_to_start=false/, /approved_to_dispatch=false/,
+    /production_modified=false/, /worker_started=false/,
+    /owner_stop_changed=false/, /task_completed=false/,
+    /1\.20 GiB/, /SAYDI002-VN-001/, /IN_PROGRESS/,
+    /no second marker|single retry authorization/,
+  ]) assert.match(receipt, required);
+  // Reject contradictory authorization even if the original negative
+  // status remains in the same SOT section.
+  const forbidden = /(?:owner_lifecycle_authenticated|worker_ownership_verified|saydi_audio_sha_verified|approved_to_start|approved_to_dispatch|production_modified|worker_started|owner_stop_changed|task_completed)=true\b|mcp_transport_connected=(?!UNVERIFIED)\w+|SAYDI002-VN-001\s*[:=\- ]+\s*(?:DONE|COMPLETE|FINAL)\b/i;
+  assert.doesNotMatch(receipt, forbidden);
+  for (const injected of [
+    'approved_to_start=true',
+    'mcp_transport_connected=VERIFIED',
+    'task_completed=true',
+    'SAYDI002-VN-001 = DONE',
+  ]) {
+    assert.match(receipt + '\n' + injected, forbidden,
+      'positive authorization must never escape the section validator');
+  }
+  // This consumed request must not be replayable by a workflow trigger.
   assert.doesNotMatch(yaml, /^\s*workflow_dispatch:|^\s*schedule:/m);
   assert.match(yaml, /run_attempt == 1/);
 });
