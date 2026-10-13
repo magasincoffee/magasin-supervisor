@@ -139,7 +139,7 @@ async function ownerBrowserFixture(){
   "  latest={robots:[],services:[],coordinator:null};",
   " },",
   " state(){return JSON.stringify({selected:projectSelected,draft:ownerDraft,receipt:ownerReceipt,",
-  "  error:ownerError,pending:ownerPending,epoch:ownerIntentEpoch,authenticated:ownerSession?.authenticated});}",
+  "  error:ownerError,pending:ownerPending,epoch:ownerIntentEpoch,authenticated:ownerSession?.authenticated});},",
   " seedPrivateState({draft,receipt,pending,error}){",
   "  ownerDraft=draft;ownerReceipt=receipt;ownerPending=pending;ownerError=error;",
   " },",
