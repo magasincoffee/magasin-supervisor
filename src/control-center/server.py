@@ -452,6 +452,13 @@ class Handler(BaseHTTPRequestHandler):
         if not hmac.compare_digest(self.headers.get("X-MAGASIN-CSRF",""),CONTROL_TOKEN):
             return self.send_data('{"ok":false,"message":"Missing control authorization"}',code=403)
         route=urlsplit(self.path).path
+        # Owner mutation routes REQUIRE an explicitly supplied trusted fetch-site
+        # signal. The legacy Control Center general guard defaults a missing
+        # header to same-origin for other routes; never inherit that default for
+        # login, request submission, or logout.
+        if route in ("/api/owner/login", "/api/owner/requests", "/api/owner/logout") and \
+                self.headers.get("Sec-Fetch-Site") not in ("same-origin", "none"):
+            return self.send_data('{"ok":false,"error":"BAD_FETCH_SITE"}',code=403)
         if route=="/api/owner/logout":
             # Safe, idempotent revocation. Existing exact localhost Host, Origin
             # and control CSRF checks above remain mandatory. The old per-session
