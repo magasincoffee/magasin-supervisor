@@ -34,7 +34,7 @@ export function renderOwnerRequestPanel({catalogue,selected,session,draft={},rec
   +'<p class="owner-request-target">Đang chọn: <strong>'+esc(target.name)+'</strong></p>'
   +'<p class="mini">Yêu cầu chỉ được lưu để Owner xem xét. Không tự sửa SOT, giao việc hoặc bật Robot.</p>';
  const message=error?'<p class="project-error" role="alert">'+esc(error)+'</p>':"";
- const saved=receipt?.request_id?'<p class="owner-request-receipt" role="status">'
+ const saved=session?.authenticated===true&&session?.login_enabled===true&&receipt?.request_id?'<p class="owner-request-receipt" role="status">'
   +'Đã ghi nhận yêu cầu #'+esc(receipt.request_id)+' · Chờ Owner xem xét. '
   +'Không kích hoạt robot hoặc thay đổi dữ liệu dự án.</p>':"";
  if(!session?.login_enabled) return intro+message+saved
