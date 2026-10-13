@@ -126,4 +126,92 @@ async function ownerBrowserFixture(){
  let script=await fs.readFile(new URL("../src/control-center/web/app.js",import.meta.url),"utf8");
  script=script.replace(/^import [^\n]*\n/g,"");
  assert.match(script,/refresh\(\);\s*$/);
- script=script.replace(/refresh\(\);\s*$/,String.raw
+ script=script.replace(/refresh\(\);\s*$/,[
+  "globalThis.__ownerHarness={",
+  " init({selected,catalogue,description}){",
+  "  projectSelected=selected;projectCatalogue=catalogue;",
+  "  ownerSession={authenticated:true,login_enabled:true,csrf:'owner-csrf',login_csrf:'loopback-csrf'};",
+  "  ownerDraft={description,priority:'NORMAL',screenshots:''};",
+  "  latest={robots:[],services:[],coordinator:null};",
+  " },",
+  " state(){return JSON.stringify({selected:projectSelected,draft:ownerDraft,receipt:ownerReceipt,",
+  "  error:ownerError,pending:ownerPending,epoch:ownerIntentEpoch});}",
+  "};"
+ ].join("\n"));
+ vm.runInNewContext(script,sandbox,{filename:"app.js",timeout:2000});
+ const handler=events.submit.at(-1);
+ const focus=events.click.at(-1);
+ const input=events.input.at(-1);
+ const submit=(task,description)=>{
+  const button={disabled:false};
+  const form={
+   id:"mpc-owner-request-form",dataset:{target:task},isConnected:true,
+   querySelector:(id)=>{
+    if(id==="button[type=submit]")return button;
+    if(id==="#mpc-owner-description")return {value:description};
+    if(id==="#mpc-owner-priority")return {value:"NORMAL"};
+    if(id==="#mpc-owner-screenshots")return {value:""};
+    return null;
+   }
+  };
+  return {run:handler({target:form,preventDefault:()=>{}}),button,form};
+ };
+ const select=async key=>{
+  await focus({target:{closest:kind=>kind==="[data-project-focus]"?
+   {dataset:{projectFocus:key}}:null}});
+ };
+ const edit=description=>input({target:{id:"mpc-owner-description",value:description}});
+ return {harness:sandbox.__ownerHarness,requests,submit,select,edit};
+}
+
+const taskB="supervisor/project-control/MPC-005";
+test("In-flight success for task A never overwrites B's receipt or newly entered draft",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected,catalogue,description:"Original request for task A"});
+ const pending=ui.submit(selected,"Original request for task A");
+ assert.equal(ui.requests.length,1);
+ await ui.select(taskB);
+ ui.edit("New unsent request for task B must survive");
+ ui.requests[0].resolve({ok:true,json:async()=>({
+   request_id:"receipt-for-A",status:"PENDING_OWNER_REVIEW",dispatch_authorized:false
+ })});
+ await pending.run;
+ const state=JSON.parse(ui.harness.state());
+ assert.equal(state.selected,taskB);
+ assert.equal(state.draft.description,"New unsent request for task B must survive");
+ assert.equal(state.receipt,null);
+ assert.equal(state.error,"");
+});
+
+test("In-flight failed POST for task A cannot show stale error over task B",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected,catalogue,description:"Original A task request"});
+ const pending=ui.submit(selected,"Original A task request");
+ await ui.select(taskB);
+ ui.edit("B draft typed while A request has no network confirmation");
+ ui.requests[0].reject(new Error("Network lost for A"));
+ await pending.run;
+ const state=JSON.parse(ui.harness.state());
+ assert.equal(state.selected,taskB);
+ assert.equal(state.draft.description,"B draft typed while A request has no network confirmation");
+ assert.equal(state.receipt,null);
+ assert.equal(state.error,"");
+});
+
+test("A-B-A switch or edit during POST invalidates old A completion",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected,catalogue,description:"Original A task request"});
+ const pending=ui.submit(selected,"Original A task request");
+ await ui.select(taskB);
+ await ui.select(selected);
+ ui.edit("Fresh A task draft, different from the earlier request");
+ ui.requests[0].resolve({ok:true,json:async()=>({
+   request_id:"old-A-receipt",status:"PENDING_OWNER_REVIEW",dispatch_authorized:false
+ })});
+ await pending.run;
+ const state=JSON.parse(ui.harness.state());
+ assert.equal(state.selected,selected);
+ assert.equal(state.draft.description,"Fresh A task draft, different from the earlier request");
+ assert.equal(state.receipt,null);
+ assert.equal(pending.button.disabled,false);
+});
