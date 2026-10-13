@@ -511,3 +511,84 @@ test("Renderer failure itself also removes a previously displayed authenticated 
  assert.equal(state.receipt,null);
  assert.doesNotMatch(ui.harness.html(),/private-receipt|id="mpc-owner-request-form"/);
 });
+
+
+test("Only exact trusted navigation status can enable an Owner task form",()=>{
+ assert.equal(isSafeProjectCatalogue(catalogue),true);
+ for(const broken of [
+  {...catalogue,status:undefined},
+  {...catalogue,status:"READY"},
+  {...catalogue,status:"VERIFIED_DONE"},
+  {...catalogue,status:"UNAVAILABLE"},
+  {...catalogue,status:null},
+ ]){
+  assert.equal(isSafeProjectCatalogue(broken),false,String(broken.status));
+ }
+ assert.equal(isSafeProjectCatalogue({status:"UNAVAILABLE",projects:[]}),true);
+});
+
+test("Untrusted or unavailable catalogue status never renders an authenticated Owner request form",async()=>{
+ for(const status of ["READY","UNAVAILABLE",null,undefined]){
+  const ui=await ownerBrowserFixture();
+  ui.harness.init({selected,catalogue,description:"Private Owner draft"});
+  ui.harness.seedPrivateState({
+   draft:{description:"Private Owner draft",priority:"HIGH",screenshots:""},
+   receipt:{request_id:"private-owner-receipt"},pending:{target:selected},error:""
+  });
+  await ui.harness.refresh();
+  assert.match(ui.harness.html(),/id="mpc-owner-request-form"/);
+  ui.setCatalogueFetch(()=>Promise.resolve({ok:true,json:async()=>({...catalogue,status})}));
+  await ui.harness.refresh();
+  assert.doesNotMatch(ui.harness.html(),/id="mpc-owner-request-form"|private-owner-receipt|Private Owner draft/);
+  assert.match(ui.harness.html(),/Không đọc được danh mục/);
+ }
+});
+
+test("Navigating back to Projects never renders cached Owner data before a fresh probe",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected,catalogue,description:"Prior Owner request"});
+ ui.harness.seedPrivateState({
+  draft:{description:"Sensitive Owner draft from prior visit",priority:"HIGH",screenshots:""},
+  receipt:{request_id:"secret-prior-receipt"},pending:{target:selected},error:""
+ });
+ await ui.harness.refresh();
+ assert.match(ui.harness.html(),/secret-prior-receipt/);
+ // Switching pages invalidates the Owner capability and removes old data.
+ ui.harness.navigate("home");
+ ui.harness.navigate("projects");
+ assert.match(ui.harness.html(),/Đang xác minh lại quyền Owner/);
+ assert.doesNotMatch(ui.harness.html(),/secret-prior-receipt|Sensitive Owner draft|mpc-owner-request-form/);
+ let completeSession;
+ ui.setSessionFetch(()=>new Promise(resolve=>{completeSession=resolve;}));
+ const pending=ui.harness.refresh();
+ assert.match(ui.harness.html(),/Đang xác minh lại quyền Owner/);
+ assert.doesNotMatch(ui.harness.html(),/secret-prior-receipt|mpc-owner-request-form/);
+ completeSession({ok:true,json:async()=>({
+  schema:"MPC_OWNER_SESSION_V1",authenticated:false,login_enabled:true,
+  login_csrf:"loopback-csrf",csrf:null
+ })});
+ await pending;
+ const state=JSON.parse(ui.harness.state());
+ assert.equal(state.authenticated,false);
+ assert.equal(state.receipt,null);
+ assert.equal(state.draft.description,"");
+ assert.doesNotMatch(ui.harness.html(),/secret-prior-receipt|mpc-owner-request-form/);
+});
+
+test("A delayed response from an earlier Project visit cannot unlock its later visit",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected,catalogue,description:"Old Owner request"});
+ let completeOld;
+ ui.setSessionFetch(()=>new Promise(resolve=>{completeOld=resolve;}));
+ const oldRefresh=ui.harness.refresh();
+ ui.harness.navigate("home");
+ ui.harness.navigate("projects");
+ assert.match(ui.harness.html(),/Đang xác minh lại quyền Owner/);
+ completeOld({ok:true,json:async()=>({
+  schema:"MPC_OWNER_SESSION_V1",authenticated:true,login_enabled:true,
+  login_csrf:"loopback-csrf",csrf:"owner-csrf"
+ })});
+ await oldRefresh;
+ // Old verification belongs to a previous visit and must be discarded.
+ assert.doesNotMatch(ui.harness.html(),/mpc-owner-request-form/);
+});
