@@ -312,3 +312,133 @@ test("A delayed submission response cannot resurrect a receipt after session exp
  assert.equal(state.pending,null);
  assert.equal(state.draft.description,"");
 });
+
+
+test("Failed catalogue and session fetch revoke Owner state independently",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected,catalogue,description:"Sensitive Owner draft"});
+ ui.harness.seedPrivateState({
+  draft:{description:"Confidential previous request",priority:"HIGH",screenshots:""},
+  receipt:{request_id:"private-old-owner-receipt"},pending:{target:selected},error:"Old error"
+ });
+ ui.setCatalogueFetch(()=>Promise.reject(new Error("CATALOGUE_OFFLINE")));
+ ui.setSessionFetch(()=>Promise.reject(new Error("OWNER_SESSION_OFFLINE")));
+ await ui.harness.refresh();
+ let state=JSON.parse(ui.harness.state());
+ assert.equal(state.authenticated,false);
+ assert.equal(state.receipt,null);
+ assert.equal(state.pending,null);
+ assert.equal(state.draft.description,"");
+ assert.equal(state.error,"");
+ // A second malformed probe cannot silently restore the prior private state.
+ ui.setSessionFetch(()=>Promise.resolve({ok:true,json:async()=>{throw Error("malformed JSON");}}));
+ await ui.harness.refresh();
+ state=JSON.parse(ui.harness.state());
+ assert.equal(state.authenticated,false);
+ assert.equal(state.receipt,null);
+});
+
+test("A malformed catalogue cannot bypass session expiry or keep a writable form",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected,catalogue,description:"Old private Owner draft"});
+ ui.harness.seedPrivateState({
+  draft:{description:"Private Owner draft",priority:"NORMAL",screenshots:""},
+  receipt:{request_id:"private-id"},pending:{target:selected},error:""
+ });
+ ui.setCatalogueFetch(()=>Promise.resolve({ok:true,json:async()=>{throw Error("bad project JSON");}}));
+ ui.setServerSession({authenticated:false,login_enabled:true,csrf:null,login_csrf:"loopback-csrf"});
+ await ui.harness.refresh();
+ const state=JSON.parse(ui.harness.state());
+ assert.equal(state.authenticated,false);
+ assert.equal(state.receipt,null);
+ assert.equal(state.pending,null);
+ assert.equal(state.draft.description,"");
+});
+
+test("Malformed but HTTP-200 Owner session is NOT authenticated",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected,catalogue,description:"Sensitive draft"});
+ ui.harness.seedPrivateState({
+  draft:{description:"Must be erased",priority:"HIGH",screenshots:""},
+  receipt:{request_id:"secret-receipt"},pending:{target:selected},error:""
+ });
+ ui.setSessionFetch(()=>Promise.resolve({ok:true,json:async()=>({
+  schema:"FORGED_SESSION",authenticated:true,login_enabled:true,
+  csrf:"old-owner-csrf",login_csrf:"loopback-csrf"
+ })}));
+ await ui.harness.refresh();
+ const state=JSON.parse(ui.harness.state());
+ assert.equal(state.authenticated,false);
+ assert.equal(state.receipt,null);
+ assert.equal(state.pending,null);
+ assert.equal(state.draft.description,"");
+});
+
+test("HTTP 403 logout does not restore authenticated controls or claim success",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected,catalogue,description:"Sensitive prior Owner input"});
+ ui.harness.seedPrivateState({
+  draft:{description:"Sensitive prior Owner input",priority:"HIGH",screenshots:""},
+  receipt:{request_id:"owner-receipt"},pending:{target:selected},error:""
+ });
+ ui.setLogoutFetch(()=>Promise.resolve({ok:false,status:403,json:async()=>({ok:false})}));
+ await ui.logout();
+ let state=JSON.parse(ui.harness.state());
+ assert.equal(state.logoutUnconfirmed,true);
+ assert.equal(state.authenticated,false);
+ assert.equal(state.receipt,null);
+ assert.equal(state.draft.description,"");
+ assert.match(state.error,/Chưa xác nhận được đăng xuất/);
+ // Server still reports a valid cookie. Refresh must NOT silently unlock Owner.
+ await ui.harness.refresh();
+ state=JSON.parse(ui.harness.state());
+ assert.equal(state.logoutUnconfirmed,true);
+ assert.equal(state.authenticated,false);
+ assert.equal(state.receipt,null);
+ assert.match(renderOwnerRequestPanel({
+  catalogue,selected,session:{authenticated:false,login_enabled:false},
+  logoutUnconfirmed:true,error:state.error
+ }),/data-mpc-owner-logout-retry/);
+});
+
+test("Logout network failure retains a retry lock across reload until server acknowledgement",async()=>{
+ const sharedStorage=new Map();
+ const ui=await ownerBrowserFixture({sharedStorage});
+ ui.harness.init({selected,catalogue,description:"Private Owner request"});
+ ui.setLogoutFetch(()=>Promise.reject(new Error("NETWORK_OFFLINE")));
+ await ui.logout();
+ let state=JSON.parse(ui.harness.state());
+ assert.equal(state.logoutUnconfirmed,true);
+ assert.equal(state.authenticated,false);
+ assert.equal(sharedStorage.size,1);
+ // A same-tab reload still sees the old server cookie but remains locked.
+ const reloaded=await ownerBrowserFixture({sharedStorage});
+ reloaded.harness.init({selected,catalogue,description:""});
+ await reloaded.harness.refresh();
+ state=JSON.parse(reloaded.harness.state());
+ assert.equal(state.logoutUnconfirmed,true);
+ assert.equal(state.authenticated,false);
+ // Retry acknowledges revocation only when the server confirms success.
+ reloaded.setLogoutFetch(()=>{
+  reloaded.setServerSession({
+   authenticated:false,login_enabled:true,csrf:null,login_csrf:"loopback-csrf"
+  });
+  return Promise.resolve({ok:true,status:200,json:async()=>({ok:true,authenticated:false})});
+ });
+ await reloaded.logout();
+ state=JSON.parse(reloaded.harness.state());
+ assert.equal(state.logoutUnconfirmed,false);
+ assert.equal(state.authenticated,false);
+ assert.equal(state.receipt,null);
+ assert.equal(sharedStorage.size,0);
+});
+
+test("Logout retry stays available even if catalogue is malformed or unavailable",()=>{
+ const html=renderOwnerRequestPanel({
+  catalogue:{status:"UNAVAILABLE",projects:[]},selected,
+  session:{authenticated:false,login_enabled:false},logoutUnconfirmed:true,
+  receipt:{request_id:"old-secret"},draft:{description:"confidential"}
+ });
+ assert.match(html,/data-mpc-owner-logout-retry/);
+ assert.doesNotMatch(html,/old-secret|confidential|mpc-owner-request-form/);
+});
