@@ -495,7 +495,7 @@ test("Renderer failure itself also removes a previously displayed authenticated 
  // Simulate a catalogue node that throws from a non-data render function
  // after validation. App's render boundary still replaces old DOM and locks.
  ui.harness.init({selected,catalogue:{...catalogue,projects:[{id:"supervisor",
-  title:{toString(){throw Error("untrusted title");}},
+  get title(){throw Error("untrusted title getter");},
   features:catalogue.projects[0].features}]},description:"Private user text"});
  ui.harness.seedPrivateState({
   draft:{description:"Private user text",priority:"NORMAL",screenshots:""},
