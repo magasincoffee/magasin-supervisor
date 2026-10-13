@@ -24,19 +24,11 @@ let ownerPending=null;
 let ownerIntentEpoch=0;
 let ownerReceipt=null;
 let ownerError="";
-// An unsuccessful logout is NOT a completed logout. Keep the Owner UI locked
-// across refresh and same-tab reload until the server acknowledges revocation.
-const OWNER_LOGOUT_LOCK="magasin.mpc.owner-logout-unconfirmed.v1";
+// Keep the UI locked until the server confirms logout; never persist
+// authentication state in browser storage or silently claim success.
 let ownerLogoutUnconfirmed=false;
-try{ownerLogoutUnconfirmed=window.sessionStorage?.getItem(OWNER_LOGOUT_LOCK)==="1";}catch(_){}
 let ownerLogoutCsrf="";
-function markOwnerLogoutUnconfirmed(value){
-  ownerLogoutUnconfirmed=value;
-  try{
-    if(value)window.sessionStorage?.setItem(OWNER_LOGOUT_LOCK,"1");
-    else window.sessionStorage?.removeItem(OWNER_LOGOUT_LOCK);
-  }catch(_){}
-}
+function markOwnerLogoutUnconfirmed(value){ownerLogoutUnconfirmed=value;}
 function clearOwnerSessionState(){
   // Expiry, logout or session replacement revokes private UI state and
   // invalidates delayed request callbacks; nothing survives a new Owner login.
