@@ -24,6 +24,15 @@ let ownerPending=null;
 let ownerIntentEpoch=0;
 let ownerReceipt=null;
 let ownerError="";
+function clearOwnerSessionState(){
+  // Expiry, logout or session replacement revokes private UI state and
+  // invalidates delayed request callbacks; nothing survives a new Owner login.
+  ownerIntentEpoch++;
+  ownerDraft={description:"",priority:"NORMAL",screenshots:""};
+  ownerPending=null;
+  ownerReceipt=null;
+  ownerError="";
+}
 const projectExpanded=new Set(["supervisor","supervisor/project-control"]);
 const esc=(value)=>String(value??"—").replace(/[&<>"']/g, (c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmtDate=(v)=>{if(!v)return "Chưa có";const d=new Date(v);return Number.isNaN(d.getTime())?"Không rõ":d.toLocaleString("vi-VN")};
@@ -319,7 +328,12 @@ async function refresh(){
        fetch("/api/owner/session",{cache:"no-store",credentials:"same-origin"}).catch(()=>null)
      ]);
      projectCatalogue=response.ok?await response.json():{status:"UNAVAILABLE",projects:[]};
-     ownerSession=ownerRes?.ok?await ownerRes.json():{authenticated:false,login_enabled:false};
+     const nextOwnerSession=ownerRes?.ok?await ownerRes.json():{authenticated:false,login_enabled:false};
+     const wasAuthenticated=ownerSession?.authenticated===true;
+     const nowAuthenticated=nextOwnerSession?.authenticated===true&&nextOwnerSession?.login_enabled===true;
+     if(wasAuthenticated&&(!nowAuthenticated||
+           ownerSession.csrf!==nextOwnerSession.csrf))clearOwnerSessionState();
+     ownerSession=nextOwnerSession;
      alertBox.hidden=true;
      // Ignore stale project responses when navigation moved to another page.
      if(currentPage()==="projects")openPage("projects",false);
@@ -416,8 +430,8 @@ document.addEventListener("click",async(e)=>{
        headers:{"X-MAGASIN-CSRF":ownerSession?.login_csrf||"",
                 "X-MPC-CSRF":ownerSession?.csrf||""}});
    }catch(err){ownerError="Không kết nối được để đăng xuất. Vui lòng kiểm tra phiên.";}
-   ownerIntentEpoch++;
-   ownerSession=null;ownerDraft={description:"",priority:"NORMAL",screenshots:""};ownerPending=null;ownerReceipt=null;
+   clearOwnerSessionState();
+   ownerSession=null;
    await refresh();return;
  }
  const toggle=e.target.closest("[data-project-toggle]");
