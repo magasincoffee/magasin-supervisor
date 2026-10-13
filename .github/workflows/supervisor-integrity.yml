@@ -69,6 +69,11 @@ jobs:
       - name: Verify MPC-004 read-only project-tree catalogue fixtures
         shell: bash
         run: python -m unittest discover -s test -p 'test_mpc004_project_tree_catalogue.py' -v
+      - name: Verify MPC-006 Owner audit and localhost HTTP security
+        shell: bash
+        run: |
+          python -m unittest discover -s test -p 'test_mpc006_owner_requests.py' -v
+          python -m unittest discover -s test -p 'test_mpc006_owner_http.py' -v
       - name: Validate read-only Coordinator cycle hook
         shell: bash
         run: python -m unittest discover -s test -p 'test_sc013_coordinator_cycle_preflight.py' -v
@@ -126,6 +131,7 @@ jobs:
             test/mpc003-readonly-sot-adapter.test.mjs \
             test/mpc004-project-tree-ui.test.mjs \
             test/mpc005-project-detail.test.mjs \
+            test/mpc006-owner-request-ui.test.mjs \
             test/sc013-h4-readonly-probe.test.mjs \
             test/sc013-project-activation-safe-preflight.test.mjs \
             test/sc013-local-gateway-health-stop-policy.test.mjs \
