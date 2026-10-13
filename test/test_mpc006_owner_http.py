@@ -69,12 +69,15 @@ class OwnerRouteTest(unittest.TestCase):
     def call(self, method, path, payload=None, headers=None):
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
         h = {"Host": "127.0.0.1:8781", "Origin": "http://127.0.0.1:8781",
-             "X-MAGASIN-CSRF": self.csrf, "Content-Type": "application/json"}
+             "X-MAGASIN-CSRF": self.csrf, "Sec-Fetch-Site": "same-origin",
+             "Content-Type": "application/json"}
         if self.cookie:
             h["Cookie"] = self.cookie
         if self.owner_csrf:
             h["X-MPC-CSRF"] = self.owner_csrf
         h.update(headers or {})
+        # None means intentionally omit the header (not merely send empty).
+        h = {key: value for key, value in h.items() if value is not None}
         conn = http.client.HTTPConnection("127.0.0.1", self.http.server_port, timeout=4)
         try:
             conn.request(method, path, body=data, headers=h)
@@ -145,6 +148,28 @@ class OwnerRouteTest(unittest.TestCase):
         self.assertIn("Max-Age=0", cookie)
         status, _, _ = self.call("POST", "/api/owner/requests", self.payload())
         self.assertEqual(status, 403)
+
+    def test_owner_routes_require_explicit_trusted_fetch_site(self):
+        self.login()
+        valid_token = self.cookie.split("=", 1)[1]
+        for path, body in (
+            ("/api/owner/logout", None),
+            ("/api/owner/requests", self.payload()),
+            ("/api/owner/login", {"password": "fixture Owner password only"}),
+        ):
+            for fetch_site in (None, "", "cross-site", "same-site", "invalid"):
+                with self.subTest(path=path, fetch_site=fetch_site):
+                    status, result, _ = self.call("POST", path, body, headers={
+                        "Sec-Fetch-Site": fetch_site
+                    })
+                    self.assertEqual(status, 403, result)
+                    self.assertIsNotNone(self.auth.check(valid_token))
+        # Explicit trusted fetch-site still permits safe idempotent logout.
+        status, outcome, _ = self.call("POST", "/api/owner/logout",
+                                       headers={"Sec-Fetch-Site": "none"})
+        self.assertEqual(status, 200)
+        self.assertEqual(outcome, {"ok": True, "authenticated": False})
+        self.assertIsNone(self.auth.check(valid_token))
 
     def test_logout_revokes_rotated_session_even_with_stale_owner_csrf(self):
         self.login()
