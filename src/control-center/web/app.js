@@ -1,5 +1,6 @@
 "use strict";
-import {renderProjectTree} from "./project_tree_view.mjs";
+import {renderProjectTree,isSafeProjectCatalogue} from "./project_tree_view.mjs";
+import {isCurrentOwnerSubmission} from "./project_request_view.mjs";
 const ROOT="/";
 const root=document.getElementById("main-content");
 const alertBox=document.getElementById("loading");
@@ -16,6 +17,90 @@ let supervisorSotCheck=null;
 let projectCatalogue=null;
 let projectQuery="";
 let projectSelected="";
+let ownerSession=null;
+let ownerDraft={description:"",priority:"NORMAL",screenshots:""};
+let ownerPending=null;
+// Any task change, draft edit, logout or newer POST invalidates older responses.
+let ownerIntentEpoch=0;
+let ownerReceipt=null;
+let ownerError="";
+// Keep the UI locked until the server confirms logout; never persist
+// authentication state in browser storage or silently claim success.
+let ownerLogoutUnconfirmed=false;
+let ownerLogoutCsrf="";
+function markOwnerLogoutUnconfirmed(value){ownerLogoutUnconfirmed=value;}
+function clearOwnerSessionState(){
+  // Expiry, logout or session replacement revokes private UI state and
+  // invalidates delayed request callbacks; nothing survives a new Owner login.
+  ownerIntentEpoch++;
+  ownerDraft={description:"",priority:"NORMAL",screenshots:""};
+  ownerPending=null;
+  ownerReceipt=null;
+  ownerError="";
+}
+// A stalled or abandoned Projects request must never hold the shared
+// Supervisor refresh lock or authorize an Owner form with stale credentials.
+const PROJECT_CATALOGUE_TIMEOUT_MS=8000;
+const PROJECT_SESSION_TIMEOUT_MS=5000;
+let cancelActiveProjectRequests=null;
+function boundedProjectJson(url,options,timeoutMs){
+  const controller=new AbortController();
+  let stop;
+  const cancelled=new Promise(resolve=>{stop=resolve;});
+  const timer=setTimeout(()=>{
+    controller.abort();
+    stop(null);
+  },timeoutMs);
+  const response=Promise.resolve()
+    .then(()=>fetch(url,{...options,signal:controller.signal}))
+    .then(res=>res?.ok?res.json():null).catch(()=>null);
+  return {
+    value:Promise.race([response,cancelled]).finally(()=>clearTimeout(timer)),
+    cancel(){controller.abort();stop(null);}
+  };
+}
+function qualifiedOwnerSession(data){
+  return data?.schema==="MPC_OWNER_SESSION_V1" &&
+    typeof data.authenticated==="boolean" &&
+    typeof data.login_enabled==="boolean" &&
+    typeof data.login_csrf==="string" && data.login_csrf.length>0 &&
+    (!data.authenticated ||
+      (data.login_enabled===true &&
+       typeof data.csrf==="string" && data.csrf.length>0))
+    ?data:null;
+}
+function applyOwnerSession(data){
+  const verified=qualifiedOwnerSession(data);
+  const wasAuthenticated=ownerSession?.authenticated===true;
+  const nowAuthenticated=verified?.authenticated===true &&
+    verified?.login_enabled===true;
+  if(!verified || (wasAuthenticated &&
+     (!nowAuthenticated || ownerSession.csrf!==verified.csrf))){
+    clearOwnerSessionState();
+  }
+  if(verified)ownerLogoutCsrf=verified.login_csrf;
+  ownerSession=ownerLogoutUnconfirmed
+    ?{authenticated:false,login_enabled:false,login_csrf:ownerLogoutCsrf}
+    :(verified||{authenticated:false,login_enabled:false});
+}
+let renderedPage=null;
+let projectVisitEpoch=0;
+let projectVisitVerified=false;
+function projectNavigationBoundary(page){
+ if(page===renderedPage)return;
+ if(renderedPage==="projects"&&page!=="projects"&&cancelActiveProjectRequests){
+  cancelActiveProjectRequests();
+  cancelActiveProjectRequests=null;
+  refreshPending=true;
+ }
+ if(page==="projects" || renderedPage==="projects"){
+  projectVisitEpoch++;
+  projectVisitVerified=false;
+  clearOwnerSessionState();
+  ownerSession=null;
+ }
+ renderedPage=page;
+}
 const projectExpanded=new Set(["supervisor","supervisor/project-control"]);
 const esc=(value)=>String(value??"—").replace(/[&<>"']/g, (c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmtDate=(v)=>{if(!v)return "Chưa có";const d=new Date(v);return Number.isNaN(d.getTime())?"Không rõ":d.toLocaleString("vi-VN")};
@@ -287,11 +372,43 @@ function announceNavigation(){
 }
 function openPage(id,historyUpdate=true){
  const page=id==="projects"?"projects":id==="home"||!allItems().some(x=>x.id===id)?"home":id;
+ projectNavigationBoundary(page);
  const previousProjectFocus=page==="projects"?captureProjectFocus():null;
  if(historyUpdate)history.pushState({page},"",page==="home"?"/":page==="projects"?"/projects":"/robot/"+page);
  nameTitle.textContent=page==="home"?"Trung tâm điều khiển Robot":page==="projects"?"Dự án":allItems().find(x=>x.id===page).name;
  subtitle.textContent=page==="projects"?"Cây dự án · trạng thái chưa xác minh được hiển thị rõ ràng":page==="home"?"Mỗi robot độc lập, một nơi để theo dõi và điều khiển.":"Xem trạng thái và chi tiết robot trong cùng một bảng điều khiển.";
- root.innerHTML=page==="projects"?renderProjectTree({catalogue:projectCatalogue,query:projectQuery,selected:projectSelected,expanded:[...projectExpanded]}):!latest?'<p class="panel">Chưa tải dữ liệu điều khiển robot.</p>':page==="home"?cards():renderDetail(allItems().find(x=>x.id===page));
+ if(page==="projects"){
+  // Clear the old DOM before any potentially throwing renderer runs: a malformed
+  // catalogue must never leave the previous authenticated form on the screen.
+  const availableLogout=Boolean(ownerLogoutCsrf||ownerSession?.authenticated);
+  const pendingLogout=ownerLogoutUnconfirmed
+    ?'<button type="button" class="btn" data-mpc-owner-logout-retry>Thử đăng xuất lại</button>'
+    :availableLogout
+      ?'<button type="button" class="btn" data-mpc-owner-logout>Đăng xuất Owner</button>'
+      :"";
+  root.innerHTML='<section role="status" class="project-page">Đang xác minh lại quyền Owner và danh mục dự án…'
+    +pendingLogout+'</section>';
+  if(projectVisitVerified){
+  try{
+    if(!isSafeProjectCatalogue(projectCatalogue))throw Error("CATALOGUE_INVALID");
+    root.innerHTML=renderProjectTree({catalogue:projectCatalogue,query:projectQuery,
+      selected:projectSelected,expanded:[...projectExpanded],
+      ownerRequest:{session:ownerSession,draft:ownerDraft,receipt:ownerReceipt,
+        error:ownerError,logoutUnconfirmed:ownerLogoutUnconfirmed,
+        logoutAvailable:availableLogout}});
+  }catch(_){
+    clearOwnerSessionState();
+    ownerSession={authenticated:false,login_enabled:false};
+    projectCatalogue={status:"UNAVAILABLE",projects:[]};
+    root.innerHTML='<section role="alert" class="project-page">Không thể xác minh danh mục dự án. Quyền nhập yêu cầu Owner tạm khóa.'
+      +(ownerLogoutCsrf?'<button type="button" class="btn" data-mpc-owner-logout>Đăng xuất Owner</button>':"")
+      +'</section>';
+  }
+  }
+ }else{
+  root.innerHTML=!latest?'<p class="panel">Chưa tải dữ liệu điều khiển robot.</p>':
+    page==="home"?cards():renderDetail(allItems().find(x=>x.id===page));
+ }
  restoreProjectFocus(previousProjectFocus);
  document.querySelectorAll("[data-page]").forEach(x=>x.classList.toggle("selected",x.dataset.page===page));
  if(historyUpdate){announceNavigation();window.scrollTo({top:0,behavior:"auto"});}
@@ -306,8 +423,49 @@ async function refresh(){
  busy=true;
  try{
    if(currentPage()==="projects"){
-     const response=await fetch("/api/projects",{cache:"no-store"});
-     projectCatalogue=response.ok?await response.json():{status:"UNAVAILABLE",projects:[]};
+     projectNavigationBoundary("projects");
+     const checkedVisitEpoch=projectVisitEpoch;
+     // Hide cached private fields at the START of every poll: if a network
+     // request stalls, an expired Owner form must not remain on-screen.
+     projectVisitVerified=false;
+     openPage("projects",false);
+     // Start both requests at once but process Owner auth independently;
+     // a hung catalogue request must never delay session expiry handling.
+     const catalogueJob=boundedProjectJson("/api/projects",
+       {cache:"no-store"},PROJECT_CATALOGUE_TIMEOUT_MS);
+     const firstSessionJob=boundedProjectJson("/api/owner/session",
+       {cache:"no-store",credentials:"same-origin"},PROJECT_SESSION_TIMEOUT_MS);
+     let finalSessionJob=null;
+     const cancelThese=()=>{
+       catalogueJob.cancel();
+       firstSessionJob.cancel();
+       finalSessionJob?.cancel();
+     };
+     cancelActiveProjectRequests=cancelThese;
+     const stillCurrent=()=>checkedVisitEpoch===projectVisitEpoch &&
+       currentPage()==="projects";
+     // Expiry is processed while the catalogue is still pending.
+     const firstSession=await firstSessionJob.value;
+     if(!stillCurrent()){refreshPending=true;return;}
+     applyOwnerSession(firstSession);
+     const catalogueData=await catalogueJob.value;
+     if(!stillCurrent()){refreshPending=true;return;}
+     // Session must be checked AFTER catalogue, which may have timed out.
+     // Never let an old authenticated result unlock a stale Owner form.
+     finalSessionJob=boundedProjectJson("/api/owner/session",
+       {cache:"no-store",credentials:"same-origin"},PROJECT_SESSION_TIMEOUT_MS);
+     const freshSession=await finalSessionJob.value;
+     if(!stillCurrent()){refreshPending=true;return;}
+     applyOwnerSession(freshSession);
+     try{
+       if(!isSafeProjectCatalogue(catalogueData))throw Error("CATALOGUE_INVALID");
+       projectCatalogue=catalogueData;
+     }catch(_){
+       projectCatalogue={status:"UNAVAILABLE",projects:[]};
+     }
+     if(cancelActiveProjectRequests===cancelThese)
+       cancelActiveProjectRequests=null;
+     projectVisitVerified=true;
      alertBox.hidden=true;
      // Ignore stale project responses when navigation moved to another page.
      if(currentPage()==="projects")openPage("projects",false);
@@ -338,6 +496,9 @@ async function refresh(){
 document.getElementById("refresh").addEventListener("click",refresh);
 document.addEventListener("input",(e)=>{
  if(e.target?.id==="supervisor-sot-url")supervisorSotDraft=e.target.value;
+ if(e.target?.id==="mpc-owner-description"){ownerDraft.description=e.target.value;ownerPending=null;ownerIntentEpoch++;}
+ if(e.target?.id==="mpc-owner-priority"){ownerDraft.priority=e.target.value;ownerPending=null;ownerIntentEpoch++;}
+ if(e.target?.id==="mpc-owner-screenshots"){ownerDraft.screenshots=e.target.value;ownerPending=null;ownerIntentEpoch++;}
  if(e.target?.id==="project-search"){
    const field=e.target;
    const caret=field.selectionStart;
@@ -393,6 +554,39 @@ document.addEventListener("click",async(e)=>{
  await refresh();
 });
 document.addEventListener("click",async(e)=>{
+ const logout=e.target.closest("[data-mpc-owner-logout],[data-mpc-owner-logout-retry]");
+ if(logout){
+   if(logout.disabled)return;
+   logout.disabled=true;
+   const controlCsrf=ownerSession?.login_csrf||ownerLogoutCsrf||"";
+   // Lock the UI immediately. Never report successful logout before an HTTP
+   // success and explicit server acknowledgement of cookie/session revocation.
+   markOwnerLogoutUnconfirmed(true);
+   clearOwnerSessionState();
+   ownerSession={authenticated:false,login_enabled:false,login_csrf:controlCsrf};
+   openPage("projects",false);
+   let confirmed=false;
+   try{
+     const res=await fetch("/api/owner/logout",{method:"POST",credentials:"same-origin",
+       headers:{"X-MAGASIN-CSRF":controlCsrf}});
+     if(!res.ok)throw Error("LOGOUT_HTTP_"+res.status);
+     const result=await res.json();
+     if(result?.ok!==true || result.authenticated!==false)
+       throw Error("LOGOUT_UNCONFIRMED");
+     confirmed=true;
+     markOwnerLogoutUnconfirmed(false);
+     ownerLogoutCsrf="";
+   }catch(_){
+     // A network failure or HTTP error may leave the HttpOnly cookie live.
+     // Remain locked, keep the retry control and show an explicit warning.
+   }
+   await refresh();
+   if(!confirmed){
+     ownerError="Chưa xác nhận được đăng xuất; phiên có thể vẫn còn hiệu lực trên máy chủ. Hãy kết nối lại và thử đăng xuất lần nữa.";
+     openPage("projects",false);
+   }
+   return;
+ }
  const toggle=e.target.closest("[data-project-toggle]");
  if(toggle){
    const key=toggle.dataset.projectToggle;
@@ -406,6 +600,11 @@ document.addEventListener("click",async(e)=>{
  const focus=e.target.closest("[data-project-focus]");
  if(focus){
    const key=focus.dataset.projectFocus;
+   if(key!==projectSelected){
+     ownerIntentEpoch++;
+     ownerDraft={description:"",priority:"NORMAL",screenshots:""};
+     ownerPending=null;ownerReceipt=null;ownerError="";
+   }
    projectSelected=key;
    const parts=key.split("/");
    if(parts[0])projectExpanded.add(parts[0]);
@@ -453,6 +652,79 @@ document.addEventListener("click",async(e)=>{
    if(button.dataset.open==="projects" || previousPage==="projects" || !latest)await refresh();
  }
 });
+
+document.addEventListener("submit",async(e)=>{
+ if(e.target?.id!=="mpc-owner-login-form"&&e.target?.id!=="mpc-owner-request-form")return;
+ e.preventDefault();
+ if(ownerLogoutUnconfirmed)return;
+ const form=e.target, button=form.querySelector("button[type=submit]");
+ if(!button||button.disabled)return;
+ button.disabled=true;
+ ownerError="";
+ if(form.id==="mpc-owner-login-form"){
+   const password=form.querySelector("#mpc-owner-password");
+   try{
+     const res=await fetch("/api/owner/login",{method:"POST",credentials:"same-origin",
+       headers:{"Content-Type":"application/json","X-MAGASIN-CSRF":ownerSession?.login_csrf||""},
+       body:JSON.stringify({password:password?.value||""})});
+     if(password)password.value="";
+     const result=await res.json();
+     if(!res.ok||!result.authenticated)throw Error("Không thể xác thực Owner.");
+     await refresh();
+   }catch(err){ownerError="Đăng nhập không thành công hoặc chưa được cấu hình.";openPage("projects",false);}
+   return;
+ }
+ if(!ownerSession?.authenticated){
+   ownerError="Cần xác thực Owner trước khi gửi.";openPage("projects",false);return;
+ }
+ const target=form.dataset.target;
+ const description=String(form.querySelector("#mpc-owner-description")?.value||"").trim();
+ const priority=String(form.querySelector("#mpc-owner-priority")?.value||"NORMAL");
+ const screenshots=String(form.querySelector("#mpc-owner-screenshots")?.value||"")
+   .split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+ if(description.length<20||description.length>2500||screenshots.length>3){
+   ownerError="Nội dung cần từ 20 đến 2500 ký tự và tối đa 3 liên kết ảnh.";
+   openPage("projects",false);return;
+ }
+ const candidate={target,priority,description,screenshots};
+ const former=ownerPending;
+ const unchanged=former && former.target===target&&former.priority===priority
+   &&former.description===description&&JSON.stringify(former.screenshots)===JSON.stringify(screenshots);
+ const request={...candidate,idempotency_key:unchanged?former.idempotency_key:crypto.randomUUID()};
+ ownerPending=request;
+ const submittedEpoch=++ownerIntentEpoch;
+ const belongsToCurrentTask=()=>isCurrentOwnerSubmission({
+   submittedTarget:target,selectedTarget:projectSelected,
+   submittedEpoch,currentEpoch:ownerIntentEpoch,
+   authenticated:ownerSession?.authenticated
+ });
+ // A response to A must never erase a newer B draft or render A's receipt on B.
+ // Re-enable the original button if A's own draft changed while the POST ran.
+ const discardStale=()=>{
+   if(belongsToCurrentTask())return false;
+   if(form.isConnected)button.disabled=false;
+   return true;
+ };
+ try{
+   const res=await fetch("/api/owner/requests",{method:"POST",credentials:"same-origin",
+     headers:{"Content-Type":"application/json","X-MAGASIN-CSRF":ownerSession.login_csrf||"",
+              "X-MPC-CSRF":ownerSession.csrf||""},
+     body:JSON.stringify(request)});
+   const result=await res.json();
+   if(discardStale())return;
+   if(!res.ok||result.status!=="PENDING_OWNER_REVIEW"||result.dispatch_authorized!==false)
+     throw Error("Không xác minh được việc ghi nhận yêu cầu.");
+   ownerReceipt=result;
+   ownerDraft={description:"",priority:"NORMAL",screenshots:""};
+   ownerPending=null;
+   await refresh();
+ }catch(err){
+   if(discardStale())return;
+   ownerError="Chưa xác minh được kết quả gửi. Có thể gửi lại cùng nội dung để kiểm tra trùng lặp.";
+   openPage("projects",false);
+ }
+});
+
 document.addEventListener("keydown",(e)=>{if(e.key==="Enter"&&e.target.matches(".robot-card"))openPage(e.target.dataset.open)});
 window.addEventListener("popstate",()=>{
  const page=currentPage();

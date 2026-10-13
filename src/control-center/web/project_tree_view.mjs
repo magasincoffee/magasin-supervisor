@@ -1,4 +1,5 @@
 import {renderProjectDetail} from "./project_detail_view.mjs";
+import {renderOwnerRequestPanel} from "./project_request_view.mjs";
 // MPC-004: pure read-only project-tree rendering. No mutation or worker controls.
 const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({
   "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
@@ -15,6 +16,29 @@ const sourceLink = value => {
       ? url.href : null;
   } catch { return null; }
 };
+// MPC-006: strict data boundary for untrusted JSON returned by /api/projects.
+// An array of nulls/objects masquerading as catalogue nodes must not throw
+// while rendering and leave a previously authenticated Owner form on screen.
+const objectNode=x=>x!==null && typeof x==="object" && !Array.isArray(x);
+export function isSafeProjectCatalogue(catalogue){
+  if(!objectNode(catalogue)||!Array.isArray(catalogue.projects))return false;
+  // LOCAL_UNVERIFIED is the only server navigation status that may contain
+  // selectable tasks. UNAVAILABLE is an empty, read-only fallback only.
+  if(catalogue.status==="UNAVAILABLE")return catalogue.projects.length===0;
+  if(catalogue.status!=="LOCAL_UNVERIFIED")return false;
+  if(catalogue.projects.length>100)return false;
+  for(const project of catalogue.projects){
+    if(!objectNode(project)||!safeId(project.id)||!Array.isArray(project.features)||
+       project.features.length>200)return false;
+    for(const feature of project.features){
+      if(!objectNode(feature)||!safeId(feature.id)||!Array.isArray(feature.tasks)||
+         feature.tasks.length>2000)return false;
+      for(const task of feature.tasks)
+        if(!objectNode(task)||!safeId(task.id))return false;
+    }
+  }
+  return true;
+}
 export function projectTreeTrail(catalogue,selected="") {
   const trail=[{name:"Dự án",key:""}];
   for(const p of catalogue?.projects??[]) {
@@ -37,7 +61,7 @@ export function projectTreeTrail(catalogue,selected="") {
   }
   return trail;
 }
-export function renderProjectTree({catalogue,query="",expanded=[],selected=""}={}) {
+export function renderProjectTree({catalogue,query="",expanded=[],selected="",ownerRequest={}}={}) {
   if(catalogue==null) return '<section class="project-page" role="status">Đang tải danh mục dự án từ Control Center…</section>';
   const projects=Array.isArray(catalogue?.projects)?catalogue.projects:[];
   const opened=new Set(expanded);
@@ -89,6 +113,7 @@ export function renderProjectTree({catalogue,query="",expanded=[],selected=""}={
     +'<ul class="project-tree" aria-label="Danh sách dự án">'+tree.join("")+'</ul>'
     +(!visible?'<p class="project-empty" role="status">'+(term?'Không tìm thấy mục phù hợp.':'Chưa có dự án được xác minh.')+'</p>':'')
     +renderProjectDetail({catalogue,selected})
+    +renderOwnerRequestPanel({catalogue,selected,...ownerRequest})
     +'<p class="project-footer">Danh sách từ nguồn SOT nội bộ chỉ dùng để điều hướng. Kiểm tra phiên bản GitHub, bằng chứng CI, trạng thái hoàn thành và tác vụ chi tiết thuộc các bước nghiệm thu tiếp theo.</p>'
     +'</section>';
 }

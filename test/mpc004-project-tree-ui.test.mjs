@@ -81,8 +81,9 @@ test("Control Center serves the actual shell, read-only API and module without r
  for(const id of ["main-content","loading","page-title","page-subtitle","nav-robots","updated","refresh"])
   assert.match(index,new RegExp('id="'+id+'"'));
  assert.match(index,/data-page="projects"/);
- assert.match(app,/import \{renderProjectTree\} from "\.\/project_tree_view\.mjs"/);
- assert.match(app,/fetch\("\/api\/projects",\{cache:"no-store"\}\)/);
+ assert.match(app,/import \{renderProjectTree,isSafeProjectCatalogue\} from "\.\/project_tree_view\.mjs"/);
+ assert.match(app,/if\(!isSafeProjectCatalogue\(catalogueData\)\)throw Error\("CATALOGUE_INVALID"\)/);
+ assert.match(app,/boundedProjectJson\("\/api\/projects"/);
  assert.match(app,/location\.pathname==="\/projects"/);
  assert.match(app,/data-project-search|project-search/);
  assert.match(app,/data-project-toggle/);
