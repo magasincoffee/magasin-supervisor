@@ -152,7 +152,7 @@ async function ownerBrowserFixture(){
   " },",
   " refresh(){return refresh();},",
   " html(){return root.innerHTML;},",
-  " navigate(page){openPage(page,false);}",
+  " navigate(page){if(page!=='projects')latest=null;openPage(page,false);}",
   "};"
  ].join("\n"));
  vm.runInNewContext(script,sandbox,{filename:"app.js",timeout:2000});
