@@ -486,7 +486,8 @@ class Handler(BaseHTTPRequestHandler):
                 if self.headers.get("Content-Type","").split(";")[0]!="application/json":
                     return self.send_data('{"ok":false,"error":"JSON_REQUIRED"}',code=415)
                 n=int(self.headers.get("Content-Length","0"))
-                if not 2<=n<=9000:
+                # 2500 Unicode code points may occupy up to 10000 UTF-8 bytes.
+                if not 2<=n<=16000:
                     raise mpc_owner.Rejected("REQUEST_SIZE_INVALID")
                 body=json.loads(self.rfile.read(n))
                 from project_tree_catalogue import read_only_project_catalogue
