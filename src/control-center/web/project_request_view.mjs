@@ -17,6 +17,16 @@ export function selectedRequestTarget(catalogue,selected) {
  return null;
 }
 
+// Discard any response from a submission whose task, draft, or Owner session
+// changed while its network request was in flight. This includes A -> B -> A.
+export function isCurrentOwnerSubmission({
+ submittedTarget,selectedTarget,submittedEpoch,currentEpoch,authenticated
+}={}) {
+ return authenticated===true && typeof submittedTarget==="string" &&
+  submittedTarget===selectedTarget && Number.isSafeInteger(submittedEpoch) &&
+  submittedEpoch===currentEpoch;
+}
+
 export function renderOwnerRequestPanel({catalogue,selected,session,draft={},receipt=null,error=""}={}) {
  const target=selectedRequestTarget(catalogue,selected);
  if(!target)return '<section class="owner-request" aria-label="Gửi yêu cầu Owner"><h2>Đề xuất chỉnh sửa</h2><p>Chọn một nhiệm vụ trong cây dự án để viết yêu cầu.</p></section>';
