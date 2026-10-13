@@ -2,6 +2,7 @@
 """MPC-006 SOURCE/QA fixtures: never touch real H4 data."""
 import hashlib
 from contextlib import closing
+from concurrent.futures import ThreadPoolExecutor
 import importlib.util
 import json
 import sqlite3
@@ -62,6 +63,17 @@ class StoreTest(unittest.TestCase):
         p["description"] = "Một nội dung khác khi gửi lại cùng mã phải bị từ chối."
         with self.assertRaisesRegex(m.Rejected, "IDEMPOTENCY_CONFLICT"):
             self.submit(p)
+
+    def test_parallel_retries_insert_only_one_request_and_audit(self):
+        self.submit(payload())  # Establish immutable schema before racing retries.
+        p = payload()
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            receipts = list(pool.map(lambda _: self.submit(p), range(8)))
+        self.assertEqual(len({r["request_id"] for r in receipts}), 1)
+        self.assertEqual(sum(not r["duplicate"] for r in receipts), 1)
+        with closing(sqlite3.connect(self.db)) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM owner_requests").fetchone()[0], 2)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM owner_audit").fetchone()[0], 2)
 
     def test_only_verified_owner_can_write(self):
         for actor in (None, "manager", "employee", "", True, "magasincoffee "):
