@@ -22,6 +22,7 @@ from urllib.parse import urlsplit
 from urllib.request import urlopen
 import psutil
 import observability
+import owner_request_drafts as mpc_owner
 
 BASE = Path(__file__).resolve().parent
 WEB = BASE / "web"
@@ -35,6 +36,7 @@ ROBOT_DIR = BASE.parent / "robots"
 sys.path.insert(0, str(ROBOT_DIR / "supervisor"))
 sys.path.insert(0, str(ROBOT_DIR / "coordinator"))
 CONTROL_TOKEN = secrets.token_urlsafe(32)
+OWNER_SESSIONS = mpc_owner.OwnerSessions(os.environ.get("MPC_OWNER_PASSWORD_VERIFIER"))
 
 ROBOTS = {
     "coordinator": {"name": "Robot Tổng — Điều phối", "category": "GitHub / Supabase → SOT → phân phối",
@@ -374,12 +376,15 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):
         return
 
-    def send_data(self,data,mime="application/json; charset=utf-8",code=200):
+    def send_data(self,data,mime="application/json; charset=utf-8",code=200,extra_headers=None):
         b=data.encode("utf-8") if isinstance(data,str) else data
         self.send_response(code)
         self.send_header("Content-Type",mime)
         self.send_header("Content-Length",str(len(b)))
         self.send_header("Cache-Control","no-store")
+        for header, value in (extra_headers or {}).items():
+            if header == "Set-Cookie" and "\r" not in value and "\n" not in value:
+                self.send_header(header, value)
         self.send_header("X-Content-Type-Options","nosniff")
         self.send_header("X-Frame-Options","DENY")
         self.end_headers()
@@ -396,6 +401,22 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_data(json.dumps(status(),ensure_ascii=False))
             if p=="/api/monitor":
                 return self.send_data(json.dumps(observability.get_monitor(),ensure_ascii=False))
+            if p=="/api/owner/session":
+                # Host is checked above; this is a local session probe, not a task-authority claim.
+                session=OWNER_SESSIONS.check(mpc_owner.cookie_token(self.headers.get("Cookie","")))
+                try:
+                    mpc_owner.configured_store()
+                    ready=OWNER_SESSIONS.enabled
+                except mpc_owner.Rejected:
+                    ready=False
+                return self.send_data(json.dumps({
+                    "schema":"MPC_OWNER_SESSION_V1",
+                    "authenticated":bool(ready and session),
+                    "login_enabled":ready,
+                    "login_csrf":CONTROL_TOKEN,
+                    "csrf":session["csrf"] if ready and session else None,
+                    "can_dispatch":False
+                }))
             if p=="/api/projects":
                 from project_tree_catalogue import read_only_project_catalogue
                 return self.send_data(json.dumps(read_only_project_catalogue(),ensure_ascii=False))
@@ -429,6 +450,59 @@ class Handler(BaseHTTPRequestHandler):
         if not hmac.compare_digest(self.headers.get("X-MAGASIN-CSRF",""),CONTROL_TOKEN):
             return self.send_data('{"ok":false,"message":"Missing control authorization"}',code=403)
         route=urlsplit(self.path).path
+        if route in ("/api/owner/login", "/api/owner/requests", "/api/owner/logout"):
+            # Dedicated owner credential + expiring HttpOnly cookie + per-session CSRF.
+            # CSRF from /api/overview alone is NOT Owner authentication.
+            try:
+                store=mpc_owner.configured_store()
+                if not OWNER_SESSIONS.enabled:
+                    raise mpc_owner.Rejected("OWNER_AUTH_NOT_CONFIGURED")
+                if route=="/api/owner/login":
+                    if self.headers.get("Content-Type","").split(";")[0]!="application/json":
+                        return self.send_data('{"ok":false,"error":"JSON_REQUIRED"}',code=415)
+                    n=int(self.headers.get("Content-Length","0"))
+                    if not 2<=n<=700:
+                        raise mpc_owner.Rejected("LOGIN_SIZE_INVALID")
+                    body=json.loads(self.rfile.read(n))
+                    if type(body) is not dict or set(body)!={"password"}:
+                        raise mpc_owner.Rejected("LOGIN_SHAPE_INVALID")
+                    token,csrf=OWNER_SESSIONS.login(body["password"],self.client_address[0])
+                    cookie="mpc_owner_session="+token+"; HttpOnly; SameSite=Strict; Path=/api/owner; Max-Age=1800"
+                    return self.send_data(json.dumps({"ok":True,"authenticated":True,
+                                                       "csrf":csrf,"can_dispatch":False}),
+                                          extra_headers={"Set-Cookie":cookie})
+                token=mpc_owner.cookie_token(self.headers.get("Cookie",""))
+                session=OWNER_SESSIONS.check(token)
+                if not session or not hmac.compare_digest(
+                        self.headers.get("X-MPC-CSRF",""),session["csrf"]):
+                    return self.send_data('{"ok":false,"error":"OWNER_SESSION_REQUIRED"}',code=403)
+                if route=="/api/owner/logout":
+                    OWNER_SESSIONS.logout(token)
+                    return self.send_data('{"ok":true,"authenticated":false}',
+                        extra_headers={"Set-Cookie":
+                            "mpc_owner_session=; HttpOnly; SameSite=Strict; Path=/api/owner; Max-Age=0"})
+                if self.headers.get("Content-Type","").split(";")[0]!="application/json":
+                    return self.send_data('{"ok":false,"error":"JSON_REQUIRED"}',code=415)
+                n=int(self.headers.get("Content-Length","0"))
+                if not 2<=n<=9000:
+                    raise mpc_owner.Rejected("REQUEST_SIZE_INVALID")
+                body=json.loads(self.rfile.read(n))
+                from project_tree_catalogue import read_only_project_catalogue
+                receipt=mpc_owner.submit_request(
+                    store,actor=session["owner_id"],request=body,
+                    catalogue=read_only_project_catalogue())
+                return self.send_data(json.dumps({"ok":True,**receipt}),
+                    code=200 if receipt["duplicate"] else 202)
+            except mpc_owner.Rejected as exc:
+                status=429 if exc.code=="OWNER_LOGIN_RATE_LIMIT" else (
+                    403 if exc.code.startswith("OWNER_") or exc.code.startswith("STORE_") else
+                    409 if exc.code=="IDEMPOTENCY_CONFLICT" else 400)
+                return self.send_data(json.dumps({"ok":False,"error":exc.code}),
+                    code=status)
+            except (ValueError,UnicodeDecodeError,json.JSONDecodeError):
+                return self.send_data('{"ok":false,"error":"REQUEST_INVALID"}',code=400)
+            except Exception:
+                return self.send_data('{"ok":false,"error":"OWNER_REQUEST_UNAVAILABLE"}',code=503)
         if route == "/api/supervisor/project/check":
             # Re-read a *pending* GitHub SOT twice and report blockers.
             # This does NOT select a new project or invoke START.
