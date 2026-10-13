@@ -108,8 +108,13 @@ async function ownerBrowserFixture(){
  let catalogueFetch=()=>Promise.resolve({ok:true,json:async()=>catalogue});
  let sessionFetch=()=>Promise.resolve({ok:true,json:async()=>serverSession});
  let logoutFetch=()=>Promise.resolve({ok:true,status:200,json:async()=>({ok:true,authenticated:false})});
+ let overviewRequests=0;
+ let nextTimer=0;
+ const timers=new Map();
  const sandbox={
-  console,Promise,Date,Set,URL,
+  console,Promise,Date,Set,URL,AbortController,
+  setTimeout:(fn,ms)=>{const id=++nextTimer;timers.set(id,{fn,ms});return id;},
+  clearTimeout:id=>timers.delete(id),
   crypto:{randomUUID:()=> "11111111-1111-4111-8111-111111111111"},
   document:{
    getElementById:id=>domElements.get(id)??null,
@@ -126,6 +131,8 @@ async function ownerBrowserFixture(){
    if(url==="/api/projects")return catalogueFetch();
    if(url==="/api/owner/session")return sessionFetch();
    if(url==="/api/owner/logout")return logoutFetch(opts);
+   if(url==="/api/overview"){overviewRequests++;return Promise.resolve({ok:false,status:503});}
+   if(url==="/api/monitor")return Promise.resolve({ok:false,status:503});
    if(url!=="/api/owner/requests")throw Error("Unexpected fetch: "+url);
    return new Promise((resolve,reject)=>requests.push({resolve,reject,opts}));
   },
@@ -152,7 +159,9 @@ async function ownerBrowserFixture(){
   " },",
   " refresh(){return refresh();},",
   " html(){return root.innerHTML;},",
-  " navigate(page){if(page!=='projects')latest=null;openPage(page,false);}",
+  " navigate(page){if(page!=='projects')latest=null;",
+  "  location.pathname=page==='home'?'/':page==='projects'?'/projects':'/robot/'+page;",
+  "  openPage(page,false);}",
   "};"
  ].join("\n"));
  vm.runInNewContext(script,sandbox,{filename:"app.js",timeout:2000});
@@ -185,6 +194,12 @@ async function ownerBrowserFixture(){
   setCatalogueFetch(next){catalogueFetch=next;},
   setSessionFetch(next){sessionFetch=next;},
   setLogoutFetch(next){logoutFetch=next;},
+  overviewRequestCount(){return overviewRequests;},
+  fireTimeouts(ms){
+   const entries=[...timers.entries()].filter(([,t])=>t.ms===ms);
+   for(const [id,t] of entries){timers.delete(id);t.fn();}
+   return entries.length;
+  },
  };
 }
 
