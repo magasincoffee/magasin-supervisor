@@ -38,6 +38,19 @@ function clearOwnerSessionState(){
   ownerReceipt=null;
   ownerError="";
 }
+let renderedPage=null;
+let projectVisitEpoch=0;
+let projectVisitVerified=false;
+function projectNavigationBoundary(page){
+ if(page===renderedPage)return;
+ if(page==="projects" || renderedPage==="projects"){
+  projectVisitEpoch++;
+  projectVisitVerified=false;
+  clearOwnerSessionState();
+  ownerSession=null;
+ }
+ renderedPage=page;
+}
 const projectExpanded=new Set(["supervisor","supervisor/project-control"]);
 const esc=(value)=>String(value??"—").replace(/[&<>"']/g, (c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmtDate=(v)=>{if(!v)return "Chưa có";const d=new Date(v);return Number.isNaN(d.getTime())?"Không rõ":d.toLocaleString("vi-VN")};
