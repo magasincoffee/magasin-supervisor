@@ -452,7 +452,18 @@ class Handler(BaseHTTPRequestHandler):
         if not hmac.compare_digest(self.headers.get("X-MAGASIN-CSRF",""),CONTROL_TOKEN):
             return self.send_data('{"ok":false,"message":"Missing control authorization"}',code=403)
         route=urlsplit(self.path).path
-        if route in ("/api/owner/login", "/api/owner/requests", "/api/owner/logout"):
+        if route=="/api/owner/logout":
+            # Safe, idempotent revocation. Existing exact localhost Host, Origin
+            # and control CSRF checks above remain mandatory. The old per-session
+            # CSRF may be stale after another tab rotated the cookie, so it must
+            # not prevent revoking the session identified by the current cookie.
+            # Logout works even if the private Owner request store is unavailable.
+            token=mpc_owner.cookie_token(self.headers.get("Cookie",""))
+            OWNER_SESSIONS.logout(token)
+            return self.send_data('{"ok":true,"authenticated":false}',
+                extra_headers={"Set-Cookie":
+                    "mpc_owner_session=; HttpOnly; SameSite=Strict; Path=/api/owner; Max-Age=0"})
+        if route in ("/api/owner/login", "/api/owner/requests"):
             # Dedicated owner credential + expiring HttpOnly cookie + per-session CSRF.
             # CSRF from /api/overview alone is NOT Owner authentication.
             try:
@@ -478,11 +489,6 @@ class Handler(BaseHTTPRequestHandler):
                 if not session or not hmac.compare_digest(
                         self.headers.get("X-MPC-CSRF",""),session["csrf"]):
                     return self.send_data('{"ok":false,"error":"OWNER_SESSION_REQUIRED"}',code=403)
-                if route=="/api/owner/logout":
-                    OWNER_SESSIONS.logout(token)
-                    return self.send_data('{"ok":true,"authenticated":false}',
-                        extra_headers={"Set-Cookie":
-                            "mpc_owner_session=; HttpOnly; SameSite=Strict; Path=/api/owner; Max-Age=0"})
                 if self.headers.get("Content-Type","").split(";")[0]!="application/json":
                     return self.send_data('{"ok":false,"error":"JSON_REQUIRED"}',code=415)
                 n=int(self.headers.get("Content-Length","0"))
