@@ -8,6 +8,7 @@ on:
       - 'windows/**'
       - 'test/**'
       - 'SOURCE_OF_TRUTH.md'
+      - 'docs/project-control/MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md'
       - '.github/workflows/**'
       - '.github/scripts/**'
   pull_request:
@@ -16,6 +17,7 @@ on:
       - 'windows/**'
       - 'test/**'
       - 'SOURCE_OF_TRUTH.md'
+      - 'docs/project-control/MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md'
       - '.github/workflows/**'
       - '.github/scripts/**'
   workflow_dispatch:
