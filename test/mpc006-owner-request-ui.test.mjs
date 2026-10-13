@@ -574,7 +574,13 @@ test("Navigating back to Projects never renders cached Owner data before a fresh
  assert.match(ui.harness.html(),/Đang xác minh lại quyền Owner/);
  assert.doesNotMatch(ui.harness.html(),/secret-prior-receipt|Sensitive Owner draft|mpc-owner-request-form/);
  let completeSession;
- ui.setSessionFetch(()=>new Promise(resolve=>{completeSession=resolve;}));
+ let sessionProbeNumber=0;
+ ui.setSessionFetch(()=>++sessionProbeNumber===1
+  ?new Promise(resolve=>{completeSession=resolve;})
+  :Promise.resolve({ok:true,json:async()=>({
+    schema:"MPC_OWNER_SESSION_V1",authenticated:false,login_enabled:true,
+    login_csrf:"loopback-csrf",csrf:null
+   })}));
  const pending=ui.harness.refresh();
  assert.match(ui.harness.html(),/Đang xác minh lại quyền Owner/);
  assert.doesNotMatch(ui.harness.html(),/secret-prior-receipt|mpc-owner-request-form/);
@@ -670,4 +676,102 @@ test("Logout remains available during a stalled catalogue poll",async()=>{
  await poll;
  assert.match(ui.harness.html(),/data-mpc-owner-logout/);
  assert.doesNotMatch(ui.harness.html(),/mpc-owner-request-form/);
+});
+
+
+test("Revalidate Owner AFTER catalogue wait; an expired session cannot restore a private form",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected,catalogue,description:"Sensitive old request"});
+ ui.harness.seedPrivateState({
+  draft:{description:"Private previous Owner instructions",priority:"HIGH",screenshots:""},
+  receipt:{request_id:"previous-owner-receipt"},pending:{target:selected},error:""
+ });
+ let releaseCatalogue;
+ ui.setCatalogueFetch(()=>new Promise(resolve=>{releaseCatalogue=resolve;}));
+ let checked=0;
+ ui.setSessionFetch(()=>Promise.resolve({ok:true,json:async()=>{
+  checked++;
+  return {schema:"MPC_OWNER_SESSION_V1",
+    authenticated:checked===1,login_enabled:true,
+    login_csrf:"loopback-csrf",csrf:checked===1?"owner-csrf":null};
+ }}));
+ const refreshing=ui.harness.refresh();
+ for(let i=0;i<20;i++)await Promise.resolve();
+ assert.equal(checked,1,"First session must be processed while the catalogue is pending");
+ assert.doesNotMatch(ui.harness.html(),/previous-owner-receipt|mpc-owner-request-form/);
+ releaseCatalogue({ok:true,json:async()=>catalogue});
+ await refreshing;
+ assert.equal(checked,2,"Owner session must be re-probed after the catalogue resolves");
+ const state=JSON.parse(ui.harness.state());
+ assert.equal(state.authenticated,false);
+ assert.equal(state.receipt,null);
+ assert.equal(state.pending,null);
+ assert.equal(state.draft.description,"");
+ assert.doesNotMatch(ui.harness.html(),/previous-owner-receipt|Private previous Owner instructions|mpc-owner-request-form/);
+});
+
+test("Catalogue hard timeout releases Projects refresh without unlocking old Owner state",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected,catalogue,description:"Old session draft"});
+ ui.harness.seedPrivateState({
+  draft:{description:"Old Owner draft",priority:"NORMAL",screenshots:""},
+  receipt:{request_id:"old-secret-receipt"},pending:null,error:""
+ });
+ ui.setCatalogueFetch(()=>new Promise(()=>{})); // ignores even AbortSignal
+ let sessionProbes=0;
+ ui.setSessionFetch(()=>Promise.resolve({ok:true,json:async()=>({
+  schema:"MPC_OWNER_SESSION_V1",authenticated:++sessionProbes===1,
+  login_enabled:true,login_csrf:"loopback-csrf",csrf:sessionProbes===1?"owner-csrf":null
+ })}));
+ const pending=ui.harness.refresh();
+ for(let i=0;i<20;i++)await Promise.resolve();
+ assert.equal(ui.fireTimeouts(8000),1);
+ await pending;
+ assert.equal(sessionProbes,2);
+ const state=JSON.parse(ui.harness.state());
+ assert.equal(state.authenticated,false);
+ assert.equal(state.receipt,null);
+ assert.doesNotMatch(ui.harness.html(),/old-secret-receipt|mpc-owner-request-form/);
+});
+
+test("Leaving a permanently hung Projects fetch frees the shared refresh lock immediately",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected,catalogue,description:"Private Owner data"});
+ let startedCatalogue=0;
+ ui.setCatalogueFetch(()=>{
+  startedCatalogue++;
+  return new Promise(()=>{}); // abort-ignoring simulated web stack
+ });
+ const stuck=ui.harness.refresh();
+ for(let i=0;i<20;i++)await Promise.resolve();
+ assert.equal(startedCatalogue,1);
+ ui.harness.navigate("home");
+ await stuck; // MUST complete without resolving the fetch or waiting for timeout
+ // A pending refresh is automatically scheduled for the new destination.
+ for(let i=0;i<15;i++)await Promise.resolve();
+ assert.ok(ui.overviewRequestCount()>0,"Home overview must run after leaving Projects");
+ // Subsequent refresh attempts are no longer blocked by stale Projects busy.
+ const before=ui.overviewRequestCount();
+ await ui.harness.refresh();
+ assert.ok(ui.overviewRequestCount()>before);
+});
+
+test("Owner-session fetch itself has a deadline even if the transport ignores cancellation",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected,catalogue,description:"Earlier Owner data"});
+ ui.harness.seedPrivateState({
+  draft:{description:"Earlier Owner data",priority:"NORMAL",screenshots:""},
+  receipt:{request_id:"older-id"},pending:{target:selected},error:""
+ });
+ ui.setSessionFetch(()=>new Promise(()=>{}));
+ const pending=ui.harness.refresh();
+ for(let i=0;i<12;i++)await Promise.resolve();
+ assert.equal(ui.fireTimeouts(5000),1);
+ for(let i=0;i<12;i++)await Promise.resolve();
+ assert.equal(ui.fireTimeouts(5000),1,"Final re-probe also has a hard deadline");
+ await pending;
+ const state=JSON.parse(ui.harness.state());
+ assert.equal(state.authenticated,false);
+ assert.equal(state.receipt,null);
+ assert.doesNotMatch(ui.harness.html(),/older-id|mpc-owner-request-form/);
 });
