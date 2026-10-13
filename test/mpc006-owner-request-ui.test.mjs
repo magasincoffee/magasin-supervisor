@@ -592,3 +592,67 @@ test("A delayed response from an earlier Project visit cannot unlock its later v
  // Old verification belongs to a previous visit and must be discarded.
  assert.doesNotMatch(ui.harness.html(),/mpc-owner-request-form/);
 });
+
+
+test("Authenticated Owner always has a logout control without a selected task",()=>{
+ const session={authenticated:true,login_enabled:true,csrf:"verified-csrf"};
+ for(const current of ["", "supervisor", "supervisor/project-control",
+                      "supervisor/project-control/NOT-A-TASK"]){
+  const html=renderOwnerRequestPanel({catalogue,selected:current,session});
+  assert.match(html,/data-mpc-owner-logout/);
+  assert.doesNotMatch(html,/id="mpc-owner-request-form"/);
+ }
+ const unavailable={status:"UNAVAILABLE",projects:[]};
+ const html=renderProjectTree({catalogue:unavailable,selected,
+  ownerRequest:{session}});
+ assert.match(html,/data-mpc-owner-logout/);
+ assert.doesNotMatch(html,/mpc-owner-request-form/);
+ const pending=renderOwnerRequestPanel({catalogue:unavailable,selected,session,
+  logoutUnconfirmed:true});
+ assert.match(pending,/data-mpc-owner-logout-retry/);
+});
+
+test("In-place poll masks Owner fields immediately, and expiry is processed before stalled catalogue",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected,catalogue,description:"Private draft of last Owner"});
+ ui.harness.seedPrivateState({
+  draft:{description:"Confidential old Owner request",priority:"HIGH",screenshots:""},
+  receipt:{request_id:"private-receipt"},pending:{target:selected},error:""
+ });
+ await ui.harness.refresh();
+ assert.match(ui.harness.html(),/private-receipt/);
+ let resolveCatalogue;
+ ui.setCatalogueFetch(()=>new Promise(resolve=>{resolveCatalogue=resolve;}));
+ ui.setServerSession({authenticated:false,login_enabled:true,csrf:null,login_csrf:"loopback-csrf"});
+ const poll=ui.harness.refresh();
+ // Masking must occur synchronously before ANY async session/catalogue fetch.
+ assert.doesNotMatch(ui.harness.html(),/private-receipt|Confidential old Owner request|mpc-owner-request-form/);
+ assert.match(ui.harness.html(),/Đang xác minh lại quyền Owner/);
+ // Allow independent session JSON parsing while catalogue is still unsettled.
+ for(let i=0;i<12;i++)await Promise.resolve();
+ const expired=JSON.parse(ui.harness.state());
+ assert.equal(expired.authenticated,false);
+ assert.equal(expired.receipt,null);
+ assert.equal(expired.pending,null);
+ assert.equal(expired.draft.description,"");
+ assert.doesNotMatch(ui.harness.html(),/private-receipt|mpc-owner-request-form/);
+ resolveCatalogue({ok:true,json:async()=>catalogue});
+ await poll;
+ assert.doesNotMatch(ui.harness.html(),/private-receipt|mpc-owner-request-form/);
+});
+
+test("Logout remains available during a stalled catalogue poll",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected:"supervisor",catalogue,description:""});
+ await ui.harness.refresh();
+ ui.harness.navigate("projects");
+ let resolveCatalogue;
+ ui.setCatalogueFetch(()=>new Promise(resolve=>{resolveCatalogue=resolve;}));
+ const poll=ui.harness.refresh();
+ assert.match(ui.harness.html(),/data-mpc-owner-logout/);
+ assert.doesNotMatch(ui.harness.html(),/mpc-owner-request-form/);
+ resolveCatalogue({ok:true,json:async()=>catalogue});
+ await poll;
+ assert.match(ui.harness.html(),/data-mpc-owner-logout/);
+ assert.doesNotMatch(ui.harness.html(),/mpc-owner-request-form/);
+});
