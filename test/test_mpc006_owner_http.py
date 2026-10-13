@@ -146,6 +146,42 @@ class OwnerRouteTest(unittest.TestCase):
         status, _, _ = self.call("POST", "/api/owner/requests", self.payload())
         self.assertEqual(status, 403)
 
+    def test_logout_revokes_rotated_session_even_with_stale_owner_csrf(self):
+        self.login()
+        # A second tab rotated the browser cookie, while this tab kept the
+        # previous X-MPC-CSRF. Revocation must target the current cookie.
+        new_token, new_csrf = self.auth.login("fixture Owner password only", "127.0.0.1")
+        self.assertNotEqual(self.owner_csrf, new_csrf)
+        self.cookie = "mpc_owner_session=" + new_token
+        self.owner_csrf = "stale-token-from-other-tab"
+        status, _, _ = self.call("POST", "/api/owner/logout",
+                                 headers={"Origin": "https://untrusted.example"})
+        self.assertEqual(status, 403)
+        self.assertIsNotNone(self.auth.check(new_token))
+        status, _, _ = self.call("POST", "/api/owner/logout",
+                                 headers={"X-MAGASIN-CSRF": "forged"})
+        self.assertEqual(status, 403)
+        self.assertIsNotNone(self.auth.check(new_token))
+        status, outcome, cookie = self.call("POST", "/api/owner/logout")
+        self.assertEqual(status, 200)
+        self.assertEqual(outcome, {"ok": True, "authenticated": False})
+        self.assertIn("Max-Age=0", cookie)
+        self.assertIsNone(self.auth.check(new_token))
+        # Retry is idempotent and still clears the HttpOnly cookie.
+        status, _, cookie = self.call("POST", "/api/owner/logout")
+        self.assertEqual(status, 200)
+        self.assertIn("Max-Age=0", cookie)
+
+    def test_logout_without_private_store_revokes_session(self):
+        self.login()
+        token = self.cookie.split("=", 1)[1]
+        with patch.dict(os.environ, {"MPC_OWNER_REQUESTS_DB": ""}):
+            status, outcome, cookie = self.call("POST", "/api/owner/logout")
+        self.assertEqual(status, 200)
+        self.assertFalse(outcome["authenticated"])
+        self.assertIn("Max-Age=0", cookie)
+        self.assertIsNone(self.auth.check(token))
+
     def test_full_length_unicode_owner_request_is_not_wrongly_rejected_by_bytes(self):
         self.login()
         p = self.payload()
