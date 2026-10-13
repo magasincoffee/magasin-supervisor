@@ -431,58 +431,40 @@ async function refresh(){
      openPage("projects",false);
      // Start both requests at once but process Owner auth independently;
      // a hung catalogue request must never delay session expiry handling.
-     const cataloguePending=fetch("/api/projects",{cache:"no-store"}).catch(()=>null);
-     const ownerRes=await fetch("/api/owner/session",{
-       cache:"no-store",credentials:"same-origin"
-     }).catch(()=>null);
-     if(checkedVisitEpoch!==projectVisitEpoch || currentPage()!=="projects"){
-       refreshPending=true;
-       return;
-     }
-     let nextOwnerSession={authenticated:false,login_enabled:false};
-     let sessionVerified=false;
+     const catalogueJob=boundedProjectJson("/api/projects",
+       {cache:"no-store"},PROJECT_CATALOGUE_TIMEOUT_MS);
+     const firstSessionJob=boundedProjectJson("/api/owner/session",
+       {cache:"no-store",credentials:"same-origin"},PROJECT_SESSION_TIMEOUT_MS);
+     let finalSessionJob=null;
+     const cancelThese=()=>{
+       catalogueJob.cancel();
+       firstSessionJob.cancel();
+       finalSessionJob?.cancel();
+     };
+     cancelActiveProjectRequests=cancelThese;
+     const stillCurrent=()=>checkedVisitEpoch===projectVisitEpoch &&
+       currentPage()==="projects";
+     // Expiry is processed while the catalogue is still pending.
+     const firstSession=await firstSessionJob.value;
+     if(!stillCurrent()){refreshPending=true;return;}
+     applyOwnerSession(firstSession);
+     const catalogueData=await catalogueJob.value;
+     if(!stillCurrent()){refreshPending=true;return;}
+     // Session must be checked AFTER catalogue, which may have timed out.
+     // Never let an old authenticated result unlock a stale Owner form.
+     finalSessionJob=boundedProjectJson("/api/owner/session",
+       {cache:"no-store",credentials:"same-origin"},PROJECT_SESSION_TIMEOUT_MS);
+     const freshSession=await finalSessionJob.value;
+     if(!stillCurrent()){refreshPending=true;return;}
+     applyOwnerSession(freshSession);
      try{
-       if(ownerRes?.ok){
-         const data=await ownerRes.json();
-         if(data?.schema==="MPC_OWNER_SESSION_V1" &&
-            typeof data.authenticated==="boolean" &&
-            typeof data.login_enabled==="boolean" &&
-            typeof data.login_csrf==="string" && data.login_csrf.length>0 &&
-            (!data.authenticated ||
-              (data.login_enabled===true &&
-               typeof data.csrf==="string" && data.csrf.length>0))){
-           nextOwnerSession=data;
-           sessionVerified=true;
-         }
-       }
-     }catch(_){}
-     const wasAuthenticated=ownerSession?.authenticated===true;
-     const nowAuthenticated=sessionVerified &&
-       nextOwnerSession.authenticated===true && nextOwnerSession.login_enabled===true;
-     if(!sessionVerified || (wasAuthenticated &&
-       (!nowAuthenticated || ownerSession.csrf!==nextOwnerSession.csrf))){
-       clearOwnerSessionState();
-     }
-     if(sessionVerified)ownerLogoutCsrf=nextOwnerSession.login_csrf;
-     // A still-valid server cookie must not undo an unconfirmed logout.
-     ownerSession=ownerLogoutUnconfirmed?
-       {authenticated:false,login_enabled:false,login_csrf:ownerLogoutCsrf}:
-       nextOwnerSession;
-     // The sensitive in-memory state is now revoked if the session is dead,
-     // regardless of whether cataloguePending ever settles.
-     const response=await cataloguePending;
-     if(checkedVisitEpoch!==projectVisitEpoch || currentPage()!=="projects"){
-       refreshPending=true;
-       return;
-     }
-     try{
-       if(!response?.ok)throw Error("CATALOGUE_UNAVAILABLE");
-       const catalogue=await response.json();
-       if(!isSafeProjectCatalogue(catalogue))throw Error("CATALOGUE_INVALID");
-       projectCatalogue=catalogue;
+       if(!isSafeProjectCatalogue(catalogueData))throw Error("CATALOGUE_INVALID");
+       projectCatalogue=catalogueData;
      }catch(_){
        projectCatalogue={status:"UNAVAILABLE",projects:[]};
      }
+     if(cancelActiveProjectRequests===cancelThese)
+       cancelActiveProjectRequests=null;
      projectVisitVerified=true;
      alertBox.hidden=true;
      // Ignore stale project responses when navigation moved to another page.
