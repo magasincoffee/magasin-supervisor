@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
-import {renderOwnerRequestPanel,selectedRequestTarget} from "../src/control-center/web/project_request_view.mjs";
+import vm from "node:vm";
+import {renderOwnerRequestPanel,selectedRequestTarget,isCurrentOwnerSubmission} from "../src/control-center/web/project_request_view.mjs";
 import {renderProjectTree} from "../src/control-center/web/project_tree_view.mjs";
 
 const selected="supervisor/project-control/MPC-006";
@@ -79,3 +80,50 @@ test("Browser uses scoped cookie, two independent CSRF headers and stable retry 
  assert.doesNotMatch(server,/route\s*==\s*"\/api\/projects\/activate"|route\s*==\s*"\/api\/owner\/dispatch"/);
  assert.match(server,/\/project_request_view\.mjs/);
 });
+
+
+test("Completed POSTs apply only to the same task, submission epoch, and Owner session",()=>{
+ const base={submittedTarget:selected,selectedTarget:selected,submittedEpoch:4,currentEpoch:4,authenticated:true};
+ assert.equal(isCurrentOwnerSubmission(base),true);
+ assert.equal(isCurrentOwnerSubmission({...base,selectedTarget:"supervisor/project-control/MPC-005"}),false);
+ assert.equal(isCurrentOwnerSubmission({...base,currentEpoch:5}),false);
+ assert.equal(isCurrentOwnerSubmission({...base,authenticated:false}),false);
+ assert.equal(isCurrentOwnerSubmission({...base,submittedEpoch:null}),false);
+});
+
+// Exercise the real delegated browser handlers, not just a source-code regex.
+// A mocked asynchronous request remains in flight while Owner navigates/edits.
+async function ownerBrowserFixture(){
+ const events={};
+ const domElements=new Map();
+ for(const id of ["main-content","loading","page-title","page-subtitle",
+                   "page-navigation-status","nav-robots","refresh","updated"]){
+  domElements.set(id,{id,innerHTML:"",textContent:"",hidden:false,
+                      contains:()=>false,querySelector:()=>null,querySelectorAll:()=>[],
+                      addEventListener:()=>{}});
+ }
+ const requests=[];
+ const sandbox={
+  console,Promise,Date,Set,URL,
+  crypto:{randomUUID:()=> "11111111-1111-4111-8111-111111111111"},
+  document:{
+   getElementById:id=>domElements.get(id)??null,
+   querySelectorAll:()=>[],
+   addEventListener:(type,cb)=>{(events[type]??=[]).push(cb);},
+   activeElement:null,hidden:false
+  },
+  location:{pathname:"/projects",origin:"http://127.0.0.1:8781"},
+  history:{pushState:()=>{}},
+  window:{addEventListener:()=>{},scrollTo:()=>{}},
+  setInterval:()=>{},
+  renderProjectTree,isCurrentOwnerSubmission,
+  fetch:(url,opts)=>{
+   if(url!=="/api/owner/requests")throw Error("Unexpected fetch: "+url);
+   return new Promise((resolve,reject)=>requests.push({resolve,reject,opts}));
+  },
+  alert:()=>{},confirm:()=>false
+ };
+ let script=await fs.readFile(new URL("../src/control-center/web/app.js",import.meta.url),"utf8");
+ script=script.replace(/^import [^\n]*\n/g,"");
+ assert.match(script,/refresh\(\);\s*$/);
+ script=script.replace(/refresh\(\);\s*$/,String.raw
