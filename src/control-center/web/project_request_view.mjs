@@ -28,7 +28,8 @@ export function isCurrentOwnerSubmission({
 }
 
 export function renderOwnerRequestPanel({
- catalogue,selected,session,draft={},receipt=null,error="",logoutUnconfirmed=false
+ catalogue,selected,session,draft={},receipt=null,error="",logoutUnconfirmed=false,
+ logoutAvailable=false
 }={}) {
  // An unacknowledged server logout may leave a valid HttpOnly cookie. Hide all
  // private material and provide an explicit retry even if catalogue is down.
@@ -38,8 +39,14 @@ export function renderOwnerRequestPanel({
     "Không xác minh được máy chủ đã kết thúc phiên Owner. Quyền sửa đang bị khóa.")+'</p>'
   +'<button type="button" class="btn" data-mpc-owner-logout-retry>Thử đăng xuất lại</button>'
   +'</section>';
+ const logoutAction=(logoutAvailable===true||
+   (session?.authenticated===true&&session?.login_enabled===true))
+   ?'<div class="owner-request-actions"><button class="btn" type="button" data-mpc-owner-logout>Đăng xuất Owner</button></div>'
+   :"";
  const target=selectedRequestTarget(catalogue,selected);
- if(!target)return '<section class="owner-request" aria-label="Gửi yêu cầu Owner"><h2>Đề xuất chỉnh sửa</h2><p>Chọn một nhiệm vụ trong cây dự án để viết yêu cầu.</p></section>';
+ if(!target)return '<section class="owner-request" aria-label="Gửi yêu cầu Owner">'
+  +'<h2>Đề xuất chỉnh sửa</h2><p>Chọn một nhiệm vụ trong cây dự án để viết yêu cầu.</p>'
+  +logoutAction+'</section>';
  const intro='<section class="owner-request" aria-label="Gửi yêu cầu Owner"><h2>Yêu cầu chỉnh sửa nhiệm vụ</h2>'
   +'<p class="owner-request-target">Đang chọn: <strong>'+esc(target.name)+'</strong></p>'
   +'<p class="mini">Yêu cầu chỉ được lưu để Owner xem xét. Không tự sửa SOT, giao việc hoặc bật Robot.</p>';
@@ -72,7 +79,6 @@ export function renderOwnerRequestPanel({
   +'<textarea id="mpc-owner-screenshots" name="screenshots" rows="3" maxlength="1000"'
   +' placeholder="https://github.com/user-attachments/assets/...">'+esc(screens)+'</textarea>'
   +'<p class="mini">Chỉ nhận liên kết ảnh đính kèm GitHub. Chưa hỗ trợ tải trực tiếp ảnh lên Control Center.</p>'
-  +'<div class="owner-request-actions"><button class="btn btn-good" type="submit">Gửi yêu cầu để xem xét</button>'
-  +'<button class="btn" type="button" data-mpc-owner-logout>Đăng xuất</button></div>'
-  +'</form></section>';
+  +'<div class="owner-request-actions"><button class="btn btn-good" type="submit">Gửi yêu cầu để xem xét</button></div>'
+  +'</form>'+logoutAction+'</section>';
 }
