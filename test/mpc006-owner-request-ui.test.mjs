@@ -103,6 +103,7 @@ async function ownerBrowserFixture(){
                       addEventListener:()=>{}});
  }
  const requests=[];
+ let serverSession={authenticated:true,login_enabled:true,csrf:"owner-csrf",login_csrf:"loopback-csrf"};
  const sandbox={
   console,Promise,Date,Set,URL,
   crypto:{randomUUID:()=> "11111111-1111-4111-8111-111111111111"},
@@ -118,6 +119,8 @@ async function ownerBrowserFixture(){
   setInterval:()=>{},
   renderProjectTree,isCurrentOwnerSubmission,
   fetch:(url,opts)=>{
+   if(url==="/api/projects")return Promise.resolve({ok:true,json:async()=>catalogue});
+   if(url==="/api/owner/session")return Promise.resolve({ok:true,json:async()=>serverSession});
    if(url!=="/api/owner/requests")throw Error("Unexpected fetch: "+url);
    return new Promise((resolve,reject)=>requests.push({resolve,reject,opts}));
   },
@@ -136,7 +139,11 @@ async function ownerBrowserFixture(){
   "  latest={robots:[],services:[],coordinator:null};",
   " },",
   " state(){return JSON.stringify({selected:projectSelected,draft:ownerDraft,receipt:ownerReceipt,",
-  "  error:ownerError,pending:ownerPending,epoch:ownerIntentEpoch});}",
+  "  error:ownerError,pending:ownerPending,epoch:ownerIntentEpoch,authenticated:ownerSession?.authenticated});}",
+  " seedPrivateState({draft,receipt,pending,error}){",
+  "  ownerDraft=draft;ownerReceipt=receipt;ownerPending=pending;ownerError=error;",
+  " },",
+  " refresh(){return refresh();}",
   "};"
  ].join("\n"));
  vm.runInNewContext(script,sandbox,{filename:"app.js",timeout:2000});
@@ -162,7 +169,8 @@ async function ownerBrowserFixture(){
    {dataset:{projectFocus:key}}:null}});
  };
  const edit=description=>input({target:{id:"mpc-owner-description",value:description}});
- return {harness:sandbox.__ownerHarness,requests,submit,select,edit};
+ return {harness:sandbox.__ownerHarness,requests,submit,select,edit,
+  setServerSession(next){serverSession=next;}};
 }
 
 const taskB="supervisor/project-control/MPC-005";
@@ -215,4 +223,75 @@ test("A-B-A switch or edit during POST invalidates old A completion",async()=>{
  assert.equal(state.draft.description,"Fresh A task draft, different from the earlier request");
  assert.equal(state.receipt,null);
  assert.equal(pending.button.disabled,false);
+});
+
+
+test("Unauthenticated or unprovisioned sessions never display a saved receipt",()=>{
+ for(const session of [
+   null,
+   {authenticated:false,login_enabled:true},
+   {authenticated:true,login_enabled:false}
+ ]){
+  const html=renderOwnerRequestPanel({catalogue,selected,session,
+   receipt:{request_id:"private-receipt-from-previous-owner",status:"PENDING_OWNER_REVIEW"}});
+  assert.doesNotMatch(html,/private-receipt-from-previous-owner/);
+ }
+});
+
+test("Session expiration erases draft, prior receipt, retry token and error on server refresh",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected,catalogue,description:"Sensitive draft under authenticated session"});
+ ui.harness.seedPrivateState({
+  draft:{description:"Prior session confidential instructions",priority:"HIGH",screenshots:""},
+  receipt:{request_id:"private-receipt",status:"PENDING_OWNER_REVIEW"},
+  pending:{target:selected,idempotency_key:"old-token"},error:"Previous private error"
+ });
+ ui.setServerSession({authenticated:false,login_enabled:true,csrf:null,login_csrf:"loopback-csrf"});
+ await ui.harness.refresh();
+ let state=JSON.parse(ui.harness.state());
+ assert.equal(state.authenticated,false);
+ assert.deepEqual(state.draft,{description:"",priority:"NORMAL",screenshots:""});
+ assert.equal(state.pending,null);
+ assert.equal(state.receipt,null);
+ assert.equal(state.error,"");
+ // Even a later valid Owner login must NOT recover data from the prior session.
+ ui.setServerSession({authenticated:true,login_enabled:true,csrf:"new-owner-csrf",login_csrf:"loopback-csrf"});
+ await ui.harness.refresh();
+ state=JSON.parse(ui.harness.state());
+ assert.equal(state.authenticated,true);
+ assert.equal(state.receipt,null);
+ assert.equal(state.draft.description,"");
+});
+
+test("Session rotation while still authenticated revokes earlier Owner data",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected,catalogue,description:"Sensitive previous session"});
+ ui.harness.seedPrivateState({
+  draft:{description:"Do not reuse this session draft",priority:"NORMAL",screenshots:""},
+  receipt:{request_id:"old-owner-receipt"},pending:{target:selected},error:""
+ });
+ ui.setServerSession({authenticated:true,login_enabled:true,csrf:"rotated-session-csrf",login_csrf:"loopback-csrf"});
+ await ui.harness.refresh();
+ const state=JSON.parse(ui.harness.state());
+ assert.equal(state.authenticated,true);
+ assert.equal(state.receipt,null);
+ assert.equal(state.pending,null);
+ assert.equal(state.draft.description,"");
+});
+
+test("A delayed submission response cannot resurrect a receipt after session expiry",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected,catalogue,description:"Task A before session expiration"});
+ const pending=ui.submit(selected,"Task A before session expiration");
+ ui.setServerSession({authenticated:false,login_enabled:true,csrf:null,login_csrf:"loopback-csrf"});
+ await ui.harness.refresh();
+ ui.requests[0].resolve({ok:true,json:async()=>({
+   request_id:"forbidden-late-receipt",status:"PENDING_OWNER_REVIEW",dispatch_authorized:false
+ })});
+ await pending.run;
+ const state=JSON.parse(ui.harness.state());
+ assert.equal(state.authenticated,false);
+ assert.equal(state.receipt,null);
+ assert.equal(state.pending,null);
+ assert.equal(state.draft.description,"");
 });
