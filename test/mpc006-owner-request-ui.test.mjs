@@ -93,7 +93,7 @@ test("Completed POSTs apply only to the same task, submission epoch, and Owner s
 
 // Exercise the real delegated browser handlers, not just a source-code regex.
 // A mocked asynchronous request remains in flight while Owner navigates/edits.
-async function ownerBrowserFixture(){
+async function ownerBrowserFixture({sharedStorage=new Map()}={}){
  const events={};
  const domElements=new Map();
  for(const id of ["main-content","loading","page-title","page-subtitle",
@@ -103,7 +103,11 @@ async function ownerBrowserFixture(){
                       addEventListener:()=>{}});
  }
  const requests=[];
- let serverSession={authenticated:true,login_enabled:true,csrf:"owner-csrf",login_csrf:"loopback-csrf"};
+ let serverSession={schema:"MPC_OWNER_SESSION_V1",
+  authenticated:true,login_enabled:true,csrf:"owner-csrf",login_csrf:"loopback-csrf"};
+ let catalogueFetch=()=>Promise.resolve({ok:true,json:async()=>catalogue});
+ let sessionFetch=()=>Promise.resolve({ok:true,json:async()=>serverSession});
+ let logoutFetch=()=>Promise.resolve({ok:true,status:200,json:async()=>({ok:true,authenticated:false})});
  const sandbox={
   console,Promise,Date,Set,URL,
   crypto:{randomUUID:()=> "11111111-1111-4111-8111-111111111111"},
@@ -115,12 +119,18 @@ async function ownerBrowserFixture(){
   },
   location:{pathname:"/projects",origin:"http://127.0.0.1:8781"},
   history:{pushState:()=>{}},
-  window:{addEventListener:()=>{},scrollTo:()=>{}},
+  window:{addEventListener:()=>{},scrollTo:()=>{},
+   sessionStorage:{
+    getItem:key=>sharedStorage.has(key)?sharedStorage.get(key):null,
+    setItem:(key,v)=>sharedStorage.set(key,String(v)),
+    removeItem:key=>sharedStorage.delete(key)
+   }},
   setInterval:()=>{},
   renderProjectTree,isCurrentOwnerSubmission,
   fetch:(url,opts)=>{
-   if(url==="/api/projects")return Promise.resolve({ok:true,json:async()=>catalogue});
-   if(url==="/api/owner/session")return Promise.resolve({ok:true,json:async()=>serverSession});
+   if(url==="/api/projects")return catalogueFetch();
+   if(url==="/api/owner/session")return sessionFetch();
+   if(url==="/api/owner/logout")return logoutFetch(opts);
    if(url!=="/api/owner/requests")throw Error("Unexpected fetch: "+url);
    return new Promise((resolve,reject)=>requests.push({resolve,reject,opts}));
   },
@@ -139,7 +149,8 @@ async function ownerBrowserFixture(){
   "  latest={robots:[],services:[],coordinator:null};",
   " },",
   " state(){return JSON.stringify({selected:projectSelected,draft:ownerDraft,receipt:ownerReceipt,",
-  "  error:ownerError,pending:ownerPending,epoch:ownerIntentEpoch,authenticated:ownerSession?.authenticated});},",
+  "  error:ownerError,pending:ownerPending,epoch:ownerIntentEpoch,authenticated:ownerSession?.authenticated,",
+  "  logoutUnconfirmed:ownerLogoutUnconfirmed});},",
   " seedPrivateState({draft,receipt,pending,error}){",
   "  ownerDraft=draft;ownerReceipt=receipt;ownerPending=pending;ownerError=error;",
   " },",
@@ -169,8 +180,14 @@ async function ownerBrowserFixture(){
    {dataset:{projectFocus:key}}:null}});
  };
  const edit=description=>input({target:{id:"mpc-owner-description",value:description}});
- return {harness:sandbox.__ownerHarness,requests,submit,select,edit,
-  setServerSession(next){serverSession=next;}};
+ const logout=()=>focus({target:{disabled:false,closest:selector=>
+   selector==="[data-mpc-owner-logout],[data-mpc-owner-logout-retry]"?{disabled:false}:null}});
+ return {harness:sandbox.__ownerHarness,requests,submit,select,edit,logout,
+  setServerSession(next){serverSession={schema:"MPC_OWNER_SESSION_V1",...next};},
+  setCatalogueFetch(next){catalogueFetch=next;},
+  setSessionFetch(next){sessionFetch=next;},
+  setLogoutFetch(next){logoutFetch=next;},
+  sharedStorage};
 }
 
 const taskB="supervisor/project-control/MPC-005";
