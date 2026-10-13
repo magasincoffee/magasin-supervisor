@@ -330,19 +330,29 @@ function openPage(id,historyUpdate=true){
  if(page==="projects"){
   // Clear the old DOM before any potentially throwing renderer runs: a malformed
   // catalogue must never leave the previous authenticated form on the screen.
-  root.innerHTML='<section role="status" class="project-page">Đang xác minh lại quyền Owner và danh mục dự án…</section>';
+  const availableLogout=Boolean(ownerLogoutCsrf||ownerSession?.authenticated);
+  const pendingLogout=ownerLogoutUnconfirmed
+    ?'<button type="button" class="btn" data-mpc-owner-logout-retry>Thử đăng xuất lại</button>'
+    :availableLogout
+      ?'<button type="button" class="btn" data-mpc-owner-logout>Đăng xuất Owner</button>'
+      :"";
+  root.innerHTML='<section role="status" class="project-page">Đang xác minh lại quyền Owner và danh mục dự án…'
+    +pendingLogout+'</section>';
   if(projectVisitVerified){
   try{
     if(!isSafeProjectCatalogue(projectCatalogue))throw Error("CATALOGUE_INVALID");
     root.innerHTML=renderProjectTree({catalogue:projectCatalogue,query:projectQuery,
       selected:projectSelected,expanded:[...projectExpanded],
       ownerRequest:{session:ownerSession,draft:ownerDraft,receipt:ownerReceipt,
-        error:ownerError,logoutUnconfirmed:ownerLogoutUnconfirmed}});
+        error:ownerError,logoutUnconfirmed:ownerLogoutUnconfirmed,
+        logoutAvailable:availableLogout}});
   }catch(_){
     clearOwnerSessionState();
     ownerSession={authenticated:false,login_enabled:false};
     projectCatalogue={status:"UNAVAILABLE",projects:[]};
-    root.innerHTML='<section role="alert" class="project-page">Không thể xác minh danh mục dự án. Quyền nhập yêu cầu Owner tạm khóa.</section>';
+    root.innerHTML='<section role="alert" class="project-page">Không thể xác minh danh mục dự án. Quyền nhập yêu cầu Owner tạm khóa.'
+      +(ownerLogoutCsrf?'<button type="button" class="btn" data-mpc-owner-logout>Đăng xuất Owner</button>':"")
+      +'</section>';
   }
   }
  }else{
@@ -365,12 +375,16 @@ async function refresh(){
    if(currentPage()==="projects"){
      projectNavigationBoundary("projects");
      const checkedVisitEpoch=projectVisitEpoch;
-     // Owner-session validation must finish independently of the catalogue.
-     // Failed/malformed session responses always revoke cached private state.
-     const [response,ownerRes]=await Promise.all([
-       fetch("/api/projects",{cache:"no-store"}).catch(()=>null),
-       fetch("/api/owner/session",{cache:"no-store",credentials:"same-origin"}).catch(()=>null)
-     ]);
+     // Hide cached private fields at the START of every poll: if a network
+     // request stalls, an expired Owner form must not remain on-screen.
+     projectVisitVerified=false;
+     openPage("projects",false);
+     // Start both requests at once but process Owner auth independently;
+     // a hung catalogue request must never delay session expiry handling.
+     const cataloguePending=fetch("/api/projects",{cache:"no-store"}).catch(()=>null);
+     const ownerRes=await fetch("/api/owner/session",{
+       cache:"no-store",credentials:"same-origin"
+     }).catch(()=>null);
      if(checkedVisitEpoch!==projectVisitEpoch || currentPage()!=="projects"){
        refreshPending=true;
        return;
@@ -404,6 +418,13 @@ async function refresh(){
      ownerSession=ownerLogoutUnconfirmed?
        {authenticated:false,login_enabled:false,login_csrf:ownerLogoutCsrf}:
        nextOwnerSession;
+     // The sensitive in-memory state is now revoked if the session is dead,
+     // regardless of whether cataloguePending ever settles.
+     const response=await cataloguePending;
+     if(checkedVisitEpoch!==projectVisitEpoch || currentPage()!=="projects"){
+       refreshPending=true;
+       return;
+     }
      try{
        if(!response?.ok)throw Error("CATALOGUE_UNAVAILABLE");
        const catalogue=await response.json();
