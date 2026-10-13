@@ -584,6 +584,8 @@ test("Navigating back to Projects never renders cached Owner data before a fresh
  const pending=ui.harness.refresh();
  assert.match(ui.harness.html(),/Đang xác minh lại quyền Owner/);
  assert.doesNotMatch(ui.harness.html(),/secret-prior-receipt|mpc-owner-request-form/);
+ for(let i=0;i<35;i++)await Promise.resolve();
+ assert.equal(typeof completeSession,"function");
  completeSession({ok:true,json:async()=>({
   schema:"MPC_OWNER_SESSION_V1",authenticated:false,login_enabled:true,
   login_csrf:"loopback-csrf",csrf:null
@@ -602,13 +604,12 @@ test("A delayed response from an earlier Project visit cannot unlock its later v
  let completeOld;
  ui.setSessionFetch(()=>new Promise(resolve=>{completeOld=resolve;}));
  const oldRefresh=ui.harness.refresh();
+ for(let i=0;i<35;i++)await Promise.resolve();
+ assert.equal(typeof completeOld,"function");
  ui.harness.navigate("home");
  ui.harness.navigate("projects");
  assert.match(ui.harness.html(),/Đang xác minh lại quyền Owner/);
- completeOld({ok:true,json:async()=>({
-  schema:"MPC_OWNER_SESSION_V1",authenticated:true,login_enabled:true,
-  login_csrf:"loopback-csrf",csrf:"owner-csrf"
- })});
+ // Deliberately keep the transport unresolved: navigation must cancel it.
  await oldRefresh;
  // Old verification belongs to a previous visit and must be discarded.
  assert.doesNotMatch(ui.harness.html(),/mpc-owner-request-form/);
@@ -650,13 +651,14 @@ test("In-place poll masks Owner fields immediately, and expiry is processed befo
  assert.doesNotMatch(ui.harness.html(),/private-receipt|Confidential old Owner request|mpc-owner-request-form/);
  assert.match(ui.harness.html(),/Đang xác minh lại quyền Owner/);
  // Allow independent session JSON parsing while catalogue is still unsettled.
- for(let i=0;i<12;i++)await Promise.resolve();
+ for(let i=0;i<65;i++)await Promise.resolve();
  const expired=JSON.parse(ui.harness.state());
  assert.equal(expired.authenticated,false);
  assert.equal(expired.receipt,null);
  assert.equal(expired.pending,null);
  assert.equal(expired.draft.description,"");
  assert.doesNotMatch(ui.harness.html(),/private-receipt|mpc-owner-request-form/);
+ assert.equal(typeof resolveCatalogue,"function");
  resolveCatalogue({ok:true,json:async()=>catalogue});
  await poll;
  assert.doesNotMatch(ui.harness.html(),/private-receipt|mpc-owner-request-form/);
@@ -672,6 +674,8 @@ test("Logout remains available during a stalled catalogue poll",async()=>{
  const poll=ui.harness.refresh();
  assert.match(ui.harness.html(),/data-mpc-owner-logout/);
  assert.doesNotMatch(ui.harness.html(),/mpc-owner-request-form/);
+ for(let i=0;i<35;i++)await Promise.resolve();
+ assert.equal(typeof resolveCatalogue,"function");
  resolveCatalogue({ok:true,json:async()=>catalogue});
  await poll;
  assert.match(ui.harness.html(),/data-mpc-owner-logout/);
