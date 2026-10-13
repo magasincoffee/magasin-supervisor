@@ -38,11 +38,61 @@ function clearOwnerSessionState(){
   ownerReceipt=null;
   ownerError="";
 }
+// A stalled or abandoned Projects request must never hold the shared
+// Supervisor refresh lock or authorize an Owner form with stale credentials.
+const PROJECT_CATALOGUE_TIMEOUT_MS=8000;
+const PROJECT_SESSION_TIMEOUT_MS=5000;
+let cancelActiveProjectRequests=null;
+function boundedProjectJson(url,options,timeoutMs){
+  const controller=new AbortController();
+  let stop;
+  const cancelled=new Promise(resolve=>{stop=resolve;});
+  const timer=setTimeout(()=>{
+    controller.abort();
+    stop(null);
+  },timeoutMs);
+  const response=Promise.resolve()
+    .then(()=>fetch(url,{...options,signal:controller.signal}))
+    .then(res=>res?.ok?res.json():null).catch(()=>null);
+  return {
+    value:Promise.race([response,cancelled]).finally(()=>clearTimeout(timer)),
+    cancel(){controller.abort();stop(null);}
+  };
+}
+function qualifiedOwnerSession(data){
+  return data?.schema==="MPC_OWNER_SESSION_V1" &&
+    typeof data.authenticated==="boolean" &&
+    typeof data.login_enabled==="boolean" &&
+    typeof data.login_csrf==="string" && data.login_csrf.length>0 &&
+    (!data.authenticated ||
+      (data.login_enabled===true &&
+       typeof data.csrf==="string" && data.csrf.length>0))
+    ?data:null;
+}
+function applyOwnerSession(data){
+  const verified=qualifiedOwnerSession(data);
+  const wasAuthenticated=ownerSession?.authenticated===true;
+  const nowAuthenticated=verified?.authenticated===true &&
+    verified?.login_enabled===true;
+  if(!verified || (wasAuthenticated &&
+     (!nowAuthenticated || ownerSession.csrf!==verified.csrf))){
+    clearOwnerSessionState();
+  }
+  if(verified)ownerLogoutCsrf=verified.login_csrf;
+  ownerSession=ownerLogoutUnconfirmed
+    ?{authenticated:false,login_enabled:false,login_csrf:ownerLogoutCsrf}
+    :(verified||{authenticated:false,login_enabled:false});
+}
 let renderedPage=null;
 let projectVisitEpoch=0;
 let projectVisitVerified=false;
 function projectNavigationBoundary(page){
  if(page===renderedPage)return;
+ if(renderedPage==="projects"&&page!=="projects"&&cancelActiveProjectRequests){
+  cancelActiveProjectRequests();
+  cancelActiveProjectRequests=null;
+  refreshPending=true;
+ }
  if(page==="projects" || renderedPage==="projects"){
   projectVisitEpoch++;
   projectVisitVerified=false;
