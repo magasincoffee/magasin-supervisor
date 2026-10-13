@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import vm from "node:vm";
 import {renderOwnerRequestPanel,selectedRequestTarget,isCurrentOwnerSubmission} from "../src/control-center/web/project_request_view.mjs";
-import {renderProjectTree} from "../src/control-center/web/project_tree_view.mjs";
+import {renderProjectTree,isSafeProjectCatalogue} from "../src/control-center/web/project_tree_view.mjs";
 
 const selected="supervisor/project-control/MPC-006";
 const catalogue={
@@ -121,7 +121,7 @@ async function ownerBrowserFixture(){
   history:{pushState:()=>{}},
   window:{addEventListener:()=>{},scrollTo:()=>{}},
   setInterval:()=>{},
-  renderProjectTree,isCurrentOwnerSubmission,
+  renderProjectTree,isSafeProjectCatalogue,isCurrentOwnerSubmission,
   fetch:(url,opts)=>{
    if(url==="/api/projects")return catalogueFetch();
    if(url==="/api/owner/session")return sessionFetch();
@@ -149,7 +149,8 @@ async function ownerBrowserFixture(){
   " seedPrivateState({draft,receipt,pending,error}){",
   "  ownerDraft=draft;ownerReceipt=receipt;ownerPending=pending;ownerError=error;",
   " },",
-  " refresh(){return refresh();}",
+  " refresh(){return refresh();},",
+  " html(){return root.innerHTML;}",
   "};"
  ].join("\n"));
  vm.runInNewContext(script,sandbox,{filename:"app.js",timeout:2000});
@@ -432,4 +433,79 @@ test("Logout retry stays available even if catalogue is malformed or unavailable
  });
  assert.match(html,/data-mpc-owner-logout-retry/);
  assert.doesNotMatch(html,/old-secret|confidential|mpc-owner-request-form/);
+});
+
+
+test("Reject malformed nested project / feature / task arrays before rendering",()=>{
+ assert.equal(isSafeProjectCatalogue(catalogue),true);
+ const invalid=[
+  null,{}, {projects:null},{projects:"not-array"},
+  {projects:[null]},
+  {projects:[false]},
+  {projects:[{id:"supervisor",features:null}]},
+  {projects:[{id:"supervisor",features:[null]}]},
+  {projects:[{id:"supervisor",features:[{id:"project-control",tasks:[null]}]}]},
+  {projects:[{id:"supervisor",features:[{id:"project-control",tasks:[{}]}]}]},
+  {projects:[{id:"supervisor",features:[{id:"project-control",tasks:[false]}]}]},
+  {projects:[{id:"../../unsafe",features:[]}]},
+ ];
+ for(const candidate of invalid)
+  assert.equal(isSafeProjectCatalogue(candidate),false,
+   JSON.stringify(candidate));
+});
+
+test("Malformed HTTP-200 nested catalogue cannot leave previous private DOM after session expiry",async()=>{
+ const candidates=[
+  {projects:[null]},
+  {projects:[{id:"supervisor",features:[null]}]},
+  {projects:[{id:"supervisor",features:[{id:"project-control",tasks:[null]}]}]},
+ ];
+ for(const malformed of candidates){
+  const ui=await ownerBrowserFixture();
+  ui.harness.init({selected,catalogue,description:"Secret Owner input"});
+  ui.harness.seedPrivateState({
+   draft:{description:"Secret Owner input",priority:"HIGH",screenshots:""},
+   receipt:{request_id:"private-old-receipt"},
+   pending:{target:selected},error:""
+  });
+  await ui.harness.refresh();
+  assert.match(ui.harness.html(),/private-old-receipt/);
+  assert.match(ui.harness.html(),/id="mpc-owner-request-form"/);
+  ui.setServerSession({authenticated:false,login_enabled:true,csrf:null,login_csrf:"loopback-csrf"});
+  ui.setCatalogueFetch(()=>Promise.resolve({ok:true,json:async()=>malformed}));
+  await ui.harness.refresh();
+  const state=JSON.parse(ui.harness.state());
+  assert.equal(state.authenticated,false);
+  assert.equal(state.receipt,null);
+  assert.equal(state.draft.description,"");
+  assert.doesNotMatch(ui.harness.html(),/private-old-receipt|Secret Owner input|id="mpc-owner-request-form"/);
+  assert.match(ui.harness.html(),/Không đọc được danh mục|Không thể xác minh danh mục/);
+ }
+});
+
+test("Renderer failure itself also removes a previously displayed authenticated Owner form",async()=>{
+ const ui=await ownerBrowserFixture();
+ ui.harness.init({selected,catalogue,description:"Private user text"});
+ ui.harness.seedPrivateState({
+  draft:{description:"Private user text",priority:"NORMAL",screenshots:""},
+  receipt:{request_id:"private-receipt"},pending:{target:selected},error:""
+ });
+ await ui.harness.refresh();
+ assert.match(ui.harness.html(),/private-receipt/);
+ // Simulate a catalogue node that throws from a non-data render function
+ // after validation. App's render boundary still replaces old DOM and locks.
+ ui.harness.init({selected,catalogue:{...catalogue,projects:[{id:"supervisor",
+  title:{toString(){throw Error("untrusted title");}},
+  features:catalogue.projects[0].features}]},description:"Private user text"});
+ ui.harness.seedPrivateState({
+  draft:{description:"Private user text",priority:"NORMAL",screenshots:""},
+  receipt:{request_id:"private-receipt"},pending:{target:selected},error:""
+ });
+ // openPage invoked by click selecting already known task on current catalogue
+ // with bad title. It must not leave old DOM from the previous render.
+ await ui.select(selected);
+ const state=JSON.parse(ui.harness.state());
+ assert.equal(state.authenticated,false);
+ assert.equal(state.receipt,null);
+ assert.doesNotMatch(ui.harness.html(),/private-receipt|id="mpc-owner-request-form"/);
 });
