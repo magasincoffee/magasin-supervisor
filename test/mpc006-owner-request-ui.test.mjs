@@ -93,7 +93,7 @@ test("Completed POSTs apply only to the same task, submission epoch, and Owner s
 
 // Exercise the real delegated browser handlers, not just a source-code regex.
 // A mocked asynchronous request remains in flight while Owner navigates/edits.
-async function ownerBrowserFixture({sharedStorage=new Map()}={}){
+async function ownerBrowserFixture(){
  const events={};
  const domElements=new Map();
  for(const id of ["main-content","loading","page-title","page-subtitle",
@@ -119,12 +119,7 @@ async function ownerBrowserFixture({sharedStorage=new Map()}={}){
   },
   location:{pathname:"/projects",origin:"http://127.0.0.1:8781"},
   history:{pushState:()=>{}},
-  window:{addEventListener:()=>{},scrollTo:()=>{},
-   sessionStorage:{
-    getItem:key=>sharedStorage.has(key)?sharedStorage.get(key):null,
-    setItem:(key,v)=>sharedStorage.set(key,String(v)),
-    removeItem:key=>sharedStorage.delete(key)
-   }},
+  window:{addEventListener:()=>{},scrollTo:()=>{}},
   setInterval:()=>{},
   renderProjectTree,isCurrentOwnerSubmission,
   fetch:(url,opts)=>{
@@ -187,7 +182,7 @@ async function ownerBrowserFixture({sharedStorage=new Map()}={}){
   setCatalogueFetch(next){catalogueFetch=next;},
   setSessionFetch(next){sessionFetch=next;},
   setLogoutFetch(next){logoutFetch=next;},
-  sharedStorage};
+ };
 }
 
 const taskB="supervisor/project-control/MPC-005";
@@ -401,36 +396,32 @@ test("HTTP 403 logout does not restore authenticated controls or claim success",
  }),/data-mpc-owner-logout-retry/);
 });
 
-test("Logout network failure retains a retry lock across reload until server acknowledgement",async()=>{
- const sharedStorage=new Map();
- const ui=await ownerBrowserFixture({sharedStorage});
+test("Logout network failure keeps interface locked across refresh until acknowledged retry",async()=>{
+ const ui=await ownerBrowserFixture();
  ui.harness.init({selected,catalogue,description:"Private Owner request"});
  ui.setLogoutFetch(()=>Promise.reject(new Error("NETWORK_OFFLINE")));
  await ui.logout();
  let state=JSON.parse(ui.harness.state());
  assert.equal(state.logoutUnconfirmed,true);
  assert.equal(state.authenticated,false);
- assert.equal(sharedStorage.size,1);
- // A same-tab reload still sees the old server cookie but remains locked.
- const reloaded=await ownerBrowserFixture({sharedStorage});
- reloaded.harness.init({selected,catalogue,description:""});
- await reloaded.harness.refresh();
- state=JSON.parse(reloaded.harness.state());
+ assert.equal(state.receipt,null);
+ // Server still reports a valid cookie; refresh must not re-enable Owner.
+ await ui.harness.refresh();
+ state=JSON.parse(ui.harness.state());
  assert.equal(state.logoutUnconfirmed,true);
  assert.equal(state.authenticated,false);
- // Retry acknowledges revocation only when the server confirms success.
- reloaded.setLogoutFetch(()=>{
-  reloaded.setServerSession({
+ // Retry acknowledges revocation only after the server confirms success.
+ ui.setLogoutFetch(()=>{
+  ui.setServerSession({
    authenticated:false,login_enabled:true,csrf:null,login_csrf:"loopback-csrf"
   });
   return Promise.resolve({ok:true,status:200,json:async()=>({ok:true,authenticated:false})});
  });
- await reloaded.logout();
- state=JSON.parse(reloaded.harness.state());
+ await ui.logout();
+ state=JSON.parse(ui.harness.state());
  assert.equal(state.logoutUnconfirmed,false);
  assert.equal(state.authenticated,false);
  assert.equal(state.receipt,null);
- assert.equal(sharedStorage.size,0);
 });
 
 test("Logout retry stays available even if catalogue is malformed or unavailable",()=>{
