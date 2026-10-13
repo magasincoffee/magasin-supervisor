@@ -322,6 +322,7 @@ function announceNavigation(){
 }
 function openPage(id,historyUpdate=true){
  const page=id==="projects"?"projects":id==="home"||!allItems().some(x=>x.id===id)?"home":id;
+ projectNavigationBoundary(page);
  const previousProjectFocus=page==="projects"?captureProjectFocus():null;
  if(historyUpdate)history.pushState({page},"",page==="home"?"/":page==="projects"?"/projects":"/robot/"+page);
  nameTitle.textContent=page==="home"?"Trung tâm điều khiển Robot":page==="projects"?"Dự án":allItems().find(x=>x.id===page).name;
@@ -329,7 +330,8 @@ function openPage(id,historyUpdate=true){
  if(page==="projects"){
   // Clear the old DOM before any potentially throwing renderer runs: a malformed
   // catalogue must never leave the previous authenticated form on the screen.
-  root.innerHTML='<section role="alert" class="project-page">Đang xác minh danh mục dự án…</section>';
+  root.innerHTML='<section role="status" class="project-page">Đang xác minh lại quyền Owner và danh mục dự án…</section>';
+  if(projectVisitVerified){
   try{
     if(!isSafeProjectCatalogue(projectCatalogue))throw Error("CATALOGUE_INVALID");
     root.innerHTML=renderProjectTree({catalogue:projectCatalogue,query:projectQuery,
@@ -341,6 +343,7 @@ function openPage(id,historyUpdate=true){
     ownerSession={authenticated:false,login_enabled:false};
     projectCatalogue={status:"UNAVAILABLE",projects:[]};
     root.innerHTML='<section role="alert" class="project-page">Không thể xác minh danh mục dự án. Quyền nhập yêu cầu Owner tạm khóa.</section>';
+  }
   }
  }else{
   root.innerHTML=!latest?'<p class="panel">Chưa tải dữ liệu điều khiển robot.</p>':
