@@ -24,6 +24,19 @@ let ownerPending=null;
 let ownerIntentEpoch=0;
 let ownerReceipt=null;
 let ownerError="";
+// An unsuccessful logout is NOT a completed logout. Keep the Owner UI locked
+// across refresh and same-tab reload until the server acknowledges revocation.
+const OWNER_LOGOUT_LOCK="magasin.mpc.owner-logout-unconfirmed.v1";
+let ownerLogoutUnconfirmed=false;
+try{ownerLogoutUnconfirmed=window.sessionStorage?.getItem(OWNER_LOGOUT_LOCK)==="1";}catch(_){}
+let ownerLogoutCsrf="";
+function markOwnerLogoutUnconfirmed(value){
+  ownerLogoutUnconfirmed=value;
+  try{
+    if(value)window.sessionStorage?.setItem(OWNER_LOGOUT_LOCK,"1");
+    else window.sessionStorage?.removeItem(OWNER_LOGOUT_LOCK);
+  }catch(_){}
+}
 function clearOwnerSessionState(){
   // Expiry, logout or session replacement revokes private UI state and
   // invalidates delayed request callbacks; nothing survives a new Owner login.
@@ -308,7 +321,7 @@ function openPage(id,historyUpdate=true){
  if(historyUpdate)history.pushState({page},"",page==="home"?"/":page==="projects"?"/projects":"/robot/"+page);
  nameTitle.textContent=page==="home"?"Trung tâm điều khiển Robot":page==="projects"?"Dự án":allItems().find(x=>x.id===page).name;
  subtitle.textContent=page==="projects"?"Cây dự án · trạng thái chưa xác minh được hiển thị rõ ràng":page==="home"?"Mỗi robot độc lập, một nơi để theo dõi và điều khiển.":"Xem trạng thái và chi tiết robot trong cùng một bảng điều khiển.";
- root.innerHTML=page==="projects"?renderProjectTree({catalogue:projectCatalogue,query:projectQuery,selected:projectSelected,expanded:[...projectExpanded],ownerRequest:{session:ownerSession,draft:ownerDraft,receipt:ownerReceipt,error:ownerError}}):!latest?'<p class="panel">Chưa tải dữ liệu điều khiển robot.</p>':page==="home"?cards():renderDetail(allItems().find(x=>x.id===page));
+ root.innerHTML=page==="projects"?renderProjectTree({catalogue:projectCatalogue,query:projectQuery,selected:projectSelected,expanded:[...projectExpanded],ownerRequest:{session:ownerSession,draft:ownerDraft,receipt:ownerReceipt,error:ownerError,logoutUnconfirmed:ownerLogoutUnconfirmed}}):!latest?'<p class="panel">Chưa tải dữ liệu điều khiển robot.</p>':page==="home"?cards():renderDetail(allItems().find(x=>x.id===page));
  restoreProjectFocus(previousProjectFocus);
  document.querySelectorAll("[data-page]").forEach(x=>x.classList.toggle("selected",x.dataset.page===page));
  if(historyUpdate){announceNavigation();window.scrollTo({top:0,behavior:"auto"});}
@@ -323,17 +336,50 @@ async function refresh(){
  busy=true;
  try{
    if(currentPage()==="projects"){
+     // Owner-session validation must finish independently of the catalogue.
+     // Failed/malformed session responses always revoke cached private state.
      const [response,ownerRes]=await Promise.all([
-       fetch("/api/projects",{cache:"no-store"}),
+       fetch("/api/projects",{cache:"no-store"}).catch(()=>null),
        fetch("/api/owner/session",{cache:"no-store",credentials:"same-origin"}).catch(()=>null)
      ]);
-     projectCatalogue=response.ok?await response.json():{status:"UNAVAILABLE",projects:[]};
-     const nextOwnerSession=ownerRes?.ok?await ownerRes.json():{authenticated:false,login_enabled:false};
+     let nextOwnerSession={authenticated:false,login_enabled:false};
+     let sessionVerified=false;
+     try{
+       if(ownerRes?.ok){
+         const data=await ownerRes.json();
+         if(data?.schema==="MPC_OWNER_SESSION_V1" &&
+            typeof data.authenticated==="boolean" &&
+            typeof data.login_enabled==="boolean" &&
+            typeof data.login_csrf==="string" && data.login_csrf.length>0 &&
+            (!data.authenticated ||
+              (data.login_enabled===true &&
+               typeof data.csrf==="string" && data.csrf.length>0))){
+           nextOwnerSession=data;
+           sessionVerified=true;
+         }
+       }
+     }catch(_){}
      const wasAuthenticated=ownerSession?.authenticated===true;
-     const nowAuthenticated=nextOwnerSession?.authenticated===true&&nextOwnerSession?.login_enabled===true;
-     if(wasAuthenticated&&(!nowAuthenticated||
-           ownerSession.csrf!==nextOwnerSession.csrf))clearOwnerSessionState();
-     ownerSession=nextOwnerSession;
+     const nowAuthenticated=sessionVerified &&
+       nextOwnerSession.authenticated===true && nextOwnerSession.login_enabled===true;
+     if(!sessionVerified || (wasAuthenticated &&
+       (!nowAuthenticated || ownerSession.csrf!==nextOwnerSession.csrf))){
+       clearOwnerSessionState();
+     }
+     if(sessionVerified)ownerLogoutCsrf=nextOwnerSession.login_csrf;
+     // A still-valid server cookie must not undo an unconfirmed logout.
+     ownerSession=ownerLogoutUnconfirmed?
+       {authenticated:false,login_enabled:false,login_csrf:ownerLogoutCsrf}:
+       nextOwnerSession;
+     try{
+       if(!response?.ok)throw Error("CATALOGUE_UNAVAILABLE");
+       const catalogue=await response.json();
+       if(!catalogue || typeof catalogue!=="object" ||
+          !Array.isArray(catalogue.projects))throw Error("CATALOGUE_INVALID");
+       projectCatalogue=catalogue;
+     }catch(_){
+       projectCatalogue={status:"UNAVAILABLE",projects:[]};
+     }
      alertBox.hidden=true;
      // Ignore stale project responses when navigation moved to another page.
      if(currentPage()==="projects")openPage("projects",false);
@@ -422,17 +468,38 @@ document.addEventListener("click",async(e)=>{
  await refresh();
 });
 document.addEventListener("click",async(e)=>{
- const logout=e.target.closest("[data-mpc-owner-logout]");
+ const logout=e.target.closest("[data-mpc-owner-logout],[data-mpc-owner-logout-retry]");
  if(logout){
+   if(logout.disabled)return;
    logout.disabled=true;
-   try{
-     await fetch("/api/owner/logout",{method:"POST",credentials:"same-origin",
-       headers:{"X-MAGASIN-CSRF":ownerSession?.login_csrf||"",
-                "X-MPC-CSRF":ownerSession?.csrf||""}});
-   }catch(err){ownerError="Không kết nối được để đăng xuất. Vui lòng kiểm tra phiên.";}
+   const controlCsrf=ownerSession?.login_csrf||ownerLogoutCsrf||"";
+   // Lock the UI immediately. Never report successful logout before an HTTP
+   // success and explicit server acknowledgement of cookie/session revocation.
+   markOwnerLogoutUnconfirmed(true);
    clearOwnerSessionState();
-   ownerSession=null;
-   await refresh();return;
+   ownerSession={authenticated:false,login_enabled:false,login_csrf:controlCsrf};
+   openPage("projects",false);
+   let confirmed=false;
+   try{
+     const res=await fetch("/api/owner/logout",{method:"POST",credentials:"same-origin",
+       headers:{"X-MAGASIN-CSRF":controlCsrf}});
+     if(!res.ok)throw Error("LOGOUT_HTTP_"+res.status);
+     const result=await res.json();
+     if(result?.ok!==true || result.authenticated!==false)
+       throw Error("LOGOUT_UNCONFIRMED");
+     confirmed=true;
+     markOwnerLogoutUnconfirmed(false);
+     ownerLogoutCsrf="";
+   }catch(_){
+     // A network failure or HTTP error may leave the HttpOnly cookie live.
+     // Remain locked, keep the retry control and show an explicit warning.
+   }
+   await refresh();
+   if(!confirmed){
+     ownerError="Chưa xác nhận được đăng xuất; phiên có thể vẫn còn hiệu lực trên máy chủ. Hãy kết nối lại và thử đăng xuất lần nữa.";
+     openPage("projects",false);
+   }
+   return;
  }
  const toggle=e.target.closest("[data-project-toggle]");
  if(toggle){
@@ -503,6 +570,7 @@ document.addEventListener("click",async(e)=>{
 document.addEventListener("submit",async(e)=>{
  if(e.target?.id!=="mpc-owner-login-form"&&e.target?.id!=="mpc-owner-request-form")return;
  e.preventDefault();
+ if(ownerLogoutUnconfirmed)return;
  const form=e.target, button=form.querySelector("button[type=submit]");
  if(!button||button.disabled)return;
  button.disabled=true;
