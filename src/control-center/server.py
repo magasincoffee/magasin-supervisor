@@ -433,6 +433,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_data((WEB/"project_tree_view.mjs").read_bytes(),mime="application/javascript; charset=utf-8")
             if p=="/project_detail_view.mjs":
                 return self.send_data((WEB/"project_detail_view.mjs").read_bytes(),mime="application/javascript; charset=utf-8")
+            if p=="/project_request_view.mjs":
+                return self.send_data((WEB/"project_request_view.mjs").read_bytes(),mime="application/javascript; charset=utf-8")
             if p=="/styles.css":
                 return self.send_data((WEB/"styles.css").read_bytes(),mime="text/css; charset=utf-8")
             return self.send_data('{"error":"not-found"}',code=404)
