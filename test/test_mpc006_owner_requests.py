@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """MPC-006 SOURCE/QA fixtures: never touch real H4 data."""
 import hashlib
+from contextlib import closing
 import importlib.util
 import json
 import sqlite3
@@ -39,7 +40,7 @@ class StoreTest(unittest.TestCase):
         receipt = self.submit()
         self.assertEqual(receipt["status"], "PENDING_OWNER_REVIEW")
         self.assertFalse(receipt["dispatch_authorized"])
-        with sqlite3.connect(self.db) as db:
+        with closing(sqlite3.connect(self.db)) as db:
             row = db.execute("SELECT owner_id,status,payload_json,payload_hash FROM owner_requests").fetchone()
             audit = db.execute("SELECT owner_id,event_type,payload_hash FROM owner_audit").fetchone()
             self.assertEqual(row[:2], (m.OWNER, "PENDING_OWNER_REVIEW"))
@@ -56,7 +57,7 @@ class StoreTest(unittest.TestCase):
         again = self.submit(p)
         self.assertEqual(one["request_id"], again["request_id"])
         self.assertTrue(again["duplicate"])
-        with sqlite3.connect(self.db) as db:
+        with closing(sqlite3.connect(self.db)) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM owner_audit").fetchone()[0], 1)
         p["description"] = "Một nội dung khác khi gửi lại cùng mã phải bị từ chối."
         with self.assertRaisesRegex(m.Rejected, "IDEMPOTENCY_CONFLICT"):
