@@ -8,6 +8,7 @@ import os
 import sys
 import tempfile
 import threading
+import types
 import unittest
 import uuid
 from pathlib import Path
@@ -27,6 +28,13 @@ def verifier():
 class OwnerRouteTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Hosted Ubuntu source-only CI does not install optional production psutil.
+        # Stub imports in this isolated fixture; no resource/robot route is invoked.
+        try:
+            import psutil  # noqa: F401
+        except ModuleNotFoundError:
+            sys.modules["psutil"] = types.ModuleType("psutil")
+            cls.addClassCleanup(sys.modules.pop, "psutil", None)
         spec = importlib.util.spec_from_file_location("mpc006_server", BASE / "server.py")
         cls.server_mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.server_mod)
