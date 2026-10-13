@@ -132,3 +132,21 @@ test("MPC-005 handoff is consistent with canonical Supervisor authority and cann
   assert.match(plan, /02737b73b11a697d0bed57eb81e38ef0f1c5a177/);
   assert.match(plan, /No MPC-007 execution before MPC-006 completion/);
 });
+
+test("MPC plan-only changes trigger both hosted canonical authority regressions", () => {
+  const mpcPlan = "docs/project-control/MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md";
+  for (const workflowPath of [
+    ".github/workflows/supervisor-tests.yml",
+    ".github/workflows/supervisor-integrity.yml",
+  ]) {
+    const workflow = read(workflowPath);
+    for (const section of ["push", "pull_request"]) {
+      const start = workflow.indexOf("  " + section + ":");
+      assert.notEqual(start, -1, workflowPath + " missing trigger " + section);
+      const end = workflow.indexOf("\n  " + (section === "push" ? "pull_request" : "workflow_dispatch") + ":", start);
+      assert.ok(end > start, workflowPath + " missing trigger boundary " + section);
+      const trigger = workflow.slice(start, end);
+      assert.ok(trigger.includes("'" + mpcPlan + "'"), workflowPath + " " + section + " omits MPC plan");
+    }
+  }
+});
