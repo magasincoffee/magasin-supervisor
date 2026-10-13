@@ -27,7 +27,17 @@ export function isCurrentOwnerSubmission({
   submittedEpoch===currentEpoch;
 }
 
-export function renderOwnerRequestPanel({catalogue,selected,session,draft={},receipt=null,error=""}={}) {
+export function renderOwnerRequestPanel({
+ catalogue,selected,session,draft={},receipt=null,error="",logoutUnconfirmed=false
+}={}) {
+ // An unacknowledged server logout may leave a valid HttpOnly cookie. Hide all
+ // private material and provide an explicit retry even if catalogue is down.
+ if(logoutUnconfirmed)return '<section class="owner-request" aria-label="Trạng thái đăng xuất Owner">'
+  +'<h2>Đăng xuất chưa được xác nhận</h2>'
+  +'<p class="project-error" role="alert">'+esc(error ||
+    "Không xác minh được máy chủ đã kết thúc phiên Owner. Quyền sửa đang bị khóa.")+'</p>'
+  +'<button type="button" class="btn" data-mpc-owner-logout-retry>Thử đăng xuất lại</button>'
+  +'</section>';
  const target=selectedRequestTarget(catalogue,selected);
  if(!target)return '<section class="owner-request" aria-label="Gửi yêu cầu Owner"><h2>Đề xuất chỉnh sửa</h2><p>Chọn một nhiệm vụ trong cây dự án để viết yêu cầu.</p></section>';
  const intro='<section class="owner-request" aria-label="Gửi yêu cầu Owner"><h2>Yêu cầu chỉnh sửa nhiệm vụ</h2>'
