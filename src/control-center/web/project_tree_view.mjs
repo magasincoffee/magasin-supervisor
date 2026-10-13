@@ -22,6 +22,10 @@ const sourceLink = value => {
 const objectNode=x=>x!==null && typeof x==="object" && !Array.isArray(x);
 export function isSafeProjectCatalogue(catalogue){
   if(!objectNode(catalogue)||!Array.isArray(catalogue.projects))return false;
+  // LOCAL_UNVERIFIED is the only server navigation status that may contain
+  // selectable tasks. UNAVAILABLE is an empty, read-only fallback only.
+  if(catalogue.status==="UNAVAILABLE")return catalogue.projects.length===0;
+  if(catalogue.status!=="LOCAL_UNVERIFIED")return false;
   if(catalogue.projects.length>100)return false;
   for(const project of catalogue.projects){
     if(!objectNode(project)||!safeId(project.id)||!Array.isArray(project.features)||
