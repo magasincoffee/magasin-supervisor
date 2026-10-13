@@ -363,12 +363,18 @@ async function refresh(){
  busy=true;
  try{
    if(currentPage()==="projects"){
+     projectNavigationBoundary("projects");
+     const checkedVisitEpoch=projectVisitEpoch;
      // Owner-session validation must finish independently of the catalogue.
      // Failed/malformed session responses always revoke cached private state.
      const [response,ownerRes]=await Promise.all([
        fetch("/api/projects",{cache:"no-store"}).catch(()=>null),
        fetch("/api/owner/session",{cache:"no-store",credentials:"same-origin"}).catch(()=>null)
      ]);
+     if(checkedVisitEpoch!==projectVisitEpoch || currentPage()!=="projects"){
+       refreshPending=true;
+       return;
+     }
      let nextOwnerSession={authenticated:false,login_enabled:false};
      let sessionVerified=false;
      try{
@@ -406,6 +412,7 @@ async function refresh(){
      }catch(_){
        projectCatalogue={status:"UNAVAILABLE",projects:[]};
      }
+     projectVisitVerified=true;
      alertBox.hidden=true;
      // Ignore stale project responses when navigation moved to another page.
      if(currentPage()==="projects")openPage("projects",false);
