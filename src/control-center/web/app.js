@@ -16,6 +16,11 @@ let supervisorSotCheck=null;
 let projectCatalogue=null;
 let projectQuery="";
 let projectSelected="";
+let ownerSession=null;
+let ownerDraft={description:"",priority:"NORMAL",screenshots:""};
+let ownerPending=null;
+let ownerReceipt=null;
+let ownerError="";
 const projectExpanded=new Set(["supervisor","supervisor/project-control"]);
 const esc=(value)=>String(value??"—").replace(/[&<>"']/g, (c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmtDate=(v)=>{if(!v)return "Chưa có";const d=new Date(v);return Number.isNaN(d.getTime())?"Không rõ":d.toLocaleString("vi-VN")};
@@ -291,7 +296,7 @@ function openPage(id,historyUpdate=true){
  if(historyUpdate)history.pushState({page},"",page==="home"?"/":page==="projects"?"/projects":"/robot/"+page);
  nameTitle.textContent=page==="home"?"Trung tâm điều khiển Robot":page==="projects"?"Dự án":allItems().find(x=>x.id===page).name;
  subtitle.textContent=page==="projects"?"Cây dự án · trạng thái chưa xác minh được hiển thị rõ ràng":page==="home"?"Mỗi robot độc lập, một nơi để theo dõi và điều khiển.":"Xem trạng thái và chi tiết robot trong cùng một bảng điều khiển.";
- root.innerHTML=page==="projects"?renderProjectTree({catalogue:projectCatalogue,query:projectQuery,selected:projectSelected,expanded:[...projectExpanded]}):!latest?'<p class="panel">Chưa tải dữ liệu điều khiển robot.</p>':page==="home"?cards():renderDetail(allItems().find(x=>x.id===page));
+ root.innerHTML=page==="projects"?renderProjectTree({catalogue:projectCatalogue,query:projectQuery,selected:projectSelected,expanded:[...projectExpanded],ownerRequest:{session:ownerSession,draft:ownerDraft,receipt:ownerReceipt,error:ownerError}}):!latest?'<p class="panel">Chưa tải dữ liệu điều khiển robot.</p>':page==="home"?cards():renderDetail(allItems().find(x=>x.id===page));
  restoreProjectFocus(previousProjectFocus);
  document.querySelectorAll("[data-page]").forEach(x=>x.classList.toggle("selected",x.dataset.page===page));
  if(historyUpdate){announceNavigation();window.scrollTo({top:0,behavior:"auto"});}
@@ -306,8 +311,12 @@ async function refresh(){
  busy=true;
  try{
    if(currentPage()==="projects"){
-     const response=await fetch("/api/projects",{cache:"no-store"});
+     const [response,ownerRes]=await Promise.all([
+       fetch("/api/projects",{cache:"no-store"}),
+       fetch("/api/owner/session",{cache:"no-store",credentials:"same-origin"}).catch(()=>null)
+     ]);
      projectCatalogue=response.ok?await response.json():{status:"UNAVAILABLE",projects:[]};
+     ownerSession=ownerRes?.ok?await ownerRes.json():{authenticated:false,login_enabled:false};
      alertBox.hidden=true;
      // Ignore stale project responses when navigation moved to another page.
      if(currentPage()==="projects")openPage("projects",false);
@@ -338,6 +347,9 @@ async function refresh(){
 document.getElementById("refresh").addEventListener("click",refresh);
 document.addEventListener("input",(e)=>{
  if(e.target?.id==="supervisor-sot-url")supervisorSotDraft=e.target.value;
+ if(e.target?.id==="mpc-owner-description"){ownerDraft.description=e.target.value;ownerPending=null;}
+ if(e.target?.id==="mpc-owner-priority"){ownerDraft.priority=e.target.value;ownerPending=null;}
+ if(e.target?.id==="mpc-owner-screenshots"){ownerDraft.screenshots=e.target.value;ownerPending=null;}
  if(e.target?.id==="project-search"){
    const field=e.target;
    const caret=field.selectionStart;
@@ -393,6 +405,17 @@ document.addEventListener("click",async(e)=>{
  await refresh();
 });
 document.addEventListener("click",async(e)=>{
+ const logout=e.target.closest("[data-mpc-owner-logout]");
+ if(logout){
+   logout.disabled=true;
+   try{
+     await fetch("/api/owner/logout",{method:"POST",credentials:"same-origin",
+       headers:{"X-MAGASIN-CSRF":ownerSession?.login_csrf||"",
+                "X-MPC-CSRF":ownerSession?.csrf||""}});
+   }catch(err){ownerError="Không kết nối được để đăng xuất. Vui lòng kiểm tra phiên.";}
+   ownerSession=null;ownerDraft={description:"",priority:"NORMAL",screenshots:""};ownerPending=null;ownerReceipt=null;
+   await refresh();return;
+ }
  const toggle=e.target.closest("[data-project-toggle]");
  if(toggle){
    const key=toggle.dataset.projectToggle;
@@ -406,6 +429,10 @@ document.addEventListener("click",async(e)=>{
  const focus=e.target.closest("[data-project-focus]");
  if(focus){
    const key=focus.dataset.projectFocus;
+   if(key!==projectSelected){
+     ownerDraft={description:"",priority:"NORMAL",screenshots:""};
+     ownerPending=null;ownerReceipt=null;ownerError="";
+   }
    projectSelected=key;
    const parts=key.split("/");
    if(parts[0])projectExpanded.add(parts[0]);
@@ -453,6 +480,63 @@ document.addEventListener("click",async(e)=>{
    if(button.dataset.open==="projects" || previousPage==="projects" || !latest)await refresh();
  }
 });
+
+document.addEventListener("submit",async(e)=>{
+ if(e.target?.id!=="mpc-owner-login-form"&&e.target?.id!=="mpc-owner-request-form")return;
+ e.preventDefault();
+ const form=e.target, button=form.querySelector("button[type=submit]");
+ if(!button||button.disabled)return;
+ button.disabled=true;
+ ownerError="";
+ if(form.id==="mpc-owner-login-form"){
+   const password=form.querySelector("#mpc-owner-password");
+   try{
+     const res=await fetch("/api/owner/login",{method:"POST",credentials:"same-origin",
+       headers:{"Content-Type":"application/json","X-MAGASIN-CSRF":ownerSession?.login_csrf||""},
+       body:JSON.stringify({password:password?.value||""})});
+     if(password)password.value="";
+     const result=await res.json();
+     if(!res.ok||!result.authenticated)throw Error("Không thể xác thực Owner.");
+     await refresh();
+   }catch(err){ownerError="Đăng nhập không thành công hoặc chưa được cấu hình.";openPage("projects",false);}
+   return;
+ }
+ if(!ownerSession?.authenticated){
+   ownerError="Cần xác thực Owner trước khi gửi.";openPage("projects",false);return;
+ }
+ const target=form.dataset.target;
+ const description=String(form.querySelector("#mpc-owner-description")?.value||"").trim();
+ const priority=String(form.querySelector("#mpc-owner-priority")?.value||"NORMAL");
+ const screenshots=String(form.querySelector("#mpc-owner-screenshots")?.value||"")
+   .split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+ if(description.length<20||description.length>2500||screenshots.length>3){
+   ownerError="Nội dung cần từ 20 đến 2500 ký tự và tối đa 3 liên kết ảnh.";
+   openPage("projects",false);return;
+ }
+ const candidate={target,priority,description,screenshots};
+ const former=ownerPending;
+ const unchanged=former && former.target===target&&former.priority===priority
+   &&former.description===description&&JSON.stringify(former.screenshots)===JSON.stringify(screenshots);
+ const request={...candidate,idempotency_key:unchanged?former.idempotency_key:crypto.randomUUID()};
+ ownerPending=request;
+ try{
+   const res=await fetch("/api/owner/requests",{method:"POST",credentials:"same-origin",
+     headers:{"Content-Type":"application/json","X-MAGASIN-CSRF":ownerSession.login_csrf||"",
+              "X-MPC-CSRF":ownerSession.csrf||""},
+     body:JSON.stringify(request)});
+   const result=await res.json();
+   if(!res.ok||result.status!=="PENDING_OWNER_REVIEW"||result.dispatch_authorized!==false)
+     throw Error("Không xác minh được việc ghi nhận yêu cầu.");
+   ownerReceipt=result;
+   ownerDraft={description:"",priority:"NORMAL",screenshots:""};
+   ownerPending=null;
+   await refresh();
+ }catch(err){
+   ownerError="Chưa xác minh được kết quả gửi. Có thể gửi lại cùng nội dung để kiểm tra trùng lặp.";
+   openPage("projects",false);
+ }
+});
+
 document.addEventListener("keydown",(e)=>{if(e.key==="Enter"&&e.target.matches(".robot-card"))openPage(e.target.dataset.open)});
 window.addEventListener("popstate",()=>{
  const page=currentPage();
