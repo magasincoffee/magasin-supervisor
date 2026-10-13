@@ -124,7 +124,8 @@ async function ownerBrowserFixture(){
   alert:()=>{},confirm:()=>false
  };
  let script=await fs.readFile(new URL("../src/control-center/web/app.js",import.meta.url),"utf8");
- script=script.replace(/^import [^\n]*\n/g,"");
+ script=script.replace(/^import [^\n]*\n/gm,"");
+ assert.doesNotMatch(script,/^import /m);
  assert.match(script,/refresh\(\);\s*$/);
  script=script.replace(/refresh\(\);\s*$/,[
   "globalThis.__ownerHarness={",
