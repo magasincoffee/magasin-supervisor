@@ -113,24 +113,32 @@ test("authority contract is discoverable by root-level edits in hosted CI workfl
   assert.match(integrityWorkflow, /test\/source-of-truth-authority\.test\.mjs/);
 });
 
-test("MPC-005 handoff is consistent with canonical Supervisor authority and cannot authorize production", () => {
+test("MPC-006 reviewed completion and MPC-007 handoff remain SOURCE/QA only", () => {
   const canonical = read("SOURCE_OF_TRUTH.md");
   const plan = read("docs/project-control/MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md");
-  const authority = canonical.split("### MAGASIN PROJECT CONTROL MPC-005 verified / MPC-006 next (2026-10-12)")[1];
-  assert.ok(authority, "canonical Supervisor SOT must explicitly authorize the handoff");
-  assert.match(authority, /MPC-005 is SOURCE\/QA VERIFIED/);
-  assert.match(authority, /MPC-006 is next, SOURCE\/QA ONLY/);
-  assert.match(authority, /not.*H4 deployment or product acceptance/i);
-  assert.match(authority, /does not authorize task dispatch/);
+  const authority = canonical.split("### MAGASIN PROJECT CONTROL MPC-006 SOURCE/QA VERIFIED / MPC-007 next (2026-10-13)")[1];
+  assert.ok(authority, "root canonical SOT must explicitly own the handoff");
+  assert.match(authority, /MPC-006 SOURCE\/QA VERIFIED/);
+  assert.match(authority, /MPC-007 is the sole NEXT executable task, SOURCE\/QA ONLY/);
+  assert.match(authority, /NOT DEPLOYED\/NOT LIVE OWNER ACCEPTED/);
+  assert.match(authority, /13\/13 changed file blob SHAs/);
   assert.match(authority, /STOP\/AUTOSTART_DISABLED/);
+  assert.match(authority, /19b6f44d64332594ea70c0f68f06437c73359088/);
+  assert.match(authority, /28edec449df6f3e4c91df0c6541602c60a44d464/);
+  assert.match(authority, /38414811285/);
+  assert.match(authority, /38414811176/);
+  assert.match(authority, /38414811178/);
+  assert.match(authority, /38414811424/);
   const immediate = plan.split("## Immediate next work")[1]?.split("## MPC-001 execution evidence")[0];
-  assert.ok(immediate, "MPC implementation plan must preserve a single next-task section");
-  assert.match(immediate, /MPC-006 is the sole next executable task \(SOURCE\/QA ONLY\)/);
-  assert.doesNotMatch(immediate, /MPC-005 is the sole next executable task/);
+  assert.ok(immediate, "subordinate plan must have exactly one next-task section");
+  assert.match(immediate, /MPC-007 is the sole next executable task \(SOURCE\/QA ONLY\)/);
+  assert.doesNotMatch(immediate, /MPC-006 is the sole next executable task/);
   assert.match(plan, /\| MPC-005 \(VERIFIED\) \|/);
+  assert.match(plan, /\| MPC-006 \(SOURCE\/QA VERIFIED\) \|/);
   assert.match(plan, /## MPC-005 completion evidence/);
-  assert.match(plan, /02737b73b11a697d0bed57eb81e38ef0f1c5a177/);
+  assert.match(plan, /## MPC-006 completion evidence/);
   assert.match(plan, /No MPC-007 execution before MPC-006 completion/);
+  assert.match(plan, /no H4 deployment\/Owner live acceptance/i);
 });
 
 test("MPC plan-only changes trigger both hosted canonical authority regressions", () => {
