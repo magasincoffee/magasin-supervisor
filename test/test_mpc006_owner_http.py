@@ -67,7 +67,7 @@ class OwnerRouteTest(unittest.TestCase):
         self.owner_csrf = None
 
     def call(self, method, path, payload=None, headers=None):
-        data = json.dumps(payload).encode("utf-8") if payload is not None else None
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
         h = {"Host": "127.0.0.1:8781", "Origin": "http://127.0.0.1:8781",
              "X-MAGASIN-CSRF": self.csrf, "Content-Type": "application/json"}
         if self.cookie:
@@ -145,6 +145,14 @@ class OwnerRouteTest(unittest.TestCase):
         self.assertIn("Max-Age=0", cookie)
         status, _, _ = self.call("POST", "/api/owner/requests", self.payload())
         self.assertEqual(status, 403)
+
+    def test_full_length_unicode_owner_request_is_not_wrongly_rejected_by_bytes(self):
+        self.login()
+        p = self.payload()
+        p["description"] = "🔥" * 2500
+        status, outcome, _ = self.call("POST", "/api/owner/requests", p)
+        self.assertEqual(status, 202, outcome)
+        self.assertEqual(outcome["status"], "PENDING_OWNER_REVIEW")
 
     def test_unconfigured_auth_and_store_never_allow_request(self):
         self.server_mod.OWNER_SESSIONS = m.OwnerSessions(None)
