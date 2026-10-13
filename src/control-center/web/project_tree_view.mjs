@@ -16,6 +16,25 @@ const sourceLink = value => {
       ? url.href : null;
   } catch { return null; }
 };
+// MPC-006: strict data boundary for untrusted JSON returned by /api/projects.
+// An array of nulls/objects masquerading as catalogue nodes must not throw
+// while rendering and leave a previously authenticated Owner form on screen.
+const objectNode=x=>x!==null && typeof x==="object" && !Array.isArray(x);
+export function isSafeProjectCatalogue(catalogue){
+  if(!objectNode(catalogue)||!Array.isArray(catalogue.projects))return false;
+  if(catalogue.projects.length>100)return false;
+  for(const project of catalogue.projects){
+    if(!objectNode(project)||!safeId(project.id)||!Array.isArray(project.features)||
+       project.features.length>200)return false;
+    for(const feature of project.features){
+      if(!objectNode(feature)||!safeId(feature.id)||!Array.isArray(feature.tasks)||
+         feature.tasks.length>2000)return false;
+      for(const task of feature.tasks)
+        if(!objectNode(task)||!safeId(task.id))return false;
+    }
+  }
+  return true;
+}
 export function projectTreeTrail(catalogue,selected="") {
   const trail=[{name:"Dự án",key:""}];
   for(const p of catalogue?.projects??[]) {
