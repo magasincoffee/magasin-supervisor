@@ -35,6 +35,12 @@ class OwnerRouteTest(unittest.TestCase):
         except ModuleNotFoundError:
             sys.modules["psutil"] = types.ModuleType("psutil")
             cls.addClassCleanup(sys.modules.pop, "psutil", None)
+        # observability is deployed beside the Control Center on H4 but is
+        # deliberately not packaged in hosted source-only CI. Owner routes
+        # neither inspect it nor access any worker/monitoring state.
+        if "observability" not in sys.modules:
+            sys.modules["observability"] = types.ModuleType("observability")
+            cls.addClassCleanup(sys.modules.pop, "observability", None)
         spec = importlib.util.spec_from_file_location("mpc006_server", BASE / "server.py")
         cls.server_mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.server_mod)
