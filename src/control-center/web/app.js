@@ -1,5 +1,6 @@
 "use strict";
 import {renderProjectTree} from "./project_tree_view.mjs";
+import {isCurrentOwnerSubmission} from "./project_request_view.mjs";
 const ROOT="/";
 const root=document.getElementById("main-content");
 const alertBox=document.getElementById("loading");
@@ -19,6 +20,8 @@ let projectSelected="";
 let ownerSession=null;
 let ownerDraft={description:"",priority:"NORMAL",screenshots:""};
 let ownerPending=null;
+// Any task change, draft edit, logout or newer POST invalidates older responses.
+let ownerIntentEpoch=0;
 let ownerReceipt=null;
 let ownerError="";
 const projectExpanded=new Set(["supervisor","supervisor/project-control"]);
@@ -347,9 +350,9 @@ async function refresh(){
 document.getElementById("refresh").addEventListener("click",refresh);
 document.addEventListener("input",(e)=>{
  if(e.target?.id==="supervisor-sot-url")supervisorSotDraft=e.target.value;
- if(e.target?.id==="mpc-owner-description"){ownerDraft.description=e.target.value;ownerPending=null;}
- if(e.target?.id==="mpc-owner-priority"){ownerDraft.priority=e.target.value;ownerPending=null;}
- if(e.target?.id==="mpc-owner-screenshots"){ownerDraft.screenshots=e.target.value;ownerPending=null;}
+ if(e.target?.id==="mpc-owner-description"){ownerDraft.description=e.target.value;ownerPending=null;ownerIntentEpoch++;}
+ if(e.target?.id==="mpc-owner-priority"){ownerDraft.priority=e.target.value;ownerPending=null;ownerIntentEpoch++;}
+ if(e.target?.id==="mpc-owner-screenshots"){ownerDraft.screenshots=e.target.value;ownerPending=null;ownerIntentEpoch++;}
  if(e.target?.id==="project-search"){
    const field=e.target;
    const caret=field.selectionStart;
@@ -413,6 +416,7 @@ document.addEventListener("click",async(e)=>{
        headers:{"X-MAGASIN-CSRF":ownerSession?.login_csrf||"",
                 "X-MPC-CSRF":ownerSession?.csrf||""}});
    }catch(err){ownerError="Không kết nối được để đăng xuất. Vui lòng kiểm tra phiên.";}
+   ownerIntentEpoch++;
    ownerSession=null;ownerDraft={description:"",priority:"NORMAL",screenshots:""};ownerPending=null;ownerReceipt=null;
    await refresh();return;
  }
@@ -430,6 +434,7 @@ document.addEventListener("click",async(e)=>{
  if(focus){
    const key=focus.dataset.projectFocus;
    if(key!==projectSelected){
+     ownerIntentEpoch++;
      ownerDraft={description:"",priority:"NORMAL",screenshots:""};
      ownerPending=null;ownerReceipt=null;ownerError="";
    }
@@ -519,12 +524,26 @@ document.addEventListener("submit",async(e)=>{
    &&former.description===description&&JSON.stringify(former.screenshots)===JSON.stringify(screenshots);
  const request={...candidate,idempotency_key:unchanged?former.idempotency_key:crypto.randomUUID()};
  ownerPending=request;
+ const submittedEpoch=++ownerIntentEpoch;
+ const belongsToCurrentTask=()=>isCurrentOwnerSubmission({
+   submittedTarget:target,selectedTarget:projectSelected,
+   submittedEpoch,currentEpoch:ownerIntentEpoch,
+   authenticated:ownerSession?.authenticated
+ });
+ // A response to A must never erase a newer B draft or render A's receipt on B.
+ // Re-enable the original button if A's own draft changed while the POST ran.
+ const discardStale=()=>{
+   if(belongsToCurrentTask())return false;
+   if(form.isConnected)button.disabled=false;
+   return true;
+ };
  try{
    const res=await fetch("/api/owner/requests",{method:"POST",credentials:"same-origin",
      headers:{"Content-Type":"application/json","X-MAGASIN-CSRF":ownerSession.login_csrf||"",
               "X-MPC-CSRF":ownerSession.csrf||""},
      body:JSON.stringify(request)});
    const result=await res.json();
+   if(discardStale())return;
    if(!res.ok||result.status!=="PENDING_OWNER_REVIEW"||result.dispatch_authorized!==false)
      throw Error("Không xác minh được việc ghi nhận yêu cầu.");
    ownerReceipt=result;
@@ -532,6 +551,7 @@ document.addEventListener("submit",async(e)=>{
    ownerPending=null;
    await refresh();
  }catch(err){
+   if(discardStale())return;
    ownerError="Chưa xác minh được kết quả gửi. Có thể gửi lại cùng nội dung để kiểm tra trùng lặp.";
    openPage("projects",false);
  }
