@@ -18,6 +18,7 @@ import threading
 import time
 import uuid
 from datetime import datetime, timezone
+from contextlib import closing
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -143,9 +144,16 @@ def submit_request(db_path, *, actor, request, catalogue):
     _check_db_path(path)
     if not path.exists():
         # Restrict initial file creation to the current process on POSIX.
-        handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
-        os.close(handle)
-    with sqlite3.connect(path, timeout=5) as db:
+        try:
+            handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
+        except FileExistsError:
+            # Concurrent initial idempotent request may have created the DB.
+            _check_db_path(path)
+        else:
+            os.close(handle)
+    # sqlite3.Connection context manager commits, but does NOT close on Windows.
+    # Explicit close prevents locked audit DB files and unreleased handles.
+    with closing(sqlite3.connect(path, timeout=5)) as db:
         _init_db(db)
         db.execute("BEGIN IMMEDIATE")
         previous = db.execute(
@@ -159,6 +167,8 @@ def submit_request(db_path, *, actor, request, catalogue):
             return {"schema": SCHEMA, "request_id": previous[0],
                     "status": previous[3], "created_at": previous[2],
                     "duplicate": True, "dispatch_authorized": False}
+        if db.execute("SELECT COUNT(*) FROM owner_requests").fetchone()[0] >= 2000:
+            raise Rejected("REQUEST_STORE_FULL")
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
         request_id = str(uuid.uuid4())
         db.execute(
