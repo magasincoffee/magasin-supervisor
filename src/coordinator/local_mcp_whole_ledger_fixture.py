@@ -49,6 +49,23 @@ def _valid_fixture(db):
     if len(names) != 1 or names[0][1:] != ("main", ""):
         raise FixtureHold("ATTACHED_OR_DISK_DATABASE_FORBIDDEN")
 
+    # A view can hide a materializing ORDER BY/GROUP BY before the cursor
+    # yields the first row; this fixture accepts only ordinary named tables.
+    try:
+        kinds = db.execute(
+            "SELECT name, type FROM main.sqlite_schema "
+            "WHERE name IN ('dispatch_inbox', 'jobs')"
+        ).fetchall()
+        shadow = db.execute(
+            "SELECT name FROM sqlite_temp_schema "
+            "WHERE name IN ('dispatch_inbox', 'jobs')"
+        ).fetchall()
+    except sqlite3.Error:
+        raise FixtureHold("FIXTURE_SCHEMA_UNREADABLE") from None
+    if (set(kinds) != {("dispatch_inbox", "table"), ("jobs", "table")}
+            or shadow):
+        raise FixtureHold("FIXTURE_NOT_CANONICAL_TABLES")
+
 
 def snapshot_fixture(db, *, budget_seconds=3.0, _clock=None):
     """Count every IN-MEMORY fixture row, under a hard deadline and byte budget.
@@ -103,7 +120,7 @@ def snapshot_fixture(db, *, budget_seconds=3.0, _clock=None):
             raise FixtureHold("UNFINISHED_FIXTURE_TRANSACTION")
         # One SQLite value may be huge even with a small row count.
         previous_limit = db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, MAX_FIELD_BYTES)
-        # Interrupt expensive COUNT/ORDER BY/view evaluation BEFORE fetch begins.
+        # Interrupt expensive COUNT/SELECT operations BEFORE fetch begins.
         db.set_progress_handler(interrupt, 100)
         db.execute("PRAGMA query_only=ON")
         db.execute("BEGIN")
@@ -118,9 +135,9 @@ def snapshot_fixture(db, *, budget_seconds=3.0, _clock=None):
             raise FixtureHold("FULL_LEDGER_SIZE_LIMIT")
         inbox = read_projected(
             "SELECT source_id,source,task_id,target,action,status,local_job_id "
-            "FROM dispatch_inbox ORDER BY source_id"
+            "FROM dispatch_inbox"
         )
-        jobs = read_projected("SELECT id,status FROM jobs ORDER BY id")
+        jobs = read_projected("SELECT id,status FROM jobs")
         if len(inbox) != counts[0] or len(jobs) != counts[1]:
             raise FixtureHold("INCONSISTENT_LEDGER_COUNTS")
     except sqlite3.Error as exc:
