@@ -88,8 +88,12 @@ class QueueRetirementFixtureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "fixture.sqlite"
             db = sqlite3.connect(str(path))
-            with self.assertRaisesRegex(sut.QueueRetirementHold, "PERSISTENT_DATABASE_NOT_ALLOWED"):
-                sut.fixture_retire(db, at=NOW, fixture_only=True)
+            try:
+                with self.assertRaisesRegex(sut.QueueRetirementHold, "PERSISTENT_DATABASE_NOT_ALLOWED"):
+                    sut.fixture_retire(db, at=NOW, fixture_only=True)
+            finally:
+                # Windows prevents TemporaryDirectory cleanup while sqlite holds the file.
+                db.close()
 
 
 if __name__ == "__main__":
