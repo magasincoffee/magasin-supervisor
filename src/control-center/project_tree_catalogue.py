@@ -5,8 +5,16 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-PLAN = ROOT / "docs" / "project-control" / "MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md"
+# In a Git checkout this module lives in src/control-center/, but on H4 its
+# approved installation target is directly under .../control-center/. Keep the
+# plan INSIDE that viewer root, not an accidental untrusted D:/docs location.
+def resolve_catalogue_plan(module_file: Path) -> Path:
+    base = module_file.resolve().parent
+    root = base.parents[1] if base.parent.name == "src" else base
+    return root / "docs" / "project-control" / "MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md"
+
+
+PLAN = resolve_catalogue_plan(Path(__file__))
 SUPERVISOR_SOT = "https://github.com/magasincoffee/magasin-supervisor/blob/main/SOURCE_OF_TRUTH.md"
 PLAN_URL = "https://github.com/magasincoffee/magasin-supervisor/blob/main/docs/project-control/MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md"
 WORKFORCE_SOT = "https://github.com/magasincoffee/magasincoffee.github.io/blob/main/01_DOCS/MAGASIN/05_SYSTEM/WORKFORCE_CROSS_STORE_SCHEDULING_TEMP_SOURCE_OF_TRUTH.md"
