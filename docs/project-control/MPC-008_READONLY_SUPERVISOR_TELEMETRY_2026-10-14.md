@@ -4,8 +4,8 @@ Authority: `SOURCE_OF_TRUTH.md` on `main`. This document is implementation evide
 
 ## Scope
 - The existing Control Center project tree displays a **read-only** Supervisor observation panel only for `supervisor` selections.
-- Reuse existing same-origin `GET /api/robot/supervisor`. No new POST, Issue creation, business dispatch, SOT update or Owner approval issuer.
-- On H4, `server.py` observes file presence of `STOP` and `AUTOSTART_DISABLED`. A non-H4 machine, exception or missing evidence becomes UNKNOWN, never permission to start.
+- Reuse existing same-origin `GET /api/robot/supervisor` and explicitly serve its new browser module at `GET /project_supervisor_telemetry.mjs`. No new POST, Issue creation, business dispatch, SOT update or Owner approval issuer.
+- On H4, `server.py` observes file presence of `STOP` and `AUTOSTART_DISABLED`. Only the **live marker observation** controls the displayed latch state; stale `guardian-status.json` values cannot override it. A non-H4 machine, exception or missing evidence becomes UNKNOWN, never permission to start.
 - `supervisor_project_links.inspect()` already supplies configured SOT metadata and `PENDING_SOT_REVIEW` proposals. A configured link is NOT verified execution, Owner authorization, or selected live worker project.
 - Timestamp heartbeat is transport-only: recent, stale or unknown; it does not prove task execution.
 - **Actual business work remains NOT_VERIFIED and dispatch remains NOT_QUALIFIED** regardless of process, `RUNNING`, active_task, heartbeat or green CI. No task can be marked VERIFIED_DONE from telemetry.
