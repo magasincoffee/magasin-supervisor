@@ -15,6 +15,7 @@ let refreshPending=false;
 let supervisorSotDraft="";
 let supervisorSotCheck=null;
 let projectCatalogue=null;
+let projectSupervisorSnapshot=null;
 let projectQuery="";
 let projectSelected="";
 let ownerSession=null;
@@ -96,6 +97,7 @@ function projectNavigationBoundary(page){
  if(page==="projects" || renderedPage==="projects"){
   projectVisitEpoch++;
   projectVisitVerified=false;
+  projectSupervisorSnapshot=null;
   clearOwnerSessionState();
   ownerSession=null;
  }
@@ -392,7 +394,7 @@ function openPage(id,historyUpdate=true){
   try{
     if(!isSafeProjectCatalogue(projectCatalogue))throw Error("CATALOGUE_INVALID");
     root.innerHTML=renderProjectTree({catalogue:projectCatalogue,query:projectQuery,
-      selected:projectSelected,expanded:[...projectExpanded],
+      selected:projectSelected,expanded:[...projectExpanded],supervisorSnapshot:projectSupervisorSnapshot,
       ownerRequest:{session:ownerSession,draft:ownerDraft,receipt:ownerReceipt,
         error:ownerError,logoutUnconfirmed:ownerLogoutUnconfirmed,
         logoutAvailable:availableLogout}});
@@ -428,6 +430,7 @@ async function refresh(){
      // Hide cached private fields at the START of every poll: if a network
      // request stalls, an expired Owner form must not remain on-screen.
      projectVisitVerified=false;
+     projectSupervisorSnapshot=null;
      openPage("projects",false);
      // Start both requests at once but process Owner auth independently;
      // a hung catalogue request must never delay session expiry handling.
@@ -435,10 +438,14 @@ async function refresh(){
        {cache:"no-store"},PROJECT_CATALOGUE_TIMEOUT_MS);
      const firstSessionJob=boundedProjectJson("/api/owner/session",
        {cache:"no-store",credentials:"same-origin"},PROJECT_SESSION_TIMEOUT_MS);
+     // Existing GET only: bounded, cancelable and never used as Owner authorization.
+     const supervisorJob=boundedProjectJson("/api/robot/supervisor",
+       {cache:"no-store",credentials:"same-origin"},3500);
      let finalSessionJob=null;
      const cancelThese=()=>{
        catalogueJob.cancel();
        firstSessionJob.cancel();
+       supervisorJob.cancel();
        finalSessionJob?.cancel();
      };
      cancelActiveProjectRequests=cancelThese;
@@ -450,13 +457,17 @@ async function refresh(){
      applyOwnerSession(firstSession);
      const catalogueData=await catalogueJob.value;
      if(!stillCurrent()){refreshPending=true;return;}
-     // Session must be checked AFTER catalogue, which may have timed out.
+     // Read-only telemetry cannot hold a fresh Owner session or prove task execution.
+     const observedSupervisor=await supervisorJob.value;
+     if(!stillCurrent()){refreshPending=true;return;}
+     // Session must be checked AFTER all possibly stalled reads.
      // Never let an old authenticated result unlock a stale Owner form.
      finalSessionJob=boundedProjectJson("/api/owner/session",
        {cache:"no-store",credentials:"same-origin"},PROJECT_SESSION_TIMEOUT_MS);
      const freshSession=await finalSessionJob.value;
      if(!stillCurrent()){refreshPending=true;return;}
      applyOwnerSession(freshSession);
+     projectSupervisorSnapshot=observedSupervisor?.id==="supervisor"?observedSupervisor:null;
      try{
        if(!isSafeProjectCatalogue(catalogueData))throw Error("CATALOGUE_INVALID");
        projectCatalogue=catalogueData;

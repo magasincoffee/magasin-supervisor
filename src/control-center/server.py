@@ -313,6 +313,21 @@ def detail(robot_id):
                 "worker_start_allowed": False,
                 "business_dispatch_authorized": False,
             }
+        # MPC-008: H4 file-marker OBSERVATION ONLY, never a START permission.
+        # Wrong host or unreadable state is UNKNOWN rather than STOP cleared.
+        try:
+            import socket
+            qualified = socket.gethostname().upper() == "DESKTOP-H4A16IL"
+            observed_stop = (SUP / "STOP").is_file() if qualified else None
+            observed_autostart = (SUP / "AUTOSTART_DISABLED").is_file() if qualified else None
+        except OSError:
+            qualified, observed_stop, observed_autostart = False, None, None
+        robot["mpc_readonly_latches"] = {
+            "schema": "MPC-008_LOCAL_LATCHES_V1",
+            "host_verified": qualified,
+            "owner_stop_marker": observed_stop,
+            "autostart_disabled_marker": observed_autostart,
+        }
     return robot
 
 
@@ -435,6 +450,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_data((WEB/"project_detail_view.mjs").read_bytes(),mime="application/javascript; charset=utf-8")
             if p=="/project_request_view.mjs":
                 return self.send_data((WEB/"project_request_view.mjs").read_bytes(),mime="application/javascript; charset=utf-8")
+            if p=="/project_supervisor_telemetry.mjs":
+                return self.send_data((WEB/"project_supervisor_telemetry.mjs").read_bytes(),mime="application/javascript; charset=utf-8")
             if p=="/styles.css":
                 return self.send_data((WEB/"styles.css").read_bytes(),mime="text/css; charset=utf-8")
             return self.send_data('{"error":"not-found"}',code=404)
