@@ -19,6 +19,30 @@ if(!$Workspace -or !$ExpectedMainSha){throw 'EXACT_MAIN_AND_WORKSPACE_REQUIRED'}
 $work=(Resolve-Path -LiteralPath $Workspace -ErrorAction Stop).Path
 $inspector=Join-Path $work '.github\scripts\mpc010-h4-viewer-owner-release.ps1'
 if(!(Test-Path -LiteralPath $inspector -PathType Leaf)){throw 'CANONICAL_INSPECTOR_MISSING'}
+function AssertPinnedInspector([string]$path) {
+  # Never DOT-SOURCE a mutable worktree script without checking the exact
+  # reviewed Git blob identity first. Compute canonical LF Git blob SHA-1
+  # directly from bytes, without running Git hooks/filters or lazy fetching.
+  $raw=[IO.File]::ReadAllBytes($path)
+  if($raw.Length -ge 3 -and $raw[0] -eq 0xEF -and $raw[1] -eq 0xBB -and $raw[2] -eq 0xBF){
+    throw 'INSPECTOR_BOM_NOT_ALLOWED'
+  }
+  $utf8=New-Object System.Text.UTF8Encoding($false,$true)
+  try{$text=$utf8.GetString($raw)}catch{throw 'INSPECTOR_INVALID_UTF8'}
+  $normalized=$text.Replace(([string][char]13+[string][char]10),[string][char]10)
+  $bytes=[Text.Encoding]::UTF8.GetBytes($normalized)
+  $prefix=[Text.Encoding]::ASCII.GetBytes(('blob '+$bytes.Length)+[string][char]0)
+  $input=New-Object byte[] ($prefix.Length+$bytes.Length)
+  [Array]::Copy($prefix,0,$input,0,$prefix.Length)
+  [Array]::Copy($bytes,0,$input,$prefix.Length,$bytes.Length)
+  $sha1=[Security.Cryptography.SHA1]::Create()
+  try{$digest=[BitConverter]::ToString($sha1.ComputeHash($input)).Replace('-','').ToLowerInvariant()}
+  finally{$sha1.Dispose()}
+  if($digest -cne '555c555ec4159f78c08aec2de3091bffaa9e3edd'){
+    throw 'UNREVIEWED_MUTABLE_INSPECTOR_DENIED'
+  }
+}
+AssertPinnedInspector $inspector
 . $inspector -Mode SelfTest -ExpectedMainSha $ExpectedMainSha -Workspace $Workspace
 $verified=RequireSource
 if($verified -cne $work){throw 'INSPECTED_WORKSPACE_IDENTITY_CHANGED'}
