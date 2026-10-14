@@ -77,18 +77,18 @@ function RequireSource {
   $work=(Resolve-Path -LiteralPath $Workspace -ErrorAction Stop).Path
   AssertNoReparse $work
   if(!(Test-Path (Join-Path $work '.git'))){throw 'CANONICAL_GIT_CHECKOUT_REQUIRED'}
-  $origin=(& git -C $work remote get-url origin)
+  $origin=(& git --no-replace-objects -C $work remote get-url origin)
   if($LASTEXITCODE -ne 0 -or [string]$origin -cne $repoUrl){throw 'WRONG_GIT_ORIGIN'}
-  $head=(& git -C $work rev-parse HEAD)
+  $head=(& git --no-replace-objects -C $work rev-parse HEAD)
   if($LASTEXITCODE -ne 0 -or $head.Trim().ToLowerInvariant() -cne $ExpectedMainSha.ToLowerInvariant()){throw 'WRONG_HEAD'}
-  $remote=(& git -C $work ls-remote origin refs/heads/main)
+  $remote=(& git --no-replace-objects -C $work ls-remote origin refs/heads/main)
   if($LASTEXITCODE -ne 0 -or !$remote -or (($remote -split '\s+')[0].ToLowerInvariant() -cne $ExpectedMainSha.ToLowerInvariant())){throw 'REMOTE_MAIN_CHANGED'}
-  $dirty=@(& git -C $work --no-optional-locks status --porcelain=v1 --untracked-files=all)
+  $dirty=@(& git --no-replace-objects -C $work --no-optional-locks status --porcelain=v1 --untracked-files=all)
   if($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0){throw 'WORKTREE_OR_INDEX_NOT_CLEAN'}
   # The worktree can falsely look clean with assume-unchanged/skip-worktree.
   # Read SOT authorization exclusively from the pinned reviewed Git object.
   $sotRef=$ExpectedMainSha+':SOURCE_OF_TRUTH.md'
-  $sotLines=@(& git -C $work --no-optional-locks cat-file blob $sotRef)
+  $sotLines=@(& git --no-replace-objects -C $work --no-optional-locks cat-file blob $sotRef)
   if($LASTEXITCODE -ne 0 -or $sotLines.Count -eq 0 -or
      !(($sotLines -join "`n").Contains($gateText))){throw 'REVIEWED_ROOT_SOT_GATE_MISSING'}
   $pins=Join-Path $work 'src\control-center\mpc010_control_center_preflight.mjs'
@@ -110,7 +110,7 @@ function VerifyCandidate([string]$work) {
   # assume-unchanged/skip-worktree index flags can conceal changes.
   # Read ONLY the exact reviewed Git object identified by ExpectedMainSha.
   $pinsRef=$ExpectedMainSha+':src/control-center/mpc010_control_center_preflight.mjs'
-  $pinLines=@(& git -C $work --no-optional-locks cat-file blob $pinsRef)
+  $pinLines=@(& git --no-replace-objects -C $work --no-optional-locks cat-file blob $pinsRef)
   if($LASTEXITCODE -ne 0 -or $pinLines.Count -eq 0){throw 'REVIEWED_PIN_GIT_OBJECT_MISSING'}
   $source=($pinLines -join "`n")
   $begin=$source.IndexOf('export const REVIEWED_CANDIDATE_SHA256_20261014',[StringComparison]::Ordinal)
@@ -204,7 +204,7 @@ if($Mode -ne 'Inspect'){throw 'UNKNOWN_MODE'}
 $work=RequireSource
 VerifyHost
 VerifyCandidate $work
-$dirty=@(& git -C $work --no-optional-locks status --porcelain=v1 --untracked-files=all)
+$dirty=@(& git --no-replace-objects -C $work --no-optional-locks status --porcelain=v1 --untracked-files=all)
 if($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0){throw 'WORKTREE_CHANGED_DURING_INSPECT'}
 Write-Output 'MPC010_H4_VIEWER_READONLY_INSPECT_PASS=True'
 Write-Output 'FIELD_APPLY_AUTHORIZED=False'
