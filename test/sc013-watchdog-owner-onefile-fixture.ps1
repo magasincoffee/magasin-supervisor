@@ -14,12 +14,17 @@ foreach ($name in @('Hash-Bytes','Read-LockedFile','Write-LockedFile','Write-Dur
   if ($matches.Count -ne 1) { throw ('ISOLATED_HELPER_MISSING_'+$name) }
   . ([scriptblock]::Create($matches[0].Extent.Text))
 }
-# Compile only the same approved narrow Win32 HANDLE identity type.
-# Never run the installer top-level code or any field maintenance.
+# Extract only the reviewed guarded Add-Type block from the PS AST, and run
+# it twice within ONE Windows PowerShell process. Never invoke H4 installer top-level.
 $source = Get-Content -LiteralPath $script -Raw -Encoding UTF8
-$native = [regex]::Match($source, "(?s)Add-Type -TypeDefinition @'\r?\n(?<body>.*?)\r?\n'@ -ErrorAction Stop")
-if (-not $native.Success) { throw 'NATIVE_HANDLE_HELPER_NOT_FOUND' }
-Add-Type -TypeDefinition $native.Groups['body'].Value -ErrorAction Stop
+$native = [regex]::Match($source, "(?s)if \(-not \(\[System\.Management\.Automation\.PSTypeName\]'SC013WatchdogFileIdentity'\)\.Type\) \{\s*Add-Type -TypeDefinition @'\r?\n.*?\r?\n'@ -ErrorAction Stop\s*\}")
+if (-not $native.Success) { throw 'GUARDED_NATIVE_HANDLE_HELPER_NOT_FOUND' }
+$guard = [scriptblock]::Create($native.Value)
+& $guard
+& $guard
+if (-not ([System.Management.Automation.PSTypeName]'SC013WatchdogFileIdentity').Type) {
+  throw 'SAME_SESSION_NATIVE_IDENTITY_TYPE_REUSE_FAILED'
+}
 
 $tempRoot=Join-Path $env:RUNNER_TEMP ('sc013-watchdog-onefile-fixture-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tempRoot -ErrorAction Stop|Out-Null
