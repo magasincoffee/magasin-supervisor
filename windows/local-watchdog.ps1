@@ -47,6 +47,17 @@ try {
 
     Set-Content -Path $pidPath -Value $PID -Encoding ascii
 
+    # Older persisted runtime states may omit optional error/time fields.
+    # StrictMode must not turn missing read-only metadata into INTERNAL_ERROR.
+    function Get-OptionalWatchdogStateField($State, [string]$Section, [string]$Field) {
+        if ($null -eq $State) { return $null }
+        $part = $State.PSObject.Properties[$Section]
+        if ($null -eq $part -or $null -eq $part.Value) { return $null }
+        $property = $part.Value.PSObject.Properties[$Field]
+        if ($null -eq $property) { return $null }
+        return $property.Value
+    }
+
     function Rotate-EventLogIfNeeded {
         if (-not (Test-Path $eventsPath -PathType Leaf)) { return }
         $item = Get-Item $eventsPath -ErrorAction SilentlyContinue
@@ -207,8 +218,8 @@ try {
                     outbound_kind = [string]$State.outbound.kind
                     message_id = [string]$State.outbound.message_id
                     retry_count = [int]$State.outbound.retry_count
-                    last_error_code = [string]$State.outbound.last_error_code
-                    last_error_stage = [string]$State.outbound.last_error_stage
+                    last_error_code = [string](Get-OptionalWatchdogStateField -State $State -Section 'outbound' -Field 'last_error_code')
+                    last_error_stage = [string](Get-OptionalWatchdogStateField -State $State -Section 'outbound' -Field 'last_error_stage')
                     updated_at = [string]$State.updated_at
                 }
             } else { $null }
@@ -336,7 +347,7 @@ try {
                 $conversation = [string]$state.conversation.status
                 $outbound = [string]$state.outbound.state
                 $retry = [int]$state.outbound.retry_count
-                $lastCode = [string]$state.outbound.last_error_code
+                $lastCode = [string](Get-OptionalWatchdogStateField -State $state -Section 'outbound' -Field 'last_error_code')
 
                 if (-not $ownerStop.blocked -and -not $ownerReview) {
                     if ($automation -eq 'BLOCKED') {
@@ -350,23 +361,23 @@ try {
                         [void]$faults.Add('RETRY_BUDGET_EXCEEDED')
                     }
 
-                    if ($automation -eq 'RUNNING' -and $phase -eq 'STARTING_BROWSER' -and $state.automation.updated_at) {
+                    if ($automation -eq 'RUNNING' -and $phase -eq 'STARTING_BROWSER' -and (Get-OptionalWatchdogStateField -State $state -Section 'automation' -Field 'updated_at')) {
                         try {
-                            $startingBrowserAge = [int]($now - [DateTimeOffset]::Parse([string]$state.automation.updated_at)).TotalSeconds
+                            $startingBrowserAge = [int]($now - [DateTimeOffset]::Parse([string](Get-OptionalWatchdogStateField -State $state -Section 'automation' -Field 'updated_at'))).TotalSeconds
                             if ($startingBrowserAge -ge $MaxStartingBrowserSeconds) {
                                 [void]$faults.Add("STARTING_BROWSER_STALLED:$startingBrowserAge")
                             }
                         } catch {}
                     }
 
-                    if ($outbound -eq 'PREPARED' -and $state.outbound.prepared_at) {
-                        $preparedAge = [int]($now - [DateTimeOffset]::Parse([string]$state.outbound.prepared_at)).TotalSeconds
+                    if ($outbound -eq 'PREPARED' -and (Get-OptionalWatchdogStateField -State $state -Section 'outbound' -Field 'prepared_at')) {
+                        $preparedAge = [int]($now - [DateTimeOffset]::Parse([string](Get-OptionalWatchdogStateField -State $state -Section 'outbound' -Field 'prepared_at'))).TotalSeconds
                         if ($preparedAge -ge $MaxPreparedSeconds) {
                             [void]$faults.Add("PREPARED_STALLED:$preparedAge")
                         }
                     }
-                    if ($outbound -eq 'ENQUEUED' -and $state.outbound.enqueued_at) {
-                        $enqueuedAge = [int]($now - [DateTimeOffset]::Parse([string]$state.outbound.enqueued_at)).TotalSeconds
+                    if ($outbound -eq 'ENQUEUED' -and (Get-OptionalWatchdogStateField -State $state -Section 'outbound' -Field 'enqueued_at')) {
+                        $enqueuedAge = [int]($now - [DateTimeOffset]::Parse([string](Get-OptionalWatchdogStateField -State $state -Section 'outbound' -Field 'enqueued_at'))).TotalSeconds
                         $pendingPostSendConfirmation = [bool](
                             $phase -eq 'WAIT_RESPONSE' -and
                             $lastCode -eq 'POST_SEND_CONFIRMATION_PENDING'
@@ -445,8 +456,8 @@ try {
                         outbound_kind = [string]$state.outbound.kind
                         message_id = [string]$state.outbound.message_id
                         retry_count = [int]$state.outbound.retry_count
-                        last_error_code = [string]$state.outbound.last_error_code
-                        last_error_stage = [string]$state.outbound.last_error_stage
+                        last_error_code = [string](Get-OptionalWatchdogStateField -State $state -Section 'outbound' -Field 'last_error_code')
+                        last_error_stage = [string](Get-OptionalWatchdogStateField -State $state -Section 'outbound' -Field 'last_error_stage')
                         prepared_age_seconds = $preparedAge
                         enqueued_age_seconds = $enqueuedAge
                         starting_browser_age_seconds = $startingBrowserAge
@@ -461,7 +472,7 @@ try {
             $signatureAutomation = if ($stateReadable) { [string]$state.automation.status } else { 'NO_STATE' }
             $signaturePhase = if ($stateReadable) { [string]$state.automation.phase } else { 'NO_PHASE' }
             $signatureOutbound = if ($stateReadable) { [string]$state.outbound.state } else { 'NO_OUTBOUND' }
-            $signatureError = if ($stateReadable) { [string]$state.outbound.last_error_code } else { 'NO_ERROR' }
+            $signatureError = if ($stateReadable) { [string](Get-OptionalWatchdogStateField -State $state -Section 'outbound' -Field 'last_error_code') } else { 'NO_ERROR' }
             $signature = [string]::Join('~', @(
                 $mode,
                 [string]$truth.wrapper_alive,
@@ -487,7 +498,7 @@ try {
                     automation_status = if ($stateReadable) { [string]$state.automation.status } else { $null }
                     automation_phase = if ($stateReadable) { [string]$state.automation.phase } else { $null }
                     outbound_state = if ($stateReadable) { [string]$state.outbound.state } else { $null }
-                    last_error_code = if ($stateReadable) { [string]$state.outbound.last_error_code } else { $null }
+                    last_error_code = if ($stateReadable) { [string](Get-OptionalWatchdogStateField -State $state -Section 'outbound' -Field 'last_error_code') } else { $null }
                     faults = $faultList
                 }
             }
