@@ -360,6 +360,31 @@ class SyntheticWholeLedgerTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_overridden_count_aggregate_and_binary_collation_never_called(self):
+        db = seed(14)
+        calls = []
+        class UntrustedCount:
+            def __init__(self):
+                calls.append("count_init")
+            def step(self):
+                calls.append("count_step")
+            def finalize(self):
+                calls.append("count_finalize")
+                return 999
+        def untrusted_collation(a,b):
+            calls.append("collation")
+            raise AssertionError("untrusted collation executed")
+        try:
+            db.create_aggregate("count", 0, UntrustedCount)
+            db.create_collation("BINARY", untrusted_collation)
+            receipt = sut.snapshot_fixture(db)
+            self.assertEqual(receipt["jobs_total"], 14)
+            self.assertEqual(receipt["pending_count"], 2)
+            self.assertEqual(calls, [])
+            self.assertFalse(receipt["field_apply_authorized"])
+        finally:
+            db.close()
+
     def test_limit_fails_closed_instead_of_truncating(self):
         db=seed()
         original=sut.MAX_ROWS
