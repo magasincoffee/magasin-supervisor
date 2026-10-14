@@ -12,6 +12,11 @@ test("SC-013 sparse-state watchdog telemetry is read-only and StrictMode-safe", 
     assert.doesNotMatch(ps, new RegExp("\\$[sS]tate\\.outbound\\." + field + "\\b"));
   }
   assert.doesNotMatch(ps, /\$[sS]tate\.automation\.updated_at\b/);
+  for (const status of ["STARTING_BROWSER", "PREPARED", "ENQUEUED"]) {
+    for (const cause of ["MISSING", "INVALID"]) {
+      assert.match(ps, new RegExp(status + "_TIMESTAMP_" + cause));
+    }
+  }
   assert.match(ps, /ownerStop\.blocked/);
   assert.doesNotMatch(ps, /sendComposerInstruction|reconcileExactOnceOutbound|start-supervisor\.ps1/);
 });
