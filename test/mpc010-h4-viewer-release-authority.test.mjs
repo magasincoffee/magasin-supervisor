@@ -10,13 +10,16 @@ const required=[
   'hard field release HOLD','UNKNOWN is HOLD',
   'No stage, backup mutation, process stop or file apply',
   'STOP/AUTOSTART_DISABLED','DESKTOP-H4A16IL','four exact-head hosted CI',
-  'independent final-head Codex review','NOT starting Supervisor',
+  'independent final-head Codex review','NOT starting Supervisor','NOT removing STOP/AUTOSTART_DISABLED',
   'NOT enabling MPC-009 task dispatch','NOT touching live SQLite or outbound state',
   'NOT provisioning credentials','NOT switching SOT/project',
   'not authorization to bypass any failed gate'
 ];
 
 const forbidden=[
+  /\b(?:REMOV(?:E|ING)|CLEAR(?:ING)?|DISABL(?:E|ING))\s+(?:THE\s+)?(?:STOP|AUTOSTART_DISABLED)(?:\/AUTOSTART_DISABLED)?\s+(?:IS\s+|ARE\s+)?(?:APPROVED|AUTHORIZED|ALLOWED|ENABLED)\b/i,
+  /\b(?:STOP|AUTOSTART_DISABLED)\s+(?:LATCH\s+)?(?:REMOVAL|CLEARING|DISABLEMENT)\s+(?:IS\s+|WAS\s+)?(?:APPROVED|AUTHORIZED|ALLOWED|ENABLED)\b/i,
+  /\b(?:STOP|AUTOSTART_DISABLED)\s+(?:AND\s+(?:STOP|AUTOSTART_DISABLED)\s+)?(?:MAY|CAN)\s+BE\s+(?:REMOVED|CLEARED|DISABLED)\b/i,
   /\b(?:H4\s+)?(?:FIELD\s+)?APPLY\s+(?:IS\s+|WAS\s+)?(?:APPROVED|AUTHORIZED|ENABLED)\b/i,
   /\b(?:H4\s+)?(?:FIELD\s+)?(?:INSTALL|DEPLOY)\s+(?:IS\s+|WAS\s+)?(?:APPROVED|AUTHORIZED|ENABLED)\b/i,
   /\bMPC-009(?:\s+(?:TASK|BUSINESS))?\s+DISPATCH\s+(?:IS\s+|WAS\s+)?(?:APPROVED|AUTHORIZED|ENABLED)\b/i,
@@ -53,6 +56,8 @@ test('explicit H4 apply, task dispatch, credentials, START or switch grants all 
     'H4 APPLY is approved','H4 DEPLOY is authorized','MPC-009 dispatch is approved',
     'credentials are approved','Owner auth is enabled','SOT switch is approved',
     'project switch is authorized','Owner START is approved',
+    'Removing STOP/AUTOSTART_DISABLED is authorized',
+    'STOP removal is approved','AUTOSTART_DISABLED may be cleared',
     'FIELD_APPLY_APPROVED=True','H4_APPLIED_GREEN'
   ]){
     const candidate=authority.replace(anchor,anchor+'\n'+phrase+'\n');
