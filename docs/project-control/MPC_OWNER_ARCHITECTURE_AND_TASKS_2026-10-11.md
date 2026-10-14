@@ -79,7 +79,7 @@ Source audit report: [MPC-001_READ_ONLY_SOURCE_AUDIT_2026-10-11.md](MPC-001_READ
 
 [PR #415](https://github.com/magasincoffee/magasin-supervisor/pull/415) completed independent Codex review at exact PR head `527dc5d628525513af8229fec90d07ae887eafb5` (2026-10-12T08:10:18Z, no unresolved review threads; prior comments independently reconciled). Four mandatory hosted Supervisor workflows **SUCCESS at the exact head**: Supervisor Tests `38221516466`, Supervisor Integrity `38221516484`, Supervisor Lifecycle Acceptance `38221516522`, Supervisor Autostart Install `38221516482`. GitHub reviewed merge commit `57a39297c0456bd75dbbe52e87f6dab2c9d45da8` is exact `main`; git tree `0d1bade0ae9456787d5759261a1aae35cb5e5f94` is identical for reviewed head and merge. Reconciled unrelated mainline Supervisor no-new-service-fees/Owner-request relay SOT change without overwriting it. No installation on H4, operational Owner acceptance, project switching, task write, business dispatch, or Supervisor START/STOP latch change occurred.
 
-The project catalogue still displays `UNKNOWN` without canonical evidence; MPC-005 now supplies source-only evidence-backed detail with no installed/live bridge or production authorization. The MPC-005 handoff document is historical. **Current next task is MPC-007 (SOURCE/QA ONLY)** as defined by Immediate next work; earlier “Next” references are historical.
+The project catalogue still displays `UNKNOWN` without canonical evidence; MPC-005 now supplies source-only evidence-backed detail with no installed/live bridge or production authorization. The MPC-005 handoff document is historical. **Historical 2026-10-12 handoff:** MPC-007 was next at that time. The only current next task is MPC-008 as declared in Immediate next work.
 
 
 ## MPC-005 completion evidence (2026-10-12)
@@ -88,7 +88,7 @@ The project catalogue still displays `UNKNOWN` without canonical evidence; MPC-0
 
 Original PR #418 was independently reviewed but blocked by merge conflict with newer SC-013 CI. [PR #424](https://github.com/magasincoffee/magasin-supervisor/pull/424) reconciled current main SC-013 workflow coverage, retained the MPC-005 regression tests, and completed independent Codex review on exact head `3953f01f16a51518269e5bd58bce3bbc50f8cfa4` with no new major issues ([review evidence](https://github.com/magasincoffee/magasin-supervisor/pull/424#issuecomment-6126433737)). The prior stale embedded-SHA P2 thread was resolved after verifying guarded source plus regression tests. Four mandatory exact-head hosted CI SUCCESS: Supervisor Tests `38263887076`, Supervisor Integrity `38263887276`, Supervisor Lifecycle Acceptance `38263887164`, Supervisor Autostart Install `38263887097`. Reviewed squash merge `02737b73b11a697d0bed57eb81e38ef0f1c5a177` was independently read back as exact `main`; comparison was identical (ahead 0, behind 0), and all 10/10 changed file blobs matched the reviewed head. No H4 apply, worker START, business dispatch, project switch, canonical SOT mutation or Owner production acceptance occurred.
 
-**Next authorized task: MPC-006 (SOURCE/QA ONLY)** after this documentation handoff passes its own reviewed merge and exact-main. No MPC-007 execution before MPC-006 completion.
+**Historical 2026-10-12 handoff:** MPC-006 was next after this task's reviewed merge and exact-main. MPC-006 later completed; MPC-008 is the current sole next task. No MPC-007 execution occurred before MPC-006 completion.
 
 ## MPC-006 completion evidence (2026-10-13)
 
@@ -96,7 +96,7 @@ Original PR #418 was independently reviewed but blocked by merge conflict with n
 
 [PR #426](https://github.com/magasincoffee/magasin-supervisor/pull/426) was independently reviewed with **no findings** on final exact head `19b6f44d64332594ea70c0f68f06437c73359088` (Codex completed 2026-10-13T14:44:43Z, 👍 at 14:44:47Z, zero unresolved review threads). Four hosted CI SUCCESS at this exact head: Supervisor Tests `38414811285`, Supervisor Integrity `38414811176`, Supervisor Lifecycle Acceptance `38414811178`, Supervisor Autostart Install `38414811424`. Reviewed squash merge `28edec449df6f3e4c91df0c6541602c60a44d464` was confirmed as exact `main`; all **13/13 modified source/test/workflow/docs file blob SHAs** matched the reviewed PR head. This confirms code provenance, not a separately observed H4 acceptance or main push CI run. The Owner credentials and request data store are not provisioned; default access is locked.
 
-MPC-007 is NEXT (SOURCE/QA ONLY). Do not interpret accepted draft request as task approval, SOT mutation permission, business executor qualification, or Supervisor START. Canonical SOT on main remains the only authority; no new cross-project authority introduced.
+Historical 2026-10-13 handoff: MPC-007 was next (SOURCE/QA ONLY); that phase is now SOURCE/QA VERIFIED and MPC-008 is the sole next task. Do not interpret an accepted draft request as task approval, SOT mutation permission, business executor qualification, or Supervisor START. Canonical SOT on main remains the only authority; no new cross-project authority introduced.
 
 ## MPC-007 completion evidence (2026-10-14)
 
