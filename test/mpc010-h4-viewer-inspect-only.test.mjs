@@ -166,3 +166,15 @@ test('Inspector never invokes Git status or clean/process conversion hooks',()=>
   assert.match(script,/ReadPinnedSource/);
   assert.match(script,/CANDIDATE_CONTENT_HASH_DRIFT/);
 });
+
+
+test('Codex P2: inspection refuses partial/promisor clones and blocks implicit Git lazy fetch',()=>{
+  assert.match(script,/function AssertNoPromisorRepository/);
+  assert.match(script,/PARTIAL_OR_PROMISOR_GIT_REPOSITORY_DENIED/);
+  assert.match(script,/\$env:GIT_NO_LAZY_FETCH='1'/);
+  assert.ok(script.indexOf("AssertNoPromisorRepository $work") <
+    script.indexOf("cat-file blob $sotRef"));
+  assert.ok(script.indexOf("AssertNoPromisorRepository $work") <
+    script.indexOf("cat-file blob $pinsRef"));
+  assert.match(script,/AssertNoReparse \$gitconfig/);
+});
