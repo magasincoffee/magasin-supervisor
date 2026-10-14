@@ -63,6 +63,11 @@ test("wrong host or absent latch cannot be interpreted as Owner permission",()=>
  assert.equal(absent.ownerStop,"MARKER_ABSENT_NOT_AUTHORIZED");
  assert.equal(absent.autostart,"MARKER_ABSENT_NOT_AUTHORIZED");
  assert.equal(absent.actualWork,"NOT_VERIFIED");
+ const staleGuardian=good();
+ staleGuardian.mpc_readonly_latches.owner_stop_marker=false;
+ // Cached guardian owner_stop=true may not claim a present live STOP marker.
+ assert.equal(projectSupervisorTelemetryProjection(staleGuardian,{nowMs:now}).ownerStop,
+  "MARKER_ABSENT_NOT_AUTHORIZED");
 });
 test("stale, future and unzoned heartbeat never prove activity",()=>{
  const stale=good();stale.last_seen="2026-10-14T08:00:00Z";
@@ -119,6 +124,8 @@ test("existing same-origin route, timeout, fresh Owner probe and STOP read stay 
  assert.match(server,/\(SUP \/ "STOP"\)\.is_file\(\)/);
  assert.match(server,/\(SUP \/ "AUTOSTART_DISABLED"\)\.is_file\(\)/);
  assert.match(server,/if p\.startswith\("\/api\/robot\/"\):/);
+ assert.match(server,/if p=="\\/project_supervisor_telemetry\\.mjs":/);
+ assert.match(server,/WEB\\/"project_supervisor_telemetry\\.mjs"/);
  assert.match(app,/boundedProjectJson\("\/api\/robot\/supervisor"/);
  assert.match(app,/supervisorJob\.cancel\(\)/);
  assert.ok(app.indexOf("const observedSupervisor=await supervisorJob.value;")<
