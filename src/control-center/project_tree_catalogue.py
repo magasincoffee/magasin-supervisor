@@ -5,7 +5,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+# In a Git checkout this module lives in src/control-center/, but on H4 its
+# approved installation target is directly under .../control-center/. Keep the
+# plan INSIDE that viewer root, not an accidental untrusted D:/docs location.
+BASE = Path(__file__).resolve().parent
+ROOT = BASE.parents[1] if BASE.parent.name == "src" else BASE
 PLAN = ROOT / "docs" / "project-control" / "MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md"
 SUPERVISOR_SOT = "https://github.com/magasincoffee/magasin-supervisor/blob/main/SOURCE_OF_TRUTH.md"
 PLAN_URL = "https://github.com/magasincoffee/magasin-supervisor/blob/main/docs/project-control/MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md"
