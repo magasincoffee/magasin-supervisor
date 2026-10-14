@@ -113,66 +113,77 @@ test("authority contract is discoverable by root-level edits in hosted CI workfl
   assert.match(integrityWorkflow, /test\/source-of-truth-authority\.test\.mjs/);
 });
 
-test("MPC-007 verified completion and MPC-008 handoff remain SOURCE/QA only", () => {
+test("MPC-008 verified source-only completion gates MPC-009 and authorizes only MPC-010 independent QA", () => {
   const canonical = read("SOURCE_OF_TRUTH.md");
   const plan = read("docs/project-control/MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md");
-  assert.match(canonical, /MPC-006 SOURCE\/QA VERIFIED \(historical handoff/);
-  const newAuthority = canonical.split("### MAGASIN PROJECT CONTROL MPC-007 SOURCE/QA VERIFIED / MPC-008 next (2026-10-14)")[1];
-  assert.ok(newAuthority, "canonical root SOT must own current MPC-008 handoff");
-  assert.match(newAuthority, /MPC-007 SOURCE\/QA VERIFIED; NOT INSTALLED/);
-  assert.match(newAuthority, /65f6ed4e93152d984cb8a3ee0f72a1d9bacda8f9/);
-  assert.match(newAuthority, /33b884025e333a36feff63a6b0525a12acfe836d/);
-  for (const run of ["38507898008", "38507898006", "38507898005", "38507898009"]) {
-    assert.ok(newAuthority.includes(run), "missing exact-head CI " + run);
-  }
-  assert.match(newAuthority, /all 7\/7 changed/);
-  assert.match(newAuthority, /MPC-008 is the sole NEXT executable task, SOURCE\/QA ONLY/);
-  assert.match(newAuthority, /STOP\/AUTOSTART_DISABLED/);
-  assert.match(newAuthority, /MPC-009 remains independently blocked/);
+  const oldAuthority = canonical.split("### MAGASIN PROJECT CONTROL MPC-007 SOURCE/QA VERIFIED (historical MPC-008 handoff, 2026-10-14)")[1];
+  assert.ok(oldAuthority, "MPC-007 history must remain");
+  const section = canonical.split("### MAGASIN PROJECT CONTROL MPC-008 SOURCE/QA VERIFIED / MPC-010 independent QA next; MPC-009 BLOCKED (2026-10-14)")[1];
+  assert.ok(section, "root SOT must own MPC-008 exact-main handoff");
+  const current = section.split("### SC-013 H4 local MCP GitHub receipt Windows-shell repair")[0];
+  assert.ok(current, "MPC-008 authority must not overwrite SC-013 content");
+  assert.match(current, /MPC-008 SOURCE\/QA VERIFIED; NOT H4 INSTALLED/);
+  assert.match(current, /NOT_VERIFIED/);
+  assert.match(current, /NOT_QUALIFIED/);
+  assert.match(current, /2943fcdc15fddb0ed87d8f4f68d8a5b61249b3a6/);
+  assert.match(current, /ddc7ef48ba16629cdcb2cdc9338cd08f837c5c01/);
+  for (const id of ["38546352392","38546352385","38546352364","38546352357"])
+    assert.ok(current.includes(id), "missing exact-head CI " + id);
+  assert.match(current, /5\/5 inspected code\/test file blobs/);
+  assert.match(current, /MPC-009 BLOCKED/);
+  assert.match(current, /MPC-010 is the sole NEXT executable MPC task, SOURCE\/QA independent slice ONLY/);
+  assert.match(current, /Do not declare MPC-010 fully complete/);
+  assert.match(canonical, /whole-ledger/i, "SC-013 whole-ledger authority must remain");
+  assert.match(canonical, /AUTOSTART_DISABLED/);
+
   const immediate = plan.split("## Immediate next work")[1]?.split("## MPC-001 execution evidence")[0];
   assert.ok(immediate, "single current next-task declaration required");
-  assert.match(immediate, /MPC-008 is the sole next executable task \(SOURCE\/QA ONLY\)/);
-  assert.doesNotMatch(immediate, /MPC-007 is the sole next executable task/);
+  assert.match(immediate, /MPC-010 is the sole next executable MPC task \(SOURCE\/QA ONLY, independent tests\)/);
+  assert.match(immediate, /MPC-009 is BLOCKED/);
+  assert.match(immediate, /No Owner START/);
   const historical = plan.split("## MPC-001 execution evidence")[1];
   assert.ok(historical, "historical evidence must remain inspectable");
-  const authorizedLine = "**MPC-008 is the sole next executable task (SOURCE/QA ONLY)**";
-  const nextPattern = /\bNext authorized(?: backlog)? task\s*:\s*MPC-\d{3}|\bCurrent next task is MPC-\d{3}|\bCurrent next authorized task\s*:\s*MPC-\d{3}|\bMPC-\d{3} is NEXT\b|\bMPC-\d{3} is the sole next executable task\b|\bMPC-\d{3} NEXT\b/i;
-  function assertSingleNextAuthority(candidate) {
+  const allowedLine = "**MPC-010 is the sole next executable MPC task (SOURCE/QA ONLY, independent tests)**";
+  const staleNext = /\bNext authorized(?: backlog)? task\s*:\s*MPC-\d{3}|\bCurrent next task is MPC-\d{3}|\bCurrent next authorized task\s*:\s*MPC-\d{3}|\bMPC-\d{3} is NEXT\b|\bMPC-\d{3} is the sole next executable task\b|\bMPC-\d{3} NEXT\b/i;
+  function requireSingleNext(candidate) {
     const lines = candidate.split("\n");
-    assert.equal(lines.filter(line => line.includes(authorizedLine)).length, 1, "one authorized immediate MPC-008 declaration");
-    assert.match(lines[2], /^Status: .*; MPC-008 NEXT$/, "status header must agree on MPC-008");
-    const immediateStart = candidate.indexOf("## Immediate next work");
-    const immediateEnd = candidate.indexOf("## MPC-001 execution evidence");
-    assert.ok(immediateStart !== -1 && immediateEnd > immediateStart, "immediate scope markers required");
-    for (const [index, line] of lines.entries()) {
-      if (index === 2) continue; // separately verified exact status header
-      if (line.includes(authorizedLine)) {
-        const position = candidate.indexOf(line);
-        assert.ok(position > immediateStart && position < immediateEnd, "only immediate section may authorize MPC-008");
+    assert.equal(lines.filter(line=>line.startsWith(allowedLine)).length,1,
+      "only one explicitly authorized MPC-010 SOURCE/QA next declaration");
+    assert.match(lines[2], /^Status: .*; MPC-009 BLOCKED \(separate SC-013 P1–P3\); MPC-010 SOURCE\/QA NEXT \(independent QA only\)$/,
+      "status header must agree on MPC-009 hold and MPC-010 limited next");
+    const at=candidate.indexOf("## Immediate next work");
+    const after=candidate.indexOf("## MPC-001 execution evidence");
+    assert.ok(at>=0&&after>at,"must have unambiguous immediate/historical sections");
+    for (const [index,line] of lines.entries()) {
+      if(index===2)continue; // exact allowed header separately verified
+      if(line.startsWith(allowedLine)){
+        const pos=candidate.indexOf(line);
+        assert.ok(pos>at&&pos<after,"only immediate instruction can authorize MPC-010");
+        assert.doesNotMatch(line.slice(allowedLine.length),staleNext,"competing NEXT on authorized line");
         continue;
       }
-      assert.doesNotMatch(line, nextPattern, "competing active MPC NEXT claim at full-plan line " + (index + 1));
+      assert.doesNotMatch(line,staleNext,"competing active MPC NEXT in whole plan at line "+(index+1));
     }
   }
-  assertSingleNextAuthority(plan);
-  for (const section of ["## Architecture boundaries", "## Source contracts", "## Delivery tasks", "## Release gate sequence", "## MPC-001 execution evidence"]) {
-    assert.throws(
-      () => assertSingleNextAuthority(plan.replace(section, section + "\nMPC-007 is NEXT")),
-      /competing active MPC NEXT/,
-      "authority guard must reject a stale NEXT instruction in " + section
-    );
+  requireSingleNext(plan);
+  for(const section of ["## Architecture boundaries","## Source contracts","## Delivery tasks",
+    "## Release gate sequence","## MPC-001 execution evidence","## MPC-008 completion evidence"]){
+    assert.throws(()=>requireSingleNext(plan.replace(section,section+"\nMPC-008 is NEXT")),
+      /competing active MPC NEXT/,"must detect stale authorization within "+section);
   }
   assert.match(historical, /Historical 2026-10-12 handoff: MPC-003 was next/);
   assert.match(historical, /Historical 2026-10-12 handoff: MPC-004 was next/);
   assert.match(plan, /Historical 2026-10-12 handoff after MPC-004:.*MPC-005 was next/);
   assert.doesNotMatch(plan, /Historical 2026-10-12 handoff[^\n]*MPC-007 was next/);
   assert.match(plan, /Historical 2026-10-13 handoff: MPC-007 was next/);
-  assert.match(plan, /\| MPC-006 \(SOURCE\/QA VERIFIED\) \|/);
   assert.match(plan, /\| MPC-007 \(SOURCE\/QA VERIFIED\) \|/);
-  assert.match(plan, /## MPC-007 completion evidence/);
-  assert.match(plan, /no live Owner decision issuer/);
+  assert.match(plan, /\| MPC-008 \(SOURCE\/QA VERIFIED\) \|/);
+  assert.match(plan, /\| MPC-009 \(BLOCKED\) \|/);
+  assert.match(plan, /\| MPC-010 \(SOURCE\/QA PARTIAL NEXT\) \|/);
+  assert.match(plan, /## MPC-008 completion evidence/);
+  assert.match(plan, /no H4 installation or Owner live acceptance/);
 });
- 
+
 test("MPC plan-only changes trigger both hosted canonical authority regressions", () => {
   const mpcPlan = "docs/project-control/MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md";
   for (const workflowPath of [
