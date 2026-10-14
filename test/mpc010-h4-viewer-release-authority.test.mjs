@@ -17,6 +17,9 @@ const required=[
 ];
 
 const forbidden=[
+  // Reject grant language regardless of English gerund/noun ordering. Treat all
+  // authorizing claims within this narrowly scoped viewer section as unsafe.
+  /\b(?:SWITCHING|STARTING|DISPATCHING|PROVISIONING|ENABLING|DEPLOYING|APPLYING|REMOVING|CLEARING)\b[^\n.]{0,100}\b(?:IS|ARE|WAS|WERE)\s+(?:APPROVED|AUTHORIZED|ALLOWED|ENABLED)\b/i,
   /\b(?:REMOV(?:E|ING)|CLEAR(?:ING)?|DISABL(?:E|ING))\s+(?:THE\s+)?(?:STOP|AUTOSTART_DISABLED)(?:\/AUTOSTART_DISABLED)?\s+(?:IS\s+|ARE\s+)?(?:APPROVED|AUTHORIZED|ALLOWED|ENABLED)\b/i,
   /\b(?:STOP|AUTOSTART_DISABLED)\s+(?:LATCH\s+)?(?:REMOVAL|CLEARING|DISABLEMENT)\s+(?:IS\s+|WAS\s+)?(?:APPROVED|AUTHORIZED|ALLOWED|ENABLED)\b/i,
   /\b(?:STOP|AUTOSTART_DISABLED)\s+(?:AND\s+(?:STOP|AUTOSTART_DISABLED)\s+)?(?:MAY|CAN)\s+BE\s+(?:REMOVED|CLEARED|DISABLED)\b/i,
@@ -58,6 +61,9 @@ test('explicit H4 apply, task dispatch, credentials, START or switch grants all 
     'project switch is authorized','Owner START is approved',
     'Removing STOP/AUTOSTART_DISABLED is authorized',
     'STOP removal is approved','AUTOSTART_DISABLED may be cleared',
+    'Switching SOT/project is authorized','Starting Supervisor is approved',
+    'Dispatching MPC-009 tasks is approved','Provisioning Owner credentials is authorized',
+    'Enabling business workers is allowed','Deploying H4 viewer is approved',
     'FIELD_APPLY_APPROVED=True','H4_APPLIED_GREEN'
   ]){
     const candidate=authority.replace(anchor,anchor+'\n'+phrase+'\n');
