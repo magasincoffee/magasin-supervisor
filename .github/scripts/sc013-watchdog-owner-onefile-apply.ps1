@@ -86,6 +86,7 @@ $parseErrors = $null
 if (@($parseErrors).Count -ne 0) { throw 'WATCHDOG_SOURCE_PARSE_FAILED' }
 $lock = $null
 $temp = $null
+$replaceAttempted = $false
 $replaced = $false
 try {
   $lock = [IO.File]::Open($lockPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
@@ -100,6 +101,7 @@ try {
   Assert-Latches
   if ((Sha256 $live) -cne $ExpectedOld) { throw 'LIVE_CHANGED_BEFORE_REPLACE' }
   # This is the ONLY production file replacement.
+  $replaceAttempted = $true
   Move-Item -LiteralPath $temp -Destination $live -Force -ErrorAction Stop
   $replaced = $true
   if ((Sha256 $live) -cne $ExpectedNew) { throw 'INSTALLED_DIGEST_MISMATCH' }
@@ -111,15 +113,28 @@ try {
   Write-Output 'OWNER_STOP_PRESERVED=True'
 } catch {
   $originalError = $_
-  if ($replaced) {
-    # Roll back ONLY our own candidate; reject any intervening writer.
-    if ((Sha256 $live) -cne $ExpectedNew) {
+  if ($replaceAttempted) {
+    # A Windows rename can replace the destination yet report failure.
+    # Inspect the actual live digest regardless of whether Move-Item returned.
+    if (-not (Test-Path -LiteralPath $live -PathType Leaf)) {
+      throw 'ROLLBACK_HOLD_LIVE_FILE_MISSING'
+    }
+    $afterFailure = Sha256 $live
+    if ($afterFailure -cne $ExpectedOld -and $afterFailure -cne $ExpectedNew) {
       throw 'ROLLBACK_HOLD_CONCURRENT_WRITER'
     }
-    Copy-Item -LiteralPath $backup -Destination $live -Force -ErrorAction Stop
-    Set-Acl -LiteralPath $live -AclObject $oldAcl -ErrorAction Stop
-    if ((Sha256 $live) -cne $ExpectedOld) { throw 'ROLLBACK_INTEGRITY_FAILED' }
-    Write-Output 'WATCHDOG_ROLLBACK_VERIFIED=True'
+    if ($afterFailure -ceq $ExpectedNew) {
+      if ((Sha256 $backup) -cne $ExpectedOld) { throw 'ROLLBACK_BACKUP_DRIFT' }
+      $rollbackTemp = Join-Path (Split-Path -Parent $live) ('local-watchdog.sc013-rollback-'+$ExpectedMainSha+'.tmp')
+      if (Test-Path -LiteralPath $rollbackTemp) { throw 'ROLLBACK_TEMP_ALREADY_EXISTS' }
+      Copy-Item -LiteralPath $backup -Destination $rollbackTemp -ErrorAction Stop
+      Set-Acl -LiteralPath $rollbackTemp -AclObject $oldAcl -ErrorAction Stop
+      if ((Sha256 $rollbackTemp) -cne $ExpectedOld) { throw 'ROLLBACK_TEMP_DIGEST_FAILED' }
+      if ((Sha256 $live) -cne $ExpectedNew) { throw 'ROLLBACK_HOLD_CONCURRENT_WRITER' }
+      Move-Item -LiteralPath $rollbackTemp -Destination $live -Force -ErrorAction Stop
+      if ((Sha256 $live) -cne $ExpectedOld) { throw 'ROLLBACK_INTEGRITY_FAILED' }
+      Write-Output 'WATCHDOG_ROLLBACK_VERIFIED=True'
+    }
   }
   throw $originalError
 } finally {
