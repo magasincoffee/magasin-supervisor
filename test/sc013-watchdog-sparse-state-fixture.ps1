@@ -40,4 +40,37 @@ if ((Get-OptionalWatchdogStateField -State $present -Section 'outbound' -Field '
 if ((Get-OptionalWatchdogStateField -State $present -Section 'outbound' -Field 'last_error_stage') -ne 'DELIVERY') {
     throw 'PRESENT_STAGE_CHANGED'
 }
+# Extract and exercise only the three timestamp guard AST branches, never
+# the daemon loop, process probes, local file I/O or GitHub dispatch.
+function Assert-IsolatedTimestampFault([string]$ConditionText, [string]$Json, [string]$FaultCode) {
+    $branch = @($ast.FindAll({
+        param($node)
+        if ($node -isnot [System.Management.Automation.Language.IfStatementAst]) { return $false }
+        $condition = [string]$node.Clauses[0].Item1.Extent.Text
+        return $condition.Contains($ConditionText)
+    }.GetNewClosure(), $true))
+    if ($branch.Count -ne 1) { throw ('TIMESTAMP_BRANCH_NOT_UNIQUE_' + $ConditionText) }
+    $state = $Json | ConvertFrom-Json
+    $automation = [string]$state.automation.status
+    $phase = [string]$state.automation.phase
+    $outbound = [string]$state.outbound.state
+    $faults = New-Object 'System.Collections.Generic.List[string]'
+    $now = [DateTimeOffset]::UtcNow
+    $lastCode = ''
+    $MaxStartingBrowserSeconds = 180
+    $MaxPreparedSeconds = 180
+    $MaxEnqueuedSeconds = 180
+    . ([scriptblock]::Create($branch[0].Extent.Text))
+    if (-not ($faults -contains $FaultCode)) { throw ('MISSING_EXPECTED_FAULT_' + $FaultCode) }
+}
+$startupCondition = '$automation -eq ''RUNNING'' -and $phase -eq ''STARTING_BROWSER'''
+$preparedCondition = '$outbound -eq ''PREPARED'''
+$enqueuedCondition = '$outbound -eq ''ENQUEUED'''
+Assert-IsolatedTimestampFault $startupCondition '{"automation":{"status":"RUNNING","phase":"STARTING_BROWSER"},"outbound":{"state":"NONE"}}' 'STARTING_BROWSER_TIMESTAMP_MISSING'
+Assert-IsolatedTimestampFault $preparedCondition '{"automation":{"status":"STOPPED"},"outbound":{"state":"PREPARED"}}' 'PREPARED_TIMESTAMP_MISSING'
+Assert-IsolatedTimestampFault $enqueuedCondition '{"automation":{"status":"STOPPED"},"outbound":{"state":"ENQUEUED"}}' 'ENQUEUED_TIMESTAMP_MISSING'
+Assert-IsolatedTimestampFault $startupCondition '{"automation":{"status":"RUNNING","phase":"STARTING_BROWSER","updated_at":"INVALID_TIMESTAMP"},"outbound":{"state":"NONE"}}' 'STARTING_BROWSER_TIMESTAMP_INVALID'
+Assert-IsolatedTimestampFault $preparedCondition '{"automation":{"status":"STOPPED"},"outbound":{"state":"PREPARED","prepared_at":"INVALID_TIMESTAMP"}}' 'PREPARED_TIMESTAMP_INVALID'
+Assert-IsolatedTimestampFault $enqueuedCondition '{"automation":{"status":"STOPPED"},"outbound":{"state":"ENQUEUED","enqueued_at":"INVALID_TIMESTAMP"}}' 'ENQUEUED_TIMESTAMP_INVALID'
+
 Write-Host 'SC013_WATCHDOG_SPARSE_STATE_FIXTURE_PASS=True'
