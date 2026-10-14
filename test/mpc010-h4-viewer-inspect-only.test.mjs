@@ -29,10 +29,10 @@ test('no SOT section grants H4 installation from this source-only PR',()=>{
 });
 
 
-test('Codex P2 boundaries reject dirty tree, symlink STOP and all orphaned worker names',()=>{
-  assert.match(script,/WORKTREE_OR_INDEX_NOT_CLEAN/);
-  assert.match(script,/WORKTREE_CHANGED_DURING_INSPECT/);
-  assert.match(script,/git --no-replace-objects -C \$work --no-optional-locks -c core\.fsmonitor=false status --porcelain=v1 --untracked-files=all/);
+test('Inspector only proves pinned candidate scope, not whole Git worktree cleanliness',()=>{
+  assert.doesNotMatch(script,/WORKTREE_OR_INDEX_NOT_CLEAN|WORKTREE_CHANGED_DURING_INSPECT/);
+  assert.doesNotMatch(script,/git --no-replace-objects -C \$work[^\n]*\bstatus\b/);
+  assert.match(script,/A full clean checkout is NOT attested/);
   assert.match(script,/Join-Path \$stopRoot 'STOP'\),\(Join-Path \$stopRoot 'AUTOSTART_DISABLED'\)/);
   for(const name of ['three-lane-cli','planner-executor-cli','planner-executor-bridge-cli','single-conversation-cli'])
     assert.ok(script.includes(name),name);
@@ -55,8 +55,8 @@ test('inspect must traverse existing ancestors of nonexistent target and be CI-t
 });
 
 test('final no-write inspector covers old worker modes and avoids git index refresh',()=>{
-  assert.equal(script.split('git --no-replace-objects -C $work --no-optional-locks -c core.fsmonitor=false status').length-1,2);
-  assert.doesNotMatch(script,/git --no-replace-objects -C \$work status --porcelain/);
+  assert.doesNotMatch(script,/\b(?:git\s+[^\n]*\bstatus\s+--porcelain)/);
+  assert.match(script,/No all-worktree-clean assertion, no Stage\/Apply\/Rollback authority/);
   assert.match(script,/brain-worker-cli/);
   assert.match(script,/supervisor-loop-cli/);
   assert.match(script,/Get-ChildItem -LiteralPath \$parent -Force -ErrorAction Stop/);
@@ -116,7 +116,7 @@ test('Windows path inspection case-folds component names and checks all new leaf
 
 
 test('disable Git replacement refs for all source, SOT and commit verifications',()=>{
-  assert.equal(script.split('git --no-replace-objects -C $work').length-1,7);
+  assert.equal(script.split('git --no-replace-objects -C $work').length-1,5);
   assert.doesNotMatch(script,/& git -C \$work/);
   assert.match(script,/git --no-replace-objects -C \$work --no-optional-locks cat-file blob \$pinsRef/);
   assert.match(script,/git --no-replace-objects -C \$work --no-optional-locks cat-file blob \$sotRef/);
@@ -159,7 +159,10 @@ test('candidate decoding refuses BOM and non-UTF8 bytes instead of silently dele
   assert.doesNotMatch(script,/\$txt=\[IO\.File\]::ReadAllText\(\$path/);
 });
 
-test('both inspection status commands disable Git fsmonitor hook execution',()=>{
-  assert.equal(script.split('--no-optional-locks -c core.fsmonitor=false status --porcelain=v1').length-1,2);
-  assert.doesNotMatch(script,/--no-optional-locks status --porcelain=v1/);
+test('Inspector never invokes Git status or clean/process conversion hooks',()=>{
+  assert.doesNotMatch(script,/& git[^\n]*\sstatus\s+--porcelain/);
+  assert.doesNotMatch(script,/& git[^\n]*\sdiff\s/);
+  assert.match(script,/configured clean\/process filters can execute/);
+  assert.match(script,/ReadPinnedSource/);
+  assert.match(script,/CANDIDATE_CONTENT_HASH_DRIFT/);
 });
