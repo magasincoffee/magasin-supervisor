@@ -65,10 +65,16 @@ def _valid_fixture(db):
     # Any TEMP object is prohibited, not only ones named jobs/inbox.
     try:
         temp_mode = db.execute("PRAGMA temp_store").fetchone()[0]
-        kinds = db.execute(
-            "SELECT name, type, sql FROM main.sqlite_schema "
-            "WHERE name IN ('dispatch_inbox', 'jobs')"
-        ).fetchall()
+        # Stream bounded SQL metadata without WHERE/ORDER BY or collations:
+        # caller-installed BINARY collations must never be invoked.
+        kinds = []
+        for name, kind, sql in db.execute(
+            "SELECT name, type, sql FROM main.sqlite_schema"
+        ):
+            if name in ("dispatch_inbox", "jobs"):
+                kinds.append((name, kind, sql))
+            if len(kinds) > 2:
+                raise FixtureHold("FIXTURE_NOT_CANONICAL_TABLES")
         temp_objects = db.execute("SELECT 1 FROM sqlite_temp_schema LIMIT 1").fetchone()
     except sqlite3.Error:
         raise FixtureHold("FIXTURE_SCHEMA_UNREADABLE") from None
@@ -142,6 +148,8 @@ def snapshot_fixture(db, *, budget_seconds=3.0, _clock=None):
                 if seen_bytes > MAX_PROJECTED_BYTES:
                     raise FixtureHold("FIXTURE_PROJECTION_BYTE_LIMIT")
             rows.append(row)
+            if len(rows) > MAX_ROWS:
+                raise FixtureHold("FULL_LEDGER_SIZE_LIMIT")
         return rows
 
     previous_limit = None
@@ -173,21 +181,14 @@ def snapshot_fixture(db, *, budget_seconds=3.0, _clock=None):
         db.execute("PRAGMA query_only=ON")
         db.execute("BEGIN")
         in_tx = True
-        counts = db.execute(
-            "SELECT (SELECT COUNT(*) FROM dispatch_inbox),"
-            "(SELECT COUNT(*) FROM jobs)"
-        ).fetchone()
-        if expired():
-            raise FixtureHold("FIXTURE_READ_DEADLINE_EXCEEDED")
-        if any(type(n) is not int or n > MAX_ROWS or n < 0 for n in counts):
-            raise FixtureHold("FULL_LEDGER_SIZE_LIMIT")
+        # Do not call COUNT(*): sqlite3.create_aggregate("count",0, ...)
+        # can override it with uninterruptible Python callbacks.
+        # Incremental bounded iteration is itself the exact whole-ledger count.
         inbox = read_projected(
             "SELECT source_id,source,task_id,target,action,status,local_job_id "
             "FROM dispatch_inbox"
         )
         jobs = read_projected("SELECT id,status FROM jobs")
-        if len(inbox) != counts[0] or len(jobs) != counts[1]:
-            raise FixtureHold("INCONSISTENT_LEDGER_COUNTS")
     except sqlite3.Error as exc:
         if expired() or "interrupted" in str(exc).lower():
             raise FixtureHold("FIXTURE_READ_DEADLINE_EXCEEDED") from None
