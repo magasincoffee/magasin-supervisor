@@ -46,7 +46,13 @@ def _valid_fixture(db):
         names = db.execute("PRAGMA database_list").fetchall()
     except sqlite3.Error:
         raise FixtureHold("FIXTURE_DB_NOT_READABLE") from None
-    if len(names) != 1 or names[0][1:] != ("main", ""):
+    # SQLite may lazily initialize the built-in TEMP schema when
+    # sqlite_temp_schema is first read (not an ATTACHed foreign database).
+    # Its presence with ZERO temp objects is safe for this :memory: fixture.
+    observed = {(name, filename) for _, name, filename in names}
+    if not observed or ("main", "") not in observed or not observed.issubset(
+        {("main", ""), ("temp", "")}
+    ):
         raise FixtureHold("ATTACHED_OR_DISK_DATABASE_FORBIDDEN")
 
     # A view can hide a materializing ORDER BY/GROUP BY before the cursor
