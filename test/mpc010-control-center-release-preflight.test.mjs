@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {CONTROL_CENTER_BUNDLE,H4_OBSERVED_20261014,PRESERVED_RUNTIME_DEPENDENCIES_20261014,evaluateMpc010ReleaseMetadata}
+import {createHash} from 'node:crypto';
+import {CONTROL_CENTER_BUNDLE,H4_OBSERVED_20261014,PRESERVED_RUNTIME_DEPENDENCIES_20261014,REVIEWED_CANDIDATE_SHA256_20261014,evaluateMpc010ReleaseMetadata}
   from '../src/control-center/mpc010_control_center_preflight.mjs';
 
-const syntheticSha='a'.repeat(40),syntheticHash='b'.repeat(64);
+const syntheticSha='a'.repeat(40);
 const baseline=()=>({
   hostname:'DESKTOP-H4A16IL', ownerIdentity:'DESKTOP-H4A16IL\\admin',
   expectedMainSha:syntheticSha,liveMainSha:syntheticSha,candidateMainSha:syntheticSha,
@@ -12,7 +13,7 @@ const baseline=()=>({
   wrapperProcessCount:0,businessWorkerProcessCount:0,ambiguousOutboundAbsent:true,
   reparsePathsAbsent:true,symlinksAbsent:true,freeDGiB:56,
   installedHashes:{...H4_OBSERVED_20261014},
-  candidateHashes:Object.fromEntries(CONTROL_CENTER_BUNDLE.map(p=>[p,syntheticHash])),
+  candidateHashes:{...REVIEWED_CANDIDATE_SHA256_20261014},
   preservedDependencyHashes:{...PRESERVED_RUNTIME_DEPENDENCIES_20261014},
   preservedDependencyCompat:Object.fromEntries(Object.keys(PRESERVED_RUNTIME_DEPENDENCIES_20261014).map(p=>[p,true])),
   localPortListeners:[],ownerCredentialConfigured:false,
@@ -115,4 +116,27 @@ test('project-check route must ship supervisor_project_activation.py in the pinn
   assert.equal(r.state,'HOLD');
   assert.ok(r.holds.includes('INCOMPLETE_OR_UNPINNED_BUNDLE'));
   assert.equal(r.fieldApplyAuthorized,false);
+});
+
+
+test('candidate SHA256 pins are bound to all reviewed repository file bytes and plan',()=>{
+  assert.equal(CONTROL_CENTER_BUNDLE.length,12);
+  assert.deepEqual(Object.keys(REVIEWED_CANDIDATE_SHA256_20261014),CONTROL_CENTER_BUNDLE);
+  for(const file of CONTROL_CENTER_BUNDLE){
+    const bytes=readFileSync(new URL('../'+file,import.meta.url));
+    const actual=createHash('sha256').update(bytes).digest('hex').toUpperCase();
+    assert.equal(REVIEWED_CANDIDATE_SHA256_20261014[file],actual,file);
+  }
+  assert.ok(CONTROL_CENTER_BUNDLE.includes('docs/project-control/MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md'));
+});
+
+test('any well-formed 64-character SHA not matching frozen candidate is rejected',()=>{
+  for(const file of CONTROL_CENTER_BUNDLE){
+    const candidate=baseline();
+    candidate.candidateHashes[file]='B'.repeat(64);
+    const r=evaluateMpc010ReleaseMetadata(candidate);
+    assert.equal(r.state,'HOLD',file);
+    assert.ok(r.holds.includes('INCOMPLETE_OR_UNPINNED_BUNDLE'),file);
+    assert.equal(r.fieldApplyAuthorized,false);
+  }
 });
