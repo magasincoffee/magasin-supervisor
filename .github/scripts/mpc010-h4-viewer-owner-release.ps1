@@ -83,7 +83,7 @@ function RequireSource {
   if($LASTEXITCODE -ne 0 -or $head.Trim().ToLowerInvariant() -cne $ExpectedMainSha.ToLowerInvariant()){throw 'WRONG_HEAD'}
   $remote=(& git --no-replace-objects -C $work ls-remote origin refs/heads/main)
   if($LASTEXITCODE -ne 0 -or !$remote -or (($remote -split '\s+')[0].ToLowerInvariant() -cne $ExpectedMainSha.ToLowerInvariant())){throw 'REMOTE_MAIN_CHANGED'}
-  $dirty=@(& git --no-replace-objects -C $work --no-optional-locks status --porcelain=v1 --untracked-files=all)
+  $dirty=@(& git --no-replace-objects -C $work --no-optional-locks -c core.fsmonitor=false status --porcelain=v1 --untracked-files=all)
   if($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0){throw 'WORKTREE_OR_INDEX_NOT_CLEAN'}
   # The worktree can falsely look clean with assume-unchanged/skip-worktree.
   # Read SOT authorization exclusively from the pinned reviewed Git object.
@@ -101,8 +101,19 @@ function RequireSource {
 function ReadPinnedSource([string]$work,[string]$rel){
   $path=Join-Path $work ($rel.Replace('/','\'))
   AssertNoReparse $path
-  $txt=[IO.File]::ReadAllText($path,[Text.Encoding]::UTF8)
-  if($txt.Contains([char]0)){throw 'NUL_IN_CANDIDATE'}
+  # Decode only strict BOM-free UTF-8 bytes. ReadAllText silently strips a BOM,
+  # which can otherwise conceal changed on-disk bytes under assume-unchanged.
+  $raw=[IO.File]::ReadAllBytes($path)
+  if(($raw.Length -ge 3 -and $raw[0] -eq 0xEF -and $raw[1] -eq 0xBB -and $raw[2] -eq 0xBF) -or
+     ($raw.Length -ge 2 -and (($raw[0] -eq 0xFF -and $raw[1] -eq 0xFE) -or
+                               ($raw[0] -eq 0xFE -and $raw[1] -eq 0xFF)))){
+    throw 'CANDIDATE_BOM_DENIED'
+  }
+  $strictUtf8=New-Object System.Text.UTF8Encoding($false,$true)
+  try{ $txt=$strictUtf8.GetString($raw) }
+  catch [Text.DecoderFallbackException]{ throw 'CANDIDATE_INVALID_UTF8' }
+  if($txt.Contains([char]0) -or $txt.Contains([char]0xFEFF)){throw 'CANDIDATE_ENCODING_DENIED'}
+  # Only Git checkout CRLF is normalized to canonical Git blob LF.
   return $txt.Replace(([string][char]13+[string][char]10),[string][char]10)
 }
 function VerifyCandidate([string]$work) {
@@ -204,7 +215,7 @@ if($Mode -ne 'Inspect'){throw 'UNKNOWN_MODE'}
 $work=RequireSource
 VerifyHost
 VerifyCandidate $work
-$dirty=@(& git --no-replace-objects -C $work --no-optional-locks status --porcelain=v1 --untracked-files=all)
+$dirty=@(& git --no-replace-objects -C $work --no-optional-locks -c core.fsmonitor=false status --porcelain=v1 --untracked-files=all)
 if($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0){throw 'WORKTREE_CHANGED_DURING_INSPECT'}
 Write-Output 'MPC010_H4_VIEWER_READONLY_INSPECT_PASS=True'
 Write-Output 'FIELD_APPLY_AUTHORIZED=False'
