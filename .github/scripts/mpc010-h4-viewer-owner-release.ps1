@@ -83,6 +83,26 @@ function ReadPinnedSource([string]$work,[string]$rel){
   if($txt.Contains([char]0)){throw 'NUL_IN_CANDIDATE'}
   return $txt.Replace(([string][char]13+[string][char]10),[string][char]10)
 }
+function VerifyCandidate([string]$work) {
+  $pinsPath=Join-Path $work 'src\control-center\mpc010_control_center_preflight.mjs'
+  $source=[IO.File]::ReadAllText($pinsPath,[Text.Encoding]::UTF8)
+  $begin=$source.IndexOf('export const REVIEWED_CANDIDATE_SHA256_20261014',[StringComparison]::Ordinal)
+  if($begin -lt 0){throw 'SOURCE_HASH_MAP_MISSING'}
+  $end=$source.IndexOf('});',$begin,[StringComparison]::Ordinal)
+  if($end -lt 0){throw 'SOURCE_HASH_MAP_INCOMPLETE'}
+  $map=$source.Substring($begin,$end-$begin)
+  foreach($rel in $expectedFiles.Keys){
+    $pattern='"'+[regex]::Escape($rel)+'"\s*:\s*"([A-F0-9]{64})"'
+    $match=[regex]::Match($map,$pattern,[Text.RegularExpressions.RegexOptions]::CultureInvariant)
+    if(!$match.Success){throw 'CANDIDATE_SHA_NOT_PINNED'}
+    $text=ReadPinnedSource $work $rel
+    $bytes=[Text.Encoding]::UTF8.GetBytes($text)
+    $sha=[Security.Cryptography.SHA256]::Create()
+    try{ $hash=[BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-','') }
+    finally{ $sha.Dispose() }
+    if($hash -cne $match.Groups[1].Value){throw 'CANDIDATE_CONTENT_HASH_DRIFT'}
+  }
+}
 function VerifyHost {
   if([Environment]::MachineName -cne $hostName){throw 'WRONG_HOST'}
   $actual=[Security.Principal.WindowsIdentity]::GetCurrent().Name
@@ -142,9 +162,6 @@ if($Mode -ne 'Inspect'){throw 'UNKNOWN_MODE'}
 # Inspect is the ONLY currently executable field path; it has no writes.
 $work=RequireSource
 VerifyHost
-foreach($key in $expectedFiles.Keys){
-   $p=Join-Path $work ($key.Replace('/','\'))
-   if(!(Test-Path -LiteralPath $p -PathType Leaf)){throw 'SOURCE_MODULE_MISSING'}
-}
+VerifyCandidate $work
 Write-Output 'MPC010_H4_VIEWER_READONLY_INSPECT_PASS=True'
 Write-Output 'FIELD_APPLY_AUTHORIZED=False'
