@@ -50,14 +50,25 @@ function HashFile([string]$p){
 }
 function AssertNoReparse([string]$p) {
   $current=$p
-  # A missing target is not a proof its existing parent is safe.
   while($current) {
-    if(Test-Path -LiteralPath $current) {
-      $item=Get-Item -LiteralPath $current -Force -ErrorAction Stop
-      if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {throw 'REPARSE_COMPONENT_DENIED'}
-    }
     $parent=Split-Path -Path $current -Parent
-    if(!$parent -or $parent -ceq $current){break}
+    if(!$parent -or $parent -ceq $current){
+      $root=Get-Item -LiteralPath $current -Force -ErrorAction Stop
+      if(($root.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'REPARSE_COMPONENT_DENIED'}
+      break
+    }
+    # Enumerate each existing parent's directory entries, not Test-Path on
+    # the leaf: Test-Path can hide dangling junctions and broken symlinks.
+    if(Test-Path -LiteralPath $parent -PathType Container){
+      $name=Split-Path -Path $current -Leaf
+      $entry=@(Get-ChildItem -LiteralPath $parent -Force -ErrorAction Stop |
+        Where-Object {$_.Name -ceq $name})
+      if($entry.Count -gt 1){throw 'AMBIGUOUS_PATH_COMPONENT'}
+      if($entry.Count -eq 1 -and
+         (($entry[0].Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)){
+        throw 'REPARSE_COMPONENT_DENIED'
+      }
+    }elseif(Test-Path -LiteralPath $parent){throw 'NON_DIRECTORY_PARENT'}
     $current=$parent
   }
 }
@@ -72,7 +83,7 @@ function RequireSource {
   if($LASTEXITCODE -ne 0 -or $head.Trim().ToLowerInvariant() -cne $ExpectedMainSha.ToLowerInvariant()){throw 'WRONG_HEAD'}
   $remote=(& git -C $work ls-remote origin refs/heads/main)
   if($LASTEXITCODE -ne 0 -or !$remote -or (($remote -split '\s+')[0].ToLowerInvariant() -cne $ExpectedMainSha.ToLowerInvariant())){throw 'REMOTE_MAIN_CHANGED'}
-  $dirty=@(& git -C $work status --porcelain=v1 --untracked-files=all)
+  $dirty=@(& git -C $work --no-optional-locks status --porcelain=v1 --untracked-files=all)
   if($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0){throw 'WORKTREE_OR_INDEX_NOT_CLEAN'}
   $sot=Join-Path $work 'SOURCE_OF_TRUTH.md'
   if(!(Test-Path $sot) -or !([IO.File]::ReadAllText($sot).Contains($gateText))){throw 'REVIEWED_ROOT_SOT_GATE_MISSING'}
@@ -136,7 +147,7 @@ function VerifyHost {
   }
   $workers=@(Get-CimInstance Win32_Process -Filter "Name='node.exe' OR Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction Stop |
      Where-Object {$_.CommandLine -and
-       $_.CommandLine -match 'run-supervisor[.]ps1|(?:three-lane-cli|planner-executor-cli|planner-executor-bridge-cli|single-conversation-cli)[.]mjs'})
+       $_.CommandLine -match 'run-supervisor[.]ps1|(?:three-lane-cli|planner-executor-cli|planner-executor-bridge-cli|single-conversation-cli|brain-worker-cli|supervisor-loop-cli)[.]mjs'})
   if($workers.Count -gt 0){throw 'BUSINESS_WORKER_PRESENT'}
   $listeners=@(Get-NetTCPConnection -ErrorAction Stop |
     Where-Object {$_.LocalPort -eq 8781 -and $_.State -eq 'Listen'})
@@ -180,7 +191,7 @@ if($Mode -ne 'Inspect'){throw 'UNKNOWN_MODE'}
 $work=RequireSource
 VerifyHost
 VerifyCandidate $work
-$dirty=@(& git -C $work status --porcelain=v1 --untracked-files=all)
+$dirty=@(& git -C $work --no-optional-locks status --porcelain=v1 --untracked-files=all)
 if($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0){throw 'WORKTREE_CHANGED_DURING_INSPECT'}
 Write-Output 'MPC010_H4_VIEWER_READONLY_INSPECT_PASS=True'
 Write-Output 'FIELD_APPLY_AUTHORIZED=False'
