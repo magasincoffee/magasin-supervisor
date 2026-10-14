@@ -130,6 +130,33 @@ function Write-DurableReceipt([string]$file,[hashtable]$data) {
   }
 }
 
+function Assert-LiveFileHandle([IO.FileStream]$stream) {
+  # Inspect the opened HANDLE, not only a pathname checked before the open.
+  # Reject substituted symbolic links / junctions and hardlinked live files.
+  $info = New-Object SC013WatchdogFileIdentity+BY_HANDLE_FILE_INFORMATION
+  if (-not [SC013WatchdogFileIdentity]::GetFileInformationByHandle(
+      $stream.SafeFileHandle,[ref]$info)) {
+    throw 'WATCHDOG_HANDLE_IDENTITY_UNAVAILABLE'
+  }
+  if ($info.NumberOfLinks -ne 1 -or
+      ($info.FileAttributes -band 0x400) -ne 0) {
+    throw 'WATCHDOG_HANDLE_REPARSE_OR_HARDLINK'
+  }
+  $buffer = New-Object System.Text.StringBuilder 1024
+  $n = [SC013WatchdogFileIdentity]::GetFinalPathNameByHandle(
+    $stream.SafeFileHandle,$buffer,[uint32]$buffer.Capacity,[uint32]0
+  )
+  if ($n -eq 0 -or $n -ge [uint32]$buffer.Capacity) {
+    throw 'WATCHDOG_HANDLE_CANONICAL_PATH_UNAVAILABLE'
+  }
+  $actual = $buffer.ToString()
+  $expected = '\\?\' + $live
+  if (-not [string]::Equals($actual,$expected,
+      [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'WATCHDOG_HANDLE_TARGET_MISMATCH'
+  }
+}
+
 if ([Environment]::MachineName -cne $ExpectedHost) { throw 'WRONG_HOST' }
 $id = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($id)
@@ -144,6 +171,35 @@ if ([string]::IsNullOrWhiteSpace($root) -or
     [IO.Path]::GetFullPath($root).TrimEnd('\') -cne $CanonicalRoot) {
   throw 'CANONICAL_SUPERVISOR_ROOT_MISMATCH'
 }
+# Windows hosted parser and fixture validate this narrow OS handle identity helper.
+# Add-Type cannot start Supervisor or modify files; any API failure HOLDS apply.
+Add-Type -TypeDefinition @'
+using System;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
+using System.Runtime.InteropServices;
+public static class SC013WatchdogFileIdentity {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct BY_HANDLE_FILE_INFORMATION {
+    public uint FileAttributes;
+    public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+    public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+    public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+    public uint VolumeSerialNumber;
+    public uint FileSizeHigh;
+    public uint FileSizeLow;
+    public uint NumberOfLinks;
+    public uint FileIndexHigh;
+    public uint FileIndexLow;
+  }
+  [DllImport("kernel32.dll", SetLastError=true)]
+  public static extern bool GetFileInformationByHandle(
+    SafeFileHandle handle, out BY_HANDLE_FILE_INFORMATION information);
+  [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+  public static extern uint GetFinalPathNameByHandle(
+    SafeFileHandle handle, StringBuilder path, uint capacity, uint flags);
+}
+'@ -ErrorAction Stop
 $live = Join-Path $CanonicalRoot 'runtime\windows\local-watchdog.ps1'
 $stage = Join-Path 'D:\MAGASIN_ROBOTS\deploy\sc013-watchdog-owner-20261014' $ExpectedMainSha
 $candidate = Join-Path $stage 'candidate-local-watchdog.ps1'
@@ -213,6 +269,7 @@ try {
         $pending.phase -cne 'APPLY_STARTED') { throw 'UNQUALIFIED_RECOVERY_JOURNAL' }
   }
   $liveHandle = [IO.File]::Open($live,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+  Assert-LiveFileHandle $liveHandle
   $bytesBefore = Read-LockedFile $liveHandle
   $digestBefore = Hash-Bytes $bytesBefore
   if ($Mode -eq 'Apply' -and $digestBefore -cne $ExpectedOld) {
