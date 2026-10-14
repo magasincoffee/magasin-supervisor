@@ -361,32 +361,58 @@ try {
                         [void]$faults.Add('RETRY_BUDGET_EXCEEDED')
                     }
 
-                    if ($automation -eq 'RUNNING' -and $phase -eq 'STARTING_BROWSER' -and (Get-OptionalWatchdogStateField -State $state -Section 'automation' -Field 'updated_at')) {
-                        try {
-                            $startingBrowserAge = [int]($now - [DateTimeOffset]::Parse([string](Get-OptionalWatchdogStateField -State $state -Section 'automation' -Field 'updated_at'))).TotalSeconds
-                            if ($startingBrowserAge -ge $MaxStartingBrowserSeconds) {
-                                [void]$faults.Add("STARTING_BROWSER_STALLED:$startingBrowserAge")
+                    if ($automation -eq 'RUNNING' -and $phase -eq 'STARTING_BROWSER') {
+                        $startupTimestamp = [string](Get-OptionalWatchdogStateField -State $state -Section 'automation' -Field 'updated_at')
+                        if ([string]::IsNullOrWhiteSpace($startupTimestamp)) {
+                            [void]$faults.Add('STARTING_BROWSER_TIMESTAMP_MISSING')
+                        } else {
+                            try {
+                                $startingBrowserAge = [int]($now - [DateTimeOffset]::Parse($startupTimestamp)).TotalSeconds
+                                if ($startingBrowserAge -ge $MaxStartingBrowserSeconds) {
+                                    [void]$faults.Add("STARTING_BROWSER_STALLED:$startingBrowserAge")
+                                }
+                            } catch {
+                                [void]$faults.Add('STARTING_BROWSER_TIMESTAMP_INVALID')
                             }
-                        } catch {}
-                    }
-
-                    if ($outbound -eq 'PREPARED' -and (Get-OptionalWatchdogStateField -State $state -Section 'outbound' -Field 'prepared_at')) {
-                        $preparedAge = [int]($now - [DateTimeOffset]::Parse([string](Get-OptionalWatchdogStateField -State $state -Section 'outbound' -Field 'prepared_at'))).TotalSeconds
-                        if ($preparedAge -ge $MaxPreparedSeconds) {
-                            [void]$faults.Add("PREPARED_STALLED:$preparedAge")
                         }
                     }
-                    if ($outbound -eq 'ENQUEUED' -and (Get-OptionalWatchdogStateField -State $state -Section 'outbound' -Field 'enqueued_at')) {
-                        $enqueuedAge = [int]($now - [DateTimeOffset]::Parse([string](Get-OptionalWatchdogStateField -State $state -Section 'outbound' -Field 'enqueued_at'))).TotalSeconds
-                        $pendingPostSendConfirmation = [bool](
-                            $phase -eq 'WAIT_RESPONSE' -and
-                            $lastCode -eq 'POST_SEND_CONFIRMATION_PENDING'
-                        )
-                        if (
-                            $enqueuedAge -ge $MaxEnqueuedSeconds -and
-                            -not $pendingPostSendConfirmation
-                        ) {
-                            [void]$faults.Add("ENQUEUED_STALLED:$enqueuedAge")
+
+                    if ($outbound -eq 'PREPARED') {
+                        $preparedTimestamp = [string](Get-OptionalWatchdogStateField -State $state -Section 'outbound' -Field 'prepared_at')
+                        if ([string]::IsNullOrWhiteSpace($preparedTimestamp)) {
+                            [void]$faults.Add('PREPARED_TIMESTAMP_MISSING')
+                        } else {
+                            try {
+                                $preparedAge = [int]($now - [DateTimeOffset]::Parse($preparedTimestamp)).TotalSeconds
+                                if ($preparedAge -ge $MaxPreparedSeconds) {
+                                    [void]$faults.Add("PREPARED_STALLED:$preparedAge")
+                                }
+                            } catch {
+                                [void]$faults.Add('PREPARED_TIMESTAMP_INVALID')
+                            }
+                        }
+                    }
+
+                    if ($outbound -eq 'ENQUEUED') {
+                        $enqueuedTimestamp = [string](Get-OptionalWatchdogStateField -State $state -Section 'outbound' -Field 'enqueued_at')
+                        if ([string]::IsNullOrWhiteSpace($enqueuedTimestamp)) {
+                            [void]$faults.Add('ENQUEUED_TIMESTAMP_MISSING')
+                        } else {
+                            try {
+                                $enqueuedAge = [int]($now - [DateTimeOffset]::Parse($enqueuedTimestamp)).TotalSeconds
+                                $pendingPostSendConfirmation = [bool](
+                                    $phase -eq 'WAIT_RESPONSE' -and
+                                    $lastCode -eq 'POST_SEND_CONFIRMATION_PENDING'
+                                )
+                                if (
+                                    $enqueuedAge -ge $MaxEnqueuedSeconds -and
+                                    -not $pendingPostSendConfirmation
+                                ) {
+                                    [void]$faults.Add("ENQUEUED_STALLED:$enqueuedAge")
+                                }
+                            } catch {
+                                [void]$faults.Add('ENQUEUED_TIMESTAMP_INVALID')
+                            }
                         }
                     }
                 }
