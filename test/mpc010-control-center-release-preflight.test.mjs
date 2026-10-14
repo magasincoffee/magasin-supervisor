@@ -86,3 +86,21 @@ test('module has no host IO or subprocess capability and includes full browser m
     'project_request_view.mjs','project_supervisor_telemetry.mjs'])
     assert.ok(CONTROL_CENTER_BUNDLE.some(p=>p.endsWith('/'+file)),file);
 });
+
+
+test('all six preserved H4 startup and route-time imports must have matching digest and compatibility proof',()=>{
+  const files=Object.keys(PRESERVED_RUNTIME_DEPENDENCIES_20261014);
+  assert.equal(files.length,6);
+  for(const name of ['observability.py','owner_lifecycle.py','control_adapter.py',
+    'cutover_preflight.py','specialist_readiness.py','supervisor_project_links.py']){
+    assert.ok(files.some(path=>path.endsWith('\\'+name)),name);
+  }
+  for(const path of files){
+    const snapshot=baseline();
+    delete snapshot.preservedDependencyHashes[path];
+    assert.equal(evaluateMpc010ReleaseMetadata(snapshot).state,'HOLD',path);
+    const noProof=baseline();
+    delete noProof.preservedDependencyCompat[path];
+    assert.equal(evaluateMpc010ReleaseMetadata(noProof).state,'HOLD',path);
+  }
+});
