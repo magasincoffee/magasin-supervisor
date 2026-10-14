@@ -182,6 +182,31 @@ function Assert-PlausiblePartialWrite([byte[]]$observed,[byte[]]$before,[byte[]]
     if ($oldSuffixStart -gt $newPrefix) { throw 'RECOVERY_HOLD_EXTERNAL_EDIT' }
   }
 }
+function Assert-PlausibleReversePartialWrite([byte[]]$observed,[byte[]]$before,[byte[]]$after) {
+  # A failed same-handle auto-rollback may leave an OLD prefix followed by
+  # the unmodified candidate suffix (including candidate bytes past old EOF).
+  # A post-crash stranger's bytes must never be accepted as this transaction.
+  if ($observed.Length -lt $before.Length -or
+      $observed.Length -gt $after.Length) { throw 'RECOVERY_HOLD_EXTERNAL_EDIT' }
+  $oldPrefix = 0
+  while ($oldPrefix -lt $before.Length -and
+         $observed[$oldPrefix] -eq $before[$oldPrefix]) { $oldPrefix++ }
+  if ($oldPrefix -le 0) { throw 'RECOVERY_HOLD_EXTERNAL_EDIT' }
+  for ($i = $oldPrefix; $i -lt $observed.Length; $i++) {
+    if ($observed[$i] -ne $after[$i]) { throw 'RECOVERY_HOLD_EXTERNAL_EDIT' }
+  }
+}
+function Assert-QualifiedRecoveryWrite([byte[]]$observed,[byte[]]$before,[byte[]]$after) {
+  # With the immutable APPLY_STARTED transaction and the exclusive live file
+  # identity already attested, recognize only exact forward OR reverse mixed
+  # byte shapes. Never treat arbitrary unknown bytes as ours.
+  try {
+    Assert-PlausiblePartialWrite $observed $before $after
+  } catch {
+    Assert-PlausibleReversePartialWrite $observed $before $after
+  }
+}
+
 function Restore-AfterFailedApply([IO.FileStream]$stream,[byte[]]$old,[byte[]]$candidate) {
   # The SAME exclusive live file handle remains held after a failed postcheck.
   # Restore only bytes attributable to the one approved source write.
@@ -380,7 +405,7 @@ try {
   }
   if ($Mode -eq 'Recover' -and $digestBefore -cne $ExpectedOld -and
       $digestBefore -cne $ExpectedNew) {
-    Assert-PlausiblePartialWrite $bytesBefore $backupBytes $sourceBytes
+    Assert-QualifiedRecoveryWrite $bytesBefore $backupBytes $sourceBytes
   }
   Assert-Stop
   if ($Mode -eq 'Apply') {
