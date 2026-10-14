@@ -69,6 +69,32 @@ test("WinPS 5.1 same-session recovery reuses native file-identity type", () => {
   assert.match(source,/Add-Type -TypeDefinition @'/);
 });
 
+test("all four authenticated exact-main push CI workflow runs must be GREEN before and after write", () => {
+  assert.match(source,/function Assert-RequiredMainCiResponse/);
+  assert.match(source,/function Assert-RequiredMainCi/);
+  assert.match(source,/https:\/\/api\.github\.com\/repos\/magasincoffee\/magasin-supervisor\/actions\/runs/);
+  for (const id of ["363535704","363535705","363536127","363536125"]) {
+    assert.ok(source.includes(id),id);
+  }
+  assert.match(source,/MAIN_CI_NOT_GREEN_EXACT_COMMIT/);
+  assert.match(source,/MAIN_CI_REQUIRED_WORKFLOW_MISSING/);
+  assert.match(source,/Assert-RequiredMainCi/);
+  assert.ok(source.indexOf("Assert-RequiredMainCi\n}") <
+    source.indexOf("Write-LockedFile $liveHandle $sourceBytes"));
+  assert.ok(source.lastIndexOf("Assert-RequiredMainCi") >
+    source.indexOf("Write-LockedFile $liveHandle $sourceBytes"));
+});
+
+test("post-write gate failure must rollback original bytes on same exclusive live handle", () => {
+  assert.match(source,/function Restore-AfterFailedApply\(\[IO\.FileStream\]\$stream/);
+  assert.match(source,/\$applyWriteStarted = \$true/);
+  assert.match(source,/Restore-AfterFailedApply \$liveHandle \$backupBytes \$sourceBytes/);
+  assert.match(source,/WATCHDOG_AUTO_ROLLBACK_HOLD/);
+  assert.match(source,/AUTO_ROLLBACK_DIGEST_MISMATCH/);
+  assert.match(source,/SC013_WATCHDOG_AUTO_ROLLBACK_VERIFIED=True/);
+  assert.match(source,/\$applyWriteStarted = \$false/);
+});
+
 test("durable APPLY_STARTED journal precedes write and recovery is explicit", () => {
   assert.match(source,/SC013_WATCHDOG_EXCLUSIVE_FILE_TRANSACTION_V1/);
   assert.match(source,/Write-DurableReceipt \$transaction/);
