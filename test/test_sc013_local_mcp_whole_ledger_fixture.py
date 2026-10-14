@@ -299,6 +299,38 @@ class SyntheticWholeLedgerTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_rejects_generated_virtual_or_stored_ledger_columns(self):
+        for kind in ("VIRTUAL", "STORED"):
+            with self.subTest(kind=kind):
+                db = seed()
+                calls = []
+                def callback(value):
+                    calls.append(value)
+                    return value
+                try:
+                    db.create_function("slow_callback", 1, callback,
+                                       deterministic=True)
+                    db.execute("ALTER TABLE jobs RENAME TO ordinary_jobs")
+                    db.execute(
+                        "CREATE TABLE jobs (id TEXT, "
+                        "status TEXT GENERATED ALWAYS AS (slow_callback(id)) "
+                        + kind + ")"
+                    )
+                    db.commit()
+                    with self.assertRaisesRegex(
+                        sut.FixtureHold, "GENERATED_OR_HIDDEN_COLUMNS_FORBIDDEN"
+                    ):
+                        sut.snapshot_fixture(db)
+                    self.assertEqual(calls, [])
+                finally:
+                    db.close()
+
+    def test_closed_registered_connection_never_leaks_raw_sqlite_error(self):
+        db = seed()
+        db.close()
+        with self.assertRaisesRegex(sut.FixtureHold, "FIXTURE_QUERY_FAILED"):
+            sut.snapshot_fixture(db)
+
     def test_limit_fails_closed_instead_of_truncating(self):
         db=seed()
         original=sut.MAX_ROWS
