@@ -82,6 +82,18 @@ def _valid_fixture(db):
                 for _, kind, sql in kinds
             )):
         raise FixtureHold("FIXTURE_NOT_CANONICAL_TABLES")
+    # Generated VIRTUAL/STORED columns may call user-defined functions before
+    # SQLite's VM progress callback can interrupt. Do not accept any.
+    try:
+        for table in ("dispatch_inbox", "jobs"):
+            columns = db.execute(
+                "PRAGMA main.table_xinfo('" + table + "')"
+            ).fetchall()
+            if not columns or any(len(column) < 7 or column[6] != 0
+                                  for column in columns):
+                raise FixtureHold("GENERATED_OR_HIDDEN_COLUMNS_FORBIDDEN")
+    except sqlite3.Error:
+        raise FixtureHold("FIXTURE_SCHEMA_UNREADABLE") from None
 
 
 def snapshot_fixture(db, *, budget_seconds=3.0, _clock=None):
@@ -134,6 +146,7 @@ def snapshot_fixture(db, *, budget_seconds=3.0, _clock=None):
 
     previous_limit = None
     in_tx = False
+    progress_installed = False
     try:
         if db.in_transaction:
             raise FixtureHold("UNFINISHED_FIXTURE_TRANSACTION")
@@ -141,6 +154,7 @@ def snapshot_fixture(db, *, budget_seconds=3.0, _clock=None):
         previous_limit = db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, MAX_FIELD_BYTES)
         # Bound ALL SQLite reads, INCLUDING schema metadata validation.
         db.set_progress_handler(interrupt, 100)
+        progress_installed = True
         _valid_fixture(db)
         if expired():
             raise FixtureHold("FIXTURE_READ_DEADLINE_EXCEEDED")
@@ -167,12 +181,26 @@ def snapshot_fixture(db, *, budget_seconds=3.0, _clock=None):
             raise FixtureHold("FIXTURE_READ_DEADLINE_EXCEEDED") from None
         raise FixtureHold("FIXTURE_QUERY_FAILED") from None
     finally:
-        # Disable interruption before transaction cleanup.
-        db.set_progress_handler(None, 0)
+        # Never let cleanup on an unreadable/closed connection replace a
+        # sanitized FixtureHold with a raw sqlite3.ProgrammingError.
+        cleanup_failed = False
+        if progress_installed:
+            try:
+                db.set_progress_handler(None, 0)
+            except sqlite3.Error:
+                cleanup_failed = True
         if in_tx:
-            db.execute("ROLLBACK")
+            try:
+                db.execute("ROLLBACK")
+            except sqlite3.Error:
+                cleanup_failed = True
         if previous_limit is not None:
-            db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, previous_limit)
+            try:
+                db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, previous_limit)
+            except sqlite3.Error:
+                cleanup_failed = True
+        if cleanup_failed:
+            raise FixtureHold("FIXTURE_CLEANUP_FAILED") from None
 
     issues = []
     pending_count = 0
