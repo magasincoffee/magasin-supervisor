@@ -97,3 +97,19 @@ test('assume-unchanged demonstrates clean status is not commit content proof',as
     assert.equal(run('--no-optional-locks','cat-file','blob',revision+':pins.txt'),'PIN=REVIEWED');
   }finally{rmSync(dir,{recursive:true,force:true})}
 });
+
+
+test('SOT release gate comes from expected immutable commit, not hidden local file',()=>{
+  assert.match(script,/\$sotRef=\$ExpectedMainSha\+':SOURCE_OF_TRUTH\.md'/);
+  assert.match(script,/git -C \$work --no-optional-locks cat-file blob \$sotRef/);
+  assert.match(script,/REVIEWED_ROOT_SOT_GATE_MISSING/);
+  assert.doesNotMatch(script,/\[IO\.File\]::ReadAllText\(\$sot\)/);
+});
+
+test('Windows path inspection case-folds component names and checks all new leaf paths',()=>{
+  assert.match(script,/Where-Object \{\$_.Name -ieq \$name\}/);
+  assert.doesNotMatch(script,/Where-Object \{\$_.Name -ceq \$name\}/);
+  assert.match(script,/\$destination=Join-Path \$install \$file\s+# A missing leaf[\s\S]*?AssertNoReparse \$destination\s+if\(Test-Path -LiteralPath \$destination\)/);
+  assert.ok(script.includes("'docs\\project-control\\MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md'"));
+  assert.match(script,/REPARSE_COMPONENT_DENIED/);
+});
