@@ -168,6 +168,20 @@ class ProjectionTests(unittest.TestCase):
         with self.assertRaisesRegex(m.Rejected, "SCREENSHOT_INVALID"):
             m.propose(request=r, source=s, approval=a, verifier_secret=SECRET)
 
+    def test_controls_hidden_by_urlsplit_are_rejected(self):
+        for char in ("\r", "\n", "\t", "\x00", "\x7f"):
+            r, s, a = fixture()
+            p = json.loads(r["payload_json"])
+            p["screenshots"] = [SCREEN[:19] + char + SCREEN[19:]]
+            encoded = canonical(p)
+            r["payload_json"] = encoded
+            r["payload_hash"] = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+            a["payload_hash"] = r["payload_hash"]
+            seal(a)
+            with self.subTest(char=repr(char)):
+                with self.assertRaisesRegex(m.Rejected, "SCREENSHOT_INVALID"):
+                    m.propose(request=r, source=s, approval=a, verifier_secret=SECRET)
+
     def test_unsafe_request_objects_fail_closed_without_crash(self):
         r, s, a = fixture()
         for value in (None, [], {}, {"status": "APPROVED"}, 123, True):
