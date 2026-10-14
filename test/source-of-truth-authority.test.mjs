@@ -133,7 +133,17 @@ test("MPC-007 verified completion and MPC-008 handoff remain SOURCE/QA only", ()
   assert.ok(immediate, "single current next-task declaration required");
   assert.match(immediate, /MPC-008 is the sole next executable task \(SOURCE\/QA ONLY\)/);
   assert.doesNotMatch(immediate, /MPC-007 is the sole next executable task/);
-  assert.doesNotMatch(plan, /Current next task is MPC-007|MPC-007 is NEXT \(SOURCE\/QA ONLY\)|Next authorized task: MPC-006 \(SOURCE\/QA ONLY\)/i, "stale present-tense NEXT outside Immediate next work");
+  const historical = plan.split("## MPC-001 execution evidence")[1];
+  assert.ok(historical, "historical evidence must remain inspectable");
+  for (const [index, line] of historical.split("\n").entries()) {
+    assert.doesNotMatch(
+      line,
+      /\bNext authorized(?: backlog)? task\s*:\s*MPC-\d{3}|\bCurrent next task is MPC-\d{3}|\bCurrent next authorized task\s*:\s*MPC-\d{3}|\bMPC-\d{3} is NEXT\b|\bMPC-\d{3} is the sole next executable task\b/i,
+      "active MPC NEXT declaration buried in historical evidence at line " + (index + 1)
+    );
+  }
+  assert.match(historical, /Historical 2026-10-12 handoff: MPC-003 was next/);
+  assert.match(historical, /Historical 2026-10-12 handoff: MPC-004 was next/);
   assert.match(plan, /Historical 2026-10-12 handoff:.*MPC-007 was next/);
   assert.match(plan, /Historical 2026-10-13 handoff: MPC-007 was next/);
   assert.match(plan, /\| MPC-006 \(SOURCE\/QA VERIFIED\) \|/);
