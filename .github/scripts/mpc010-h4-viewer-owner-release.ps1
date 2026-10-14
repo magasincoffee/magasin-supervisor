@@ -83,8 +83,10 @@ function RequireSource {
   if($LASTEXITCODE -ne 0 -or $head.Trim().ToLowerInvariant() -cne $ExpectedMainSha.ToLowerInvariant()){throw 'WRONG_HEAD'}
   $remote=(& git --no-replace-objects -C $work ls-remote origin refs/heads/main)
   if($LASTEXITCODE -ne 0 -or !$remote -or (($remote -split '\s+')[0].ToLowerInvariant() -cne $ExpectedMainSha.ToLowerInvariant())){throw 'REMOTE_MAIN_CHANGED'}
-  $dirty=@(& git --no-replace-objects -C $work --no-optional-locks -c core.fsmonitor=false status --porcelain=v1 --untracked-files=all)
-  if($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0){throw 'WORKTREE_OR_INDEX_NOT_CLEAN'}
+  # Never run git status/diff here: configured clean/process filters can execute
+  # arbitrary hooks, even with fsmonitor disabled. Candidate scope is verified
+  # by immutable pinned SOT + raw source candidate digests in VerifyCandidate.
+  # A full clean checkout is NOT attested and this result authorizes NO apply.
   # The worktree can falsely look clean with assume-unchanged/skip-worktree.
   # Read SOT authorization exclusively from the pinned reviewed Git object.
   $sotRef=$ExpectedMainSha+':SOURCE_OF_TRUTH.md'
@@ -215,7 +217,7 @@ if($Mode -ne 'Inspect'){throw 'UNKNOWN_MODE'}
 $work=RequireSource
 VerifyHost
 VerifyCandidate $work
-$dirty=@(& git --no-replace-objects -C $work --no-optional-locks -c core.fsmonitor=false status --porcelain=v1 --untracked-files=all)
-if($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0){throw 'WORKTREE_CHANGED_DURING_INSPECT'}
+# This report verifies only the pinned candidate files and preserved H4 modules.
+# No all-worktree-clean assertion, no Stage/Apply/Rollback authority.
 Write-Output 'MPC010_H4_VIEWER_READONLY_INSPECT_PASS=True'
 Write-Output 'FIELD_APPLY_AUTHORIZED=False'
