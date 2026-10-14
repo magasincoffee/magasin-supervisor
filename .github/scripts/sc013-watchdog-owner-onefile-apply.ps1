@@ -48,6 +48,9 @@ function Assert-NoReparseDirs {
 function Assert-Stop {
   foreach ($flag in @('STOP','AUTOSTART_DISABLED')) {
     $p = Join-Path $CanonicalRoot $flag
+    if (-not (Test-Path -LiteralPath $p -PathType Leaf)) {
+      throw 'OWNER_STOP_LATCH_MISSING'
+    }
     Assert-Plain $p
   }
 }
