@@ -182,6 +182,23 @@ function Assert-PlausiblePartialWrite([byte[]]$observed,[byte[]]$before,[byte[]]
     if ($oldSuffixStart -gt $newPrefix) { throw 'RECOVERY_HOLD_EXTERNAL_EDIT' }
   }
 }
+function Restore-AfterFailedApply([IO.FileStream]$stream,[byte[]]$old,[byte[]]$candidate) {
+  # The SAME exclusive live file handle remains held after a failed postcheck.
+  # Restore only bytes attributable to the one approved source write.
+  if ((Hash-Bytes $old) -cne $ExpectedOld) { throw 'AUTO_ROLLBACK_BACKUP_DRIFT' }
+  $current = Read-LockedFile $stream
+  $currentDigest = Hash-Bytes $current
+  if ($currentDigest -cne $ExpectedOld) {
+    if ($currentDigest -cne $ExpectedNew) {
+      Assert-PlausiblePartialWrite $current $old $candidate
+    }
+    Write-LockedFile $stream $old
+  }
+  if ((Hash-Bytes (Read-LockedFile $stream)) -cne $ExpectedOld) {
+    throw 'AUTO_ROLLBACK_DIGEST_MISMATCH'
+  }
+}
+
 function Write-DurableReceipt([string]$file,[hashtable]$data) {
   # Flush a complete staging receipt to disk, then publish via atomic
   # same-directory rename; a crashed partial .pending file cannot block Recover.
@@ -328,6 +345,7 @@ if ($Mode -eq 'Apply') {
 }
 $stageLock = $null
 $liveHandle = $null
+$applyWriteStarted = $false
 try {
   # Only cooperative apply agents are serialized by this durable D: lock.
   # The live file itself is guarded against any non-cooperative writer via
@@ -378,6 +396,7 @@ try {
     }
     # No check/write race: the live file cannot be written by another normal
     # Windows file opener while FileShare.None is held.
+    $applyWriteStarted = $true
     Write-LockedFile $liveHandle $sourceBytes
     if ((Hash-Bytes (Read-LockedFile $liveHandle)) -cne $ExpectedNew) {
       throw 'POSTWRITE_DIGEST_MISMATCH'
@@ -402,6 +421,7 @@ try {
     verified_at_utc=[DateTimeOffset]::UtcNow.ToString('o')
     watchdog_runtime_reloaded=$false;stop_preserved=$true
   }
+  $applyWriteStarted = $false
   if ($Mode -eq 'Apply') {
     Write-Output ('SC013_WATCHDOG_SOURCE_INSTALLED_SHA256='+$ExpectedNew)
     Write-Output 'WATCHDOG_RUNTIME_RELOAD_NOT_PROVEN=True'
@@ -412,9 +432,20 @@ try {
   Write-Output 'SUPERVISOR_RESTARTED=False'
   Write-Output 'WATCHDOG_RESTARTED=False'
 } catch {
-  # The durable APPLY_STARTED receipt must remain for explicit bounded Recover
-  # if a crash/write/error occurs. Never mislabel a partial write as INSTALLED.
-  throw
+  $originalFailure = $_
+  if ($Mode -eq 'Apply' -and $applyWriteStarted -and $null -ne $liveHandle) {
+    # STOP or main/CI can change after the source bytes were flushed.
+    # Revert immediately under our still-exclusive handle, not in a later job.
+    try {
+      Restore-AfterFailedApply $liveHandle $backupBytes $sourceBytes
+      Write-Output 'SC013_WATCHDOG_AUTO_ROLLBACK_VERIFIED=True'
+    } catch {
+      throw ('WATCHDOG_AUTO_ROLLBACK_HOLD: ' + [string]$_.Exception.Message)
+    }
+  }
+  # Preserve APPLY_STARTED journal for post-incident forensic recovery;
+  # never misreport an aborted installation as SOURCE_INSTALLED.
+  throw $originalFailure
 } finally {
   if ($null -ne $liveHandle) { $liveHandle.Dispose() }
   if ($null -ne $stageLock) {
