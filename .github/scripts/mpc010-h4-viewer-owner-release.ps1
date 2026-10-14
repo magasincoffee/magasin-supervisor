@@ -50,9 +50,12 @@ function HashFile([string]$p){
 }
 function AssertNoReparse([string]$p) {
   $current=$p
-  while($current -and (Test-Path -LiteralPath $current)) {
-    $item=Get-Item -LiteralPath $current -Force -ErrorAction Stop
-    if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {throw 'REPARSE_COMPONENT_DENIED'}
+  # A missing target is not a proof its existing parent is safe.
+  while($current) {
+    if(Test-Path -LiteralPath $current) {
+      $item=Get-Item -LiteralPath $current -Force -ErrorAction Stop
+      if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {throw 'REPARSE_COMPONENT_DENIED'}
+    }
     $parent=Split-Path -Path $current -Parent
     if(!$parent -or $parent -ceq $current){break}
     $current=$parent
