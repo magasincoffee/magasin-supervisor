@@ -30,7 +30,7 @@ MPC-009 remains BLOCKED by SC-013 P1-P3 and Owner authorizations. MPC-010 remain
 
 
 ## Preserved Python dependency SHA snapshot, H4 read-only 2026-10-14
-Independent file-existence/hash readback found all six auxiliary runtime modules. These are NOT imported from the new 11-file GitHub candidate and can break startup or route requests when absent or changed. Treat them as separately pinned, compatibility-checked live prerequisites, not as a bundled deployment:
+Independent file-existence/hash readback found all six auxiliary runtime modules. These are NOT imported from the new 12-file GitHub candidate and can break startup or route requests when absent or changed. Treat them as separately pinned, compatibility-checked live prerequisites, not as a bundled deployment:
 - D:\MAGASIN_ROBOTS\control-center\observability.py = 7B4E2BBC830E8136D5256D223EF59E2B3CCAA9F0D77596F0F3CCDD6DE68AE469
 - D:\MAGASIN_ROBOTS\control-center\cutover_preflight.py = 1A2F9D5D91E983F1CF88456BEB14F40934BE19B81250F69071C6CFA1DEF1AF98
 - D:\MAGASIN_ROBOTS\control-center\specialist_readiness.py = CBEA44CF78C84C1F06F0F2F972A4E1474D9A789C947B4A03BC74E7FA7FD20AC5
@@ -41,3 +41,9 @@ Independent file-existence/hash readback found all six auxiliary runtime modules
 The synthetic classifier requires the complete exact per-file hashes PLUS explicit caller-provided compatibility flags, rejecting missing, changed or unverified preserved imports. Those flags remain untrusted and do not establish live H4 readiness. Before any future approved release, run a separately reviewed H4-native import/route compatibility smoke without worker activation and re-read all dependency digests.
 
 The project-check route module supervisor_project_activation.py was absent from the inspected legacy H4 control-center directory, but is present in reviewed GitHub source. Its source SHA and exact-main identity must be supplied in the complete release candidate alongside its supervisor_project_links dependency. Missing it must fail the synthetic bundle fixture; NO H4 copy is authorized by this document.
+
+## Final-head Codex P2 fixes — candidate bytes and runtime plan path
+- The candidate is now **12 source files**, not 11. The 12th is the subordinate project-plan markdown file, mapped from the GitHub path docs/project-control/MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md to the future H4 viewer-relative path D:\MAGASIN_ROBOTS\control-center\docs\project-control\MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md. This is a data-only, read-only SOT navigation copy; never creates new project authority.
+- Source project_tree_catalogue.py now computes checkout-root plan paths for the repository layout and viewer-root plan paths for the installed layout. Without the bundled plan the UI must remain non-qualified; do not silently claim the Dự án task tree is ready.
+- REVIEWED_CANDIDATE_SHA256_20261014 freezes exact SHA-256 digests of ALL 12 candidate code/plan files. Hosted tests hash the actual Git checkout bytes against all 12 pins and inject wrong-but-well-formed hashes for each. Caller metadata can still be forged, so even exact digest matches grant ZERO field apply or Owner authority. Recompute pins and repeat independent review when any candidate changes.
+- The prior 11-file snapshot, including a source-only server and browser inventory, is historical and no longer a complete candidate. No actual H4 copy, backup, process mutation, credential setup or app upgrade took place in this PR.
