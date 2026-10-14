@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -166,8 +167,18 @@ def once(number, dry=False):
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--issue",type=int,default=0)
+    p.add_argument("--issue-from-env",action="store_true")
     p.add_argument("--dry-run",action="store_true")
     args=p.parse_args()
+    if args.issue_from_env:
+        raw=os.environ.get("DISPATCH_ISSUE","")
+        if raw:
+            # GitHub Actions input is UNTRUSTED; never interpolate into CMD.
+            if re.fullmatch(r"[1-9][0-9]{0,8}", raw) is None:
+                raise SystemExit("INVALID_DISPATCH_ISSUE")
+            args.issue=int(raw)
+        elif args.issue:
+            raise SystemExit("CONFLICTING_DISPATCH_ISSUE")
     if __import__("socket").gethostname().upper()!="DESKTOP-H4A16IL":
         raise SystemExit("WRONG_TARGET: only DESKTOP-H4A16IL")
     if not args.dry_run and not TOKEN:
