@@ -104,6 +104,9 @@ jobs:
         run: |
           python -m unittest discover -s test -p 'test_sc013_mcp_receipt_env.py' -v
           node --test test/sc013-local-mcp-receipt-cmd.test.mjs
+      - name: Verify source-only H4 local MCP field preflight
+        shell: powershell
+        run: python -m unittest discover -s test -p 'test_sc013_local_mcp_field_preflight.py' -v
       - name: Verify synthetic stale local MCP request retirement is safe and never touches H4
         shell: powershell
         run: python -m unittest discover -s test -p 'test_sc013_stale_local_request_retirement_fixture.py' -v
