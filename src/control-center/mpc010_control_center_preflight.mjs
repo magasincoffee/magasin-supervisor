@@ -7,6 +7,7 @@ export const CONTROL_CENTER_BUNDLE = Object.freeze([
   'src/control-center/server.py',
   'src/control-center/owner_request_drafts.py',
   'src/control-center/project_tree_catalogue.py',
+  'src/control-center/supervisor_project_activation.py',
   'src/control-center/web/app.js',
   'src/control-center/web/index.html',
   'src/control-center/web/styles.css',
