@@ -6,7 +6,7 @@ $script=Join-Path $PSScriptRoot '..\.github\scripts\sc013-watchdog-owner-onefile
 $tokens=$null;$errors=$null
 $ast=[System.Management.Automation.Language.Parser]::ParseFile($script,[ref]$tokens,[ref]$errors)
 if (@($errors).Count -ne 0) { throw 'OWNER_INSTALL_POWERSHELL_PARSE_FAILED' }
-foreach ($name in @('Hash-Bytes','Read-LockedFile','Write-LockedFile','Write-DurableReceipt','Assert-PlausiblePartialWrite','Assert-LiveFileHandle')) {
+foreach ($name in @('Hash-Bytes','Read-LockedFile','Write-LockedFile','Write-DurableReceipt','Assert-PlausiblePartialWrite','Assert-LiveFileHandle','Restore-AfterFailedApply','Assert-RequiredMainCiResponse')) {
   $matches=@($ast.FindAll({
     param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -97,6 +97,65 @@ try {
   $held=$false
   try { Assert-PlausiblePartialWrite $partial $oldBytes $newBytes } catch { $held=$true }
   if (-not $held) { throw 'UNKNOWN_RECOVERY_BYTES_ACCEPTED' }
+
+  # Synthetic-only GitHub API response, no actual network or H4 credentials.
+  $ExpectedMainSha='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  $specs=@(
+    @{workflow_id=363535704;path='.github/workflows/supervisor-tests.yml'},
+    @{workflow_id=363535705;path='.github/workflows/supervisor-integrity.yml'},
+    @{workflow_id=363536127;path='.github/workflows/supervisor-lifecycle-acceptance.yml'},
+    @{workflow_id=363536125;path='.github/workflows/supervisor-autostart-install.yml'}
+  )
+  $runs=@()
+  foreach($row in $specs){
+    $runs+=([pscustomobject]@{
+      workflow_id=$row.workflow_id;path=$row.path
+      repository=[pscustomobject]@{full_name='magasincoffee/magasin-supervisor'}
+      head_sha=$ExpectedMainSha;head_branch='main';event='push'
+      status='completed';conclusion='success';id=(38560000000+$row.workflow_id)
+      run_attempt=1
+    })
+  }
+  $receipt=[pscustomobject]@{total_count=4;workflow_runs=$runs}
+  Assert-RequiredMainCiResponse $receipt $ExpectedMainSha
+  $oldConclusion=$runs[0].conclusion
+  $runs[0].conclusion='failure'
+  $held=$false
+  try { Assert-RequiredMainCiResponse $receipt $ExpectedMainSha } catch { $held=$true }
+  if(-not $held){throw 'FAILED_MAIN_CI_WAS_ACCEPTED'}
+  $runs[0].conclusion=$oldConclusion
+  $runs[1].head_sha='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+  $held=$false
+  try { Assert-RequiredMainCiResponse $receipt $ExpectedMainSha } catch { $held=$true }
+  if(-not $held){throw 'MISMATCH_MAIN_CI_SHA_WAS_ACCEPTED'}
+  $runs[1].head_sha=$ExpectedMainSha
+  $receipt.total_count=5
+  $held=$false
+  try { Assert-RequiredMainCiResponse $receipt $ExpectedMainSha } catch { $held=$true }
+  if(-not $held){throw 'PAGINATED_MAIN_CI_WAS_ACCEPTED'}
+  $receipt.total_count=4
+
+  # A synthetic aborted post-write assertion must restore original bytes
+  # while the same exclusive file handle is held.
+  $ExpectedOld=Hash-Bytes $old
+  $ExpectedNew=Hash-Bytes $next
+  $inflight=[IO.File]::Open($target,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+  try {
+    Write-LockedFile $inflight $next
+    Restore-AfterFailedApply $inflight $old $next
+    if((Hash-Bytes (Read-LockedFile $inflight)) -cne $ExpectedOld) {
+      throw 'AUTO_ROLLBACK_NOT_VERIFIED'
+    }
+    Write-LockedFile $inflight $next
+    $foreign=[Text.Encoding]::UTF8.GetBytes('UNRELATED FOREIGN DATA')
+    Write-LockedFile $inflight $foreign
+    $held=$false
+    try { Restore-AfterFailedApply $inflight $old $next } catch { $held=$true }
+    if(-not $held){throw 'AUTO_ROLLBACK_OVERWROTE_FOREIGN_BYTES'}
+  } finally {
+    $inflight.Dispose()
+  }
+
   Write-Host 'SC013_ONEFILE_EXCLUSIVE_FIXTURE_PASS=True'
 } finally {
   Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
