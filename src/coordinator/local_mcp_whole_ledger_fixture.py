@@ -78,7 +78,7 @@ def _valid_fixture(db):
             or {row[0] for row in kinds} != {"dispatch_inbox", "jobs"}
             or any(
                 kind != "table" or not isinstance(sql, str)
-                or re.match(r"(?is)^\\s*CREATE\\s+TABLE\\b", sql) is None
+                or re.match(r"(?is)^\s*CREATE\s+TABLE\b", sql) is None
                 for _, kind, sql in kinds
             )):
         raise FixtureHold("FIXTURE_NOT_CANONICAL_TABLES")
