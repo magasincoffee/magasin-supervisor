@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import Counter
 import sqlite3
 import time
+import re
 
 SCHEMA = "SC013_MCP_WHOLE_LEDGER_FIXTURE_RECEIPT_V1"
 PREFIX = "github:magasincoffee/magasin-supervisor:issue:"
@@ -35,6 +36,9 @@ class FixtureHold(ValueError):
 
 def create_memory_fixture():
     connection = sqlite3.connect(":memory:")
+    # SQLite may allocate internal sort/FTS work files when temp_store is
+    # configured FILE, even with an in-RAM MAIN database.
+    connection.execute("PRAGMA temp_store=MEMORY")
     _ALLOWED[id(connection)] = connection
     return connection
 
@@ -55,21 +59,28 @@ def _valid_fixture(db):
     ):
         raise FixtureHold("ATTACHED_OR_DISK_DATABASE_FORBIDDEN")
 
-    # A view can hide a materializing ORDER BY/GROUP BY before the cursor
-    # yields the first row; this fixture accepts only ordinary named tables.
+    # Views and VIRTUAL TABLES can materialize or execute extension code
+    # BEFORE a cursor yields a value to the projected-byte limiter.
+    # sqlite_schema.type="table" even for CREATE VIRTUAL TABLE; check SQL.
+    # Any TEMP object is prohibited, not only ones named jobs/inbox.
     try:
+        temp_mode = db.execute("PRAGMA temp_store").fetchone()[0]
         kinds = db.execute(
-            "SELECT name, type FROM main.sqlite_schema "
+            "SELECT name, type, sql FROM main.sqlite_schema "
             "WHERE name IN ('dispatch_inbox', 'jobs')"
         ).fetchall()
-        shadow = db.execute(
-            "SELECT name FROM sqlite_temp_schema "
-            "WHERE name IN ('dispatch_inbox', 'jobs')"
-        ).fetchall()
+        temp_objects = db.execute("SELECT name FROM sqlite_temp_schema").fetchall()
     except sqlite3.Error:
         raise FixtureHold("FIXTURE_SCHEMA_UNREADABLE") from None
-    if (set(kinds) != {("dispatch_inbox", "table"), ("jobs", "table")}
-            or shadow):
+    if temp_mode != 2 or temp_objects:
+        raise FixtureHold("TEMP_STORAGE_OR_OBJECTS_FORBIDDEN")
+    if (len(kinds) != 2
+            or {row[0] for row in kinds} != {"dispatch_inbox", "jobs"}
+            or any(
+                kind != "table" or not isinstance(sql, str)
+                or re.match(r"(?is)^\\s*CREATE\\s+TABLE\\b", sql) is None
+                for _, kind, sql in kinds
+            )):
         raise FixtureHold("FIXTURE_NOT_CANONICAL_TABLES")
 
 
