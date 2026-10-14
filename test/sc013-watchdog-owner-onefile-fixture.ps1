@@ -6,7 +6,7 @@ $script=Join-Path $PSScriptRoot '..\.github\scripts\sc013-watchdog-owner-onefile
 $tokens=$null;$errors=$null
 $ast=[System.Management.Automation.Language.Parser]::ParseFile($script,[ref]$tokens,[ref]$errors)
 if (@($errors).Count -ne 0) { throw 'OWNER_INSTALL_POWERSHELL_PARSE_FAILED' }
-foreach ($name in @('Hash-Bytes','Read-LockedFile','Write-LockedFile','Write-DurableReceipt','Assert-PlausiblePartialWrite','Assert-LiveFileHandle','Restore-AfterFailedApply','Assert-RequiredMainCiResponse')) {
+foreach ($name in @('Hash-Bytes','Read-LockedFile','Write-LockedFile','Write-DurableReceipt','Assert-PlausiblePartialWrite','Assert-LiveFileHandle','Restore-AfterFailedApply','Assert-RequiredMainCiResponse','Assert-PlausibleReversePartialWrite','Assert-QualifiedRecoveryWrite')) {
   $matches=@($ast.FindAll({
     param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -97,6 +97,35 @@ try {
   $held=$false
   try { Assert-PlausiblePartialWrite $partial $oldBytes $newBytes } catch { $held=$true }
   if (-not $held) { throw 'UNKNOWN_RECOVERY_BYTES_ACCEPTED' }
+
+  # Crash halfway through the reverse auto-rollback:
+  # OLD prefix + CANDIDATE suffix is attributable to this journal and MUST
+  # be recoverable. Never admit foreign changes or a zero old-byte prefix.
+  $oldReverse=[Text.Encoding]::UTF8.GetBytes('abcdef01234567890')
+  $newReverse=[Text.Encoding]::UTF8.GetBytes('QRSTUVZ9876543210LONG')
+  $midReverse=[byte[]]$newReverse.Clone()
+  [Array]::Copy($oldReverse,0,$midReverse,0,6)
+  Assert-PlausibleReversePartialWrite $midReverse $oldReverse $newReverse
+  Assert-QualifiedRecoveryWrite $midReverse $oldReverse $newReverse
+  $midReverse[9]=[byte][char]'!'
+  $held=$false
+  try { Assert-QualifiedRecoveryWrite $midReverse $oldReverse $newReverse } catch { $held=$true }
+  if(-not $held){throw 'FOREIGN_PARTIAL_REVERSE_BYTES_ACCEPTED'}
+  $candidateOnly=[byte[]]$newReverse.Clone()
+  $candidateOnly[0]=[byte][char]'!'
+  $held=$false
+  try { Assert-QualifiedRecoveryWrite $candidateOnly $oldReverse $newReverse } catch { $held=$true }
+  if(-not $held){throw 'ZERO_OLD_PREFIX_REVERSE_ACCEPTED'}
+
+  # Reproduces a truncated reverse write at the original file length.
+  $cutReverse=New-Object byte[] $oldReverse.Length
+  [Array]::Copy($newReverse,0,$cutReverse,0,$cutReverse.Length)
+  [Array]::Copy($oldReverse,0,$cutReverse,0,4)
+  Assert-QualifiedRecoveryWrite $cutReverse $oldReverse $newReverse
+  $cutReverse[11]=[byte][char]'!'
+  $held=$false
+  try { Assert-QualifiedRecoveryWrite $cutReverse $oldReverse $newReverse } catch { $held=$true }
+  if(-not $held){throw 'FOREIGN_TRUNCATED_REVERSE_BYTES_ACCEPTED'}
 
   # Synthetic-only GitHub API response, no actual network or H4 credentials.
   $ExpectedMainSha='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
