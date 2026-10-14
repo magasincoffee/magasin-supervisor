@@ -25,7 +25,10 @@ test("Only exact Watchdog source can be replaced; backup and rollback always gua
   assert.match(source, /runtime\\windows\\local-watchdog\.ps1/);
   assert.match(source, /Copy-Item -LiteralPath \$candidate -Destination \$temp/);
   assert.match(source, /Move-Item -LiteralPath \$temp -Destination \$live -Force/);
-  assert.match(source, /Copy-Item -LiteralPath \$backup -Destination \$live -Force/);
+  assert.match(source, /Copy-Item -LiteralPath \$backup -Destination \$rollbackTemp/);
+  assert.match(source, /\$replaceAttempted = \$true/);
+  assert.match(source, /ROLLBACK_HOLD_LIVE_FILE_MISSING/);
+  assert.match(source, /ROLLBACK_TEMP_DIGEST_FAILED/);
   assert.match(source, /ROLLBACK_HOLD_CONCURRENT_WRITER/);
   assert.match(source, /ROLLBACK_INTEGRITY_FAILED/);
   assert.match(source, /WATCHDOG_RUNTIME_RELOAD_NOT_PROVEN=True/);
