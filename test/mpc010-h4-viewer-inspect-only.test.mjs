@@ -45,3 +45,10 @@ test('unreadable port provider and unrelated process must fail closed',()=>{
   assert.match(script,/Invoke-CimMethod -InputObject \$proc -MethodName GetOwner -ErrorAction Stop/);
   assert.match(script,/VIEWER_PROCESS_OWNER_UNVERIFIED/);
 });
+
+test('inspect must traverse existing ancestors of nonexistent target and be CI-triggered',()=>{
+  assert.match(script,/while\(\$current\) \{/);
+  assert.match(script,/if\(Test-Path -LiteralPath \$current\) \{/);
+  const testsWorkflow=readFileSync(new URL('../.github/workflows/supervisor-tests.yml',import.meta.url),'utf8');
+  assert.equal(testsWorkflow.split("- '.github/scripts/mpc010-h4-viewer-owner-release.ps1'").length-1,2);
+});
