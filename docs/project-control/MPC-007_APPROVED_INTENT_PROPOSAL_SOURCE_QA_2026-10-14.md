@@ -24,6 +24,10 @@ The pure propose(request, source, approval, verifier_secret=...) function produc
 
 The output does not contain issue number, PR number, dispatch ID or SOT update receipt. Draft fields are data, not rendered HTML/Markdown. Future UI must escape them; the projector does not directly render untrusted text. No generated proposal is authority to operate the Supervisor, switch projects or modify another project's SOT.
 
+## MPC-007 P2 repair (independent review)
+
+The initial final-head review found that Python urlsplit silently strips interior ASCII CR/LF/TAB from GitHub attachment URLs. The repair rejects ASCII control bytes 0x00-0x1F and 0x7F before parsing, both at MPC-006 request capture and again at MPC-007 projection, and adds negative regression fixtures at each boundary. This is a source-only fail-closed validation correction; no actual screenshot fetching or H4 mutation.
+
 ## QA and release gates
 
 test/test_mpc007_owner_intent_proposals.py exercises deterministic identity, original immutable request hash, separate Owner decision binding, rejected unsigned/mismatched/replayed revision claims, rejected cross-repository SOT path, hostile links, no side effects, and true-only-draft flags. Hosted Supervisor Tests and Integrity must invoke this suite; all four hosted Supervisor workflows must PASS at exact final PR SHA, followed by ONE independent Codex review after the full task, grouped P1/P2 repair as necessary, reviewed merge and exact-main readback. Preserve STOP/AUTOSTART_DISABLED, SC-013 P1/P2/P3, no-fee policy and unrelated H4/MCP Local states.
