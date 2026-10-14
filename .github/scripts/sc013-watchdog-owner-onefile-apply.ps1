@@ -87,7 +87,6 @@ if (@($parseErrors).Count -ne 0) { throw 'WATCHDOG_SOURCE_PARSE_FAILED' }
 $lock = $null
 $temp = $null
 $replaceAttempted = $false
-$replaced = $false
 try {
   $lock = [IO.File]::Open($lockPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
   Assert-Latches
@@ -103,7 +102,6 @@ try {
   # This is the ONLY production file replacement.
   $replaceAttempted = $true
   Move-Item -LiteralPath $temp -Destination $live -Force -ErrorAction Stop
-  $replaced = $true
   if ((Sha256 $live) -cne $ExpectedNew) { throw 'INSTALLED_DIGEST_MISMATCH' }
   Assert-Latches
   Write-Output ('SC013_WATCHDOG_SOURCE_INSTALLED_SHA256='+$ExpectedNew)
@@ -143,5 +141,6 @@ try {
   }
   if ($null -ne $lock) {
     $lock.Dispose()
+    Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
   }
 }
