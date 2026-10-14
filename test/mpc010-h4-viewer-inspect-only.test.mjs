@@ -48,7 +48,16 @@ test('unreadable port provider and unrelated process must fail closed',()=>{
 
 test('inspect must traverse existing ancestors of nonexistent target and be CI-triggered',()=>{
   assert.match(script,/while\(\$current\) \{/);
-  assert.match(script,/if\(Test-Path -LiteralPath \$current\) \{/);
+  assert.match(script,/Get-ChildItem -LiteralPath \$parent -Force -ErrorAction Stop/);
+  assert.doesNotMatch(script,/if\(Test-Path -LiteralPath \$current\) \{/);
   const testsWorkflow=readFileSync(new URL('../.github/workflows/supervisor-tests.yml',import.meta.url),'utf8');
   assert.equal(testsWorkflow.split("- '.github/scripts/mpc010-h4-viewer-owner-release.ps1'").length-1,2);
+});
+
+test('final no-write inspector covers old worker modes and avoids git index refresh',()=>{
+  assert.equal(script.split('git -C $work --no-optional-locks status').length-1,2);
+  assert.doesNotMatch(script,/git -C \$work status --porcelain/);
+  assert.match(script,/brain-worker-cli/);
+  assert.match(script,/supervisor-loop-cli/);
+  assert.match(script,/Get-ChildItem -LiteralPath \$parent -Force -ErrorAction Stop/);
 });
