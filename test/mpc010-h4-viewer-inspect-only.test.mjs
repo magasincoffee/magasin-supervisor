@@ -32,7 +32,7 @@ test('no SOT section grants H4 installation from this source-only PR',()=>{
 test('Codex P2 boundaries reject dirty tree, symlink STOP and all orphaned worker names',()=>{
   assert.match(script,/WORKTREE_OR_INDEX_NOT_CLEAN/);
   assert.match(script,/WORKTREE_CHANGED_DURING_INSPECT/);
-  assert.match(script,/git -C \$work status --porcelain=v1 --untracked-files=all/);
+  assert.match(script,/git -C \$work --no-optional-locks status --porcelain=v1 --untracked-files=all/);
   assert.match(script,/Join-Path \$stopRoot 'STOP'\),\(Join-Path \$stopRoot 'AUTOSTART_DISABLED'\)/);
   for(const name of ['three-lane-cli','planner-executor-cli','planner-executor-bridge-cli','single-conversation-cli'])
     assert.ok(script.includes(name),name);
