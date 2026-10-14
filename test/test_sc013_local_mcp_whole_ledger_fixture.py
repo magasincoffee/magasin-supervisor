@@ -170,6 +170,54 @@ class SyntheticWholeLedgerTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_nonindexed_normal_tables_do_not_sort_before_streaming(self):
+        db = seed(14)
+        try:
+            # Jobs and inbox tables have a PRIMARY KEY in our canonical
+            # fixture. Remove indexes by recreating copies WITHOUT indexes.
+            db.execute("ALTER TABLE jobs RENAME TO old_jobs")
+            db.execute("CREATE TABLE jobs (id TEXT, status TEXT, error TEXT)")
+            db.execute("INSERT INTO jobs SELECT * FROM old_jobs")
+            db.execute("DROP TABLE old_jobs")
+            db.execute("ALTER TABLE dispatch_inbox RENAME TO old_inbox")
+            db.execute("CREATE TABLE dispatch_inbox (source_id TEXT, source TEXT, task_id TEXT, target TEXT, action TEXT, status TEXT, local_job_id TEXT, details TEXT)")
+            db.execute("INSERT INTO dispatch_inbox SELECT * FROM old_inbox")
+            db.execute("DROP TABLE old_inbox")
+            db.commit()
+            for statement in (
+                "SELECT source_id,source,task_id,target,action,status,local_job_id FROM dispatch_inbox",
+                "SELECT id,status FROM jobs",
+            ):
+                details = db.execute("EXPLAIN QUERY PLAN "+statement).fetchall()
+                self.assertFalse(
+                    any("USE TEMP B-TREE" in str(row[-1]).upper() for row in details),
+                    details,
+                )
+            receipt = sut.snapshot_fixture(db)
+            self.assertEqual(receipt["blockers"], [])
+            self.assertEqual(receipt["jobs_total"], 14)
+            self.assertFalse(receipt["field_apply_authorized"])
+        finally:
+            db.close()
+
+    def test_rejects_view_materialization_and_temp_table_shadowing(self):
+        db = seed(3)
+        try:
+            db.execute("ALTER TABLE jobs RENAME TO real_jobs")
+            db.execute("CREATE VIEW jobs AS SELECT * FROM real_jobs ORDER BY id")
+            db.commit()
+            with self.assertRaisesRegex(sut.FixtureHold, "FIXTURE_NOT_CANONICAL_TABLES"):
+                sut.snapshot_fixture(db)
+        finally:
+            db.close()
+        db = seed(3)
+        try:
+            db.execute("CREATE TEMP TABLE jobs (id TEXT, status TEXT)")
+            with self.assertRaisesRegex(sut.FixtureHold, "FIXTURE_NOT_CANONICAL_TABLES"):
+                sut.snapshot_fixture(db)
+        finally:
+            db.close()
+
     def test_limit_fails_closed_instead_of_truncating(self):
         db=seed()
         original=sut.MAX_ROWS
