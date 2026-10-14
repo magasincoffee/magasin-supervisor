@@ -106,7 +106,7 @@ test("durable APPLY_STARTED journal precedes write and recovery is explicit", ()
   assert.match(source,/Write-DurableReceipt \$receipt/);
   assert.match(source,/\[IO.File\]::Move\(\$temporary,\$file\)/);
   assert.match(source,/\$stageLock = \[IO.File\]::Open\(\$lockPath,\[IO.FileMode\]::OpenOrCreate/);
-  assert.match(source,/Assert-PlausiblePartialWrite \$bytesBefore \$backupBytes \$sourceBytes/);
+  assert.match(source,/Assert-QualifiedRecoveryWrite \$bytesBefore \$backupBytes \$sourceBytes/);
   assert.match(source,/RECOVERY_HOLD_EXTERNAL_EDIT/);
 
   assert.ok(source.indexOf("Write-DurableReceipt $transaction") <
