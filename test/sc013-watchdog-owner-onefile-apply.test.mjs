@@ -37,6 +37,13 @@ test("exclusive same-handle write prevents check/write races", () => {
   assert.match(source,/Read-LockedFile \$liveHandle/);
   assert.match(source,/Write-LockedFile \$liveHandle \$sourceBytes/);
   assert.match(source,/EXCLUSIVE_LIVE_HASH_CHANGED/);
+  assert.match(source,/Assert-LiveFileHandle \$liveHandle/);
+  assert.match(source,/GetFileInformationByHandle/);
+  assert.match(source,/GetFinalPathNameByHandle/);
+  assert.match(source,/NumberOfLinks -ne 1/);
+  assert.match(source,/WATCHDOG_HANDLE_TARGET_MISMATCH/);
+  assert.match(source,/WATCHDOG_HANDLE_REPARSE_OR_HARDLINK/);
+
   assert.match(source,/\$stream\.Flush\(\$true\)/);
   assert.match(source,/WATCHDOG_RUNTIME_RELOAD_NOT_PROVEN=True/);
   assert.doesNotMatch(source,/Move-Item -LiteralPath \$temp -Destination \$live/);
@@ -53,6 +60,11 @@ test("durable APPLY_STARTED journal precedes write and recovery is explicit", ()
   assert.match(source,/Write-LockedFile \$liveHandle \$backupBytes/);
   assert.match(source,/RECOVERY_DIGEST_MISMATCH/);
   assert.match(source,/Write-DurableReceipt \$receipt/);
+  assert.match(source,/\[IO.File\]::Move\(\$temporary,\$file\)/);
+  assert.match(source,/\$stageLock = \[IO.File\]::Open\(\$lockPath,\[IO.FileMode\]::OpenOrCreate/);
+  assert.match(source,/Assert-PlausiblePartialWrite \$bytesBefore \$backupBytes \$sourceBytes/);
+  assert.match(source,/RECOVERY_HOLD_EXTERNAL_EDIT/);
+
   assert.ok(source.indexOf("Write-DurableReceipt $transaction") <
     source.indexOf("Write-LockedFile $liveHandle $sourceBytes"));
 });
