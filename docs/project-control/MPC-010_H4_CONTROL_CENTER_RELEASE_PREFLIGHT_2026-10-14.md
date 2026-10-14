@@ -19,7 +19,7 @@ Display the reviewed MAGASIN PROJECT CONTROL Vietnamese Dự án tree and a read
 - The limited read did NOT independently prove current physical STOP latches or in-flight outbound transaction safety; these require separate on-host proof. No backup, source staging, install or worker change was done in this MPC-010 source scope.
 
 ## Required source inventory and dependency closure
-The MPC UI bundle contains Python server.py, owner_request_drafts.py, project_tree_catalogue.py; and browser app.js, index.html, styles.css, project_tree_view.mjs, project_detail_view.mjs, project_request_view.mjs, project_supervisor_telemetry.mjs. Existing observability, project-link and Coordinator lifecycle Python imports also require independent compatibility checks. Never install only index.html/app.js: the bundle needs the Python API routes, module routing and accurate Owner session enforcement.
+The MPC UI bundle contains Python server.py, owner_request_drafts.py, project_tree_catalogue.py, supervisor_project_activation.py (required by /api/supervisor/project/check); and browser app.js, index.html, styles.css, project_tree_view.mjs, project_detail_view.mjs, project_request_view.mjs, project_supervisor_telemetry.mjs. Existing observability, project-link and Coordinator lifecycle Python imports also require independent compatibility checks. Never install only index.html/app.js: the bundle needs the Python API routes, module routing and accurate Owner session enforcement.
 
 ## Verified scope and blocker
 The synthetic read-only validator src/control-center/mpc010_control_center_preflight.mjs accepts only caller-supplied metadata. All caller values, including host/STOP assertions and source hashes, remain UNTRUSTED. Its output ALWAYS has fieldApplyAuthorized=false, stageAuthorized=false, workerStartAuthorized=false, productionAccepted=false and ownerApprovalEstablished=false. A matching synthetic fixture is not real H4 proof. Negative cases cover wrong machine/admin, moved main, installed drift, STOP removal, business processes/outbound ambiguity, incomplete module bundle, low D space, wrong/multiple port listeners, unknown Owner credential state, no rollback and forbidden write scope. Both hosted Supervisor Tests and Supervisor Integrity run the targeted test.
@@ -30,7 +30,7 @@ MPC-009 remains BLOCKED by SC-013 P1-P3 and Owner authorizations. MPC-010 remain
 
 
 ## Preserved Python dependency SHA snapshot, H4 read-only 2026-10-14
-Independent file-existence/hash readback found all six auxiliary runtime modules. These are NOT imported from the new 10-file GitHub candidate and can break startup or route requests when absent or changed. Treat them as separately pinned, compatibility-checked live prerequisites, not as a bundled deployment:
+Independent file-existence/hash readback found all six auxiliary runtime modules. These are NOT imported from the new 11-file GitHub candidate and can break startup or route requests when absent or changed. Treat them as separately pinned, compatibility-checked live prerequisites, not as a bundled deployment:
 - D:\MAGASIN_ROBOTS\control-center\observability.py = 7B4E2BBC830E8136D5256D223EF59E2B3CCAA9F0D77596F0F3CCDD6DE68AE469
 - D:\MAGASIN_ROBOTS\control-center\cutover_preflight.py = 1A2F9D5D91E983F1CF88456BEB14F40934BE19B81250F69071C6CFA1DEF1AF98
 - D:\MAGASIN_ROBOTS\control-center\specialist_readiness.py = CBEA44CF78C84C1F06F0F2F972A4E1474D9A789C947B4A03BC74E7FA7FD20AC5
@@ -39,3 +39,5 @@ Independent file-existence/hash readback found all six auxiliary runtime modules
 - D:\MAGASIN_ROBOTS\robots\supervisor\control_adapter.py = 90F92C32C266C6A3571347169C802C8300FFBBD6F0EC0BDD70143E2F2C68B1E5
 
 The synthetic classifier requires the complete exact per-file hashes PLUS explicit caller-provided compatibility flags, rejecting missing, changed or unverified preserved imports. Those flags remain untrusted and do not establish live H4 readiness. Before any future approved release, run a separately reviewed H4-native import/route compatibility smoke without worker activation and re-read all dependency digests.
+
+The project-check route module supervisor_project_activation.py was absent from the inspected legacy H4 control-center directory, but is present in reviewed GitHub source. Its source SHA and exact-main identity must be supplied in the complete release candidate alongside its supervisor_project_links dependency. Missing it must fail the synthetic bundle fixture; NO H4 copy is authorized by this document.
