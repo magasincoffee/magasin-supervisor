@@ -25,7 +25,7 @@ export function projectSupervisorTelemetryProjection(robot,{nowMs=Date.now()}={}
  if(!isRecord(robot)||robot.id!=="supervisor")return result;
  const latches=robot.mpc_readonly_latches;
  if(isRecord(latches)&&latches.schema==="MPC-008_LOCAL_LATCHES_V1"&&latches.host_verified===true){
-  if(latches.owner_stop_marker===true || robot.details?.["Owner STOP"]===true)
+  if(latches.owner_stop_marker===true)
    result.ownerStop="STOP_LATCH";
   else if(latches.owner_stop_marker===false)result.ownerStop="MARKER_ABSENT_NOT_AUTHORIZED";
   if(latches.autostart_disabled_marker===true)result.autostart="DISABLED_LATCH";
