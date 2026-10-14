@@ -135,11 +135,31 @@ test("MPC-007 verified completion and MPC-008 handoff remain SOURCE/QA only", ()
   assert.doesNotMatch(immediate, /MPC-007 is the sole next executable task/);
   const historical = plan.split("## MPC-001 execution evidence")[1];
   assert.ok(historical, "historical evidence must remain inspectable");
-  for (const [index, line] of historical.split("\n").entries()) {
-    assert.doesNotMatch(
-      line,
-      /\bNext authorized(?: backlog)? task\s*:\s*MPC-\d{3}|\bCurrent next task is MPC-\d{3}|\bCurrent next authorized task\s*:\s*MPC-\d{3}|\bMPC-\d{3} is NEXT\b|\bMPC-\d{3} is the sole next executable task\b/i,
-      "active MPC NEXT declaration buried in historical evidence at line " + (index + 1)
+  const authorizedLine = "**MPC-008 is the sole next executable task (SOURCE/QA ONLY)**";
+  const nextPattern = /\bNext authorized(?: backlog)? task\s*:\s*MPC-\d{3}|\bCurrent next task is MPC-\d{3}|\bCurrent next authorized task\s*:\s*MPC-\d{3}|\bMPC-\d{3} is NEXT\b|\bMPC-\d{3} is the sole next executable task\b|\bMPC-\d{3} NEXT\b/i;
+  function assertSingleNextAuthority(candidate) {
+    const lines = candidate.split("\n");
+    assert.equal(lines.filter(line => line.includes(authorizedLine)).length, 1, "one authorized immediate MPC-008 declaration");
+    assert.match(lines[2], /^Status: .*; MPC-008 NEXT$/, "status header must agree on MPC-008");
+    const immediateStart = candidate.indexOf("## Immediate next work");
+    const immediateEnd = candidate.indexOf("## MPC-001 execution evidence");
+    assert.ok(immediateStart !== -1 && immediateEnd > immediateStart, "immediate scope markers required");
+    for (const [index, line] of lines.entries()) {
+      if (index === 2) continue; // separately verified exact status header
+      if (line.includes(authorizedLine)) {
+        const position = candidate.indexOf(line);
+        assert.ok(position > immediateStart && position < immediateEnd, "only immediate section may authorize MPC-008");
+        continue;
+      }
+      assert.doesNotMatch(line, nextPattern, "competing active MPC NEXT claim at full-plan line " + (index + 1));
+    }
+  }
+  assertSingleNextAuthority(plan);
+  for (const section of ["## Architecture boundaries", "## Source contracts", "## Delivery tasks", "## Release gate sequence", "## MPC-001 execution evidence"]) {
+    assert.throws(
+      () => assertSingleNextAuthority(plan.replace(section, section + "\nMPC-007 is NEXT")),
+      /competing active MPC NEXT/,
+      "authority guard must reject a stale NEXT instruction in " + section
     );
   }
   assert.match(historical, /Historical 2026-10-12 handoff: MPC-003 was next/);
