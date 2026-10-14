@@ -85,13 +85,49 @@ function Write-LockedFile([IO.FileStream]$stream,[byte[]]$bytes) {
   $stream.SetLength($bytes.Length)
   $stream.Flush($true)
 }
+function Assert-PlausiblePartialWrite([byte[]]$observed,[byte[]]$before,[byte[]]$after) {
+  # Exclusive Write() can only leave candidate prefix and old suffix.
+  # Unrelated bytes are never overwritten during journal recovery.
+  if ($observed.Length -lt $before.Length -or
+      $observed.Length -gt $after.Length) { throw 'RECOVERY_HOLD_EXTERNAL_EDIT' }
+  if ($observed.Length -gt $before.Length) {
+    for ($i=0;$i -lt $observed.Length;$i++) {
+      if ($observed[$i] -ne $after[$i]) { throw 'RECOVERY_HOLD_EXTERNAL_EDIT' }
+    }
+  } else {
+    $newPrefix = 0
+    while ($newPrefix -lt $observed.Length -and
+           $observed[$newPrefix] -eq $after[$newPrefix]) { $newPrefix++ }
+    $oldSuffixStart = $observed.Length
+    while ($oldSuffixStart -gt 0 -and
+           $observed[$oldSuffixStart-1] -eq $before[$oldSuffixStart-1]) {
+      $oldSuffixStart--
+    }
+    if ($oldSuffixStart -gt $newPrefix) { throw 'RECOVERY_HOLD_EXTERNAL_EDIT' }
+  }
+}
 function Write-DurableReceipt([string]$file,[hashtable]$data) {
-  # Exclusive CreateNew + disk flush; journal must exist before the first live write.
+  # Flush a complete staging receipt to disk, then publish via atomic
+  # same-directory rename; a crashed partial .pending file cannot block Recover.
+  if (Test-Path -LiteralPath $file) { throw 'RECEIPT_ALREADY_EXISTS' }
   $json = $data | ConvertTo-Json -Compress -Depth 5
   $bytes = [Text.Encoding]::UTF8.GetBytes($json)
-  $handle = [IO.File]::Open($file,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-  try { $handle.Write($bytes,0,$bytes.Length);$handle.Flush($true) }
-  finally { $handle.Dispose() }
+  $temporary = $file + '.pending.' + [guid]::NewGuid().ToString('N')
+  $handle = $null
+  try {
+    $handle = [IO.File]::Open($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    $handle.Write($bytes,0,$bytes.Length)
+    $handle.Flush($true)
+    $handle.Dispose()
+    $handle = $null
+    if (Test-Path -LiteralPath $file) { throw 'RECEIPT_ALREADY_EXISTS' }
+    [IO.File]::Move($temporary,$file)
+  } finally {
+    if ($null -ne $handle) { $handle.Dispose() }
+    if (Test-Path -LiteralPath $temporary) {
+      Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+    }
+  }
 }
 
 if ([Environment]::MachineName -cne $ExpectedHost) { throw 'WRONG_HOST' }
@@ -158,7 +194,7 @@ try {
   # Only cooperative apply agents are serialized by this durable D: lock.
   # The live file itself is guarded against any non-cooperative writer via
   # FileShare.None and verification through THE SAME open handle.
-  $stageLock = [IO.File]::Open($lockPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+  $stageLock = [IO.File]::Open($lockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
   Assert-NoReparseDirs
   Assert-Stop
   if ($Mode -eq 'Apply') { Assert-LiveMain }
@@ -184,9 +220,7 @@ try {
   }
   if ($Mode -eq 'Recover' -and $digestBefore -cne $ExpectedOld -and
       $digestBefore -cne $ExpectedNew) {
-    # A partial interrupted write is permitted only under the approved
-    # journal and the exclusive file lock; recover to the pinned old backup.
-    if ($liveHandle.Length -gt 1048576) { throw 'RECOVERY_FILE_TOO_LARGE' }
+    Assert-PlausiblePartialWrite $bytesBefore $backupBytes $sourceBytes
   }
   Assert-Stop
   if ($Mode -eq 'Apply') { Assert-LiveMain }
@@ -237,6 +271,6 @@ try {
   if ($null -ne $liveHandle) { $liveHandle.Dispose() }
   if ($null -ne $stageLock) {
     $stageLock.Dispose()
-    Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
+    # Preserve reusable lock file; exclusivity belongs to its open OS handle.
   }
 }
