@@ -25,6 +25,20 @@ class QueueRetirementHold(ValueError):
     """A deliberate refusal, with no local paths or contents in its message."""
 
 
+# Exact connection identity is verified. SQLite reports an empty filename for
+# both real :memory: databases AND disk-backed sqlite3.connect("") temporary
+# databases; PRAGMA database_list alone cannot prove memory-only behavior.
+# Only connections created here with the literal :memory: target are trusted.
+_TRUSTED_MEMORY_FIXTURES: dict[int, sqlite3.Connection] = {}
+
+
+def create_memory_fixture() -> sqlite3.Connection:
+    """Make an explicitly registered in-RAM fixture; never accept arbitrary DBs."""
+    db = sqlite3.connect(":memory:")
+    _TRUSTED_MEMORY_FIXTURES[id(db)] = db
+    return db
+
+
 def _dt(value):
     try:
         ts = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -82,9 +96,12 @@ def fixture_retire(db: sqlite3.Connection, *, at: datetime, fixture_only: bool =
         raise QueueRetirementHold("LIVE_APPLY_NOT_QUALIFIED")
     if not isinstance(db, sqlite3.Connection):
         raise QueueRetirementHold("INVALID_FIXTURE")
-    # Never permit a filesystem-backed SQLite connection, even in fixtures.
+    if _TRUSTED_MEMORY_FIXTURES.get(id(db)) is not db:
+        raise QueueRetirementHold("UNREGISTERED_MEMORY_FIXTURE")
+    # Refuse ATTACHed databases even when the primary connection is trusted.
+    # Filenames alone are NOT a reliable memory-only proof for unnamed temp DBs.
     db_names = db.execute("PRAGMA database_list").fetchall()
-    if len(db_names) != 1 or db_names[0][2] not in ("", ":memory:"):
+    if len(db_names) != 1 or db_names[0][1:] != ("main", ""):
         raise QueueRetirementHold("PERSISTENT_DATABASE_NOT_ALLOWED")
     db.execute("SAVEPOINT sc013_retire")
     try:
