@@ -173,7 +173,8 @@ if ([string]::IsNullOrWhiteSpace($root) -or
 }
 # Windows hosted parser and fixture validate this narrow OS handle identity helper.
 # Add-Type cannot start Supervisor or modify files; any API failure HOLDS apply.
-Add-Type -TypeDefinition @'
+if (-not ([System.Management.Automation.PSTypeName]'SC013WatchdogFileIdentity').Type) {
+  Add-Type -TypeDefinition @'
 using System;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
@@ -200,6 +201,7 @@ public static class SC013WatchdogFileIdentity {
     SafeFileHandle handle, StringBuilder path, uint capacity, uint flags);
 }
 '@ -ErrorAction Stop
+}
 $live = Join-Path $CanonicalRoot 'runtime\windows\local-watchdog.ps1'
 $stage = Join-Path 'D:\MAGASIN_ROBOTS\deploy\sc013-watchdog-owner-20261014' $ExpectedMainSha
 $candidate = Join-Path $stage 'candidate-local-watchdog.ps1'
