@@ -133,6 +133,9 @@ test("MPC-007 verified completion and MPC-008 handoff remain SOURCE/QA only", ()
   assert.ok(immediate, "single current next-task declaration required");
   assert.match(immediate, /MPC-008 is the sole next executable task \(SOURCE\/QA ONLY\)/);
   assert.doesNotMatch(immediate, /MPC-007 is the sole next executable task/);
+  assert.doesNotMatch(plan, /Current next task is MPC-007|MPC-007 is NEXT \(SOURCE\/QA ONLY\)|Next authorized task: MPC-006 \(SOURCE\/QA ONLY\)/i, "stale present-tense NEXT outside Immediate next work");
+  assert.match(plan, /Historical 2026-10-12 handoff:.*MPC-007 was next/);
+  assert.match(plan, /Historical 2026-10-13 handoff: MPC-007 was next/);
   assert.match(plan, /\| MPC-006 \(SOURCE\/QA VERIFIED\) \|/);
   assert.match(plan, /\| MPC-007 \(SOURCE\/QA VERIFIED\) \|/);
   assert.match(plan, /## MPC-007 completion evidence/);
