@@ -115,6 +115,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'SC013_WATCHDOG_NODE_CONTRACT_FAILED' }
           powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test/sc013-watchdog-sparse-state-fixture.ps1
           if ($LASTEXITCODE -ne 0) { throw 'SC013_WATCHDOG_POWERSHELL_FIXTURE_FAILED' }
+      - name: Verify SC-013 watchdog release metadata remains source-only
+        shell: powershell
+        run: python -m unittest discover -s test -p 'test_sc013_watchdog_release_preflight.py' -v
       - name: Verify source-only H4 local MCP field preflight
         shell: powershell
         run: python -m unittest discover -s test -p 'test_sc013_local_mcp_field_preflight.py' -v
