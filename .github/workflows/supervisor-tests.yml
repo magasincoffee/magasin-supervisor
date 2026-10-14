@@ -13,6 +13,7 @@ on:
       - '.github/workflows/supervisor-tests.yml'
       - '.github/workflows/sc013-h4-readonly-probe.yml'
       - '.github/scripts/sc013-h4-readonly-probe.ps1'
+      - '.github/scripts/mpc010-h4-viewer-owner-release.ps1'
   pull_request:
     paths:
       - 'src/**'
@@ -24,6 +25,7 @@ on:
       - '.github/workflows/supervisor-tests.yml'
       - '.github/workflows/sc013-h4-readonly-probe.yml'
       - '.github/scripts/sc013-h4-readonly-probe.ps1'
+      - '.github/scripts/mpc010-h4-viewer-owner-release.ps1'
   workflow_dispatch:
 
 permissions:
