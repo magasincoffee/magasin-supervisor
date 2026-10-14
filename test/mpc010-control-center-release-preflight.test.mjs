@@ -123,8 +123,12 @@ test('candidate SHA256 pins are bound to all reviewed repository file bytes and 
   assert.equal(CONTROL_CENTER_BUNDLE.length,12);
   assert.deepEqual(Object.keys(REVIEWED_CANDIDATE_SHA256_20261014),CONTROL_CENTER_BUNDLE);
   for(const file of CONTROL_CENTER_BUNDLE){
-    const bytes=readFileSync(new URL('../'+file,import.meta.url));
-    const actual=createHash('sha256').update(bytes).digest('hex').toUpperCase();
+    const checkout=readFileSync(new URL('../'+file,import.meta.url),'utf8');
+    // Hosted Windows git checkout may use CRLF; digest pins are canonical
+    // LF GitHub blob bytes, not the OS-specific working tree representation.
+    const canonical=checkout.replace(/\r\n/g,'\n');
+    assert.doesNotMatch(canonical,/\r/,file+' contains unexpected bare CR');
+    const actual=createHash('sha256').update(canonical,'utf8').digest('hex').toUpperCase();
     assert.equal(REVIEWED_CANDIDATE_SHA256_20261014[file],actual,file);
   }
   assert.ok(CONTROL_CENTER_BUNDLE.includes('docs/project-control/MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md'));
