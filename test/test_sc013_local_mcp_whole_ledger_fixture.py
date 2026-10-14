@@ -229,7 +229,44 @@ class SyntheticWholeLedgerTests(unittest.TestCase):
         db = seed(3)
         try:
             db.execute("CREATE TEMP TABLE jobs (id TEXT, status TEXT)")
+            with self.assertRaisesRegex(sut.FixtureHold, "TEMP_STORAGE_OR_OBJECTS_FORBIDDEN"):
+                sut.snapshot_fixture(db)
+        finally:
+            db.close()
+
+    def test_rejects_virtual_table_even_if_schema_type_is_table(self):
+        db = seed(3)
+        try:
+            db.execute("ALTER TABLE jobs RENAME TO ordinary_jobs")
+            try:
+                db.execute("CREATE VIRTUAL TABLE jobs USING fts5(id, status)")
+            except sqlite3.OperationalError as exc:
+                if "no such module" in str(exc).lower():
+                    self.skipTest("FTS5 not available on this hosted interpreter")
+                raise
+            db.commit()
+            self.assertEqual(db.execute(
+                "SELECT type FROM sqlite_schema WHERE name='jobs'"
+            ).fetchone()[0], "table")
             with self.assertRaisesRegex(sut.FixtureHold, "FIXTURE_NOT_CANONICAL_TABLES"):
+                sut.snapshot_fixture(db)
+        finally:
+            db.close()
+
+    def test_rejects_unrelated_temp_object_and_disk_temp_store(self):
+        db = seed(3)
+        try:
+            db.execute("CREATE TEMP TABLE unrelated (secret TEXT)")
+            db.commit()
+            with self.assertRaisesRegex(sut.FixtureHold, "TEMP_STORAGE_OR_OBJECTS_FORBIDDEN"):
+                sut.snapshot_fixture(db)
+        finally:
+            db.close()
+        db = seed(3)
+        try:
+            db.execute("PRAGMA temp_store=FILE")
+            self.assertEqual(db.execute("PRAGMA temp_store").fetchone()[0], 1)
+            with self.assertRaisesRegex(sut.FixtureHold, "TEMP_STORAGE_OR_OBJECTS_FORBIDDEN"):
                 sut.snapshot_fixture(db)
         finally:
             db.close()
