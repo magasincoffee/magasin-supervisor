@@ -74,7 +74,7 @@ try {
   $live = $target
   # Windows hard links share the same content/identity; they must be excluded.
   $hardlink = Join-Path $tempRoot 'extra-hardlink.txt'
-  $out = & cmd.exe /d /c "mklink /H \`"$hardlink\`" \`"$target\`"" 2>&1
+  $out = & cmd.exe /d /c ('mklink /H "' + $hardlink + '" "' + $target + '"') 2>&1
   if ($LASTEXITCODE -ne 0) { throw 'HARDLINK_FIXTURE_SETUP_FAILED' }
   $h = [IO.File]::Open($target,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
   try {
