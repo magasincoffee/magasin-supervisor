@@ -102,8 +102,13 @@ function ReadPinnedSource([string]$work,[string]$rel){
   return $txt.Replace(([string][char]13+[string][char]10),[string][char]10)
 }
 function VerifyCandidate([string]$work) {
-  $pinsPath=Join-Path $work 'src\control-center\mpc010_control_center_preflight.mjs'
-  $source=[IO.File]::ReadAllText($pinsPath,[Text.Encoding]::UTF8)
+  # Never trust pins from the mutable worktree, even when git status is clean:
+  # assume-unchanged/skip-worktree index flags can conceal changes.
+  # Read ONLY the exact reviewed Git object identified by ExpectedMainSha.
+  $pinsRef=$ExpectedMainSha+':src/control-center/mpc010_control_center_preflight.mjs'
+  $pinLines=@(& git -C $work --no-optional-locks cat-file blob $pinsRef)
+  if($LASTEXITCODE -ne 0 -or $pinLines.Count -eq 0){throw 'REVIEWED_PIN_GIT_OBJECT_MISSING'}
+  $source=($pinLines -join "`n")
   $begin=$source.IndexOf('export const REVIEWED_CANDIDATE_SHA256_20261014',[StringComparison]::Ordinal)
   if($begin -lt 0){throw 'SOURCE_HASH_MAP_MISSING'}
   $end=$source.IndexOf('});',$begin,[StringComparison]::Ordinal)
