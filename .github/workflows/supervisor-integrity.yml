@@ -74,6 +74,7 @@ jobs:
         run: |
           python -m unittest discover -s test -p 'test_mpc006_owner_requests.py' -v
           python -m unittest discover -s test -p 'test_mpc006_owner_http.py' -v
+          python -m unittest discover -s test -p 'test_mpc007_owner_intent_proposals.py' -v
       - name: Validate read-only Coordinator cycle hook
         shell: bash
         run: python -m unittest discover -s test -p 'test_sc013_coordinator_cycle_preflight.py' -v
