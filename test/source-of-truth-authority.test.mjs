@@ -164,7 +164,8 @@ test("MPC-007 verified completion and MPC-008 handoff remain SOURCE/QA only", ()
   }
   assert.match(historical, /Historical 2026-10-12 handoff: MPC-003 was next/);
   assert.match(historical, /Historical 2026-10-12 handoff: MPC-004 was next/);
-  assert.match(plan, /Historical 2026-10-12 handoff:.*MPC-007 was next/);
+  assert.match(plan, /Historical 2026-10-12 handoff after MPC-004:.*MPC-005 was next/);
+  assert.doesNotMatch(plan, /Historical 2026-10-12 handoff[^\n]*MPC-007 was next/);
   assert.match(plan, /Historical 2026-10-13 handoff: MPC-007 was next/);
   assert.match(plan, /\| MPC-006 \(SOURCE\/QA VERIFIED\) \|/);
   assert.match(plan, /\| MPC-007 \(SOURCE\/QA VERIFIED\) \|/);
