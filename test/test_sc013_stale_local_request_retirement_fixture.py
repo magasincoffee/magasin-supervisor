@@ -14,7 +14,7 @@ OLD = "2026-10-10T01:00:00+00:00"
 
 
 def seeded():
-    db = sqlite3.connect(":memory:")
+    db = sut.create_memory_fixture()
     db.execute("CREATE TABLE dispatch_inbox (source_id TEXT PRIMARY KEY, source TEXT, task_id TEXT, "
                "target TEXT, action TEXT, sot_url TEXT, status TEXT, local_job_id TEXT, updated_at TEXT)")
     db.execute("CREATE TABLE jobs (id TEXT PRIMARY KEY, kind TEXT, status TEXT)")
@@ -89,11 +89,45 @@ class QueueRetirementFixtureTests(unittest.TestCase):
             path = Path(directory) / "fixture.sqlite"
             db = sqlite3.connect(str(path))
             try:
-                with self.assertRaisesRegex(sut.QueueRetirementHold, "PERSISTENT_DATABASE_NOT_ALLOWED"):
+                with self.assertRaisesRegex(sut.QueueRetirementHold, "UNREGISTERED_MEMORY_FIXTURE"):
                     sut.fixture_retire(db, at=NOW, fixture_only=True)
             finally:
                 # Windows prevents TemporaryDirectory cleanup while sqlite holds the file.
                 db.close()
+
+
+    def test_rejects_unnamed_disk_backed_sqlite_temporary_database(self):
+        # Codex P2: sqlite3.connect("") reports filename="" just like :memory:.
+        db = sqlite3.connect("")
+        try:
+            self.assertEqual(db.execute("PRAGMA database_list").fetchone()[2], "")
+            with self.assertRaisesRegex(sut.QueueRetirementHold, "UNREGISTERED_MEMORY_FIXTURE"):
+                sut.fixture_retire(db, at=NOW, fixture_only=True)
+        finally:
+            db.close()
+
+    def test_rejects_arbitrary_unregistered_memory_connection(self):
+        db = sqlite3.connect(":memory:")
+        try:
+            with self.assertRaisesRegex(sut.QueueRetirementHold, "UNREGISTERED_MEMORY_FIXTURE"):
+                sut.fixture_retire(db, at=NOW, fixture_only=True)
+        finally:
+            db.close()
+
+    def test_rejects_attached_file_even_on_registered_memory_connection(self):
+        import tempfile
+        db = seeded()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "attached.sqlite"
+                try:
+                    db.execute("ATTACH DATABASE ? AS unsafe_attachment", (str(path),))
+                    with self.assertRaisesRegex(sut.QueueRetirementHold, "PERSISTENT_DATABASE_NOT_ALLOWED"):
+                        sut.fixture_retire(db, at=NOW, fixture_only=True)
+                finally:
+                    db.execute("DETACH DATABASE unsafe_attachment")
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":
