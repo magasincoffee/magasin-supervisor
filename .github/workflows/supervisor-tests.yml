@@ -131,6 +131,8 @@ jobs:
           if (@($errors).Count -ne 0) { throw 'WATCHDOG_OWNER_INSTALL_PARSER_FAILED' }
           powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test/sc013-watchdog-owner-onefile-fixture.ps1
           if ($LASTEXITCODE -ne 0) { throw 'WATCHDOG_OWNER_EXCLUSIVE_FIXTURE_FAILED' }
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test/sc013-watchdog-main-blob-fixture.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'WATCHDOG_MAIN_BLOB_FIXTURE_FAILED' }
       - name: Verify SC-013 watchdog release metadata remains source-only
         shell: powershell
         run: python -m unittest discover -s test -p 'test_sc013_watchdog_release_preflight.py' -v
