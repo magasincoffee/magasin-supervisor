@@ -76,7 +76,7 @@ function Assert-ApprovedMainBlob {
     [Environment]::SetEnvironmentVariable('GIT_TERMINAL_PROMPT','0','Process')
     & git init --bare --quiet $proofDir 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'GIT_MAIN_PROOF_INIT_FAILED' }
-    & git -c credential.interactive=never "--git-dir=$proofDir" fetch --quiet --depth=1 --filter=blob:none $RepoUrl refs/heads/main 2>$null | Out-Null
+    & git -c credential.interactive=never "--git-dir=$proofDir" fetch --quiet --depth=1 --no-tags $RepoUrl refs/heads/main 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'GIT_MAIN_PROOF_FETCH_FAILED' }
     $commits = @(& git "--git-dir=$proofDir" rev-parse 'FETCH_HEAD^{commit}' 2>$null)
     if ($LASTEXITCODE -ne 0 -or $commits.Count -ne 1 -or
