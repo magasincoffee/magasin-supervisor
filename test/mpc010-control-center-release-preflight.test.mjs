@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {CONTROL_CENTER_BUNDLE,H4_OBSERVED_20261014,evaluateMpc010ReleaseMetadata}
+import {CONTROL_CENTER_BUNDLE,H4_OBSERVED_20261014,PRESERVED_RUNTIME_DEPENDENCIES_20261014,evaluateMpc010ReleaseMetadata}
   from '../src/control-center/mpc010_control_center_preflight.mjs';
 
 const syntheticSha='a'.repeat(40),syntheticHash='b'.repeat(64);
@@ -13,6 +13,8 @@ const baseline=()=>({
   reparsePathsAbsent:true,symlinksAbsent:true,freeDGiB:56,
   installedHashes:{...H4_OBSERVED_20261014},
   candidateHashes:Object.fromEntries(CONTROL_CENTER_BUNDLE.map(p=>[p,syntheticHash])),
+  preservedDependencyHashes:{...PRESERVED_RUNTIME_DEPENDENCIES_20261014},
+  preservedDependencyCompat:Object.fromEntries(Object.keys(PRESERVED_RUNTIME_DEPENDENCIES_20261014).map(p=>[p,true])),
   localPortListeners:[],ownerCredentialConfigured:false,
   rollbackPlan:'ISOLATED_D_HASH_VERIFIED_NOT_EXECUTED',
   telemetryReadOnly:true,noSotOrIssueWrites:true,
@@ -30,6 +32,8 @@ test('missing or malformed evidence fails closed',()=>{
   for(const v of [null,{},[],undefined]){
     const r=evaluateMpc010ReleaseMetadata(v);
     assert.equal(r.state,'HOLD'); assert.equal(r.fieldApplyAuthorized,false);
+    assert.equal(r.ownerApprovalEstablished,false);
+    assert.equal(r.nextGate,'SEPARATE_SOT_APPROVED_H4_RELEASE_PR_AND_OWNER_BOUND_APPLY');
   }
 });
 
@@ -59,6 +63,11 @@ test('missing UI module, digest, rollback, disk and port identity block release'
   const bad={...baseline().candidateHashes,'src/control-center/web/app.js':'NOT_A_DIGEST'};
   const mods=[
     {candidateHashes:missing},{candidateHashes:bad},{candidateHashes:{}},
+    {preservedDependencyHashes:{}},
+    {preservedDependencyHashes:{...PRESERVED_RUNTIME_DEPENDENCIES_20261014,
+      'D:\\MAGASIN_ROBOTS\\control-center\\observability.py':'f'.repeat(64)}},
+    {preservedDependencyCompat:{...baseline().preservedDependencyCompat,
+      'D:\\MAGASIN_ROBOTS\\control-center\\observability.py':false}},
     {freeDGiB:0.5},{rollbackPlan:'NOT_PREPARED'},{ownerCredentialConfigured:null},
     {localPortListeners:[{bind:'0.0.0.0:8781',pid:1,exactServerPath:'D:\\MAGASIN_ROBOTS\\control-center\\server.py'}]},
     {localPortListeners:[{bind:'127.0.0.1:8781',pid:9,exactServerPath:'C:\\wrong.py'}]},
