@@ -331,6 +331,35 @@ class SyntheticWholeLedgerTests(unittest.TestCase):
         with self.assertRaisesRegex(sut.FixtureHold, "FIXTURE_QUERY_FAILED"):
             sut.snapshot_fixture(db)
 
+    def test_query_level_connection_callbacks_never_run_during_scan(self):
+        db = seed(12)
+        calls = []
+        def row_factory(_cursor, row):
+            calls.append("row_factory")
+            return row
+        def text_factory(_blob):
+            calls.append("text_factory")
+            return "TAMPERED"
+        def tracing(_statement):
+            calls.append("trace")
+        def authorizer(*_args):
+            calls.append("authorizer")
+            return sqlite3.SQLITE_OK
+        try:
+            db.row_factory = row_factory
+            db.text_factory = text_factory
+            db.set_trace_callback(tracing)
+            db.set_authorizer(authorizer)
+            receipt = sut.snapshot_fixture(db)
+            self.assertEqual(receipt["jobs_total"], 12)
+            self.assertEqual(receipt["blockers"], [])
+            self.assertFalse(receipt["field_apply_authorized"])
+            self.assertEqual(calls, [])
+            self.assertIsNone(db.row_factory)
+            self.assertIs(db.text_factory, str)
+        finally:
+            db.close()
+
     def test_limit_fails_closed_instead_of_truncating(self):
         db=seed()
         original=sut.MAX_ROWS
