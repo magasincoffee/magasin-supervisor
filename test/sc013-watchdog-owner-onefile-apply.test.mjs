@@ -31,6 +31,19 @@ test("only exact canonical nonreparse H4 root and fresh GitHub main are accepted
   assert.match(source,/Assert-NoReparseDirs/);
 });
 
+test("approved blob is resolved from authenticated main commit tree, not caller manifest", () => {
+  assert.match(source,/function Assert-ApprovedMainBlob \{/);
+  assert.match(source,/git init --bare --quiet \$proofDir/);
+  assert.match(source,/fetch --quiet --depth=1/);
+  assert.match(source,/rev-parse 'FETCH_HEAD\^\{commit\}'/);
+  assert.match(source,/ls-tree FETCH_HEAD -- windows\/local-watchdog\.ps1/);
+  assert.match(source,/GIT_MAIN_PROOF_COMMIT_MISMATCH/);
+  assert.match(source,/GIT_MAIN_PROOF_WATCHDOG_BLOB_MISMATCH/);
+  assert.match(source,/Assert-ApprovedMainBlob/);
+  assert.ok(source.indexOf("Assert-ApprovedMainBlob\n}") <
+    source.indexOf("Write-LockedFile $liveHandle $sourceBytes"));
+});
+
 test("exclusive same-handle write prevents check/write races", () => {
   assert.match(source,/\[IO.FileShare\]::None/);
   assert.match(source,/\$liveHandle = \[IO.File\]::Open\(\$live/);
