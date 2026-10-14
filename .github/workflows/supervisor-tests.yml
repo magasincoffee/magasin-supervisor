@@ -99,6 +99,11 @@ jobs:
       - name: Verify read-only Supervisor pending-project GitHub SOT checks
         shell: powershell
         run: python -m unittest discover -s test -p 'test_sc013_project_activation_preflight.py' -v
+      - name: Verify no-PowerShell H4 local MCP receipt request guard (hosted only)
+        shell: powershell
+        run: |
+          python -m unittest discover -s test -p 'test_sc013_mcp_receipt_env.py' -v
+          node --test test/sc013-local-mcp-receipt-cmd.test.mjs
       - name: Verify local Gateway Owner STOP health-only policy in synthetic SQLite
         shell: powershell
         run: python -m unittest discover -s test -p 'test_sc013_local_gateway_health_stop_policy.py' -v
