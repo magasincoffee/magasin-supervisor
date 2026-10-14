@@ -55,9 +55,9 @@ class ProjectTreeCatalogueTests(unittest.TestCase):
             root = Path(folder)
             installed = root / "MAGASIN_ROBOTS" / "control-center" / "project_tree_catalogue.py"
             expected = installed.parent / "docs" / "project-control" / "MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md"
-            self.assertEqual(resolve_catalogue_plan(installed), expected)
+            self.assertEqual(resolve_catalogue_plan(installed), expected.resolve())
             checkout = root / "repo" / "src" / "control-center" / "project_tree_catalogue.py"
-            self.assertEqual(resolve_catalogue_plan(checkout), root / "repo" / "docs" / "project-control" / expected.name)
+            self.assertEqual(resolve_catalogue_plan(checkout), (root / "repo" / "docs" / "project-control" / expected.name).resolve())
 
     def test_duplicate_ids_fail_closed_without_synthetic_progress(self):
         with tempfile.TemporaryDirectory() as directory:
