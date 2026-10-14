@@ -43,7 +43,7 @@ test('MPC-010 H4 viewer field HOLD is fully scoped and cannot grant START or APP
 test('later unrelated sections cannot satisfy missing viewer authority',()=>{
   const section=viewerSection(authority);
   for(const mark of required){
-    const candidate=authority.replace(anchor+section,anchor+section.replace(mark,'REMOVED_BOUNDARY'));
+    const candidate=authority.replace(anchor+section,anchor+section.split(mark).join('REMOVED_BOUNDARY'));
     assert.throws(()=>assertViewerAuthority(candidate+'\n### unrelated later task\n'+mark),
       /missing viewer SOT boundary/,mark);
   }
