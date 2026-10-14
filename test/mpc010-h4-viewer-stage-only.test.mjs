@@ -41,3 +41,13 @@ test('stage is exact-main and Owner-admin-bound before any writes',()=>{
   assert.match(s,/\$stopBefore=HashFile \$stopPath/);
   assert.match(s,/\$disabledBefore=HashFile \$disabledPath/);
 });
+
+
+test('stage verifies reviewed inspector blob BEFORE dot-sourcing any local code',()=>{
+  assert.match(s,/function AssertPinnedInspector/);
+  assert.match(s,/UNREVIEWED_MUTABLE_INSPECTOR_DENIED/);
+  assert.match(s,/555c555ec4159f78c08aec2de3091bffaa9e3edd/);
+  assert.ok(s.indexOf('AssertPinnedInspector $inspector') <
+    s.indexOf('. $inspector -Mode SelfTest'));
+  assert.match(s,/\. \$inspector -Mode SelfTest -ExpectedMainSha \$ExpectedMainSha -Workspace \$Workspace/);
+});
