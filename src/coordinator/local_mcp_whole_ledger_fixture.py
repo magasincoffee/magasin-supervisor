@@ -69,7 +69,7 @@ def _valid_fixture(db):
             "SELECT name, type, sql FROM main.sqlite_schema "
             "WHERE name IN ('dispatch_inbox', 'jobs')"
         ).fetchall()
-        temp_objects = db.execute("SELECT name FROM sqlite_temp_schema").fetchall()
+        temp_objects = db.execute("SELECT 1 FROM sqlite_temp_schema LIMIT 1").fetchone()
     except sqlite3.Error:
         raise FixtureHold("FIXTURE_SCHEMA_UNREADABLE") from None
     if temp_mode != 2 or temp_objects:
@@ -89,7 +89,9 @@ def snapshot_fixture(db, *, budget_seconds=3.0, _clock=None):
 
     No on-disk SQLite accepted; emits metadata only and never authorizes APPLY.
     """
-    _valid_fixture(db)
+    # Only compare identity here; do not query schema before the scan guard.
+    if not isinstance(db, sqlite3.Connection) or _ALLOWED.get(id(db)) is not db:
+        raise FixtureHold("ONLY_REGISTERED_MEMORY_FIXTURE")
     if (type(budget_seconds) not in (int, float)
             or not 0 < budget_seconds <= 5):
         raise FixtureHold("INVALID_READ_BUDGET")
@@ -137,8 +139,11 @@ def snapshot_fixture(db, *, budget_seconds=3.0, _clock=None):
             raise FixtureHold("UNFINISHED_FIXTURE_TRANSACTION")
         # One SQLite value may be huge even with a small row count.
         previous_limit = db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, MAX_FIELD_BYTES)
-        # Interrupt expensive COUNT/SELECT operations BEFORE fetch begins.
+        # Bound ALL SQLite reads, INCLUDING schema metadata validation.
         db.set_progress_handler(interrupt, 100)
+        _valid_fixture(db)
+        if expired():
+            raise FixtureHold("FIXTURE_READ_DEADLINE_EXCEEDED")
         db.execute("PRAGMA query_only=ON")
         db.execute("BEGIN")
         in_tx = True
