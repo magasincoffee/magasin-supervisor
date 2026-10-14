@@ -18,7 +18,7 @@ if ($match.Count -ne 1) { throw 'WATCHDOG_OPTIONAL_READER_MISSING' }
 # Evaluate ONLY the pure helper function AST. Never run the watchdog loop
 # or touch production H4, SQLite, services, lifecycle or queue state.
 . ([scriptblock]::Create($match[0].Extent.Text))
-$sparse = '{"automation":{"status":"STOPPED"},"outbound":{"state":"NONE"}}' | ConvertFrom-Json
+$sparse = '{"automation":{"status":"STOPPED","phase":"IDLE"},"outbound":{"state":"NONE"}}' | ConvertFrom-Json
 foreach ($field in @('last_error_code','last_error_stage','prepared_at','enqueued_at')) {
     if ($null -ne (Get-OptionalWatchdogStateField -State $sparse -Section 'outbound' -Field $field)) {
         throw 'SPARSE_OUTBOUND_FIELD_NOT_NULL'
@@ -33,7 +33,7 @@ if ($null -ne (Get-OptionalWatchdogStateField -State $sparse -Section 'missing' 
 if ($null -ne (Get-OptionalWatchdogStateField -State $null -Section 'outbound' -Field 'last_error_code')) {
     throw 'NULL_STATE_NOT_NULL'
 }
-$present = '{"automation":{"status":"STOPPED"},"outbound":{"state":"BLOCKED","last_error_code":"EXACT_ONCE_FAILED","last_error_stage":"DELIVERY"}}' | ConvertFrom-Json
+$present = '{"automation":{"status":"STOPPED","phase":"IDLE"},"outbound":{"state":"BLOCKED","last_error_code":"EXACT_ONCE_FAILED","last_error_stage":"DELIVERY"}}' | ConvertFrom-Json
 if ((Get-OptionalWatchdogStateField -State $present -Section 'outbound' -Field 'last_error_code') -ne 'EXACT_ONCE_FAILED') {
     throw 'PRESENT_FIELD_CHANGED'
 }
@@ -67,10 +67,10 @@ $startupCondition = '$automation -eq ''RUNNING'' -and $phase -eq ''STARTING_BROW
 $preparedCondition = '$outbound -eq ''PREPARED'''
 $enqueuedCondition = '$outbound -eq ''ENQUEUED'''
 Assert-IsolatedTimestampFault $startupCondition '{"automation":{"status":"RUNNING","phase":"STARTING_BROWSER"},"outbound":{"state":"NONE"}}' 'STARTING_BROWSER_TIMESTAMP_MISSING'
-Assert-IsolatedTimestampFault $preparedCondition '{"automation":{"status":"STOPPED"},"outbound":{"state":"PREPARED"}}' 'PREPARED_TIMESTAMP_MISSING'
-Assert-IsolatedTimestampFault $enqueuedCondition '{"automation":{"status":"STOPPED"},"outbound":{"state":"ENQUEUED"}}' 'ENQUEUED_TIMESTAMP_MISSING'
+Assert-IsolatedTimestampFault $preparedCondition '{"automation":{"status":"STOPPED","phase":"IDLE"},"outbound":{"state":"PREPARED"}}' 'PREPARED_TIMESTAMP_MISSING'
+Assert-IsolatedTimestampFault $enqueuedCondition '{"automation":{"status":"STOPPED","phase":"IDLE"},"outbound":{"state":"ENQUEUED"}}' 'ENQUEUED_TIMESTAMP_MISSING'
 Assert-IsolatedTimestampFault $startupCondition '{"automation":{"status":"RUNNING","phase":"STARTING_BROWSER","updated_at":"INVALID_TIMESTAMP"},"outbound":{"state":"NONE"}}' 'STARTING_BROWSER_TIMESTAMP_INVALID'
-Assert-IsolatedTimestampFault $preparedCondition '{"automation":{"status":"STOPPED"},"outbound":{"state":"PREPARED","prepared_at":"INVALID_TIMESTAMP"}}' 'PREPARED_TIMESTAMP_INVALID'
-Assert-IsolatedTimestampFault $enqueuedCondition '{"automation":{"status":"STOPPED"},"outbound":{"state":"ENQUEUED","enqueued_at":"INVALID_TIMESTAMP"}}' 'ENQUEUED_TIMESTAMP_INVALID'
+Assert-IsolatedTimestampFault $preparedCondition '{"automation":{"status":"STOPPED","phase":"IDLE"},"outbound":{"state":"PREPARED","prepared_at":"INVALID_TIMESTAMP"}}' 'PREPARED_TIMESTAMP_INVALID'
+Assert-IsolatedTimestampFault $enqueuedCondition '{"automation":{"status":"STOPPED","phase":"IDLE"},"outbound":{"state":"ENQUEUED","enqueued_at":"INVALID_TIMESTAMP"}}' 'ENQUEUED_TIMESTAMP_INVALID'
 
 Write-Host 'SC013_WATCHDOG_SPARSE_STATE_FIXTURE_PASS=True'
