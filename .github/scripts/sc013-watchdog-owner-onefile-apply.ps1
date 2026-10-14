@@ -65,7 +65,7 @@ function Assert-LiveMain {
   }
 }
 function Read-LockedFile([IO.FileStream]$stream) {
-  if ($stream.Length -gt 1048576 -or $stream.Length -lt 1) { throw 'WATCHDOG_FILE_SIZE_UNQUALIFIED' }
+  if ($stream.Length -gt 1048576) { throw 'WATCHDOG_FILE_SIZE_UNQUALIFIED' }
   $stream.Position = 0
   $buf = New-Object byte[] ([int]$stream.Length)
   $offset = 0
@@ -148,11 +148,9 @@ $tokens = $null;$parseErrors = $null
   $candidate,[ref]$tokens,[ref]$parseErrors
 ) | Out-Null
 if (@($parseErrors).Count -ne 0) { throw 'WATCHDOG_PARSE_FAILED' }
-Assert-LiveMain
+if ($Mode -eq 'Apply') { Assert-LiveMain }
 $stageLock = $null
 $liveHandle = $null
-$journalCreated = $false
-$success = $false
 try {
   # Only cooperative apply agents are serialized by this durable D: lock.
   # The live file itself is guarded against any non-cooperative writer via
@@ -160,7 +158,7 @@ try {
   $stageLock = [IO.File]::Open($lockPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
   Assert-NoReparseDirs
   Assert-Stop
-  Assert-LiveMain
+  if ($Mode -eq 'Apply') { Assert-LiveMain }
   if ($Mode -eq 'Apply') {
     if (Test-Path -LiteralPath $transaction) { throw 'INTERRUPTED_TRANSACTION_REQUIRES_RECOVER' }
     if (Test-Path -LiteralPath $receipt) { throw 'INSTALL_ALREADY_RECORDED' }
@@ -188,7 +186,7 @@ try {
     if ($liveHandle.Length -gt 1048576) { throw 'RECOVERY_FILE_TOO_LARGE' }
   }
   Assert-Stop
-  Assert-LiveMain
+  if ($Mode -eq 'Apply') { Assert-LiveMain }
   if ($Mode -eq 'Apply') {
     Write-DurableReceipt $transaction @{
       schema='SC013_WATCHDOG_EXCLUSIVE_FILE_TRANSACTION_V1'
@@ -196,7 +194,6 @@ try {
       owner_sid=$ExpectedOwnerSid;old_sha256=$ExpectedOld;new_sha256=$ExpectedNew
       created_at_utc=[DateTimeOffset]::UtcNow.ToString('o')
     }
-    $journalCreated = $true
     # No check/write race: the live file cannot be written by another normal
     # Windows file opener while FileShare.None is held.
     Write-LockedFile $liveHandle $sourceBytes
@@ -212,7 +209,7 @@ try {
     }
   }
   Assert-Stop
-  Assert-LiveMain
+  if ($Mode -eq 'Apply') { Assert-LiveMain }
   Write-DurableReceipt $receipt @{
     schema='SC013_WATCHDOG_EXCLUSIVE_FILE_RESULT_V1';mode=$Mode
     expected_main_sha=$ExpectedMainSha;owner_sid=$ExpectedOwnerSid
@@ -220,7 +217,6 @@ try {
     verified_at_utc=[DateTimeOffset]::UtcNow.ToString('o')
     watchdog_runtime_reloaded=$false;stop_preserved=$true
   }
-  $success = $true
   if ($Mode -eq 'Apply') {
     Write-Output ('SC013_WATCHDOG_SOURCE_INSTALLED_SHA256='+$ExpectedNew)
     Write-Output 'WATCHDOG_RUNTIME_RELOAD_NOT_PROVEN=True'
