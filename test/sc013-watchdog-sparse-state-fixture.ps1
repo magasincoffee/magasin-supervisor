@@ -18,6 +18,14 @@ if ($match.Count -ne 1) { throw 'WATCHDOG_OPTIONAL_READER_MISSING' }
 # Evaluate ONLY the pure helper function AST. Never run the watchdog loop
 # or touch production H4, SQLite, services, lifecycle or queue state.
 . ([scriptblock]::Create($match[0].Extent.Text))
+$timestampHelpers = @($ast.FindAll({
+    param($item)
+    $item -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $item.Name -eq 'ConvertTo-CanonicalWatchdogTimestamp'
+}, $true))
+if ($timestampHelpers.Count -ne 1) { throw 'WATCHDOG_TIMESTAMP_GUARD_MISSING' }
+. ([scriptblock]::Create($timestampHelpers[0].Extent.Text))
+
 $sparse = '{"automation":{"status":"STOPPED","phase":"IDLE"},"outbound":{"state":"NONE"}}' | ConvertFrom-Json
 foreach ($field in @('last_error_code','last_error_stage','prepared_at','enqueued_at')) {
     if ($null -ne (Get-OptionalWatchdogStateField -State $sparse -Section 'outbound' -Field $field)) {
@@ -72,5 +80,13 @@ Assert-IsolatedTimestampFault $enqueuedCondition '{"automation":{"status":"STOPP
 Assert-IsolatedTimestampFault $startupCondition '{"automation":{"status":"RUNNING","phase":"STARTING_BROWSER","updated_at":"INVALID_TIMESTAMP"},"outbound":{"state":"NONE"}}' 'STARTING_BROWSER_TIMESTAMP_INVALID'
 Assert-IsolatedTimestampFault $preparedCondition '{"automation":{"status":"STOPPED","phase":"IDLE"},"outbound":{"state":"PREPARED","prepared_at":"INVALID_TIMESTAMP"}}' 'PREPARED_TIMESTAMP_INVALID'
 Assert-IsolatedTimestampFault $enqueuedCondition '{"automation":{"status":"STOPPED","phase":"IDLE"},"outbound":{"state":"ENQUEUED","enqueued_at":"INVALID_TIMESTAMP"}}' 'ENQUEUED_TIMESTAMP_INVALID'
+
+# Corrupt but .NET-parseable timestamp values must not suppress active faults.
+Assert-IsolatedTimestampFault $startupCondition '{"automation":{"status":"RUNNING","phase":"STARTING_BROWSER","updated_at":"12:00"},"outbound":{"state":"NONE"}}' 'STARTING_BROWSER_TIMESTAMP_INVALID'
+Assert-IsolatedTimestampFault $preparedCondition '{"automation":{"status":"STOPPED","phase":"IDLE"},"outbound":{"state":"PREPARED","prepared_at":"2026-10-14T08:30:00"}}' 'PREPARED_TIMESTAMP_INVALID'
+Assert-IsolatedTimestampFault $enqueuedCondition '{"automation":{"status":"STOPPED","phase":"IDLE"},"outbound":{"state":"ENQUEUED","enqueued_at":"10/14/2026 08:30"}}' 'ENQUEUED_TIMESTAMP_INVALID'
+# A valid offset-qualified timestamp is still accepted.
+$canonical = ConvertTo-CanonicalWatchdogTimestamp -Value '2026-10-14T08:40:15.123456+07:00'
+if ($canonical.Offset.TotalHours -ne 7) { throw 'VALID_CANONICAL_TIMESTAMP_REJECTED' }
 
 Write-Host 'SC013_WATCHDOG_SPARSE_STATE_FIXTURE_PASS=True'
