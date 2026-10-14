@@ -271,6 +271,34 @@ class SyntheticWholeLedgerTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_rejects_oversized_schema_sql_before_materialization(self):
+        db = seed()
+        private_comment = "PRIVATE_SCHEMA_PAYLOAD" * 700
+        try:
+            db.execute("ALTER TABLE jobs RENAME TO old_jobs")
+            db.execute(
+                "CREATE TABLE jobs /*" + private_comment +
+                "*/ (id TEXT, status TEXT, error TEXT)"
+            )
+            db.commit()
+            with self.assertRaisesRegex(sut.FixtureHold, "FIXTURE_SCHEMA_UNREADABLE") as raised:
+                sut.snapshot_fixture(db)
+            self.assertNotIn(private_comment[:80], str(raised.exception))
+        finally:
+            db.close()
+
+    def test_rejects_schema_validation_after_time_budget_expired(self):
+        db = seed()
+        ticks = [0]
+        def clock():
+            ticks[0] += 1
+            return 0.0 if ticks[0] == 1 else 50.0
+        try:
+            with self.assertRaisesRegex(sut.FixtureHold, "FIXTURE_READ_DEADLINE_EXCEEDED"):
+                sut.snapshot_fixture(db, budget_seconds=1.0, _clock=clock)
+        finally:
+            db.close()
+
     def test_limit_fails_closed_instead_of_truncating(self):
         db=seed()
         original=sut.MAX_ROWS
