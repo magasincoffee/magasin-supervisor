@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections import Counter
 import sqlite3
+import time
 
 SCHEMA = "SC013_MCP_WHOLE_LEDGER_FIXTURE_RECEIPT_V1"
 PREFIX = "github:magasincoffee/magasin-supervisor:issue:"
@@ -19,6 +20,8 @@ TERMINAL = frozenset(("DONE", "FAILED", "CANCELLED_STALE"))
 INBOX_ALLOWED = TERMINAL | frozenset(("WAIT_SOT_AUTHORITY", "WAIT_OWNER_STOP", "READY", "QUEUED", "RUNNING"))
 JOB_ALLOWED = frozenset(("DONE", "FAILED", "QUEUED", "RUNNING"))
 MAX_ROWS = 20000
+MAX_FIELD_BYTES = 4096
+MAX_PROJECTED_BYTES = 2_000_000
 
 # Connection object identity instead of PRAGMA database_list filename.
 # sqlite3.connect("") creates a disk-backed temp DB with the same empty
@@ -47,46 +50,98 @@ def _valid_fixture(db):
         raise FixtureHold("ATTACHED_OR_DISK_DATABASE_FORBIDDEN")
 
 
-def snapshot_fixture(db):
-    """Count EVERY synthetic inbox and job row, never latest 10.
+def snapshot_fixture(db, *, budget_seconds=3.0, _clock=None):
+    """Count every IN-MEMORY fixture row, under a hard deadline and byte budget.
 
-    Result contains no raw details, credentials or file paths.
-    Always denies live qualification and cancellation, even with zero holds.
+    No on-disk SQLite accepted; emits metadata only and never authorizes APPLY.
     """
     _valid_fixture(db)
+    if (type(budget_seconds) not in (int, float)
+            or not 0 < budget_seconds <= 5):
+        raise FixtureHold("INVALID_READ_BUDGET")
+    clock = time.monotonic if _clock is None else _clock
+    deadline = clock() + budget_seconds
+
+    def expired():
+        return clock() >= deadline
+
+    def interrupt():
+        return 1 if expired() else 0
+
+    seen_bytes = 0
+
+    def read_projected(sql):
+        nonlocal seen_bytes
+        rows = []
+        cursor = db.execute(sql)
+        for row in cursor:
+            if expired():
+                raise FixtureHold("FIXTURE_READ_DEADLINE_EXCEEDED")
+            for value in row:
+                if value is None:
+                    size = 0
+                elif isinstance(value, str):
+                    size = len(value.encode("utf-8"))
+                elif isinstance(value, bytes):
+                    size = len(value)
+                elif isinstance(value, (float, int)):
+                    size = 16
+                else:
+                    raise FixtureHold("UNSUPPORTED_FIELD_VALUE")
+                if size > MAX_FIELD_BYTES:
+                    raise FixtureHold("OVERSIZED_LEDGER_FIELD")
+                seen_bytes += size
+                if seen_bytes > MAX_PROJECTED_BYTES:
+                    raise FixtureHold("FIXTURE_PROJECTION_BYTE_LIMIT")
+            rows.append(row)
+        return rows
+
+    previous_limit = None
+    in_tx = False
     try:
         if db.in_transaction:
             raise FixtureHold("UNFINISHED_FIXTURE_TRANSACTION")
+        # One SQLite value may be huge even with a small row count.
+        previous_limit = db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, MAX_FIELD_BYTES)
+        # Interrupt expensive COUNT/ORDER BY/view evaluation BEFORE fetch begins.
+        db.set_progress_handler(interrupt, 100)
         db.execute("PRAGMA query_only=ON")
         db.execute("BEGIN")
-        try:
-            counts = db.execute(
-                "SELECT (SELECT COUNT(*) FROM dispatch_inbox),"
-                "(SELECT COUNT(*) FROM jobs)"
-            ).fetchone()
-            if any(type(n) is not int or n > MAX_ROWS or n < 0 for n in counts):
-                raise FixtureHold("FULL_LEDGER_SIZE_LIMIT")
-            inbox = db.execute(
-                "SELECT source_id,source,task_id,target,action,status,local_job_id "
-                "FROM dispatch_inbox ORDER BY source_id"
-            ).fetchall()
-            jobs = db.execute(
-                "SELECT id,status FROM jobs ORDER BY id"
-            ).fetchall()
-            if len(inbox) != counts[0] or len(jobs) != counts[1]:
-                raise FixtureHold("INCONSISTENT_LEDGER_COUNTS")
-        finally:
-            db.execute("ROLLBACK")
-    except FixtureHold:
-        raise
-    except sqlite3.Error:
+        in_tx = True
+        counts = db.execute(
+            "SELECT (SELECT COUNT(*) FROM dispatch_inbox),"
+            "(SELECT COUNT(*) FROM jobs)"
+        ).fetchone()
+        if expired():
+            raise FixtureHold("FIXTURE_READ_DEADLINE_EXCEEDED")
+        if any(type(n) is not int or n > MAX_ROWS or n < 0 for n in counts):
+            raise FixtureHold("FULL_LEDGER_SIZE_LIMIT")
+        inbox = read_projected(
+            "SELECT source_id,source,task_id,target,action,status,local_job_id "
+            "FROM dispatch_inbox ORDER BY source_id"
+        )
+        jobs = read_projected("SELECT id,status FROM jobs ORDER BY id")
+        if len(inbox) != counts[0] or len(jobs) != counts[1]:
+            raise FixtureHold("INCONSISTENT_LEDGER_COUNTS")
+    except sqlite3.Error as exc:
+        if expired() or "interrupted" in str(exc).lower():
+            raise FixtureHold("FIXTURE_READ_DEADLINE_EXCEEDED") from None
         raise FixtureHold("FIXTURE_QUERY_FAILED") from None
+    finally:
+        # Disable interruption before transaction cleanup.
+        db.set_progress_handler(None, 0)
+        if in_tx:
+            db.execute("ROLLBACK")
+        if previous_limit is not None:
+            db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, previous_limit)
 
     issues = []
     pending_count = 0
     unexpected_pending = 0
     inbox_histogram = Counter()
     for row in inbox:
+        if expired():
+            raise FixtureHold("FIXTURE_READ_DEADLINE_EXCEEDED")
         source_id, source, task, target, action, status, local_job_id = row
         safe_status = status if status in INBOX_ALLOWED else "UNKNOWN"
         inbox_histogram[safe_status] += 1
@@ -104,6 +159,8 @@ def snapshot_fixture(db):
             })
     job_histogram = Counter()
     for _, status in jobs:
+        if expired():
+            raise FixtureHold("FIXTURE_READ_DEADLINE_EXCEEDED")
         job_histogram[status if status in JOB_ALLOWED else "UNKNOWN"] += 1
     blockers = set()
     if len(issues) != len(EXPECTED) or any(
