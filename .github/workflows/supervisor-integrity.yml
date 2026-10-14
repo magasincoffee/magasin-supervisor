@@ -135,6 +135,7 @@ jobs:
             test/mpc006-owner-request-ui.test.mjs \
             test/mpc008-supervisor-telemetry.test.mjs \
             test/mpc010-control-center-release-preflight.test.mjs \
+            test/mpc010-h4-viewer-release-authority.test.mjs \
             test/sc013-h4-readonly-probe.test.mjs \
             test/sc013-project-activation-safe-preflight.test.mjs \
             test/sc013-local-gateway-health-stop-policy.test.mjs \
