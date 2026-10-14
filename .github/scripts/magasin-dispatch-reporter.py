@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -38,7 +39,8 @@ def request(path, payload=None):
 
 
 def trustworthy(issue):
-    if issue.get("user", {}).get("login") != "magasincoffee":
+    author = issue.get("user") or {}
+    if author.get("login") != "magasincoffee" or author.get("id") != 191064507:
         return False
     if issue.get("state") != "open" or not str(issue.get("title", "")).startswith(PREFIX):
         return False
@@ -163,11 +165,30 @@ def once(number, dry=False):
     return {"issue":number,"result":"POSTED","url":response.get("html_url")}
 
 
+def validated_issue_number_from_environment(raw):
+    """Parse only a bounded decimal ID; never let Actions input enter a shell."""
+    if raw == "":
+        return 0
+    if type(raw) is not str or re.fullmatch(r"[1-9][0-9]{0,8}", raw) is None:
+        raise ValueError("INVALID_DISPATCH_ISSUE")
+    return int(raw)
+
+
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--issue",type=int,default=0)
+    p.add_argument("--issue-from-env",action="store_true")
     p.add_argument("--dry-run",action="store_true")
     args=p.parse_args()
+    if args.issue_from_env:
+        try:
+            issue=validated_issue_number_from_environment(
+                os.environ.get("DISPATCH_ISSUE",""))
+        except ValueError:
+            raise SystemExit("INVALID_DISPATCH_ISSUE") from None
+        if args.issue and issue:
+            raise SystemExit("CONFLICTING_DISPATCH_ISSUE")
+        args.issue = issue or args.issue
     if __import__("socket").gethostname().upper()!="DESKTOP-H4A16IL":
         raise SystemExit("WRONG_TARGET: only DESKTOP-H4A16IL")
     if not args.dry_run and not TOKEN:

@@ -22,47 +22,49 @@ concurrency:
 
 jobs:
   local-receipt:
-    if: ${{ github.repository == 'magasincoffee/magasin-supervisor' && (github.event_name != 'issues' || startsWith(github.event.issue.title, '[MAGASIN-DISPATCH]')) }}
+    if: ${{ github.repository == 'magasincoffee/magasin-supervisor' && (github.event_name != 'issues' || (startsWith(github.event.issue.title, '[MAGASIN-DISPATCH]') && github.event.issue.user.login == 'magasincoffee' && github.event.issue.user.id == 191064507)) }}
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 10
     steps:
+      # The H4 Windows host blocks the default Actions PowerShell wrapper.
+      # CMD uses the existing Windows process policy without altering machine settings, tasks or services.
+      # Refuse any non-H4 runner BEFORE checkout or calling local MCP files.
+      - name: Guard actual H4 host before checkout
+        shell: cmd
+        run: |
+          @echo off
+          if /I not "%COMPUTERNAME%"=="DESKTOP-H4A16IL" (
+            echo WRONG_TARGET_MACHINE
+            exit /b 21
+          )
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Run 30-minute SC-013 local control tick
         if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-        shell: powershell
+        shell: cmd
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          if ([Environment]::MachineName -ne 'DESKTOP-H4A16IL') {
-            throw 'WRONG_TARGET_MACHINE'
-          }
-          $python = 'C:\\MAGASIN_MCP\\.venv\\Scripts\\python.exe'
-          if (-not (Test-Path $python)) { throw 'MCP_PYTHON_MISSING' }
-          & $python '.github\\scripts\\sc013-local-30m-tick.py' --backup-if-stale
-          if ($LASTEXITCODE -ne 0) {
-            throw 'SC013_LOCAL_TICK_FAILED'
-          }
+          @echo off
+          if /I not "%COMPUTERNAME%"=="DESKTOP-H4A16IL" exit /b 21
+          if not exist "C:\MAGASIN_MCP\.venv\Scripts\python.exe" (
+            echo MCP_PYTHON_MISSING
+            exit /b 22
+          )
+          "C:\MAGASIN_MCP\.venv\Scripts\python.exe" ".github\scripts\sc013-local-30m-tick.py" --backup-if-stale
+          if errorlevel 1 exit /b 23
       - name: Report validated local jobs on the authorized machine
-        shell: powershell
+        shell: cmd
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DISPATCH_ISSUE: ${{ github.event.issue.number || inputs.issue_number || '' }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          if ([Environment]::MachineName -ne 'DESKTOP-H4A16IL') {
-            throw 'WRONG_RUNNER: local dispatch receipts require DESKTOP-H4A16IL'
-          }
-          $python = 'C:\MAGASIN_MCP\.venv\Scripts\python.exe'
-          $reporter = '.github\scripts\magasin-dispatch-reporter.py'
-          if (-not (Test-Path $python) -or -not (Test-Path $reporter)) {
-            throw 'Local MCP or reporter not installed'
-          }
-          if ($env:DISPATCH_ISSUE -match '^[0-9]+$') {
-            & $python $reporter --issue ([int]$env:DISPATCH_ISSUE)
-          } else {
-            & $python $reporter
-          }
-          if ($LASTEXITCODE -ne 0) {
-            throw 'Local dispatch reporter failed; do not claim completion'
-          }
+          @echo off
+          if /I not "%COMPUTERNAME%"=="DESKTOP-H4A16IL" exit /b 21
+          if not exist "C:\MAGASIN_MCP\.venv\Scripts\python.exe" (
+            echo MCP_PYTHON_MISSING
+            exit /b 22
+          )
+          "C:\MAGASIN_MCP\.venv\Scripts\python.exe" ".github\scripts\magasin-dispatch-reporter.py" --issue-from-env
+          if errorlevel 1 exit /b 24
