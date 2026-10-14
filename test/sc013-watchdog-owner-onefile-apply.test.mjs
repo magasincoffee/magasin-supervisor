@@ -51,6 +51,11 @@ test("exclusive same-handle write prevents check/write races", () => {
   assert.doesNotMatch(source,/Start-Process|Restart-(?:Process|Service|Computer)|Stop-(?:Process|Service|Computer)|Start-(?:Service|Job)|Invoke-Expression|Start-ScheduledTask|schtasks|sqlite3|dispatch_gateway|local_jobs\.py/i);
 });
 
+test("WinPS 5.1 same-session recovery reuses native file-identity type", () => {
+  assert.match(source,/if \(-not \(\[System\.Management\.Automation\.PSTypeName\]'SC013WatchdogFileIdentity'\)\.Type\) \{/);
+  assert.match(source,/Add-Type -TypeDefinition @'/);
+});
+
 test("durable APPLY_STARTED journal precedes write and recovery is explicit", () => {
   assert.match(source,/SC013_WATCHDOG_EXCLUSIVE_FILE_TRANSACTION_V1/);
   assert.match(source,/Write-DurableReceipt \$transaction/);
