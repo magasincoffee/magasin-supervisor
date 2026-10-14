@@ -124,8 +124,8 @@ test("existing same-origin route, timeout, fresh Owner probe and STOP read stay 
  assert.match(server,/\(SUP \/ "STOP"\)\.is_file\(\)/);
  assert.match(server,/\(SUP \/ "AUTOSTART_DISABLED"\)\.is_file\(\)/);
  assert.match(server,/if p\.startswith\("\/api\/robot\/"\):/);
- assert.match(server,/if p=="\\/project_supervisor_telemetry\\.mjs":/);
- assert.match(server,/WEB\\/"project_supervisor_telemetry\\.mjs"/);
+ assert.match(server,/if p=="\/project_supervisor_telemetry\.mjs":/);
+ assert.match(server,/WEB\/"project_supervisor_telemetry\.mjs"/);
  assert.match(app,/boundedProjectJson\("\/api\/robot\/supervisor"/);
  assert.match(app,/supervisorJob\.cancel\(\)/);
  assert.ok(app.indexOf("const observedSupervisor=await supervisorJob.value;")<
