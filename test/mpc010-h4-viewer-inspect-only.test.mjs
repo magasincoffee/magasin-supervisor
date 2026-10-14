@@ -27,3 +27,21 @@ test('no SOT section grants H4 installation from this source-only PR',()=>{
   assert.match(sot,/not live release authorization/i);
   assert.match(sot,/Stage, Apply and Rollback deliberately throw/i);
 });
+
+
+test('Codex P2 boundaries reject dirty tree, symlink STOP and all orphaned worker names',()=>{
+  assert.match(script,/WORKTREE_OR_INDEX_NOT_CLEAN/);
+  assert.match(script,/WORKTREE_CHANGED_DURING_INSPECT/);
+  assert.match(script,/git -C \$work status --porcelain=v1 --untracked-files=all/);
+  assert.match(script,/Join-Path \$stopRoot 'STOP'\),\(Join-Path \$stopRoot 'AUTOSTART_DISABLED'\)/);
+  for(const name of ['three-lane-cli','planner-executor-cli','planner-executor-bridge-cli','single-conversation-cli'])
+    assert.ok(script.includes(name),name);
+});
+test('unreadable port provider and unrelated process must fail closed',()=>{
+  assert.match(script,/Get-NetTCPConnection -ErrorAction Stop/);
+  assert.doesNotMatch(script,/Get-NetTCPConnection[^\n]*SilentlyContinue/);
+  assert.match(script,/\$proc\.ExecutablePath -cne \$pythonExe/);
+  assert.match(script,/\$proc\.CommandLine -notmatch \$linePattern/);
+  assert.match(script,/Invoke-CimMethod -InputObject \$proc -MethodName GetOwner -ErrorAction Stop/);
+  assert.match(script,/VIEWER_PROCESS_OWNER_UNVERIFIED/);
+});
