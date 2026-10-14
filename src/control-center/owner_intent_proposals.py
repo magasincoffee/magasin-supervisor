@@ -62,7 +62,8 @@ def _uuid(value):
 
 
 def _screenshot(url):
-    if type(url) is not str or len(url) > 240:
+    if (type(url) is not str or len(url) > 240 or
+            any(ord(ch) < 32 or ord(ch) == 127 for ch in url)):
         return False
     try:
         parts = urlsplit(url)
