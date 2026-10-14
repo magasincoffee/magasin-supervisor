@@ -104,3 +104,15 @@ test('all six preserved H4 startup and route-time imports must have matching dig
     assert.equal(evaluateMpc010ReleaseMetadata(noProof).state,'HOLD',path);
   }
 });
+
+
+test('project-check route must ship supervisor_project_activation.py in the pinned candidate',()=>{
+  const activation='src/control-center/supervisor_project_activation.py';
+  assert.ok(CONTROL_CENTER_BUNDLE.includes(activation));
+  const incomplete=baseline();
+  delete incomplete.candidateHashes[activation];
+  const r=evaluateMpc010ReleaseMetadata(incomplete);
+  assert.equal(r.state,'HOLD');
+  assert.ok(r.holds.includes('INCOMPLETE_OR_UNPINNED_BUNDLE'));
+  assert.equal(r.fieldApplyAuthorized,false);
+});
