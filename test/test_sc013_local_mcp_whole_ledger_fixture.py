@@ -200,6 +200,22 @@ class SyntheticWholeLedgerTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_empty_builtin_temp_schema_does_not_count_as_foreign_attachment(self):
+        db = seed(4)
+        try:
+            # sqlite_temp_schema can materialize a built-in empty TEMP schema,
+            # and Windows SQLite may list it in PRAGMA database_list.
+            self.assertEqual(db.execute(
+                "SELECT count(*) FROM sqlite_temp_schema"
+            ).fetchone()[0], 0)
+            first = sut.snapshot_fixture(db)
+            second = sut.snapshot_fixture(db)
+            self.assertEqual(first["jobs_total"], 4)
+            self.assertEqual(second["blockers"], [])
+            self.assertFalse(second["field_apply_authorized"])
+        finally:
+            db.close()
+
     def test_rejects_view_materialization_and_temp_table_shadowing(self):
         db = seed(3)
         try:
