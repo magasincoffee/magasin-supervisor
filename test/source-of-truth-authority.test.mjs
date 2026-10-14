@@ -144,7 +144,7 @@ test("MPC-008 verified source-only completion gates MPC-009 and authorizes only 
   const historical = plan.split("## MPC-001 execution evidence")[1];
   assert.ok(historical, "historical evidence must remain inspectable");
   const allowedLine = "**MPC-010 is the sole next executable MPC task (SOURCE/QA ONLY, independent tests)**";
-  const staleNext = /\bNext authorized(?: backlog)? task\s*:\s*MPC-\d{3}|\bCurrent next task is MPC-\d{3}|\bCurrent next authorized task\s*:\s*MPC-\d{3}|\bMPC-\d{3} is NEXT\b|\bMPC-\d{3} is the sole next executable task\b|\bMPC-\d{3} NEXT\b/i;
+  const staleNext = /\bNext authorized(?: backlog)? task\s*:\s*MPC-\d{3}|\bCurrent next task is MPC-\d{3}|\bCurrent next authorized task\s*:\s*MPC-\d{3}|\bMPC-\d{3} is NEXT\b|\bMPC-\d{3} is the sole next executable(?: MPC)? task\b|\bMPC-\d{3} NEXT\b/i;
   function requireSingleNext(candidate) {
     const lines = candidate.split("\n");
     assert.equal(lines.filter(line=>line.startsWith(allowedLine)).length,1,
@@ -168,8 +168,12 @@ test("MPC-008 verified source-only completion gates MPC-009 and authorizes only 
   requireSingleNext(plan);
   for(const section of ["## Architecture boundaries","## Source contracts","## Delivery tasks",
     "## Release gate sequence","## MPC-001 execution evidence","## MPC-008 completion evidence"]){
-    assert.throws(()=>requireSingleNext(plan.replace(section,section+"\nMPC-008 is NEXT")),
-      /competing active MPC NEXT/,"must detect stale authorization within "+section);
+    for (const conflict of ["MPC-008 is NEXT", "MPC-009 is the sole next executable MPC task",
+      "MPC-009 is the sole next executable task"]) {
+      assert.throws(() => requireSingleNext(plan.replace(section, section + "\n" + conflict)),
+        /competing active MPC NEXT/,
+        "must detect competing task authority '" + conflict + "' within " + section);
+    }
   }
   assert.match(historical, /Historical 2026-10-12 handoff: MPC-003 was next/);
   assert.match(historical, /Historical 2026-10-12 handoff: MPC-004 was next/);
