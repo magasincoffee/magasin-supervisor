@@ -113,6 +113,15 @@ class StoreTest(unittest.TestCase):
                     self.submit(p)
         self.assertFalse(self.db.exists())
 
+    def test_control_characters_in_github_attachment_urls_are_rejected(self):
+        for char in ("\r", "\n", "\t", "\x00", "\x7f"):
+            p = payload()
+            p["screenshots"] = [SCREEN[:19] + char + SCREEN[19:]]
+            with self.subTest(char=repr(char)):
+                with self.assertRaises(m.Rejected):
+                    self.submit(p)
+        self.assertFalse(self.db.exists())
+
     def test_store_path_refuses_symlinks_and_relative_paths(self):
         with self.assertRaisesRegex(m.Rejected, "STORE_PATH_NOT_QUALIFIED"):
             m.submit_request(Path("relative.db"), actor=m.OWNER, request=payload(), catalogue=CATALOGUE)

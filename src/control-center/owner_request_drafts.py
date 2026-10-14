@@ -42,7 +42,8 @@ class Rejected(ValueError):
 
 def screenshot_reference(raw):
     """References only. Never download, proxy, or store screenshot bytes."""
-    if type(raw) is not str or len(raw) > 240 or raw.strip() != raw:
+    if (type(raw) is not str or len(raw) > 240 or raw.strip() != raw or
+            any(ord(ch) < 32 or ord(ch) == 127 for ch in raw)):
         raise Rejected("SCREENSHOT_INVALID")
     try:
         u = urlsplit(raw)
