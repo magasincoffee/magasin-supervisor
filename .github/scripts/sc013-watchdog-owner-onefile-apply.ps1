@@ -100,6 +100,49 @@ function Assert-ApprovedMainBlob {
   }
 }
 
+function Assert-RequiredMainCiResponse($response,[string]$sha) {
+  # GitHub's HTTPS/TLS authenticated Actions run state is the release receipt.
+  # Require all four exact push-to-main workflow identities for THIS commit.
+  if ($null -eq $response -or $null -eq $response.workflow_runs -or
+      $response.total_count -ne @($response.workflow_runs).Count) {
+    throw 'MAIN_CI_RECEIPT_INCOMPLETE'
+  }
+  $expected = @{
+    '363535704'='.github/workflows/supervisor-tests.yml'
+    '363535705'='.github/workflows/supervisor-integrity.yml'
+    '363536127'='.github/workflows/supervisor-lifecycle-acceptance.yml'
+    '363536125'='.github/workflows/supervisor-autostart-install.yml'
+  }
+  $seen = @{}
+  foreach ($run in @($response.workflow_runs)) {
+    if ($null -eq $run.workflow_id) { continue }
+    $id = [string]$run.workflow_id
+    if (-not $expected.ContainsKey($id)) { continue }
+    if ($seen.ContainsKey($id)) { throw 'MAIN_CI_DUPLICATE_WORKFLOW' }
+    $seen[$id] = $true
+    if ($run.path -cne $expected[$id] -or
+        $run.repository.full_name -cne 'magasincoffee/magasin-supervisor' -or
+        $run.head_sha -cne $sha -or $run.head_branch -cne 'main' -or
+        $run.event -cne 'push' -or $run.status -cne 'completed' -or
+        $run.conclusion -cne 'success' -or
+        [int64]$run.id -le 0 -or [int]$run.run_attempt -lt 1) {
+      throw 'MAIN_CI_NOT_GREEN_EXACT_COMMIT'
+    }
+  }
+  if ($seen.Count -ne $expected.Count) { throw 'MAIN_CI_REQUIRED_WORKFLOW_MISSING' }
+}
+function Assert-RequiredMainCi {
+  # The H4 preflight confirmed the public GitHub Actions API is reachable.
+  # Unavailable/untrusted network, pagination or any non-GREEN => HOLD.
+  $uri='https://api.github.com/repos/magasincoffee/magasin-supervisor/actions/runs?head_sha='+$ExpectedMainSha+'&per_page=100'
+  $headers=@{
+    'Accept'='application/vnd.github+json'
+    'User-Agent'='MAGASIN-SC013-Watchdog-Owner-Release'
+  }
+  $response=Invoke-RestMethod -Method Get -Uri $uri -Headers $headers -TimeoutSec 15 -ErrorAction Stop
+  Assert-RequiredMainCiResponse $response $ExpectedMainSha
+}
+
 function Read-LockedFile([IO.FileStream]$stream) {
   if ($stream.Length -gt 1048576) { throw 'WATCHDOG_FILE_SIZE_UNQUALIFIED' }
   $stream.Position = 0
@@ -281,6 +324,7 @@ if (@($parseErrors).Count -ne 0) { throw 'WATCHDOG_PARSE_FAILED' }
 if ($Mode -eq 'Apply') {
   Assert-LiveMain
   Assert-ApprovedMainBlob
+  Assert-RequiredMainCi
 }
 $stageLock = $null
 $liveHandle = $null
@@ -291,7 +335,10 @@ try {
   $stageLock = [IO.File]::Open($lockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
   Assert-NoReparseDirs
   Assert-Stop
-  if ($Mode -eq 'Apply') { Assert-LiveMain }
+  if ($Mode -eq 'Apply') {
+    Assert-LiveMain
+    Assert-RequiredMainCi
+  }
   if ($Mode -eq 'Apply') {
     if (Test-Path -LiteralPath $transaction) { throw 'INTERRUPTED_TRANSACTION_REQUIRES_RECOVER' }
     if (Test-Path -LiteralPath $receipt) { throw 'INSTALL_ALREADY_RECORDED' }
@@ -318,7 +365,10 @@ try {
     Assert-PlausiblePartialWrite $bytesBefore $backupBytes $sourceBytes
   }
   Assert-Stop
-  if ($Mode -eq 'Apply') { Assert-LiveMain }
+  if ($Mode -eq 'Apply') {
+    Assert-LiveMain
+    Assert-RequiredMainCi
+  }
   if ($Mode -eq 'Apply') {
     Write-DurableReceipt $transaction @{
       schema='SC013_WATCHDOG_EXCLUSIVE_FILE_TRANSACTION_V1'
@@ -341,7 +391,10 @@ try {
     }
   }
   Assert-Stop
-  if ($Mode -eq 'Apply') { Assert-LiveMain }
+  if ($Mode -eq 'Apply') {
+    Assert-LiveMain
+    Assert-RequiredMainCi
+  }
   Write-DurableReceipt $receipt @{
     schema='SC013_WATCHDOG_EXCLUSIVE_FILE_RESULT_V1';mode=$Mode
     expected_main_sha=$ExpectedMainSha;owner_sid=$ExpectedOwnerSid
