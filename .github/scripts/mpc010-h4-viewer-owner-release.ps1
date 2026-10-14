@@ -72,11 +72,27 @@ function AssertNoReparse([string]$p) {
     $current=$parent
   }
 }
+function AssertNoPromisorRepository([string]$work) {
+  # Git can implicitly fetch absent promised objects from a partial clone during
+  # cat-file. Never permit that from the read-only inspection lane.
+  $gitconfig=Join-Path $work '.git\config'
+  if(!(Test-Path -LiteralPath $gitconfig -PathType Leaf)){throw 'GIT_CONFIG_NOT_A_REGULAR_FILE'}
+  AssertNoReparse $gitconfig
+  $cfg=[IO.File]::ReadAllText($gitconfig)
+  if($cfg -match '(?im)^\s*(?:partialclone|promisor)\s*=' -or
+     $cfg -match '(?im)^\s*\[extensions\]' -and $cfg -match '(?im)^\s*partialclone\s*=' ){
+    throw 'PARTIAL_OR_PROMISOR_GIT_REPOSITORY_DENIED'
+  }
+  # Global/system and worktree includes can hide promisor remotes. This
+  # environment guard also suppresses Git lazy fetch if any is missed.
+  $env:GIT_NO_LAZY_FETCH='1'
+}
 function RequireSource {
   if(!$Workspace -or !$ExpectedMainSha){throw 'PINNED_WORKSPACE_REQUIRED'}
   $work=(Resolve-Path -LiteralPath $Workspace -ErrorAction Stop).Path
   AssertNoReparse $work
   if(!(Test-Path (Join-Path $work '.git'))){throw 'CANONICAL_GIT_CHECKOUT_REQUIRED'}
+  AssertNoPromisorRepository $work
   $origin=(& git --no-replace-objects -C $work remote get-url origin)
   if($LASTEXITCODE -ne 0 -or [string]$origin -cne $repoUrl){throw 'WRONG_GIT_ORIGIN'}
   $head=(& git --no-replace-objects -C $work rev-parse HEAD)
