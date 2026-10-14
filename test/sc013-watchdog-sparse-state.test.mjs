@@ -17,6 +17,12 @@ test("SC-013 sparse-state watchdog telemetry is read-only and StrictMode-safe", 
       assert.match(ps, new RegExp(status + "_TIMESTAMP_" + cause));
     }
   }
+  assert.match(ps, /function ConvertTo-CanonicalWatchdogTimestamp/);
+  assert.match(ps, /NONCANONICAL_WATCHDOG_TIMESTAMP/);
+  for (const timestamp of ["startupTimestamp", "preparedTimestamp", "enqueuedTimestamp"]) {
+    assert.match(ps, new RegExp("ConvertTo-CanonicalWatchdogTimestamp -Value \\$" + timestamp));
+    assert.doesNotMatch(ps, new RegExp("DateTimeOffset\\]::Parse\\(\\$" + timestamp + "\\)"));
+  }
   assert.match(ps, /ownerStop\.blocked/);
   assert.doesNotMatch(ps, /sendComposerInstruction|reconcileExactOnceOutbound|start-supervisor\.ps1/);
 });
