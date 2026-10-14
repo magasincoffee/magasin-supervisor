@@ -19,7 +19,7 @@ if(!$Workspace -or !$ExpectedMainSha){throw 'EXACT_MAIN_AND_WORKSPACE_REQUIRED'}
 $work=(Resolve-Path -LiteralPath $Workspace -ErrorAction Stop).Path
 $inspector=Join-Path $work '.github\scripts\mpc010-h4-viewer-owner-release.ps1'
 if(!(Test-Path -LiteralPath $inspector -PathType Leaf)){throw 'CANONICAL_INSPECTOR_MISSING'}
-. $inspector -Mode SelfTest
+. $inspector -Mode SelfTest -ExpectedMainSha $ExpectedMainSha -Workspace $Workspace
 $verified=RequireSource
 if($verified -cne $work){throw 'INSPECTED_WORKSPACE_IDENTITY_CHANGED'}
 $sotRef=$ExpectedMainSha+':SOURCE_OF_TRUTH.md'
