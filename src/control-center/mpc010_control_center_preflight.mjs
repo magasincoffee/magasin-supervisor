@@ -22,6 +22,16 @@ export const H4_OBSERVED_20261014 = Object.freeze({
   'web\\styles.css':'0968EFA7E7747ACCCFB47E214754CE0F74444E794EE9532DE29F3FEA19514C68',
   'supervisor_project_links.py':'AE352EAB4B6E5FE892BFE9FD1301120313B45C03ED605B9DBEEC403CC4367ACF',
 });
+// Existing H4 imports NOT recreated from GitHub. Their byte identities must be
+// separately frozen and compatibility-probed during a future field release.
+export const PRESERVED_RUNTIME_DEPENDENCIES_20261014 = Object.freeze({
+  'D:\\MAGASIN_ROBOTS\\control-center\\observability.py':'7B4E2BBC830E8136D5256D223EF59E2B3CCAA9F0D77596F0F3CCDD6DE68AE469',
+  'D:\\MAGASIN_ROBOTS\\control-center\\cutover_preflight.py':'1A2F9D5D91E983F1CF88456BEB14F40934BE19B81250F69071C6CFA1DEF1AF98',
+  'D:\\MAGASIN_ROBOTS\\control-center\\specialist_readiness.py':'CBEA44CF78C84C1F06F0F2F972A4E1474D9A789C947B4A03BC74E7FA7FD20AC5',
+  'D:\\MAGASIN_ROBOTS\\control-center\\supervisor_project_links.py':'AE352EAB4B6E5FE892BFE9FD1301120313B45C03ED605B9DBEEC403CC4367ACF',
+  'D:\\MAGASIN_ROBOTS\\robots\\coordinator\\owner_lifecycle.py':'545E83DC723C545C521DD56EDD7F53559F6A3CCBB1FC25F5C0386A161534B952',
+  'D:\\MAGASIN_ROBOTS\\robots\\supervisor\\control_adapter.py':'90F92C32C266C6A3571347169C802C8300FFBBD6F0EC0BDD70143E2F2C68B1E5',
+});
 const isObject = v => v !== null && typeof v === 'object' && !Array.isArray(v);
 const isSha = v => typeof v === 'string' && /^[0-9a-f]{40}$/i.test(v);
 const isHash = v => typeof v === 'string' && /^[0-9a-f]{64}$/i.test(v);
@@ -31,7 +41,8 @@ export function evaluateMpc010ReleaseMetadata(input) {
   const holds=[];
   if (!isObject(input)) {
     return Object.freeze({state:'HOLD',holds:['EVIDENCE_MISSING'],fieldApplyAuthorized:false,
-      workerStartAuthorized:false,stageAuthorized:false,productionAccepted:false});
+      workerStartAuthorized:false,stageAuthorized:false,productionAccepted:false,
+      ownerApprovalEstablished:false,nextGate:'SEPARATE_SOT_APPROVED_H4_RELEASE_PR_AND_OWNER_BOUND_APPLY'});
   }
   if (input.hostname !== H4_IDENTITY || input.ownerIdentity !== H4_OWNER) holds.push('WRONG_HOST_OR_OWNER');
   if (!isSha(input.expectedMainSha) || input.liveMainSha !== input.expectedMainSha ||
@@ -50,6 +61,20 @@ export function evaluateMpc010ReleaseMetadata(input) {
       Object.keys(input.candidateHashes).length !== CONTROL_CENTER_BUNDLE.length ||
       CONTROL_CENTER_BUNDLE.some(path => !own(input.candidateHashes,path) || !isHash(input.candidateHashes[path])))
     holds.push('INCOMPLETE_OR_UNPINNED_BUNDLE');
+  // Source-only frozen inventory: no caller supplied hash or compatibility flag
+  // establishes trust. Any missing or changed startup/route-time import blocks
+  // even the synthetic metadata-consistent classification.
+  if (!isObject(input.preservedDependencyHashes) ||
+      !isObject(input.preservedDependencyCompat) ||
+      Object.keys(input.preservedDependencyHashes).length !==
+        Object.keys(PRESERVED_RUNTIME_DEPENDENCIES_20261014).length ||
+      Object.keys(input.preservedDependencyCompat).length !==
+        Object.keys(PRESERVED_RUNTIME_DEPENDENCIES_20261014).length ||
+      Object.entries(PRESERVED_RUNTIME_DEPENDENCIES_20261014).some(([path,sha]) =>
+        !own(input.preservedDependencyHashes,path) ||
+        String(input.preservedDependencyHashes[path]).toUpperCase() !== sha ||
+        input.preservedDependencyCompat[path] !== true))
+    holds.push('PRESERVED_RUNTIME_IMPORT_NOT_PINNED_OR_UNVERIFIED');
   const listeners=input.localPortListeners;
   if (!Array.isArray(listeners) || listeners.length > 1 ||
       listeners.some(v=>!isObject(v) || v.bind !== LOCAL_BIND ||
