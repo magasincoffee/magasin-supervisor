@@ -62,7 +62,7 @@ function AssertNoReparse([string]$p) {
     if(Test-Path -LiteralPath $parent -PathType Container){
       $name=Split-Path -Path $current -Leaf
       $entry=@(Get-ChildItem -LiteralPath $parent -Force -ErrorAction Stop |
-        Where-Object {$_.Name -ceq $name})
+        Where-Object {$_.Name -ieq $name})
       if($entry.Count -gt 1){throw 'AMBIGUOUS_PATH_COMPONENT'}
       if($entry.Count -eq 1 -and
          (($entry[0].Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)){
@@ -85,8 +85,12 @@ function RequireSource {
   if($LASTEXITCODE -ne 0 -or !$remote -or (($remote -split '\s+')[0].ToLowerInvariant() -cne $ExpectedMainSha.ToLowerInvariant())){throw 'REMOTE_MAIN_CHANGED'}
   $dirty=@(& git -C $work --no-optional-locks status --porcelain=v1 --untracked-files=all)
   if($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0){throw 'WORKTREE_OR_INDEX_NOT_CLEAN'}
-  $sot=Join-Path $work 'SOURCE_OF_TRUTH.md'
-  if(!(Test-Path $sot) -or !([IO.File]::ReadAllText($sot).Contains($gateText))){throw 'REVIEWED_ROOT_SOT_GATE_MISSING'}
+  # The worktree can falsely look clean with assume-unchanged/skip-worktree.
+  # Read SOT authorization exclusively from the pinned reviewed Git object.
+  $sotRef=$ExpectedMainSha+':SOURCE_OF_TRUTH.md'
+  $sotLines=@(& git -C $work --no-optional-locks cat-file blob $sotRef)
+  if($LASTEXITCODE -ne 0 -or $sotLines.Count -eq 0 -or
+     !(($sotLines -join "`n").Contains($gateText))){throw 'REVIEWED_ROOT_SOT_GATE_MISSING'}
   $pins=Join-Path $work 'src\control-center\mpc010_control_center_preflight.mjs'
   $content=[IO.File]::ReadAllText($pins)
   foreach($k in $expectedFiles.Keys){
@@ -148,7 +152,11 @@ function VerifyHost {
                      'web\project_supervisor_telemetry.mjs','project_tree_catalogue.py',
                      'owner_request_drafts.py','supervisor_project_activation.py',
                      'docs\project-control\MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md')){
-     if(Test-Path -LiteralPath (Join-Path $install $file)){throw 'UNEXPECTED_PREEXISTING_TARGET'}
+     $destination=Join-Path $install $file
+     # A missing leaf can conceal an existing reparse ancestor or dangling
+     # junction. Check EVERY planned destination before treating it as absent.
+     AssertNoReparse $destination
+     if(Test-Path -LiteralPath $destination){throw 'UNEXPECTED_PREEXISTING_TARGET'}
   }
   $workers=@(Get-CimInstance Win32_Process -Filter "Name='node.exe' OR Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction Stop |
      Where-Object {$_.CommandLine -and
