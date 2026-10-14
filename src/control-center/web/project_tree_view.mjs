@@ -1,5 +1,6 @@
 import {renderProjectDetail} from "./project_detail_view.mjs";
 import {renderOwnerRequestPanel} from "./project_request_view.mjs";
+import {renderProjectSupervisorTelemetry} from "./project_supervisor_telemetry.mjs";
 // MPC-004: pure read-only project-tree rendering. No mutation or worker controls.
 const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({
   "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
@@ -61,7 +62,7 @@ export function projectTreeTrail(catalogue,selected="") {
   }
   return trail;
 }
-export function renderProjectTree({catalogue,query="",expanded=[],selected="",ownerRequest={}}={}) {
+export function renderProjectTree({catalogue,query="",expanded=[],selected="",ownerRequest={},supervisorSnapshot=null}={}) {
   if(catalogue==null) return '<section class="project-page" role="status">Đang tải danh mục dự án từ Control Center…</section>';
   const projects=Array.isArray(catalogue?.projects)?catalogue.projects:[];
   const opened=new Set(expanded);
@@ -113,6 +114,7 @@ export function renderProjectTree({catalogue,query="",expanded=[],selected="",ow
     +'<ul class="project-tree" aria-label="Danh sách dự án">'+tree.join("")+'</ul>'
     +(!visible?'<p class="project-empty" role="status">'+(term?'Không tìm thấy mục phù hợp.':'Chưa có dự án được xác minh.')+'</p>':'')
     +renderProjectDetail({catalogue,selected})
+    +renderProjectSupervisorTelemetry({selected,robot:supervisorSnapshot})
     +renderOwnerRequestPanel({catalogue,selected,...ownerRequest})
     +'<p class="project-footer">Danh sách từ nguồn SOT nội bộ chỉ dùng để điều hướng. Kiểm tra phiên bản GitHub, bằng chứng CI, trạng thái hoàn thành và tác vụ chi tiết thuộc các bước nghiệm thu tiếp theo.</p>'
     +'</section>';
