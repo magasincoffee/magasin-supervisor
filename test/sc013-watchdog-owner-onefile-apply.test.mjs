@@ -2,36 +2,57 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const source = await readFile(new URL("../.github/scripts/sc013-watchdog-owner-onefile-apply.ps1", import.meta.url), "utf8");
+const source = await readFile(
+  new URL("../.github/scripts/sc013-watchdog-owner-onefile-apply.ps1",import.meta.url),
+  "utf8"
+);
 
-test("Owner-only H4 Admin elevation, STOP and one-file scope are fail-closed", () => {
-  assert.match(source, /MachineName -cne 'DESKTOP-H4A16IL'/);
-  assert.match(source, /OWNER_ADMIN_TOKEN_REQUIRED/);
-  assert.match(source, /SC013_WATCHDOG_ONLY_H4_OWNER_APPROVED_20261014/);
-  assert.match(source, /EnvironmentVariable\('SUPERVISOR_STATE_ROOT','User'\)/);
-  assert.match(source, /Assert-Latches/);
-  assert.match(source, /OWNER_STOP_LATCH_MISSING/);
-  assert.match(source, /AUTOSTART_DISABLED/);
-  assert.match(source, /STAGE_ACL_UNPROTECTED/);
-  assert.match(source, /UNQUALIFIED_STAGE_ACL/);
-  assert.match(source, /STAGING_MANIFEST_MISMATCH/);
-  assert.match(source, /field_applied -ne \$false/);
-  assert.match(source, /f5d3e369448cf17436e157e42065d00239a00e905ae7437fdabbd84f812dea3f/);
-  assert.match(source, /336343f013e530e693e15f9bb6a8464a1dfd6fe3b3b2ee7e03dbc617c900aa13/);
-  assert.match(source, /bf02fd4d7276dc73e352a7ef19f3410c51abf14f/);
+test("approved H4 Owner Windows identity and real elevated token are mandatory", () => {
+  for(const token of [
+    "DESKTOP-H4A16IL","DESKTOP-H4A16IL\\admin",
+    "S-1-5-21-604228481-1555572614-3695427994-1001",
+    "OWNER_ADMIN_TOKEN_REQUIRED","OWNER_IDENTITY_MISMATCH",
+    "SC013_WATCHDOG_ONLY_H4_OWNER_APPROVED_20261014",
+    "STAGE_OWNER_OR_ACL_MISMATCH","STAGE_ACL_HAS_UNAPPROVED_ENTRY",
+  ]) assert.ok(source.includes(token),token);
+  assert.match(source,/GetOwner\(\[Security.Principal.SecurityIdentifier\]\)/);
+  assert.match(source,/\.AreAccessRulesProtected/);
 });
 
-test("Only exact Watchdog source can be replaced; backup and rollback always guarded", () => {
-  assert.match(source, /runtime\\windows\\local-watchdog\.ps1/);
-  assert.match(source, /Copy-Item -LiteralPath \$candidate -Destination \$temp/);
-  assert.match(source, /Move-Item -LiteralPath \$temp -Destination \$live -Force/);
-  assert.match(source, /Copy-Item -LiteralPath \$backup -Destination \$rollbackTemp/);
-  assert.match(source, /\$replaceAttempted = \$true/);
-  assert.match(source, /ROLLBACK_HOLD_LIVE_FILE_MISSING/);
-  assert.match(source, /ROLLBACK_TEMP_DIGEST_FAILED/);
-  assert.match(source, /ROLLBACK_HOLD_CONCURRENT_WRITER/);
-  assert.match(source, /ROLLBACK_INTEGRITY_FAILED/);
-  assert.match(source, /WATCHDOG_RUNTIME_RELOAD_NOT_PROVEN=True/);
-  assert.doesNotMatch(source, /Start-Process|Restart-(?:Process|Service|Computer)|Stop-(?:Process|Service|Computer)|Start-(?:Service|Job)|Invoke-Expression|Start-ScheduledTask|schtasks|sqlite3|dispatch_gateway|local_jobs\.py/i);
-  assert.doesNotMatch(source, /Invoke-WebRequest|Invoke-RestMethod|DownloadFile|WebClient/);
+test("only exact canonical nonreparse H4 root and fresh GitHub main are accepted", () => {
+  for(const token of [
+    "C:\\Users\\admin\\AppData\\Local\\MAGASIN\\BusinessOS\\supervisor",
+    "CANONICAL_SUPERVISOR_ROOT_MISMATCH","RUNTIME_OR_STAGE_ANCESTOR_REDIRECTED",
+    "refs/heads/main","LIVE_MAIN_NOT_PINNED","LIVE_MAIN_UNAVAILABLE",
+    "STOP","AUTOSTART_DISABLED","OWNER_STOP_LATCH_MISSING",
+    "STAGED_MANIFEST_MISMATCH","owner_sid",
+  ]) assert.ok(source.includes(token),token);
+  assert.match(source,/git -c credential.interactive=never ls-remote/);
+  assert.match(source,/Assert-NoReparseDirs/);
+});
+
+test("exclusive same-handle write prevents check/write races", () => {
+  assert.match(source,/\[IO.FileShare\]::None/);
+  assert.match(source,/\$liveHandle = \[IO.File\]::Open\(\$live/);
+  assert.match(source,/Read-LockedFile \$liveHandle/);
+  assert.match(source,/Write-LockedFile \$liveHandle \$sourceBytes/);
+  assert.match(source,/EXCLUSIVE_LIVE_HASH_CHANGED/);
+  assert.match(source,/\$stream\.Flush\(\$true\)/);
+  assert.match(source,/WATCHDOG_RUNTIME_RELOAD_NOT_PROVEN=True/);
+  assert.doesNotMatch(source,/Move-Item -LiteralPath \$temp -Destination \$live/);
+  assert.doesNotMatch(source,/Copy-Item -LiteralPath \$backup -Destination \$live/);
+  assert.doesNotMatch(source,/Start-Process|Restart-(?:Process|Service|Computer)|Stop-(?:Process|Service|Computer)|Start-(?:Service|Job)|Invoke-Expression|Start-ScheduledTask|schtasks|sqlite3|dispatch_gateway|local_jobs\.py/i);
+});
+
+test("durable APPLY_STARTED journal precedes write and recovery is explicit", () => {
+  assert.match(source,/SC013_WATCHDOG_EXCLUSIVE_FILE_TRANSACTION_V1/);
+  assert.match(source,/Write-DurableReceipt \$transaction/);
+  assert.match(source,/INTERRUPTED_TRANSACTION_REQUIRES_RECOVER/);
+  assert.match(source,/UNQUALIFIED_RECOVERY_JOURNAL/);
+  assert.match(source,/NO_INTERRUPTED_TRANSACTION/);
+  assert.match(source,/Write-LockedFile \$liveHandle \$backupBytes/);
+  assert.match(source,/RECOVERY_DIGEST_MISMATCH/);
+  assert.match(source,/Write-DurableReceipt \$receipt/);
+  assert.ok(source.indexOf("Write-DurableReceipt $transaction") <
+    source.indexOf("Write-LockedFile $liveHandle $sourceBytes"));
 });
