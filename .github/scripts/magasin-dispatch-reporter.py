@@ -39,7 +39,8 @@ def request(path, payload=None):
 
 
 def trustworthy(issue):
-    if issue.get("user", {}).get("login") != "magasincoffee":
+    author = issue.get("user") or {}
+    if author.get("login") != "magasincoffee" or author.get("id") != 191064507:
         return False
     if issue.get("state") != "open" or not str(issue.get("title", "")).startswith(PREFIX):
         return False
