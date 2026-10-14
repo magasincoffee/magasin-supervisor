@@ -61,3 +61,39 @@ test('final no-write inspector covers old worker modes and avoids git index refr
   assert.match(script,/supervisor-loop-cli/);
   assert.match(script,/Get-ChildItem -LiteralPath \$parent -Force -ErrorAction Stop/);
 });
+
+
+test('candidate pins are read from the immutable expected Git object, never mutable worktree',()=>{
+  assert.match(script,/\$pinsRef=\$ExpectedMainSha\+':src\/control-center\/mpc010_control_center_preflight\.mjs'/);
+  assert.match(script,/git -C \$work --no-optional-locks cat-file blob \$pinsRef/);
+  assert.match(script,/REVIEWED_PIN_GIT_OBJECT_MISSING/);
+  assert.doesNotMatch(script,/\$source=\[IO\.File\]::ReadAllText\(\$pinsPath/);
+  assert.match(script,/function ReadPinnedSource/);
+  assert.match(script,/CANDIDATE_CONTENT_HASH_DRIFT/);
+});
+
+test('assume-unchanged demonstrates clean status is not commit content proof',async()=>{
+  const {spawnSync}=await import('node:child_process');
+  const {mkdtempSync,writeFileSync,rmSync}=await import('node:fs');
+  const {tmpdir}=await import('node:os');
+  const {join}=await import('node:path');
+  const dir=mkdtempSync(join(tmpdir(),'mpc010-index-bypass-'));
+  const run=(...args)=>{
+    const v=spawnSync('git',['-C',dir,...args],{encoding:'utf8'});
+    assert.equal(v.status,0,(v.stderr||v.stdout||'').slice(0,700));
+    return v.stdout.trim();
+  };
+  try{
+    run('init','-q');
+    run('config','user.name','Hosted Synthetic Fixture');
+    run('config','user.email','fixture@example.invalid');
+    writeFileSync(join(dir,'pins.txt'),'PIN=REVIEWED\n');
+    run('add','pins.txt');
+    run('commit','-qm','fixture');
+    const revision=run('rev-parse','HEAD');
+    run('update-index','--assume-unchanged','pins.txt');
+    writeFileSync(join(dir,'pins.txt'),'PIN=FORGED\n');
+    assert.equal(run('--no-optional-locks','status','--porcelain=v1'),'');
+    assert.equal(run('--no-optional-locks','cat-file','blob',revision+':pins.txt'),'PIN=REVIEWED');
+  }finally{rmSync(dir,{recursive:true,force:true})}
+});
