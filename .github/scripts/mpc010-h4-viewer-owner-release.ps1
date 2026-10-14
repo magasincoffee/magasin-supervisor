@@ -112,7 +112,7 @@ function VerifyHost {
   $actual=[Security.Principal.WindowsIdentity]::GetCurrent().Name
   if($actual -cne $admin){throw 'OWNER_ADMIN_REQUIRED'}
   foreach($p in @($install,$stopRoot,$stageRoot,
-     (Join-Path $stopRoot 'STOP'),(Join-Path $stopRoot 'AUTOSTART_DISABLED'))){AssertNoReparse $p}
+    (Join-Path $stopRoot 'STOP'),(Join-Path $stopRoot 'AUTOSTART_DISABLED'))){AssertNoReparse $p}
   if(!(Test-Path -LiteralPath (Join-Path $stopRoot 'STOP') -PathType Leaf) -or
      !(Test-Path -LiteralPath (Join-Path $stopRoot 'AUTOSTART_DISABLED') -PathType Leaf)){throw 'STOP_LATCH_MISSING'}
   if((Get-PSDrive D -ErrorAction Stop).Free -lt 2GB){throw 'BACKUP_DISK_INSUFFICIENT'}
@@ -136,7 +136,7 @@ function VerifyHost {
        $_.CommandLine -match 'run-supervisor[.]ps1|(?:three-lane-cli|planner-executor-cli|planner-executor-bridge-cli|single-conversation-cli)[.]mjs'})
   if($workers.Count -gt 0){throw 'BUSINESS_WORKER_PRESENT'}
   $listeners=@(Get-NetTCPConnection -ErrorAction Stop |
-     Where-Object {$_.LocalPort -eq 8781 -and $_.State -eq 'Listen'})
+    Where-Object {$_.LocalPort -eq 8781 -and $_.State -eq 'Listen'})
   if($listeners.Count -gt 1 -or ($listeners.Count -eq 1 -and $listeners[0].LocalAddress -cne '127.0.0.1')){
     throw 'UNEXPECTED_LOCAL_VIEWER_LISTENER'
   }
@@ -145,7 +145,14 @@ function VerifyHost {
     $proc=Get-CimInstance Win32_Process -Filter ("ProcessId="+$pidFound) -ErrorAction Stop
     $pythonExe='C:\MAGASIN_MCP\.venv\Scripts\pythonw.exe'
     $serverFile=Join-Path $install 'server.py'
-    $linePattern='^\s*"?'+[regex]::Escape($pythonExe)+'"?\s+"?'+[regex]::Escape($serverFile)+'"?\s*
+    $linePattern='^\s*"?'+[regex]::Escape($pythonExe)+'"?\s+"?'+[regex]::Escape($serverFile)+'"?\s*$'
+    if(!$proc -or !$proc.CommandLine -or !$proc.ExecutablePath -or
+       $proc.ExecutablePath -cne $pythonExe -or
+       $proc.CommandLine -notmatch $linePattern){throw 'VIEWER_PROCESS_IDENTITY_UNVERIFIED'}
+    $owner=Invoke-CimMethod -InputObject $proc -MethodName GetOwner -ErrorAction Stop
+    if($owner.ReturnValue -ne 0 -or (($owner.Domain+'\'+$owner.User) -cne $admin)){
+      throw 'VIEWER_PROCESS_OWNER_UNVERIFIED'
+    }
   }
 }
 function SafeSelfTest {
@@ -172,39 +179,5 @@ VerifyHost
 VerifyCandidate $work
 $dirty=@(& git -C $work status --porcelain=v1 --untracked-files=all)
 if($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0){throw 'WORKTREE_CHANGED_DURING_INSPECT'}
-Write-Output 'MPC010_H4_VIEWER_READONLY_INSPECT_PASS=True'
-Write-Output 'FIELD_APPLY_AUTHORIZED=False'
-
-    if(!$proc -or !$proc.CommandLine -or !$proc.ExecutablePath -or
-       $proc.ExecutablePath -cne $pythonExe -or
-       $proc.CommandLine -notmatch $linePattern){throw 'VIEWER_PROCESS_IDENTITY_UNVERIFIED'}
-    $owner=Invoke-CimMethod -InputObject $proc -MethodName GetOwner -ErrorAction Stop
-    if($owner.ReturnValue -ne 0 -or (($owner.Domain+'\'+$owner.User) -cne $admin)){
-       throw 'VIEWER_PROCESS_OWNER_UNVERIFIED'
-    }
-  }
-}
-function SafeSelfTest {
-  if($expectedFiles.Count -ne 12 -or $preserved.Count -ne 6 -or $oldHashes.Count -ne 4){
-    throw 'SOURCE_ALLOWLIST_MALFORMED'
-  }
-  foreach($key in $expectedFiles.Keys){
-    $v=$expectedFiles[$key]
-    if($key -match '\.\.' -or $v -match '\.\.' -or $v.StartsWith('\') -or $v.Contains(':')){throw 'PATH_ESCAPE'}
-  }
-  Write-Output 'MPC010_H4_VIEWER_SYNTHETIC_SELFTEST_PASS=True'
-  Write-Output 'FIELD_APPLY_AUTHORIZED=False'
-}
-if($Mode -eq 'SelfTest'){ SafeSelfTest; return }
-# Field modes remain UNAUTHORIZED until reviewed implementation of backup/apply/
-# rollback and a separate SOT gate, even after source PR merge.
-if($Mode -in @('Stage','Apply','Rollback')) {
-  throw 'MPC010_FIELD_RELEASE_NOT_YET_IMPLEMENTED_OR_AUTHORIZED'
-}
-if($Mode -ne 'Inspect'){throw 'UNKNOWN_MODE'}
-# Inspect is the ONLY currently executable field path; it has no writes.
-$work=RequireSource
-VerifyHost
-VerifyCandidate $work
 Write-Output 'MPC010_H4_VIEWER_READONLY_INSPECT_PASS=True'
 Write-Output 'FIELD_APPLY_AUTHORIZED=False'
