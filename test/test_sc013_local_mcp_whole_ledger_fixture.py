@@ -122,6 +122,54 @@ class SyntheticWholeLedgerTests(unittest.TestCase):
         db.rollback()
         db.close()
 
+    def test_deadline_stops_scan_with_static_error_code(self):
+        db = seed(50)
+        ticks = [0]
+
+        def advancing_clock():
+            ticks[0] += 1
+            return 0.0 if ticks[0] == 1 else 100.0
+
+        try:
+            with self.assertRaisesRegex(sut.FixtureHold, "FIXTURE_READ_DEADLINE_EXCEEDED"):
+                sut.snapshot_fixture(db, budget_seconds=1.0, _clock=advancing_clock)
+        finally:
+            db.close()
+
+    def test_rejects_invalid_budget(self):
+        db = seed()
+        try:
+            for budget in (0, -1, 6, "3", None):
+                with self.subTest(budget=budget):
+                    with self.assertRaisesRegex(sut.FixtureHold, "INVALID_READ_BUDGET"):
+                        sut.snapshot_fixture(db, budget_seconds=budget)
+        finally:
+            db.close()
+
+    def test_cumulative_byte_budget_blocks_large_projection(self):
+        db = seed(15)
+        prior = sut.MAX_PROJECTED_BYTES
+        try:
+            sut.MAX_PROJECTED_BYTES = 350
+            with self.assertRaisesRegex(sut.FixtureHold, "FIXTURE_PROJECTION_BYTE_LIMIT"):
+                sut.snapshot_fixture(db)
+        finally:
+            sut.MAX_PROJECTED_BYTES = prior
+            db.close()
+
+    def test_sqlite_per_field_limit_rejects_huge_value(self):
+        db = seed()
+        try:
+            db.execute("INSERT INTO jobs VALUES (?, 'DONE',NULL)", ("X"*12000,))
+            db.commit()
+            with self.assertRaises(sut.FixtureHold) as raised:
+                sut.snapshot_fixture(db)
+            self.assertIn(str(raised.exception),
+                          {"FIXTURE_QUERY_FAILED", "OVERSIZED_LEDGER_FIELD"})
+            self.assertNotIn("X"*100, str(raised.exception))
+        finally:
+            db.close()
+
     def test_limit_fails_closed_instead_of_truncating(self):
         db=seed()
         original=sut.MAX_ROWS
