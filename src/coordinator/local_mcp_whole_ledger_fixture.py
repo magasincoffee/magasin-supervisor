@@ -155,6 +155,18 @@ def snapshot_fixture(db, *, budget_seconds=3.0, _clock=None):
         # Bound ALL SQLite reads, INCLUDING schema metadata validation.
         db.set_progress_handler(interrupt, 100)
         progress_installed = True
+        # The caller may have changed row/text factories or registered
+        # Python trace/authorization callbacks after fixture creation.
+        # Reset all supported query-level callbacks BEFORE any SQL metadata
+        # read. Generated columns/functions and extensions are rejected by
+        # _valid_fixture. The factory connection is thread-affine.
+        try:
+            db.row_factory = None
+            db.text_factory = str
+            db.set_trace_callback(None)
+            db.set_authorizer(None)
+        except sqlite3.Error:
+            raise FixtureHold("UNSAFE_CONNECTION_CALLBACKS") from None
         _valid_fixture(db)
         if expired():
             raise FixtureHold("FIXTURE_READ_DEADLINE_EXCEEDED")
