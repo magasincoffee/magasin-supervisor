@@ -157,6 +157,7 @@ jobs:
             test/mpc004-project-tree-ui.test.mjs `
             test/mpc005-project-detail.test.mjs `
             test/mpc006-owner-request-ui.test.mjs `
+            test/mpc008-supervisor-telemetry.test.mjs `
             test/sc013-h4-readonly-probe.test.mjs `
             test/sc013-project-activation-safe-preflight.test.mjs `
             test/sc013-local-gateway-health-stop-policy.test.mjs `
