@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src" / "control-center"))
-from project_tree_catalogue import read_only_project_catalogue  # noqa: E402
+from project_tree_catalogue import read_only_project_catalogue, resolve_catalogue_plan  # noqa: E402
 
 
 class ProjectTreeCatalogueTests(unittest.TestCase):
@@ -49,6 +49,15 @@ class ProjectTreeCatalogueTests(unittest.TestCase):
             path.write_bytes(b"\xff")
             invalid = read_only_project_catalogue(path)
             self.assertEqual(invalid["projects"][0]["features"], [])
+
+    def test_installed_viewer_loads_plan_inside_control_center_not_drive_root(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            installed = root / "MAGASIN_ROBOTS" / "control-center" / "project_tree_catalogue.py"
+            expected = installed.parent / "docs" / "project-control" / "MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md"
+            self.assertEqual(resolve_catalogue_plan(installed), expected)
+            checkout = root / "repo" / "src" / "control-center" / "project_tree_catalogue.py"
+            self.assertEqual(resolve_catalogue_plan(checkout), root / "repo" / "docs" / "project-control" / expected.name)
 
     def test_duplicate_ids_fail_closed_without_synthetic_progress(self):
         with tempfile.TemporaryDirectory() as directory:
