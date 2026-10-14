@@ -108,6 +108,13 @@ jobs:
       - name: Verify whole-ledger H4 MCP inspection stays synthetic and rejects stale jobs
         shell: powershell
         run: python -m unittest discover -s test -p 'test_sc013_local_mcp_whole_ledger_fixture.py' -v
+      - name: Verify SC-013 watchdog sparse-state StrictMode repair is host-only
+        shell: powershell
+        run: |
+          node --test test/sc013-watchdog-sparse-state.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'SC013_WATCHDOG_NODE_CONTRACT_FAILED' }
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test/sc013-watchdog-sparse-state-fixture.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'SC013_WATCHDOG_POWERSHELL_FIXTURE_FAILED' }
       - name: Verify source-only H4 local MCP field preflight
         shell: powershell
         run: python -m unittest discover -s test -p 'test_sc013_local_mcp_field_preflight.py' -v
