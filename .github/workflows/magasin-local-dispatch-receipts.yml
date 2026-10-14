@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 10
     steps:
       # The H4 Windows host blocks the default Actions PowerShell wrapper.
-      # CMD is process-scoped and does not alter ExecutionPolicy, tasks or services.
+      # CMD uses the existing Windows process policy without altering machine settings, tasks or services.
       # Refuse any non-H4 runner BEFORE checkout or calling local MCP files.
       - name: Guard actual H4 host before checkout
         shell: cmd
