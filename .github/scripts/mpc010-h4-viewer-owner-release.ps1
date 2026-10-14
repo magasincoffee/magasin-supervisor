@@ -53,7 +53,9 @@ function AssertNoReparse([string]$p) {
   while($current -and (Test-Path -LiteralPath $current)) {
     $item=Get-Item -LiteralPath $current -Force -ErrorAction Stop
     if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {throw 'REPARSE_COMPONENT_DENIED'}
-    $current=Split-Path -Path $current -Parent
+    $parent=Split-Path -Path $current -Parent
+    if(!$parent -or $parent -ceq $current){break}
+    $current=$parent
   }
 }
 function RequireSource {
