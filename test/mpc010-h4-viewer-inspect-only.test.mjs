@@ -32,7 +32,7 @@ test('no SOT section grants H4 installation from this source-only PR',()=>{
 test('Codex P2 boundaries reject dirty tree, symlink STOP and all orphaned worker names',()=>{
   assert.match(script,/WORKTREE_OR_INDEX_NOT_CLEAN/);
   assert.match(script,/WORKTREE_CHANGED_DURING_INSPECT/);
-  assert.match(script,/git -C \$work --no-optional-locks status --porcelain=v1 --untracked-files=all/);
+  assert.match(script,/git --no-replace-objects -C \$work --no-optional-locks status --porcelain=v1 --untracked-files=all/);
   assert.match(script,/Join-Path \$stopRoot 'STOP'\),\(Join-Path \$stopRoot 'AUTOSTART_DISABLED'\)/);
   for(const name of ['three-lane-cli','planner-executor-cli','planner-executor-bridge-cli','single-conversation-cli'])
     assert.ok(script.includes(name),name);
@@ -55,8 +55,8 @@ test('inspect must traverse existing ancestors of nonexistent target and be CI-t
 });
 
 test('final no-write inspector covers old worker modes and avoids git index refresh',()=>{
-  assert.equal(script.split('git -C $work --no-optional-locks status').length-1,2);
-  assert.doesNotMatch(script,/git -C \$work status --porcelain/);
+  assert.equal(script.split('git --no-replace-objects -C $work --no-optional-locks status').length-1,2);
+  assert.doesNotMatch(script,/git --no-replace-objects -C \$work status --porcelain/);
   assert.match(script,/brain-worker-cli/);
   assert.match(script,/supervisor-loop-cli/);
   assert.match(script,/Get-ChildItem -LiteralPath \$parent -Force -ErrorAction Stop/);
@@ -65,7 +65,7 @@ test('final no-write inspector covers old worker modes and avoids git index refr
 
 test('candidate pins are read from the immutable expected Git object, never mutable worktree',()=>{
   assert.match(script,/\$pinsRef=\$ExpectedMainSha\+':src\/control-center\/mpc010_control_center_preflight\.mjs'/);
-  assert.match(script,/git -C \$work --no-optional-locks cat-file blob \$pinsRef/);
+  assert.match(script,/git --no-replace-objects -C \$work --no-optional-locks cat-file blob \$pinsRef/);
   assert.match(script,/REVIEWED_PIN_GIT_OBJECT_MISSING/);
   assert.doesNotMatch(script,/\$source=\[IO\.File\]::ReadAllText\(\$pinsPath/);
   assert.match(script,/function ReadPinnedSource/);
@@ -101,7 +101,7 @@ test('assume-unchanged demonstrates clean status is not commit content proof',as
 
 test('SOT release gate comes from expected immutable commit, not hidden local file',()=>{
   assert.match(script,/\$sotRef=\$ExpectedMainSha\+':SOURCE_OF_TRUTH\.md'/);
-  assert.match(script,/git -C \$work --no-optional-locks cat-file blob \$sotRef/);
+  assert.match(script,/git --no-replace-objects -C \$work --no-optional-locks cat-file blob \$sotRef/);
   assert.match(script,/REVIEWED_ROOT_SOT_GATE_MISSING/);
   assert.doesNotMatch(script,/\[IO\.File\]::ReadAllText\(\$sot\)/);
 });
@@ -112,4 +112,39 @@ test('Windows path inspection case-folds component names and checks all new leaf
   assert.match(script,/\$destination=Join-Path \$install \$file\s+# A missing leaf[\s\S]*?AssertNoReparse \$destination\s+if\(Test-Path -LiteralPath \$destination\)/);
   assert.ok(script.includes("'docs\\project-control\\MPC_OWNER_ARCHITECTURE_AND_TASKS_2026-10-11.md'"));
   assert.match(script,/REPARSE_COMPONENT_DENIED/);
+});
+
+
+test('disable Git replacement refs for all source, SOT and commit verifications',()=>{
+  assert.equal(script.split('git --no-replace-objects -C $work').length-1,7);
+  assert.doesNotMatch(script,/& git -C \$work/);
+  assert.match(script,/git --no-replace-objects -C \$work --no-optional-locks cat-file blob \$pinsRef/);
+  assert.match(script,/git --no-replace-objects -C \$work --no-optional-locks cat-file blob \$sotRef/);
+});
+
+test('synthetic local Git replace cannot spoof pinned commit bytes when disabled',async()=>{
+  const {spawnSync}=await import('node:child_process');
+  const {mkdtempSync,writeFileSync,rmSync}=await import('node:fs');
+  const {tmpdir}=await import('node:os');
+  const {join}=await import('node:path');
+  const dir=mkdtempSync(join(tmpdir(),'mpc010-replacement-proof-'));
+  const run=(...args)=>{
+    const v=spawnSync('git',['-C',dir,...args],{encoding:'utf8'});
+    assert.equal(v.status,0,(v.stderr||v.stdout||'').slice(0,650));
+    return v.stdout.trim();
+  };
+  try{
+    run('init','-q');
+    run('config','user.name','Hosted Synthetic Fixture');
+    run('config','user.email','fixture@example.invalid');
+    writeFileSync(join(dir,'sot.txt'),'REVIEWED_GATE=DENIED\n');
+    run('add','sot.txt');run('commit','-qm','safe');
+    const safe=run('rev-parse','HEAD');
+    writeFileSync(join(dir,'sot.txt'),'REVIEWED_GATE=FORGED_APPROVAL\n');
+    run('add','sot.txt');run('commit','-qm','evil');
+    const malicious=run('rev-parse','HEAD');
+    run('replace',safe,malicious);
+    assert.equal(run('cat-file','blob',safe+':sot.txt'),'REVIEWED_GATE=FORGED_APPROVAL');
+    assert.equal(run('--no-replace-objects','cat-file','blob',safe+':sot.txt'),'REVIEWED_GATE=DENIED');
+  }finally{rmSync(dir,{recursive:true,force:true})}
 });
