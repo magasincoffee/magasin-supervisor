@@ -153,6 +153,12 @@ def _check_zip_central_directory_boundary(data: bytes) -> None:
     except struct.error as exc:
         raise ReleaseCapsuleRejected("CONSUMER_INVALID_EOCD") from exc
     end_of_directory = len(data) - 22
+    # Python's ZipFile probes a ZIP64 locator immediately before the EOCD
+    # and may override these bounded EOCD counts/sizes with ZIP64 values.
+    # ZIP64 is not emitted by the canonical 21-member source capsule.
+    if (end_of_directory >= 20 and
+            data[end_of_directory - 20:end_of_directory - 16] == b"PK\x06\x07"):
+        raise ReleaseCapsuleRejected("CONSUMER_ZIP64_LOCATOR_DENIED")
     # 16 KiB is much greater than the 21 canonical entries require, while
     # making both central-directory read size and allocation count bounded.
     if (signature != b"PK\x05\x06" or disk != 0 or start_disk != 0

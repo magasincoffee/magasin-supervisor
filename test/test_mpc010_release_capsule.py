@@ -189,13 +189,16 @@ class ReleaseCapsuleTests(unittest.TestCase):
         cases.append(bytes(huge_directory))
         trailing_comment = z.data + b"EXTRA_BYTES"
         cases.append(trailing_comment)
+        forged_zip64 = bytearray(z.data)
+        forged_zip64[-42:-38] = b"PK\x06\x07"
+        cases.append(bytes(forged_zip64))
         for hostile in cases:
             with self.subTest(size=len(hostile)):
                 # Guard that ZipFile is never even instantiated for these cases.
                 with patch.object(mod, "ZipFile", side_effect=AssertionError(
                         "UNBOUNDED_ZIP_OPEN")):
                     with self.assertRaisesRegex(
-                            mod.ReleaseCapsuleRejected, "EOCD|CENTRAL_DIRECTORY"):
+                            mod.ReleaseCapsuleRejected, "EOCD|CENTRAL_DIRECTORY|ZIP64"):
                         mod.verify_source_capsule(
                             hostile, sha(hostile), reviewed_main_sha=SHA,
                             reviewed_source_pins=pins, reviewed_old_pins=oldpins)
