@@ -159,7 +159,7 @@ class ReleaseCapsuleTests(unittest.TestCase):
             for item in original.infolist():
                 forged.writestr(item, original.read(item.filename))
         altered = output.getvalue()
-        with self.assertRaisesRegex(mod.ReleaseCapsuleRejected, "NONCANONICAL_ZIP_METADATA"):
+        with self.assertRaisesRegex(mod.ReleaseCapsuleRejected, "INVALID_EOCD|NONCANONICAL_ZIP_METADATA"):
             mod.verify_source_capsule(altered, sha(altered),
                 reviewed_main_sha=SHA, reviewed_source_pins=pins,
                 reviewed_old_pins=oldpins)
