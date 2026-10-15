@@ -180,6 +180,29 @@ class CapsuleTests(unittest.TestCase):
             finally:
                 alias.rmdir()
 
+    def test_volume_anchor_rejects_remote_unknown_and_removable_drives(self):
+        for drive_type in (0, 1, 2, 4, 5, 6):
+            with self.subTest(drive_type=drive_type):
+                with self.assertRaisesRegex(fixture.CapsuleRejected, "UNTRUSTED_DRIVE_TYPE"):
+                    fixture._require_local_fixed_drive("Z:\\\\", lambda _anchor: drive_type)
+        self.assertRaisesRegex(fixture.CapsuleRejected, "LOCAL_VOLUME_ROOT_REQUIRED",
+                               fixture._require_local_fixed_drive,
+                               "\\\\\\\\server\\\\share\\\\", lambda _: 3)
+        seen = []
+        fixture._require_local_fixed_drive("C:\\\\", lambda anchor: seen.append(anchor) or 3)
+        self.assertEqual(seen, ["C:\\\\"])
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows native GetDriveTypeW")
+    def test_windows_actual_temp_drive_must_be_fixed(self):
+        import ctypes
+        import ctypes.wintypes as wt
+        get_drive_type = ctypes.WinDLL("kernel32", use_last_error=True).GetDriveTypeW
+        get_drive_type.argtypes = [wt.LPCWSTR]
+        get_drive_type.restype = wt.UINT
+        root = Path(tempfile.gettempdir()).absolute().anchor
+        self.assertEqual(get_drive_type(root), 3)
+        fixture._require_local_fixed_drive(root, get_drive_type)
+
     def test_rejects_backup_restore_mismatch_and_missing_suffix(self):
         wrong_content = members()
         wrong_content["restore-test/fixture-1.py"] = b"incorrect restore"

@@ -61,6 +61,23 @@ def _manifest(members: dict[str, bytes], commit_sha: str) -> dict:
             "members_sha256": {key: sha256(value) for key, value in sorted(members.items())}}
 
 
+def _require_local_fixed_drive(anchor: str, get_drive_type) -> None:
+    """Refuse any storage whose native drive type is not fixed/local.
+
+    Drive-letter paths can address network mappings. Unknown and removable
+    volumes also fail closed, because this synthetic Windows experiment only
+    tests the sharing and reparse semantics of a local fixed volume.
+    """
+    if not re.fullmatch(r"[A-Za-z]:\\", anchor):
+        raise CapsuleRejected("SYNTHETIC_LOCAL_VOLUME_ROOT_REQUIRED")
+    try:
+        kind = get_drive_type(anchor)
+    except (OSError, ValueError):
+        raise CapsuleRejected("SYNTHETIC_UNTRUSTED_DRIVE_TYPE") from None
+    if kind != 3:  # DRIVE_FIXED; DRIVE_REMOTE=4 and DRIVE_UNKNOWN=0
+        raise CapsuleRejected("SYNTHETIC_UNTRUSTED_DRIVE_TYPE")
+
+
 def _container_file(root: Path):
     # A verified leaf handle is insufficient if an attacker-controlled
     # intermediate component can be switched to a junction before opening it.
@@ -115,8 +132,10 @@ def _container_file(root: Path):
         # Anchor at the fixed local volume root, not the mutable %TEMP% path.
         # UNC, device and non-drive paths fail closed in this synthetic fixture.
         anchor = trusted_temp.anchor
-        if not re.fullmatch(r"[A-Za-z]:\\", anchor):
-            raise CapsuleRejected("SYNTHETIC_LOCAL_VOLUME_ROOT_REQUIRED")
+        get_drive_type = k.GetDriveTypeW
+        get_drive_type.argtypes = [wt.LPCWSTR]
+        get_drive_type.restype = wt.UINT
+        _require_local_fixed_drive(anchor, get_drive_type)
         volume_handle = open_root(anchor, 0x001000A0, 0x3, None, 3,
                                   0x02000000 | 0x00200000, None)
         if volume_handle == invalid or not volume_handle:
