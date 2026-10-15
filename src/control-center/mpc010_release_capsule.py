@@ -13,7 +13,7 @@ from io import BytesIO
 import json
 import re
 from typing import Mapping
-from zipfile import ZipFile, ZipInfo, ZIP_STORED
+from zipfile import BadZipFile, ZipFile, ZipInfo, ZIP_STORED
 
 SCHEMA = "MPC010_REVIEWED_SOURCE_CAPSULE_V1"
 MAX_ENTRY_SIZE = 4 * 1024 * 1024
@@ -167,7 +167,7 @@ def verify_source_capsule(data: bytes, externally_pinned_capsule_sha: str, *,
                     raise ReleaseCapsuleRejected("CONSUMER_MEMBER_HASH_MISMATCH")
             if zf.read("metadata/receipt.json") != receipt:
                 raise ReleaseCapsuleRejected("CONSUMER_RECEIPT_NOT_CANONICAL")
-    except (OSError, EOFError, ValueError, RuntimeError, KeyError) as exc:
+    except (BadZipFile, OSError, EOFError, ValueError, RuntimeError, KeyError) as exc:
         if isinstance(exc, ReleaseCapsuleRejected):
             raise
         raise ReleaseCapsuleRejected("CONSUMER_INVALID_ZIP") from exc
