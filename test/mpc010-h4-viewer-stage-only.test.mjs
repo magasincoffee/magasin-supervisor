@@ -27,7 +27,7 @@ test('Codex P1: destination traversal is native handle-relative and deny-reparse
   assert.match(s,/NtCreateFile\(out SafeFileHandle handle/);
   assert.match(s,/RootDirectory=parent.DangerousGetHandle\(\)/);
   assert.match(s,/OBJ_DONT_REPARSE/);
-  assert.match(s,/FILE_OPEN_REPARSE_POINT/);
+  assert.match(s,/FLAG_OPEN_REPARSE_POINT/);
   assert.match(s,/directory\?DIRECTORY_OPTIONS:FILE_OPTIONS/);
   assert.match(s,/FILE_CREATE/);
   assert.match(s,/shareAccess=0/);
@@ -79,5 +79,5 @@ test('Codex P2: second candidate read must match immutable reviewed pin before D
   assert.match(s,/\$pin=\[regex\]::Match\(\$reviewedPins/);
   assert.match(s,/if\(\$digest -cne \$pin\.Groups\[1\]\.Value\)\{throw 'CANDIDATE_SOURCE_HASH_NOT_REVIEWED'\}/);
   assert.match(s,/sha=\$pin\.Groups\[1\]\.Value/);
-  assert.ok(s.indexOf('CANDIDATE_SOURCE_HASH_NOT_REVIEWED')<s.indexOf('New-Item -ItemType Directory -Path $stage'));
+  assert.ok(s.indexOf('CANDIDATE_SOURCE_HASH_NOT_REVIEWED')<s.indexOf('$guard.EnterNew($sha)'));
 });
