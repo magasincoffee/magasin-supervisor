@@ -73,6 +73,43 @@ class CapsuleTests(unittest.TestCase):
             with self.assertRaises(fixture.CapsuleRejected):
                 fixture.build_synthetic_capsule(Path(d), unsafe, commit_sha=SHA, proof=PROOF)
 
+
+    def test_rejects_backup_restore_mismatch_and_missing_suffix(self):
+        wrong_content = members()
+        wrong_content["restore-test/fixture-1.py"] = b"incorrect restore"
+        with tempfile.TemporaryDirectory(prefix="mpc010-synthetic-") as d:
+            with self.assertRaisesRegex(fixture.CapsuleRejected, "RESTORE_MUST_EQUAL_BACKUP"):
+                fixture.build_synthetic_capsule(Path(d), wrong_content, commit_sha=SHA, proof=PROOF)
+            wrong_name = members()
+            wrong_name["restore-test/wrong-name.py"] = wrong_name.pop("restore-test/fixture-1.py")
+            with self.assertRaisesRegex(fixture.CapsuleRejected, "RESTORE_MUST_EQUAL_BACKUP"):
+                fixture.build_synthetic_capsule(Path(d), wrong_name, commit_sha=SHA, proof=PROOF)
+
+    def test_consumer_rejects_sparse_oversize_without_unbounded_read(self):
+        with tempfile.TemporaryDirectory(prefix="mpc010-synthetic-") as d:
+            path, digest = fixture.build_synthetic_capsule(Path(d), members(), commit_sha=SHA, proof=PROOF)
+            with open(path, "wb") as f:
+                f.seek(fixture.MAX_CAPSULE_BYTES)
+                f.write(b"X")
+            with self.assertRaisesRegex(fixture.CapsuleRejected, "CONSUMER_CAPSULE_TOO_LARGE"):
+                fixture.inspect_synthetic_capsule(path, digest, members(), SHA)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows-only root handle protection")
+    def test_windows_root_rename_denied_through_success_boundary(self):
+        with tempfile.TemporaryDirectory(prefix="mpc010-synthetic-") as d:
+            attempts = []
+            def concurrent_root_rename(_path):
+                renamed = Path(d).with_name(Path(d).name + "-moved")
+                try:
+                    os.rename(d, renamed)
+                    attempts.append("ROOT_RENAME_SUCCEEDED")
+                except OSError:
+                    attempts.append("ROOT_RENAME_DENIED")
+            path, digest = fixture.build_synthetic_capsule(Path(d), members(), commit_sha=SHA, proof=PROOF,
+                                                             while_locked=concurrent_root_rename)
+            self.assertEqual(attempts, ["ROOT_RENAME_DENIED"])
+            self.assertTrue(fixture.inspect_synthetic_capsule(path, digest, members(), SHA))
+
     @unittest.skipUnless(sys.platform == "win32", "Windows sharing semantics require Windows")
     def test_windows_concurrent_write_and_replace_denied_while_capsule_locked(self):
         with tempfile.TemporaryDirectory(prefix="mpc010-synthetic-") as d:

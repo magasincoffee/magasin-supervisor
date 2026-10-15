@@ -18,6 +18,8 @@ import tempfile
 import zipfile
 
 MAX_MEMBER_BYTES = 1_048_576
+# Stored members only: 20 payloads, one bounded receipt, plus ZIP headers.
+MAX_CAPSULE_BYTES = 21 * MAX_MEMBER_BYTES + 65_536
 SCHEMA = "MPC010_SYNTHETIC_CAPSULE_V1"
 _PROOF = "MPC010_SYNTHETIC_CI_ONLY"
 
@@ -44,6 +46,12 @@ def _valid_members(members: dict[str, bytes]) -> None:
                 not re.fullmatch(r"(?:candidate|backup|restore-test)/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+", name) or
                 any(x in (".", "..") for x in name.split("/"))):
             raise CapsuleRejected("SYNTHETIC_UNSAFE_ENTRY_NAME")
+    backups = {name[len("backup/"):]: value for name, value in members.items()
+               if name.startswith("backup/")}
+    rehearsals = {name[len("restore-test/"):]: value for name, value in members.items()
+                  if name.startswith("restore-test/")}
+    if backups != rehearsals:
+        raise CapsuleRejected("SYNTHETIC_RESTORE_MUST_EQUAL_BACKUP")
 
 
 def _manifest(members: dict[str, bytes], commit_sha: str) -> dict:
@@ -58,23 +66,88 @@ def _container_file(root: Path):
         raise CapsuleRejected("SYNTHETIC_TEMP_DIRECTORY_ONLY")
     dest = root / "capsule-synthetic.zip"
     if sys.platform == "win32":
-        import msvcrt
         import ctypes.wintypes as wt
-        f = ctypes.WinDLL("kernel32", use_last_error=True).CreateFileW
-        f.argtypes = [wt.LPCWSTR, wt.DWORD, wt.DWORD, ctypes.c_void_p,
-                      wt.DWORD, wt.DWORD, ctypes.c_void_p]
-        f.restype = ctypes.c_void_p
-        handle = f(str(dest), 0xC0000000, 0, None, 1, 0x00200000, None)
-        if handle == ctypes.c_void_p(-1).value:
-            raise CapsuleRejected("SYNTHETIC_EXCLUSIVE_CREATE_DENIED_" + str(ctypes.get_last_error()))
+        import msvcrt
+
+        class UnicodeString(ctypes.Structure):
+            _fields_ = [("Length", wt.USHORT), ("MaximumLength", wt.USHORT),
+                        ("Buffer", ctypes.c_void_p)]
+
+        class ObjectAttributes(ctypes.Structure):
+            _fields_ = [("Length", wt.ULONG), ("RootDirectory", ctypes.c_void_p),
+                        ("ObjectName", ctypes.POINTER(UnicodeString)),
+                        ("Attributes", wt.ULONG), ("SecurityDescriptor", ctypes.c_void_p),
+                        ("SecurityQualityOfService", ctypes.c_void_p)]
+
+        class IoStatusBlock(ctypes.Structure):
+            _fields_ = [("Status", ctypes.c_void_p), ("Information", ctypes.c_void_p)]
+
+        class ByHandleFileInformation(ctypes.Structure):
+            _fields_ = [
+                ("Attributes", wt.DWORD),
+                ("Creation", wt.FILETIME), ("Access", wt.FILETIME), ("Write", wt.FILETIME),
+                ("VolumeSerial", wt.DWORD), ("SizeHigh", wt.DWORD), ("SizeLow", wt.DWORD),
+                ("LinkCount", wt.DWORD), ("FileIndexHigh", wt.DWORD), ("FileIndexLow", wt.DWORD)
+            ]
+
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        open_root = k.CreateFileW
+        open_root.argtypes = [wt.LPCWSTR, wt.DWORD, wt.DWORD, ctypes.c_void_p,
+                              wt.DWORD, wt.DWORD, ctypes.c_void_p]
+        open_root.restype = ctypes.c_void_p
+        close = k.CloseHandle
+        close.argtypes = [ctypes.c_void_p]
+        close.restype = wt.BOOL
+        info = k.GetFileInformationByHandle
+        info.argtypes = [ctypes.c_void_p, ctypes.POINTER(ByHandleFileInformation)]
+        info.restype = wt.BOOL
+
+        # OPEN_REPARSE_POINT applies to root itself. SHARE_READ|SHARE_WRITE but
+        # no SHARE_DELETE retains the verified directory identity through PASS.
+        dir_handle = open_root(str(root), 0x001000A0, 0x3, None, 3,
+                               0x02000000 | 0x00200000, None)
+        invalid = ctypes.c_void_p(-1).value
+        if dir_handle == invalid or not dir_handle:
+            raise CapsuleRejected("SYNTHETIC_ROOT_HANDLE_UNAVAILABLE_" + str(ctypes.get_last_error()))
         try:
-            fd = msvcrt.open_osfhandle(handle, os.O_BINARY | os.O_RDWR)
+            meta = ByHandleFileInformation()
+            if not info(dir_handle, ctypes.byref(meta)) or (
+                    meta.Attributes & 0x410) != 0x10:  # DIRECTORY=yes, REPARSE=no
+                raise CapsuleRejected("SYNTHETIC_ROOT_REPARSE_OR_NOT_DIRECTORY")
+
+            ntcreate = ctypes.WinDLL("ntdll").NtCreateFile
+            ntcreate.argtypes = [
+                ctypes.POINTER(ctypes.c_void_p), wt.ULONG,
+                ctypes.POINTER(ObjectAttributes), ctypes.POINTER(IoStatusBlock),
+                ctypes.c_void_p, wt.ULONG, wt.ULONG, wt.ULONG, wt.ULONG,
+                ctypes.c_void_p, wt.ULONG
+            ]
+            ntcreate.restype = ctypes.c_long
+            leaf = "capsule-synthetic.zip"
+            wide = ctypes.create_unicode_buffer(leaf)
+            name = UnicodeString(len(leaf) * 2, (len(leaf) + 1) * 2,
+                                 ctypes.cast(wide, ctypes.c_void_p))
+            attributes = ObjectAttributes(ctypes.sizeof(ObjectAttributes),
+                            dir_handle, ctypes.pointer(name), 0x1040, None, None)
+            status = IoStatusBlock()
+            child_handle = ctypes.c_void_p()
+            code = ntcreate(ctypes.byref(child_handle), 0xC0100000,
+                            ctypes.byref(attributes), ctypes.byref(status),
+                            None, 0x80, 0, 2, 0x00200060, None, 0)
+            if code < 0 or not child_handle.value or child_handle.value == invalid:
+                raise CapsuleRejected("SYNTHETIC_RELATIVE_FILE_CREATE_DENIED_"
+                                      + format(code & 0xFFFFFFFF, "08X"))
+            try:
+                fd = msvcrt.open_osfhandle(child_handle.value, os.O_BINARY | os.O_RDWR)
+            except Exception:
+                close(child_handle)
+                raise
         except Exception:
-            ctypes.WinDLL("kernel32").CloseHandle(ctypes.c_void_p(handle))
+            close(dir_handle)
             raise
-    else:
-        fd = os.open(dest, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
-    return dest, os.fdopen(fd, "w+b", buffering=0)
+        return dest, os.fdopen(fd, "w+b", buffering=0), (k, dir_handle)
+    fd = os.open(dest, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
+    return dest, os.fdopen(fd, "w+b", buffering=0), None
 
 
 def _readback(locked_file, expected_manifest: dict) -> None:
@@ -107,23 +180,30 @@ def build_synthetic_capsule(root: Path, members: dict[str, bytes], *,
     if not root.is_dir() or root.is_symlink():
         raise CapsuleRejected("SYNTHETIC_DIRECTORY_REQUIRED")
     manifest = _manifest(members, commit_sha)
-    path, locked = _container_file(root)
-    with locked:
-        with zipfile.ZipFile(locked, mode="w", compression=zipfile.ZIP_STORED, allowZip64=False) as out:
-            for name, value in sorted(members.items()):
-                out.writestr(name, value, compress_type=zipfile.ZIP_STORED)
-            out.writestr("metadata/receipt.json",
-                         json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8"),
-                         compress_type=zipfile.ZIP_STORED)
-        locked.flush()
-        os.fsync(locked.fileno())
-        _readback(locked, manifest)
-        if while_locked is not None:
-            while_locked(path)
-        _readback(locked, manifest)
-        locked.seek(0)
-        archive_hash = hashlib.sha256(locked.read()).hexdigest().upper()
-        # The exclusive Windows handle stays open throughout verification.
+    path, locked, root_guard = _container_file(root)
+    try:
+        with locked:
+            with zipfile.ZipFile(locked, mode="w", compression=zipfile.ZIP_STORED, allowZip64=False) as out:
+                for name, value in sorted(members.items()):
+                    out.writestr(name, value, compress_type=zipfile.ZIP_STORED)
+                out.writestr("metadata/receipt.json",
+                             json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+                             compress_type=zipfile.ZIP_STORED)
+            locked.flush()
+            os.fsync(locked.fileno())
+            _readback(locked, manifest)
+            if while_locked is not None:
+                while_locked(path)
+            _readback(locked, manifest)
+            locked.seek(0)
+            archive_hash = hashlib.sha256(locked.read(MAX_CAPSULE_BYTES + 1)).hexdigest().upper()
+            if locked.tell() > MAX_CAPSULE_BYTES:
+                raise CapsuleRejected("SYNTHETIC_BUILT_CAPSULE_TOO_LARGE")
+            # Both exclusive file handle and pinned parent handle remain open
+            # through the final readback, digest and success decision.
+    finally:
+        if root_guard is not None:
+            root_guard[0].CloseHandle(ctypes.c_void_p(root_guard[1]))
     return path, archive_hash
 
 
@@ -132,7 +212,9 @@ def inspect_synthetic_capsule(path: Path, expected_digest: str,
     _valid_members(expected_members)
     manifest = _manifest(expected_members, commit_sha)
     with Path(path).open("rb") as f:
-        content = f.read()
+        content = f.read(MAX_CAPSULE_BYTES + 1)
+        if len(content) > MAX_CAPSULE_BYTES:
+            raise CapsuleRejected("SYNTHETIC_CONSUMER_CAPSULE_TOO_LARGE")
     if sha256(content) != expected_digest:
         raise CapsuleRejected("SYNTHETIC_CAPSULE_CHANGED_AFTER_RELEASE")
     with io.BytesIO(content) as inp:
