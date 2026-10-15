@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import sys
 import unittest
+from unittest.mock import patch
 from zipfile import ZipFile, ZipInfo, ZIP_STORED
 import struct
 import zlib
@@ -173,6 +174,31 @@ class ReleaseCapsuleTests(unittest.TestCase):
             mod.verify_source_capsule(bytes(raw), sha(raw),
                 reviewed_main_sha=SHA, reviewed_source_pins=pins,
                 reviewed_old_pins=oldpins)
+
+    def test_eocd_preflight_rejects_massive_directory_before_zip_open(self):
+        z, _, pins, _, oldpins = build()
+        # The same trusted payload, but attacker-modified EOCD counts or
+        # directory size with an independently recomputed outer SHA.
+        cases = []
+        huge_count = bytearray(z.data)
+        struct.pack_into("<H", huge_count, len(huge_count) - 22 + 10, 65000)
+        cases.append(bytes(huge_count))
+        huge_directory = bytearray(z.data)
+        struct.pack_into("<I", huge_directory, len(huge_directory) - 22 + 12,
+                         16 * 1024 + 1)
+        cases.append(bytes(huge_directory))
+        trailing_comment = z.data + b"EXTRA_BYTES"
+        cases.append(trailing_comment)
+        for hostile in cases:
+            with self.subTest(size=len(hostile)):
+                # Guard that ZipFile is never even instantiated for these cases.
+                with patch.object(mod, "ZipFile", side_effect=AssertionError(
+                        "UNBOUNDED_ZIP_OPEN")):
+                    with self.assertRaisesRegex(
+                            mod.ReleaseCapsuleRejected, "EOCD|CENTRAL_DIRECTORY"):
+                        mod.verify_source_capsule(
+                            hostile, sha(hostile), reviewed_main_sha=SHA,
+                            reviewed_source_pins=pins, reviewed_old_pins=oldpins)
 
     def test_oversized_sparse_or_invalid_archive_refused(self):
         _, _, pins, _, oldpins = build()

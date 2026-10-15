@@ -12,6 +12,7 @@ from hashlib import sha256
 from io import BytesIO
 import json
 import re
+import struct
 from typing import Mapping
 from zipfile import BadZipFile, ZipFile, ZipInfo, ZIP_STORED
 
@@ -136,6 +137,33 @@ def build_source_capsule(*, reviewed_main_sha: str, sources: Mapping[str, bytes]
     return capsule
 
 
+def _check_zip_central_directory_boundary(data: bytes) -> None:
+    """Bound ZIP central directory BEFORE ZipFile allocates any ZipInfo objects.
+
+    The canonical archive has exactly 21 members, no comment, no ZIP64, and
+    stores its EOCD as the final 22 bytes. All lengths/offsets are treated as
+    untrusted and checked without decoding any entry or trusting ZIP headers.
+    """
+    if len(data) < 22 or data[-22:-18] != b"PK\x05\x06":
+        raise ReleaseCapsuleRejected("CONSUMER_INVALID_EOCD")
+    try:
+        signature, disk, start_disk, on_disk, count, directory_size, directory_at, comment_len = (
+            struct.unpack_from("<4s4H2IH", data, len(data) - 22)
+        )
+    except struct.error as exc:
+        raise ReleaseCapsuleRejected("CONSUMER_INVALID_EOCD") from exc
+    end_of_directory = len(data) - 22
+    # 16 KiB is much greater than the 21 canonical entries require, while
+    # making both central-directory read size and allocation count bounded.
+    if (signature != b"PK\x05\x06" or disk != 0 or start_disk != 0
+            or on_disk != 21 or count != 21 or comment_len != 0
+            or directory_size < 21 * 46 or directory_size > 16 * 1024
+            or directory_at > end_of_directory
+            or directory_at + directory_size != end_of_directory
+            or data[directory_at:directory_at + 4] != b"PK\x01\x02"):
+        raise ReleaseCapsuleRejected("CONSUMER_CENTRAL_DIRECTORY_NOT_BOUNDED")
+
+
 def verify_source_capsule(data: bytes, externally_pinned_capsule_sha: str, *,
                           reviewed_main_sha: str, reviewed_source_pins: Mapping[str, str],
                           reviewed_old_pins: Mapping[str, str]) -> bool:
@@ -154,6 +182,7 @@ def verify_source_capsule(data: bytes, externally_pinned_capsule_sha: str, *,
     expected, receipt = _expected(reviewed_main_sha, reviewed_source_pins,
                                   reviewed_old_pins)
     inventory = set(expected) | {"metadata/receipt.json"}
+    _check_zip_central_directory_boundary(data)
     try:
         with ZipFile(BytesIO(data), "r", allowZip64=False) as zf:
             info = zf.infolist()
