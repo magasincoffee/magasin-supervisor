@@ -224,7 +224,10 @@ def build_synthetic_capsule(root: Path, members: dict[str, bytes], *,
     if original_root.is_symlink() or (
             sys.platform == "win32" and original_root.is_junction()):
         raise CapsuleRejected("SYNTHETIC_ROOT_LINK_DENIED")
-    root = original_root.resolve(strict=True)
+    # Do NOT use Path.resolve here: it expands Windows 8.3 aliases while
+    # the verified native walk is deliberately based on the original spelling.
+    # Native relative opens reject reparses for the complete ancestry.
+    root = original_root.absolute()
     if not root.is_dir() or root.is_symlink() or (
             sys.platform == "win32" and root.is_junction()):
         raise CapsuleRejected("SYNTHETIC_DIRECTORY_REQUIRED")
