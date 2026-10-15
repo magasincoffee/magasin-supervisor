@@ -74,6 +74,9 @@ jobs:
       - name: Verify MPC-010 H4 viewer Stage-only contract and no APPLY
         shell: powershell
         run: node --test test/mpc010-h4-viewer-stage-only.test.mjs
+      - name: MPC-010 single-file capsule synthetic Windows concurrency attacks (NO H4)
+        shell: powershell
+        run: python -m unittest discover -s test -p 'test_mpc010_capsule_adversarial.py' -v
       - name: Parse H4 viewer Stage-only PowerShell and synthetic SelfTest
         shell: powershell
         run: |
