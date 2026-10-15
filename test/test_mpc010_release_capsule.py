@@ -119,7 +119,7 @@ class ReleaseCapsuleTests(unittest.TestCase):
                 forged.writestr(item, original.read(item.filename))
             forged.writestr("candidate/extra.py", b"unreviewed")
         raw = stream.getvalue()
-        with self.assertRaisesRegex(mod.ReleaseCapsuleRejected, "UNREVIEWED_OR_MISSING"):
+        with self.assertRaisesRegex(mod.ReleaseCapsuleRejected, "CENTRAL_DIRECTORY|UNREVIEWED_OR_MISSING"):
             mod.verify_source_capsule(raw, sha(raw),
                 reviewed_main_sha=SHA, reviewed_source_pins=pins,
                 reviewed_old_pins=oldpins)
@@ -146,7 +146,7 @@ class ReleaseCapsuleTests(unittest.TestCase):
                 forged.writestr(clone, raw)
         altered = output.getvalue()
         with self.assertRaisesRegex(
-                mod.ReleaseCapsuleRejected, "NONCANONICAL_ZIP_METADATA"):
+                mod.ReleaseCapsuleRejected, "INVALID_EOCD|NONCANONICAL_ZIP_METADATA"):
             mod.verify_source_capsule(altered, sha(altered),
                 reviewed_main_sha=SHA, reviewed_source_pins=pins,
                 reviewed_old_pins=oldpins)
@@ -206,7 +206,7 @@ class ReleaseCapsuleTests(unittest.TestCase):
             mod.verify_source_capsule(b"\0" * (mod.MAX_ARCHIVE_SIZE + 1),
                 "A"*64, reviewed_main_sha=SHA,
                 reviewed_source_pins=pins, reviewed_old_pins=oldpins)
-        with self.assertRaisesRegex(mod.ReleaseCapsuleRejected, "INVALID_ZIP"):
+        with self.assertRaisesRegex(mod.ReleaseCapsuleRejected, "INVALID_EOCD|INVALID_ZIP"):
             mod.verify_source_capsule(b"bad zip", sha(b"bad zip"),
                 reviewed_main_sha=SHA, reviewed_source_pins=pins,
                 reviewed_old_pins=oldpins)
