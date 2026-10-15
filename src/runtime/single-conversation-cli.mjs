@@ -58,6 +58,10 @@ import {
   inspectTrackedGitHubRun,
   nextLocalMonitorSeconds
 } from "./external-run-local-observer.mjs";
+import {
+  classifySupervisorFault,
+  assertNoUnsafeProjectFaultPromotion
+} from "./project-fault-isolation.mjs";
 
 function parseArgs(argv) {
   const out = {
@@ -3419,6 +3423,20 @@ if (isMain) {
     if (stage) {
       console.error("SINGLE_CONVERSATION_RUNTIME_ERROR_STAGE=" + stage);
     }
+    // Classification is diagnostic ONLY: never unblocks an uncertain send.
+    const faultState = await readSingleConversationState(path.resolve(args.statePath))
+      .catch(() => null);
+    const decision = assertNoUnsafeProjectFaultPromotion(classifySupervisorFault({
+      projectId: faultState?.project_id,
+      taskId: faultState?.outbound?.task_id,
+      errorCode: code || faultState?.automation?.reason,
+      outboundState: faultState?.outbound?.state || "UNKNOWN",
+      ownerStop: false,
+      autostartDisabled: false,
+      workerRunning: false,
+      independentMonitorAvailable: false
+    }));
+    console.error("SUPERVISOR_FAULT_CLASSIFICATION=" + JSON.stringify(decision));
     finalExitCode =
       code === "CDP_RECOVERY_REQUIRED"
         ? 75
