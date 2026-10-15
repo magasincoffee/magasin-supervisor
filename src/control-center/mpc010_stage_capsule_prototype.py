@@ -233,7 +233,7 @@ def build_synthetic_capsule(root: Path, members: dict[str, bytes], *,
             # through the final readback, digest and success decision.
     finally:
         if root_guard is not None:
-            root_guard[0].CloseHandle(ctypes.c_void_p(root_guard[1]))
+            root_guard[0].CloseHandle(root_guard[1])
             root_guard[0].CloseHandle(ctypes.c_void_p(root_guard[2]))
     return path, archive_hash
 
