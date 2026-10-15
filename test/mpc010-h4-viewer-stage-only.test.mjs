@@ -4,8 +4,9 @@ import {readFileSync} from 'node:fs';
 const s=readFileSync(new URL('../.github/scripts/mpc010-h4-viewer-stage-only.ps1',import.meta.url),'utf8');
 const sot=readFileSync(new URL('../SOURCE_OF_TRUTH.md',import.meta.url),'utf8');
 test('Codex P2 security HOLD refuses STAGE before creating files or loading native writer',()=>{
-  const gate="if($Mode -eq 'Stage'){\n  throw 'MPC010_STAGE_NAMESPACE_SEAL_NOT_QUALIFIED'\n}";
-  const position=s.indexOf(gate);
+  const gate=/if\(\$Mode -eq 'Stage'\)\{\r?\n\s*throw 'MPC010_STAGE_NAMESPACE_SEAL_NOT_QUALIFIED'\r?\n\}/;
+  const match=gate.exec(s);
+  const position=match?match.index:-1;
   assert.ok(position>0,'Stage must hard fail closed pending exclusive namespace mechanism');
   assert.ok(position<s.indexOf('$nativeStageWriter=@'),'Gate must precede native code');
   assert.ok(position<s.indexOf('Add-Type -TypeDefinition'),'Gate must precede C# compilation');
@@ -13,6 +14,16 @@ test('Codex P2 security HOLD refuses STAGE before creating files or loading nati
   assert.ok(position<s.indexOf('$guard.EnterNew($sha)'),'Gate must precede creation of stage tree');
   assert.match(s,/NtQueryDirectoryFile enumeration cannot guarantee/);
   assert.doesNotMatch(s,/StageNamespaceSealed=\$true/);
+});
+test('Windows Stage runtime fails closed without creating a package',async(t)=>{
+  if(process.platform!=='win32'){t.skip('Windows-only runtime gate');return}
+  const {spawnSync}=await import('node:child_process');
+  const {fileURLToPath}=await import('node:url');
+  const path=fileURLToPath(new URL('../.github/scripts/mpc010-h4-viewer-stage-only.ps1',import.meta.url));
+  const run=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-File',path,'-Mode','Stage'],{encoding:'utf8',timeout:20000});
+  assert.notEqual(run.status,0,'Stage must reject this invocation');
+  assert.match((run.stderr||'')+(run.stdout||''),/MPC010_STAGE_NAMESPACE_SEAL_NOT_QUALIFIED/);
+  assert.doesNotMatch((run.stderr||'')+(run.stdout||''),/STAGE_ONLY_PASS=True/);
 });
 test('Owner STAGE only is separately described and expressly denies APPLY',()=>{
   assert.match(sot,/### MPC-010 H4 Control Center STAGE ONLY/);
