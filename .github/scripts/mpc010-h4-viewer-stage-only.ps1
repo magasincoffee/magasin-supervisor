@@ -6,6 +6,16 @@ param(
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version 2.0
 # Isolated STAGE only. No Control Center live write and NO robot START.
+# SECURITY HOLD (Codex P2 on e6613f4d): directory share modes and repeated
+# NtQueryDirectoryFile enumeration cannot guarantee that another process
+# will not create a new child after inspection or before PASS. This must
+# remain fail-closed until a separately reviewed namespace-sealing mechanism
+# with an independently exercised Windows attack regression is implemented.
+# Do not open a D: stage directory, compile a native helper, or touch H4.
+if($Mode -eq 'Stage'){
+  throw 'MPC010_STAGE_NAMESPACE_SEAL_NOT_QUALIFIED'
+}
+
 
 # All STAGE writes use Windows handles rooted at an already-open D:\ directory.
 # NtCreateFile with RootDirectory prevents ancestor substitution; no-share-delete

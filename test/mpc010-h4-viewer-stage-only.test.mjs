@@ -3,6 +3,17 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 const s=readFileSync(new URL('../.github/scripts/mpc010-h4-viewer-stage-only.ps1',import.meta.url),'utf8');
 const sot=readFileSync(new URL('../SOURCE_OF_TRUTH.md',import.meta.url),'utf8');
+test('Codex P2 security HOLD refuses STAGE before creating files or loading native writer',()=>{
+  const gate="if($Mode -eq 'Stage'){\n  throw 'MPC010_STAGE_NAMESPACE_SEAL_NOT_QUALIFIED'\n}";
+  const position=s.indexOf(gate);
+  assert.ok(position>0,'Stage must hard fail closed pending exclusive namespace mechanism');
+  assert.ok(position<s.indexOf('$nativeStageWriter=@'),'Gate must precede native code');
+  assert.ok(position<s.indexOf('Add-Type -TypeDefinition'),'Gate must precede C# compilation');
+  assert.ok(position<s.indexOf('New-Object System.Text.UTF8Encoding($false)'),'Gate must precede stage byte preparation');
+  assert.ok(position<s.indexOf('$guard.EnterNew($sha)'),'Gate must precede creation of stage tree');
+  assert.match(s,/NtQueryDirectoryFile enumeration cannot guarantee/);
+  assert.doesNotMatch(s,/StageNamespaceSealed=\$true/);
+});
 test('Owner STAGE only is separately described and expressly denies APPLY',()=>{
   assert.match(sot,/### MPC-010 H4 Control Center STAGE ONLY/);
   assert.match(sot,/does NOT authorize installing/i);
