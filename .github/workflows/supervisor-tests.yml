@@ -14,6 +14,7 @@ on:
       - '.github/workflows/sc013-h4-readonly-probe.yml'
       - '.github/scripts/sc013-h4-readonly-probe.ps1'
       - '.github/scripts/mpc010-h4-viewer-owner-release.ps1'
+      - '.github/scripts/mpc010-h4-viewer-stage-only.ps1'
   pull_request:
     paths:
       - 'src/**'
@@ -26,6 +27,7 @@ on:
       - '.github/workflows/sc013-h4-readonly-probe.yml'
       - '.github/scripts/sc013-h4-readonly-probe.ps1'
       - '.github/scripts/mpc010-h4-viewer-owner-release.ps1'
+      - '.github/scripts/mpc010-h4-viewer-stage-only.ps1'
   workflow_dispatch:
 
 permissions:
@@ -69,6 +71,20 @@ jobs:
       - name: Verify MPC-004 read-only project-tree catalogue fixtures
         shell: powershell
         run: python -m unittest discover -s test -p 'test_mpc004_project_tree_catalogue.py' -v
+      - name: Verify MPC-010 H4 viewer Stage-only contract and no APPLY
+        shell: powershell
+        run: node --test test/mpc010-h4-viewer-stage-only.test.mjs
+      - name: MPC-010 single-file capsule synthetic Windows concurrency attacks (NO H4)
+        shell: powershell
+        run: python -m unittest discover -s test -p 'test_mpc010_capsule_adversarial.py' -v
+      - name: Parse H4 viewer Stage-only PowerShell and synthetic SelfTest
+        shell: powershell
+        run: |
+          $tokens=$null; $errors=$null
+          [Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD '.github/scripts/mpc010-h4-viewer-stage-only.ps1'),[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -ne 0){throw 'MPC010_STAGE_ONLY_POWERSHELL_PARSE_FAILED'}
+          $result=& '.github/scripts/mpc010-h4-viewer-stage-only.ps1' -Mode SelfTest
+          if($result -notcontains 'MPC010_H4_VIEWER_STAGE_SYNTHETIC_SELFTEST_PASS=True'){throw 'MPC010_STAGE_SELFTEST_FAILED'}
       - name: Verify MPC-010 H4 viewer inspect-only script and reject all field mutation
         shell: powershell
         run: |
