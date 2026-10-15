@@ -139,7 +139,7 @@ class ReleaseCapsuleTests(unittest.TestCase):
                     # by CRC. Other ZIP readers can interpret this differently.
                     source_name = item.filename.encode("utf-8")
                     unicode_path = b"../../pwn.py"
-                    payload = (b"\\x01" + struct.pack("<I", zlib.crc32(source_name))
+                    payload = (b"\x01" + struct.pack("<I", zlib.crc32(source_name))
                                + unicode_path)
                     clone.extra = struct.pack("<HH", 0x7075, len(payload)) + payload
                 forged.writestr(clone, raw)
@@ -165,7 +165,7 @@ class ReleaseCapsuleTests(unittest.TestCase):
         # Same-length alteration of the raw LOCAL filename only. Central
         # directory remains unchanged and digest is recomputed by adversary.
         raw = bytearray(capsule.data)
-        self.assertEqual(raw[:4], b"PK\\x03\\x04")
+        self.assertEqual(raw[:4], b"PK\x03\x04")
         filename_len = struct.unpack_from("<H", raw, 26)[0]
         self.assertGreater(filename_len, 0)
         raw[30] = ord("X") if raw[30] != ord("X") else ord("Y")
