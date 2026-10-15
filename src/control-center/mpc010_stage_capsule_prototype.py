@@ -108,19 +108,19 @@ def _container_file(root: Path):
         info.argtypes = [ctypes.c_void_p, ctypes.POINTER(ByHandleFileInformation)]
         info.restype = wt.BOOL
 
-        # OPEN_REPARSE_POINT applies to root itself. SHARE_READ|SHARE_WRITE but
-        # no SHARE_DELETE retains the verified directory identity through PASS.
-        dir_handle = open_root(str(root), 0x001000A0, 0x3, None, 3,
-                               0x02000000 | 0x00200000, None)
         invalid = ctypes.c_void_p(-1).value
-        if dir_handle == invalid or not dir_handle:
-            raise CapsuleRejected("SYNTHETIC_ROOT_HANDLE_UNAVAILABLE_" + str(ctypes.get_last_error()))
-        try:
+        temp_handle = open_root(str(trusted_temp), 0x001000A0, 0x3, None, 3,
+                                0x02000000 | 0x00200000, None)
+        if temp_handle == invalid or not temp_handle:
+            raise CapsuleRejected("SYNTHETIC_TEMP_HANDLE_UNAVAILABLE_" + str(ctypes.get_last_error()))
+
+        def check_directory(handle):
             meta = ByHandleFileInformation()
-            if not info(dir_handle, ctypes.byref(meta)) or (
-                    meta.Attributes & 0x410) != 0x10:  # DIRECTORY=yes, REPARSE=no
+            if not info(handle, ctypes.byref(meta)) or (
+                    meta.Attributes & 0x410) != 0x10:
                 raise CapsuleRejected("SYNTHETIC_ROOT_REPARSE_OR_NOT_DIRECTORY")
 
+        def open_relative(parent_handle, leaf_name, desired, share, disposition, options):
             ntcreate = ctypes.WinDLL("ntdll").NtCreateFile
             ntcreate.argtypes = [
                 ctypes.POINTER(ctypes.c_void_p), wt.ULONG,
@@ -129,29 +129,47 @@ def _container_file(root: Path):
                 ctypes.c_void_p, wt.ULONG
             ]
             ntcreate.restype = ctypes.c_long
-            leaf = "capsule-synthetic.zip"
-            wide = ctypes.create_unicode_buffer(leaf)
-            name = UnicodeString(len(leaf) * 2, (len(leaf) + 1) * 2,
+            wide = ctypes.create_unicode_buffer(leaf_name)
+            name = UnicodeString(len(leaf_name) * 2, (len(leaf_name) + 1) * 2,
                                  ctypes.cast(wide, ctypes.c_void_p))
             attributes = ObjectAttributes(ctypes.sizeof(ObjectAttributes),
-                            dir_handle, ctypes.pointer(name), 0x1040, None, None)
+                        parent_handle, ctypes.pointer(name), 0x1040, None, None)
             status = IoStatusBlock()
-            child_handle = ctypes.c_void_p()
-            code = ntcreate(ctypes.byref(child_handle), 0xC0100000,
+            child = ctypes.c_void_p()
+            code = ntcreate(ctypes.byref(child), desired,
                             ctypes.byref(attributes), ctypes.byref(status),
-                            None, 0x80, 0, 2, 0x00200060, None, 0)
-            if code < 0 or not child_handle.value or child_handle.value == invalid:
-                raise CapsuleRejected("SYNTHETIC_RELATIVE_FILE_CREATE_DENIED_"
+                            None, 0x80, share, disposition, options, None, 0)
+            if code < 0 or not child.value or child.value == invalid:
+                raise CapsuleRejected("SYNTHETIC_RELATIVE_OPEN_DENIED_"
                                       + format(code & 0xFFFFFFFF, "08X"))
+            return child
+
+        dir_handle = None
+        try:
+            check_directory(temp_handle)
+            # Single relative component; OBJ_DONT_REPARSE and FILE_OPEN_REPARSE_POINT
+            # prevent switching it to an NTFS junction during the open.
+            dir_handle = open_relative(temp_handle, root.name, 0x001000A0, 0x3, 1,
+                                       0x00200000 | 0x00000001 | 0x00000020)
+            check_directory(dir_handle)
+            child_handle = open_relative(dir_handle, "capsule-synthetic.zip",
+                                         0xC0100000, 0, 2, 0x00200060)
             try:
                 fd = msvcrt.open_osfhandle(child_handle.value, os.O_BINARY | os.O_RDWR)
             except Exception:
                 close(child_handle)
                 raise
+            try:
+                stream = os.fdopen(fd, "w+b", buffering=0)
+            except Exception:
+                os.close(fd)
+                raise
         except Exception:
-            close(dir_handle)
+            if dir_handle is not None:
+                close(dir_handle)
+            close(temp_handle)
             raise
-        return dest, os.fdopen(fd, "w+b", buffering=0), (k, dir_handle)
+        return dest, stream, (k, dir_handle, temp_handle)
     fd = os.open(dest, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
     return dest, os.fdopen(fd, "w+b", buffering=0), None
 
@@ -183,10 +201,13 @@ def build_synthetic_capsule(root: Path, members: dict[str, bytes], *,
         raise CapsuleRejected("SYNTHETIC_COMMIT_SHA_REQUIRED")
     _valid_members(members)
     original_root = Path(root)
-    if original_root.is_symlink():
+    # Windows junctions are distinct from symlinks in pathlib.
+    if original_root.is_symlink() or (
+            sys.platform == "win32" and original_root.is_junction()):
         raise CapsuleRejected("SYNTHETIC_ROOT_LINK_DENIED")
     root = original_root.resolve(strict=True)
-    if not root.is_dir() or root.is_symlink():
+    if not root.is_dir() or root.is_symlink() or (
+            sys.platform == "win32" and root.is_junction()):
         raise CapsuleRejected("SYNTHETIC_DIRECTORY_REQUIRED")
     manifest = _manifest(members, commit_sha)
     path, locked, root_guard = _container_file(root)
@@ -213,6 +234,7 @@ def build_synthetic_capsule(root: Path, members: dict[str, bytes], *,
     finally:
         if root_guard is not None:
             root_guard[0].CloseHandle(ctypes.c_void_p(root_guard[1]))
+            root_guard[0].CloseHandle(ctypes.c_void_p(root_guard[2]))
     return path, archive_hash
 
 

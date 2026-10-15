@@ -96,6 +96,41 @@ class CapsuleTests(unittest.TestCase):
             finally:
                 alias.unlink()
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows NTFS junction test only")
+    def test_windows_real_junction_root_rejected(self):
+        import subprocess
+        with tempfile.TemporaryDirectory(prefix="mpc010-synthetic-") as actual:
+            alias = Path(actual).with_name("mpc010-synthetic-junction-" + Path(actual).name)
+            run = subprocess.run(["cmd.exe", "/d", "/c", "mklink", "/J", str(alias), str(actual)],
+                                 capture_output=True, text=True, timeout=15)
+            if run.returncode:
+                self.skipTest("NTFS junction creation unavailable on this runner")
+            try:
+                self.assertTrue(alias.is_junction(), "fixture must be an actual NTFS junction")
+                with self.assertRaisesRegex(fixture.CapsuleRejected, "ROOT_LINK_DENIED"):
+                    fixture.build_synthetic_capsule(alias, members(), commit_sha=SHA, proof=PROOF)
+                self.assertFalse((Path(actual) / "capsule-synthetic.zip").exists())
+            finally:
+                alias.rmdir()
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows relative handle path test only")
+    def test_windows_leaf_junction_swap_before_open_rejected(self):
+        import subprocess
+        with tempfile.TemporaryDirectory(prefix="mpc010-synthetic-") as actual:
+            with tempfile.TemporaryDirectory(prefix="mpc010-synthetic-") as victim:
+                # An attacker already replaced the expected leaf with a junction.
+                alias = Path(actual).with_name("mpc010-synthetic-substitute-" + Path(actual).name)
+                run = subprocess.run(["cmd.exe", "/d", "/c", "mklink", "/J", str(alias), str(victim)],
+                                     capture_output=True, text=True, timeout=15)
+                if run.returncode:
+                    self.skipTest("NTFS junction creation unavailable")
+                try:
+                    with self.assertRaises(fixture.CapsuleRejected):
+                        fixture.build_synthetic_capsule(alias, members(), commit_sha=SHA, proof=PROOF)
+                    self.assertFalse((Path(victim) / "capsule-synthetic.zip").exists())
+                finally:
+                    alias.rmdir()
+
     def test_rejects_backup_restore_mismatch_and_missing_suffix(self):
         wrong_content = members()
         wrong_content["restore-test/fixture-1.py"] = b"incorrect restore"
