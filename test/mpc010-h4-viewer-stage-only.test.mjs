@@ -38,7 +38,7 @@ test('canonical root SOT never grants STAGE when code denies namespace sealing',
 });
 test('Owner Stage intent is preserved, but source and SOT deny APPLY',()=>{
   assert.match(sot,/### MPC-010 H4 Control Center STAGE ONLY/);
-  assert.match(sot,/not authorization to run Stage, install the viewer/i);
+  assert.match(sot,/is \*\*not\*\* authorization to run Stage, install the viewer/i);
   assert.match(sot,/separate reviewed and root-SOT-approved Owner-bound APPLY/i);
   assert.match(s,/ValidateSet\('SelfTest','Stage'\)/);
   assert.doesNotMatch(s,/ValidateSet\([^)]*Apply/);
