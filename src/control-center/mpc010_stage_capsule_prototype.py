@@ -62,8 +62,14 @@ def _manifest(members: dict[str, bytes], commit_sha: str) -> dict:
 
 
 def _container_file(root: Path):
-    if os.path.normcase(os.path.commonpath([str(root), str(Path(tempfile.gettempdir()).resolve())])) != os.path.normcase(str(Path(tempfile.gettempdir()).resolve())) or not root.name.startswith("mpc010-synthetic-"):
-        raise CapsuleRejected("SYNTHETIC_TEMP_DIRECTORY_ONLY")
+    # A verified leaf handle is insufficient if an attacker-controlled
+    # intermediate component can be switched to a junction before opening it.
+    # Synthetic test roots MUST be direct children of the trusted TEMP base.
+    # No nested attacker/ directories are accepted, even if currently ordinary.
+    trusted_temp = Path(tempfile.gettempdir()).resolve(strict=True)
+    if (os.path.normcase(str(root.parent)) != os.path.normcase(str(trusted_temp))
+            or not root.name.startswith("mpc010-synthetic-")):
+        raise CapsuleRejected("SYNTHETIC_DIRECT_TEMP_CHILD_REQUIRED")
     dest = root / "capsule-synthetic.zip"
     if sys.platform == "win32":
         import ctypes.wintypes as wt
@@ -176,7 +182,10 @@ def build_synthetic_capsule(root: Path, members: dict[str, bytes], *,
     if not re.fullmatch(r"[0-9a-f]{40}", commit_sha):
         raise CapsuleRejected("SYNTHETIC_COMMIT_SHA_REQUIRED")
     _valid_members(members)
-    root = Path(root).resolve(strict=True)
+    original_root = Path(root)
+    if original_root.is_symlink():
+        raise CapsuleRejected("SYNTHETIC_ROOT_LINK_DENIED")
+    root = original_root.resolve(strict=True)
     if not root.is_dir() or root.is_symlink():
         raise CapsuleRejected("SYNTHETIC_DIRECTORY_REQUIRED")
     manifest = _manifest(members, commit_sha)

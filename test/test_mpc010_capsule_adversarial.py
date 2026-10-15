@@ -74,6 +74,28 @@ class CapsuleTests(unittest.TestCase):
                 fixture.build_synthetic_capsule(Path(d), unsafe, commit_sha=SHA, proof=PROOF)
 
 
+    def test_rejects_nested_temp_parents_before_archive_creation(self):
+        # Models an attacker-controlled intermediate parent under %TEMP%.
+        with tempfile.TemporaryDirectory(prefix="mpc010-synthetic-") as outer:
+            nested = Path(outer) / "attacker" / "mpc010-synthetic-inner"
+            nested.mkdir(parents=True)
+            with self.assertRaisesRegex(fixture.CapsuleRejected, "DIRECT_TEMP_CHILD_REQUIRED"):
+                fixture.build_synthetic_capsule(nested, members(), commit_sha=SHA, proof=PROOF)
+            self.assertFalse((nested / "capsule-synthetic.zip").exists())
+
+    def test_rejects_root_symlink_before_archive_creation(self):
+        with tempfile.TemporaryDirectory(prefix="mpc010-synthetic-") as actual:
+            alias = Path(actual).with_name(Path(actual).name + "-alias")
+            try:
+                alias.symlink_to(actual, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlink privilege unavailable on this host")
+            try:
+                with self.assertRaisesRegex(fixture.CapsuleRejected, "ROOT_LINK_DENIED"):
+                    fixture.build_synthetic_capsule(alias, members(), commit_sha=SHA, proof=PROOF)
+            finally:
+                alias.unlink()
+
     def test_rejects_backup_restore_mismatch_and_missing_suffix(self):
         wrong_content = members()
         wrong_content["restore-test/fixture-1.py"] = b"incorrect restore"
