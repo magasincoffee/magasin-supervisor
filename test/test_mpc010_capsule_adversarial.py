@@ -131,6 +131,55 @@ class CapsuleTests(unittest.TestCase):
                 finally:
                     alias.rmdir()
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows volume-anchored test only")
+    def test_windows_held_ancestor_rejects_concurrent_rename(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory(prefix="mpc010-synthetic-") as outer:
+            mutable = Path(outer) / "mutable-ancestor"
+            scoped_temp = mutable / "temp-scope"
+            scoped_temp.mkdir(parents=True)
+            scoped_root = scoped_temp / "mpc010-synthetic-held"
+            scoped_root.mkdir()
+            attempts = []
+            def try_swap(_capsule):
+                try:
+                    os.rename(mutable, Path(outer) / "moved-ancestor")
+                    attempts.append("ANCESTOR_RENAMED")
+                except OSError:
+                    attempts.append("ANCESTOR_RENAME_DENIED")
+            # Only a CI-owned temporary directory; no real OS TEMP change.
+            with patch.object(tempfile, "tempdir", str(scoped_temp)):
+                path, digest = fixture.build_synthetic_capsule(
+                    scoped_root, members(), commit_sha=SHA, proof=PROOF,
+                    while_locked=try_swap)
+            self.assertEqual(attempts, ["ANCESTOR_RENAME_DENIED"])
+            self.assertTrue(fixture.inspect_synthetic_capsule(path, digest, members(), SHA))
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows NTFS ancestor junction only")
+    def test_windows_existing_temp_ancestor_junction_is_refused(self):
+        from unittest.mock import patch
+        import subprocess
+        with tempfile.TemporaryDirectory(prefix="mpc010-synthetic-") as outer:
+            real = Path(outer) / "real"
+            (real / "temp-scope" / "mpc010-synthetic-target").mkdir(parents=True)
+            alias = Path(outer) / "attacker"
+            proc = subprocess.run(["cmd.exe", "/d", "/c", "mklink", "/J",
+                                   str(alias), str(real)], capture_output=True,
+                                  text=True, timeout=15)
+            if proc.returncode:
+                self.skipTest("NTFS junction creation unavailable")
+            try:
+                supplied = alias / "temp-scope" / "mpc010-synthetic-target"
+                with patch.object(tempfile, "tempdir", str(alias / "temp-scope")):
+                    with self.assertRaises(fixture.CapsuleRejected):
+                        fixture.build_synthetic_capsule(
+                            supplied, members(), commit_sha=SHA, proof=PROOF)
+                self.assertFalse(
+                    (real / "temp-scope" / "mpc010-synthetic-target" /
+                     "capsule-synthetic.zip").exists())
+            finally:
+                alias.rmdir()
+
     def test_rejects_backup_restore_mismatch_and_missing_suffix(self):
         wrong_content = members()
         wrong_content["restore-test/fixture-1.py"] = b"incorrect restore"

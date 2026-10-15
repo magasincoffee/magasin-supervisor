@@ -66,7 +66,10 @@ def _container_file(root: Path):
     # intermediate component can be switched to a junction before opening it.
     # Synthetic test roots MUST be direct children of the trusted TEMP base.
     # No nested attacker/ directories are accepted, even if currently ordinary.
-    trusted_temp = Path(tempfile.gettempdir()).resolve(strict=True)
+    # Lexical TEMP base only. Never resolve a caller-controlled ancestor here:
+    # each component is opened from the stable volume-root handle and is rejected
+    # if it is a junction/symlink/reparse point before any output is created.
+    trusted_temp = Path(tempfile.gettempdir()).absolute()
     if (os.path.normcase(str(root.parent)) != os.path.normcase(str(trusted_temp))
             or not root.name.startswith("mpc010-synthetic-")):
         raise CapsuleRejected("SYNTHETIC_DIRECT_TEMP_CHILD_REQUIRED")
@@ -109,10 +112,16 @@ def _container_file(root: Path):
         info.restype = wt.BOOL
 
         invalid = ctypes.c_void_p(-1).value
-        temp_handle = open_root(str(trusted_temp), 0x001000A0, 0x3, None, 3,
-                                0x02000000 | 0x00200000, None)
-        if temp_handle == invalid or not temp_handle:
-            raise CapsuleRejected("SYNTHETIC_TEMP_HANDLE_UNAVAILABLE_" + str(ctypes.get_last_error()))
+        # Anchor at the fixed local volume root, not the mutable %TEMP% path.
+        # UNC, device and non-drive paths fail closed in this synthetic fixture.
+        anchor = trusted_temp.anchor
+        if not re.fullmatch(r"[A-Za-z]:\\", anchor):
+            raise CapsuleRejected("SYNTHETIC_LOCAL_VOLUME_ROOT_REQUIRED")
+        volume_handle = open_root(anchor, 0x001000A0, 0x3, None, 3,
+                                  0x02000000 | 0x00200000, None)
+        if volume_handle == invalid or not volume_handle:
+            raise CapsuleRejected("SYNTHETIC_VOLUME_ANCHOR_UNAVAILABLE_"
+                                  + str(ctypes.get_last_error()))
 
         def check_directory(handle):
             meta = ByHandleFileInformation()
@@ -144,20 +153,31 @@ def _container_file(root: Path):
                                       + format(code & 0xFFFFFFFF, "08X"))
             return child
 
-        dir_handle = None
+        # Walk the complete TEMP ancestry, not just its final component.
+        # Share READ|WRITE (no DELETE) while handles are retained; replace/rename
+        # attempts against any opened parent are denied while building the capsule.
+        held = [volume_handle]
         try:
-            check_directory(temp_handle)
-            # Single relative component; OBJ_DONT_REPARSE and FILE_OPEN_REPARSE_POINT
-            # prevent switching it to an NTFS junction during the open.
-            dir_handle = open_relative(temp_handle, root.name, 0x001000A0, 0x3, 1,
-                                       0x00200000 | 0x00000001 | 0x00000020)
-            check_directory(dir_handle)
-            child_handle = open_relative(dir_handle, "capsule-synthetic.zip",
-                                         0xC0100000, 0, 2, 0x00200060)
+            check_directory(volume_handle)
+            for component in trusted_temp.parts[1:]:
+                if (not component or component in (".", "..") or
+                        "/" in component or "\\" in component or ":" in component):
+                    raise CapsuleRejected("SYNTHETIC_UNSAFE_TEMP_COMPONENT")
+                nxt = open_relative(held[-1], component, 0x001000A0, 0x3, 1,
+                                    0x00200000 | 0x00000001 | 0x00000020)
+                held.append(nxt)
+                check_directory(nxt)
+            # The synthetic capsule root is also an exact single component.
+            root_handle = open_relative(held[-1], root.name, 0x001000A0, 0x3, 1,
+                                        0x00200000 | 0x00000001 | 0x00000020)
+            held.append(root_handle)
+            check_directory(root_handle)
+            capsule_handle = open_relative(root_handle, "capsule-synthetic.zip",
+                                           0xC0100000, 0, 2, 0x00200060)
             try:
-                fd = msvcrt.open_osfhandle(child_handle.value, os.O_BINARY | os.O_RDWR)
+                fd = msvcrt.open_osfhandle(capsule_handle.value, os.O_BINARY | os.O_RDWR)
             except Exception:
-                close(child_handle)
+                close(capsule_handle)
                 raise
             try:
                 stream = os.fdopen(fd, "w+b", buffering=0)
@@ -165,11 +185,10 @@ def _container_file(root: Path):
                 os.close(fd)
                 raise
         except Exception:
-            if dir_handle is not None:
-                close(dir_handle)
-            close(temp_handle)
+            for handle in reversed(held):
+                close(handle)
             raise
-        return dest, stream, (k, dir_handle, temp_handle)
+        return dest, stream, (k, held)
     fd = os.open(dest, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
     return dest, os.fdopen(fd, "w+b", buffering=0), None
 
@@ -233,8 +252,8 @@ def build_synthetic_capsule(root: Path, members: dict[str, bytes], *,
             # through the final readback, digest and success decision.
     finally:
         if root_guard is not None:
-            root_guard[0].CloseHandle(root_guard[1])
-            root_guard[0].CloseHandle(ctypes.c_void_p(root_guard[2]))
+            for handle in reversed(root_guard[1]):
+                root_guard[0].CloseHandle(handle)
     return path, archive_hash
 
 
