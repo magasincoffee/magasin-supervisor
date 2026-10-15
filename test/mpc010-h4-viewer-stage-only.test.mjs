@@ -54,6 +54,22 @@ test('Codex P2: receipt requires held-file final readbacks for all three trees',
   assert.match(s,/foreach\(FileStream fs in openFiles.Values\)fs.Dispose\(\)/);
   assert.match(s,/for\(int i=directories.Count-1;i>=0;i--\)directories\[i\].Dispose\(\)/);
 });
+test('Codex P2: refuse untracked stage files even if tracked files match hashes',()=>{
+  assert.match(s,/const uint SHARE_READ = 1, SHARE_READ_WRITE = 3/);
+  assert.match(s,/stage=Relative\(current,sha,true,true,SHARE_READ,false\)/);
+  assert.match(s,/h=Relative\(h,parts\[i\],true,true,SHARE_READ,false\)/);
+  assert.doesNotMatch(s,/stage=Relative\(current,sha,true,true,SHARE_READ_WRITE,false\)/);
+  assert.doesNotMatch(s,/h=Relative\(h,parts\[i\],true,true,SHARE_READ_WRITE,false\)/);
+  assert.match(s,/NtQueryDirectoryFile\(SafeFileHandle fileHandle/);
+  assert.match(s,/FILE_NAMES_INFORMATION = 12/);
+  assert.match(s,/static HashSet<string> ActualEntries\(SafeFileHandle dir\)/);
+  assert.match(s,/void VerifyExactTree\(\)/);
+  assert.match(s,/STAGE_UNTRACKED_ENTRY_OR_MISSING_FILE_/);
+  assert.match(s,/observed.SetEquals\(required\)/);
+  assert.match(s,/foreach\(string file in openFiles.Keys\)addChild\(file\)/);
+  assert.match(s,/VerifyExactTree\(\); \/\/ Includes manifest on the final call/);
+  assert.ok(s.lastIndexOf('$guard.VerifyAll()') > s.indexOf("$guard.Write('stage-manifest.json'"));
+});
 test('stage is exact-main and Owner-admin-bound before any writes',()=>{
   assert.ok(s.indexOf('VerifyHost')<s.indexOf('$guard.EnterNew($sha)'));
   assert.ok(s.indexOf('VerifyCandidate $work')<s.indexOf('$guard.EnterNew($sha)'));

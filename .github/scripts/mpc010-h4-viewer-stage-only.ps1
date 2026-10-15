@@ -21,7 +21,7 @@ using Microsoft.Win32.SafeHandles;
 
 public sealed class Mpc010SafeStage : IDisposable {
   const uint READ = 0x80000000, WRITE = 0x40000000, SYNCHRONIZE = 0x00100000;
-  const uint SHARE_READ_WRITE = 3, FILE_OPEN = 1, FILE_CREATE = 2;
+  const uint SHARE_READ = 1, SHARE_READ_WRITE = 3, FILE_OPEN = 1, FILE_CREATE = 2;
   const uint DIRECTORY_OPTIONS = 0x00200000 | 0x00000001 | 0x00000020;
   const uint FILE_OPTIONS = 0x00200000 | 0x00000040 | 0x00000020;
   const uint OBJ_CASE_INSENSITIVE = 0x40, OBJ_DONT_REPARSE = 0x1000;
@@ -54,6 +54,13 @@ public sealed class Mpc010SafeStage : IDisposable {
     ref OBJECT_ATTRIBUTES attributes, out IO_STATUS_BLOCK statusBlock, IntPtr allocationSize,
     uint fileAttributes, uint shareAccess, uint createDisposition, uint createOptions,
     IntPtr eaBuffer, uint eaLength);
+  // FILE_NAMES_INFORMATION = 12; query actual entries using the held directory handles.
+  [DllImport("ntdll.dll", ExactSpelling=true)]
+  static extern int NtQueryDirectoryFile(SafeFileHandle fileHandle, IntPtr eventHandle,
+    IntPtr apcRoutine, IntPtr apcContext, out IO_STATUS_BLOCK ioStatus,
+    IntPtr buffer, uint bufferLength, int informationClass,
+    [MarshalAs(UnmanagedType.U1)] bool returnSingleEntry, IntPtr fileName,
+    [MarshalAs(UnmanagedType.U1)] bool restartScan);
   [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true, EntryPoint="CreateFileW")]
   static extern SafeFileHandle OpenRoot(string path, uint access, uint share,
     IntPtr security, uint disposition, uint flags, IntPtr template);
@@ -140,7 +147,8 @@ public sealed class Mpc010SafeStage : IDisposable {
     if(sha==null || !System.Text.RegularExpressions.Regex.IsMatch(sha,"^[0-9a-f]{40}$"))
       throw new InvalidOperationException("STAGE_SHA_INVALID");
     // Atomic FILE_CREATE: if pre-existing (including a junction) abort, not overwrite.
-    stage=Relative(current,sha,true,true,SHARE_READ_WRITE,false);
+    // Deny write-sharing at creation so competing writers cannot open this new root.
+    stage=Relative(current,sha,true,true,SHARE_READ,false);
     directories.Add(stage);
     knownDirectories.Add("",stage);
   }
@@ -161,7 +169,8 @@ public sealed class Mpc010SafeStage : IDisposable {
       if(knownDirectories.TryGetValue(prefix,out existing))h=existing;
       else {
         // FILE_CREATE only. Unexpected pre-existing directory is a hard failure.
-        h=Relative(h,parts[i],true,true,SHARE_READ_WRITE,false);
+        // Same no-write-sharing rule for every newly-created nested directory.
+        h=Relative(h,parts[i],true,true,SHARE_READ,false);
         directories.Add(h);
         knownDirectories.Add(prefix,h);
       }
@@ -188,6 +197,65 @@ public sealed class Mpc010SafeStage : IDisposable {
     stream.Write(bytes,0,bytes.Length);
     stream.Flush(true);
   }
+  static HashSet<string> ActualEntries(SafeFileHandle dir) {
+    // Never traverse a mutable path for the audit: enumerate the exact opened
+    // directory object, not a directory resolved by name at a later moment.
+    const int capacity=65536, header=12;
+    HashSet<string> entries=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    IntPtr buffer=Marshal.AllocHGlobal(capacity);
+    try {
+      bool restart=true;
+      for(int batch=0;batch<1024;batch++) {
+        IO_STATUS_BLOCK iosb;
+        int result=NtQueryDirectoryFile(dir,IntPtr.Zero,IntPtr.Zero,IntPtr.Zero,
+          out iosb,buffer,capacity,12,false,IntPtr.Zero,restart);
+        if(result==unchecked((int)0x80000006))return entries; // STATUS_NO_MORE_FILES
+        if(result!=0)throw new IOException("STAGE_DIRECTORY_QUERY_FAILED_"+result.ToString("X8"));
+        restart=false;
+        int offset=0;
+        for(int item=0;item<1024;item++) {
+          if(offset>capacity-header)throw new IOException("STAGE_DIRECTORY_ENTRY_BOUNDS");
+          int next=Marshal.ReadInt32(buffer,offset);
+          int byteLength=Marshal.ReadInt32(buffer,offset+8);
+          if(byteLength<0 || (byteLength&1)!=0 || byteLength>capacity-offset-header)
+            throw new IOException("STAGE_DIRECTORY_NAME_BOUNDS");
+          string name=Marshal.PtrToStringUni(IntPtr.Add(buffer,offset+header),byteLength/2);
+          if(name!="." && name!=".." && !entries.Add(name))
+            throw new IOException("STAGE_DUPLICATE_DIRECTORY_ENTRY");
+          if(next==0)break;
+          if(next<header || (next&3)!=0 || next>capacity-offset)
+            throw new IOException("STAGE_DIRECTORY_ENTRY_OFFSET");
+          offset+=next;
+          if(item==1023)throw new IOException("STAGE_DIRECTORY_BATCH_LIMIT");
+        }
+      }
+      throw new IOException("STAGE_DIRECTORY_QUERY_LIMIT");
+    } finally { Marshal.FreeHGlobal(buffer); }
+  }
+  void VerifyExactTree() {
+    // Build the expected direct-child set from all directories/files held by
+    // this object. Reject an unexpected extra file or directory anywhere.
+    Dictionary<string,HashSet<string>> expected=
+      new Dictionary<string,HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+    foreach(string dir in knownDirectories.Keys)
+      expected.Add(dir,new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+    Action<string> addChild=relativePath => {
+      int cut=relativePath.LastIndexOf('\\');
+      string parent=cut<0?"":relativePath.Substring(0,cut);
+      string name=cut<0?relativePath:relativePath.Substring(cut+1);
+      HashSet<string> children;
+      if(!expected.TryGetValue(parent,out children) || !children.Add(name))
+        throw new InvalidOperationException("STAGE_EXPECTED_TREE_DUPLICATE_OR_ORPHAN");
+    };
+    foreach(string dir in knownDirectories.Keys)if(dir.Length>0)addChild(dir);
+    foreach(string file in openFiles.Keys)addChild(file);
+    foreach(KeyValuePair<string,SafeFileHandle> dir in knownDirectories) {
+      HashSet<string> observed=ActualEntries(dir.Value);
+      HashSet<string> required=expected[dir.Key];
+      if(!observed.SetEquals(required))
+        throw new InvalidOperationException("STAGE_UNTRACKED_ENTRY_OR_MISSING_FILE_"+dir.Key);
+    }
+  }
   public void VerifyAll() {
     foreach(KeyValuePair<string,FileStream> item in openFiles) {
       FileStream stream=item.Value;
@@ -199,6 +267,7 @@ public sealed class Mpc010SafeStage : IDisposable {
       if(!String.Equals(observed,expectedHashes[item.Key],StringComparison.OrdinalIgnoreCase))
         throw new InvalidOperationException("STAGE_FINAL_READBACK_SHA_MISMATCH_"+item.Key);
     }
+    VerifyExactTree(); // Includes manifest on the final call.
   }
   public void Dispose() {
     if(disposed)return;
