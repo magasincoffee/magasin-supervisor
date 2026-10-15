@@ -25,9 +25,20 @@ test('Windows Stage runtime fails closed without creating a package',async(t)=>{
   assert.match((run.stderr||'')+(run.stdout||''),/MPC010_STAGE_NAMESPACE_SEAL_NOT_QUALIFIED/);
   assert.doesNotMatch((run.stderr||'')+(run.stdout||''),/STAGE_ONLY_PASS=True/);
 });
-test('Owner STAGE only is separately described and expressly denies APPLY',()=>{
+test('canonical root SOT never grants STAGE when code denies namespace sealing',()=>{
+  const section=sot.slice(sot.lastIndexOf('### MPC-010 H4 Control Center STAGE ONLY'));
+  assert.match(section,/SECURITY HOLD/);
+  assert.match(section,/STAGE NOT QUALIFIED \/ NOT AUTHORIZED/);
+  assert.match(section,/MPC010_STAGE_NAMESPACE_SEAL_NOT_QUALIFIED/);
+  assert.match(section,/unconditionally rejects \`-Mode Stage\`/);
+  assert.match(section,/H4 field STAGE = DENIED; APPLY = DENIED; release = DENIED/);
+  assert.match(section,/does not lift this HOLD/);
+  assert.doesNotMatch(section,/\*\*Sole allowed new field action after review and exact-main:/);
+  assert.match(s,/if\(\$Mode -eq 'Stage'\)\{\r?\n\s*throw 'MPC010_STAGE_NAMESPACE_SEAL_NOT_QUALIFIED'/);
+});
+test('Owner Stage intent is preserved, but source and SOT deny APPLY',()=>{
   assert.match(sot,/### MPC-010 H4 Control Center STAGE ONLY/);
-  assert.match(sot,/does NOT authorize installing/i);
+  assert.match(sot,/not authorization to run Stage, install the viewer/i);
   assert.match(sot,/separate reviewed and root-SOT-approved Owner-bound APPLY/i);
   assert.match(s,/ValidateSet\('SelfTest','Stage'\)/);
   assert.doesNotMatch(s,/ValidateSet\([^)]*Apply/);
