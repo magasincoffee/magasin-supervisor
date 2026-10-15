@@ -157,6 +157,12 @@ def verify_source_capsule(data: bytes, externally_pinned_capsule_sha: str, *,
     try:
         with ZipFile(BytesIO(data), "r", allowZip64=False) as zf:
             info = zf.infolist()
+            # Enforce raw names before checking the expected inventory:
+            # the Unicode Path extra can rewrite ZipInfo.filename itself.
+            for item in info:
+                if (item.filename != item.orig_filename or item.extra or
+                        item.comment or item.flag_bits != 0):
+                    raise ReleaseCapsuleRejected("CONSUMER_NONCANONICAL_ZIP_METADATA")
             names = [x.filename for x in info]
             if len(info) != 21 or len(names) != len(set(names)) or set(names) != inventory:
                 raise ReleaseCapsuleRejected("CONSUMER_UNREVIEWED_OR_MISSING_MEMBER")
