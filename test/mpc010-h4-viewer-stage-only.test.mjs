@@ -43,11 +43,20 @@ test('stage is exact-main and Owner-admin-bound before any writes',()=>{
 });
 
 
-test('stage verifies reviewed inspector blob BEFORE dot-sourcing any local code',()=>{
+test('Codex P1: execute only the identical inspector content verified in memory',()=>{
   assert.match(s,/function AssertPinnedInspector/);
   assert.match(s,/UNREVIEWED_MUTABLE_INSPECTOR_DENIED/);
   assert.match(s,/555c555ec4159f78c08aec2de3091bffaa9e3edd/);
-  assert.ok(s.indexOf('AssertPinnedInspector $inspector') <
-    s.indexOf('. $inspector -Mode SelfTest'));
-  assert.match(s,/\. \$inspector -Mode SelfTest -ExpectedMainSha \$ExpectedMainSha -Workspace \$Workspace/);
+  assert.match(s,/return \$text/);
+  assert.match(s,/\$verifiedInspector=AssertPinnedInspector \$inspector/);
+  assert.match(s,/\. \(\[scriptblock\]::Create\(\$verifiedInspector\)\) -Mode SelfTest -ExpectedMainSha \$ExpectedMainSha -Workspace \$Workspace/);
+  assert.doesNotMatch(s,/^\.\s+\$inspector(?:\s|$)/m);
+});
+test('Codex P2: second candidate read must match immutable reviewed pin before D staging',()=>{
+  assert.match(s,/\$pinsRef=\$ExpectedMainSha\+':src\/control-center\/mpc010_control_center_preflight\.mjs'/);
+  assert.match(s,/git --no-replace-objects -C \$work --no-optional-locks cat-file blob \$pinsRef/);
+  assert.match(s,/\$pin=\[regex\]::Match\(\$reviewedPins/);
+  assert.match(s,/if\(\$digest -cne \$pin\.Groups\[1\]\.Value\)\{throw 'CANDIDATE_SOURCE_HASH_NOT_REVIEWED'\}/);
+  assert.match(s,/sha=\$pin\.Groups\[1\]\.Value/);
+  assert.ok(s.indexOf('CANDIDATE_SOURCE_HASH_NOT_REVIEWED')<s.indexOf('New-Item -ItemType Directory -Path $stage'));
 });

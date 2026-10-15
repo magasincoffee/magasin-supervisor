@@ -41,9 +41,11 @@ function AssertPinnedInspector([string]$path) {
   if($digest -cne '555c555ec4159f78c08aec2de3091bffaa9e3edd'){
     throw 'UNREVIEWED_MUTABLE_INSPECTOR_DENIED'
   }
+  # Execute only verified in-memory source, not a second read of mutable inspector.
+  return $text
 }
-AssertPinnedInspector $inspector
-. $inspector -Mode SelfTest -ExpectedMainSha $ExpectedMainSha -Workspace $Workspace
+$verifiedInspector=AssertPinnedInspector $inspector
+. ([scriptblock]::Create($verifiedInspector)) -Mode SelfTest -ExpectedMainSha $ExpectedMainSha -Workspace $Workspace
 $verified=RequireSource
 if($verified -cne $work){throw 'INSPECTED_WORKSPACE_IDENTITY_CHANGED'}
 $sotRef=$ExpectedMainSha+':SOURCE_OF_TRUTH.md'
@@ -53,6 +55,16 @@ if($LASTEXITCODE -ne 0 -or !(($sot -join [Environment]::NewLine).Contains('### M
 }
 VerifyHost
 VerifyCandidate $work
+# Recheck each stage candidate against the immutable reviewed pin map.
+$pinsRef=$ExpectedMainSha+':src/control-center/mpc010_control_center_preflight.mjs'
+$pinsLines=@(& git --no-replace-objects -C $work --no-optional-locks cat-file blob $pinsRef)
+if($LASTEXITCODE -ne 0 -or $pinsLines.Count -eq 0){throw 'REVIEWED_STAGE_PIN_OBJECT_MISSING'}
+$sourceMap=$pinsLines -join "`n"
+$mapStart=$sourceMap.IndexOf('export const REVIEWED_CANDIDATE_SHA256_20261014',[StringComparison]::Ordinal)
+if($mapStart -lt 0){throw 'REVIEWED_STAGE_PIN_MAP_MISSING'}
+$mapEnd=$sourceMap.IndexOf('});',$mapStart,[StringComparison]::Ordinal)
+if($mapEnd -lt 0){throw 'REVIEWED_STAGE_PIN_MAP_INCOMPLETE'}
+$reviewedPins=$sourceMap.Substring($mapStart,$mapEnd-$mapStart)
 $sha=$ExpectedMainSha.ToLowerInvariant()
 $stage=Join-Path 'D:\MAGASIN_ROBOTS\deploy\mpc010-viewer' $sha
 AssertNoReparse $stage
@@ -64,12 +76,15 @@ $stopBefore=HashFile $stopPath
 $disabledBefore=HashFile $disabledPath
 $candidates=@{}
 foreach($source in $expectedFiles.Keys){
+  $pattern='"'+[regex]::Escape($source)+'"\s*:\s*"([A-F0-9]{64})"'
+  $pin=[regex]::Match($reviewedPins,$pattern,[Text.RegularExpressions.RegexOptions]::CultureInvariant)
+  if(!$pin.Success){throw 'CANDIDATE_STAGE_SHA_NOT_PINNED'}
   $txt=ReadPinnedSource $work $source
   $shaObj=[Security.Cryptography.SHA256]::Create()
   try{$digest=[BitConverter]::ToString($shaObj.ComputeHash([Text.Encoding]::UTF8.GetBytes($txt))).Replace('-','')}
   finally{$shaObj.Dispose()}
-  if($digest -notmatch '^[A-F0-9]{64}$'){throw 'BAD_CANDIDATE_SHA'}
-  $candidates[$source]=@{content=$txt;sha=$digest;target=[string]$expectedFiles[$source]}
+  if($digest -cne $pin.Groups[1].Value){throw 'CANDIDATE_SOURCE_HASH_NOT_REVIEWED'}
+  $candidates[$source]=@{content=$txt;sha=$pin.Groups[1].Value;target=[string]$expectedFiles[$source]}
 }
 foreach($path in $oldHashes.Keys){
   if((HashFile (Join-Path $install $path)) -cne $oldHashes[$path]){throw 'OLD_VIEWER_CHANGED_BEFORE_STAGE'}
