@@ -97,6 +97,15 @@ def _info(name: str) -> ZipInfo:
     return item
 
 
+def _canonical_zip(payloads: Mapping[str, bytes]) -> bytes:
+    """Emit the one permitted byte-level archive encoding: no ZIP aliases or extras."""
+    stream = BytesIO()
+    with ZipFile(stream, "w", allowZip64=False) as zf:
+        for name, payload in sorted(payloads.items()):
+            zf.writestr(_info(name), payload)
+    return stream.getvalue()
+
+
 def build_source_capsule(*, reviewed_main_sha: str, sources: Mapping[str, bytes],
                          reviewed_source_pins: Mapping[str, str],
                          existing_viewer: Mapping[str, bytes],
@@ -116,11 +125,7 @@ def build_source_capsule(*, reviewed_main_sha: str, sources: Mapping[str, bytes]
     if set(payloads) != set(expected) or len(payloads) != 20:
         raise ReleaseCapsuleRejected("PACKAGE_MEMBER_SET_INVALID")
     payloads["metadata/receipt.json"] = receipt_bytes
-    stream = BytesIO()
-    with ZipFile(stream, "w", allowZip64=False) as zf:
-        for name, payload in sorted(payloads.items()):
-            zf.writestr(_info(name), payload)
-    raw = stream.getvalue()
+    raw = _canonical_zip(payloads)
     if len(raw) > MAX_ARCHIVE_SIZE:
         raise ReleaseCapsuleRejected("PACKAGE_TOO_LARGE")
     capsule = Capsule(raw, _digest(raw))
@@ -157,16 +162,33 @@ def verify_source_capsule(data: bytes, externally_pinned_capsule_sha: str, *,
                 raise ReleaseCapsuleRejected("CONSUMER_UNREVIEWED_OR_MISSING_MEMBER")
             if sum(x.file_size for x in info) > 21 * MAX_ENTRY_SIZE:
                 raise ReleaseCapsuleRejected("CONSUMER_TOTAL_SIZE_INVALID")
+            if zf.comment:
+                raise ReleaseCapsuleRejected("CONSUMER_NONCANONICAL_ZIP_METADATA")
             for item in info:
                 mode = (item.external_attr >> 16) & 0o170000
+                # Reject Unicode Path (0x7075) and every other ZIP extra field,
+                # alias, comment, encryption/descriptor flag, or unreviewed layout.
+                # No other parser may see a different entry name than this one.
+                if (item.filename != item.orig_filename or item.extra or item.comment
+                        or item.flag_bits != 0):
+                    raise ReleaseCapsuleRejected("CONSUMER_NONCANONICAL_ZIP_METADATA")
                 if (item.is_dir() or item.file_size > MAX_ENTRY_SIZE or
                         item.compress_type != ZIP_STORED or mode != 0o100000):
                     raise ReleaseCapsuleRejected("CONSUMER_MEMBER_PROPERTIES_INVALID")
+            verified_payloads = {}
             for name, digest in expected.items():
-                if _digest(zf.read(name)) != digest:
+                value = zf.read(name)
+                if _digest(value) != digest:
                     raise ReleaseCapsuleRejected("CONSUMER_MEMBER_HASH_MISMATCH")
+                verified_payloads[name] = value
             if zf.read("metadata/receipt.json") != receipt:
                 raise ReleaseCapsuleRejected("CONSUMER_RECEIPT_NOT_CANONICAL")
+            verified_payloads["metadata/receipt.json"] = receipt
+            # Exact wire-format canonicalization additionally validates raw
+            # local and central entry names, offsets, flags, and all ZIP bytes.
+            # This closes parser-disagreement gaps that ZipInfo fields may hide.
+            if data != _canonical_zip(verified_payloads):
+                raise ReleaseCapsuleRejected("CONSUMER_NONCANONICAL_ZIP_LAYOUT")
     except (BadZipFile, OSError, EOFError, ValueError, RuntimeError, KeyError) as exc:
         if isinstance(exc, ReleaseCapsuleRejected):
             raise

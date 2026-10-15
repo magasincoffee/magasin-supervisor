@@ -6,7 +6,9 @@ from pathlib import Path
 import re
 import sys
 import unittest
-from zipfile import ZipFile, ZIP_STORED
+from zipfile import ZipFile, ZipInfo, ZIP_STORED
+import struct
+import zlib
 import importlib.util
 
 REPO = Path(__file__).resolve().parents[1]
@@ -118,6 +120,57 @@ class ReleaseCapsuleTests(unittest.TestCase):
         raw = stream.getvalue()
         with self.assertRaisesRegex(mod.ReleaseCapsuleRejected, "UNREVIEWED_OR_MISSING"):
             mod.verify_source_capsule(raw, sha(raw),
+                reviewed_main_sha=SHA, reviewed_source_pins=pins,
+                reviewed_old_pins=oldpins)
+
+    def test_zip_unicode_path_alias_refused_even_with_recomputed_digest(self):
+        capsule, _, pins, _, oldpins = build()
+        target = "candidate/server.py"
+        output = BytesIO()
+        with ZipFile(BytesIO(capsule.data), "r") as original, ZipFile(output, "w") as forged:
+            for item in original.infolist():
+                raw = original.read(item.filename)
+                clone = ZipInfo(item.filename, date_time=(1980, 1, 1, 0, 0, 0))
+                clone.compress_type = ZIP_STORED
+                clone.create_system = 3
+                clone.external_attr = 0o100600 << 16
+                if item.filename == target:
+                    # Info-ZIP Unicode Path alias, linked to original bytes
+                    # by CRC. Other ZIP readers can interpret this differently.
+                    source_name = item.filename.encode("utf-8")
+                    unicode_path = b"../../pwn.py"
+                    payload = (b"\\x01" + struct.pack("<I", zlib.crc32(source_name))
+                               + unicode_path)
+                    clone.extra = struct.pack("<HH", 0x7075, len(payload)) + payload
+                forged.writestr(clone, raw)
+        altered = output.getvalue()
+        with self.assertRaisesRegex(
+                mod.ReleaseCapsuleRejected, "NONCANONICAL_ZIP_METADATA"):
+            mod.verify_source_capsule(altered, sha(altered),
+                reviewed_main_sha=SHA, reviewed_source_pins=pins,
+                reviewed_old_pins=oldpins)
+
+    def test_zip_comment_and_local_central_name_disagreement_refused(self):
+        capsule, _, pins, _, oldpins = build()
+        output = BytesIO()
+        with ZipFile(BytesIO(capsule.data), "r") as original, ZipFile(output, "w") as forged:
+            forged.comment = b"unreviewed-comment"
+            for item in original.infolist():
+                forged.writestr(item, original.read(item.filename))
+        altered = output.getvalue()
+        with self.assertRaisesRegex(mod.ReleaseCapsuleRejected, "NONCANONICAL_ZIP_METADATA"):
+            mod.verify_source_capsule(altered, sha(altered),
+                reviewed_main_sha=SHA, reviewed_source_pins=pins,
+                reviewed_old_pins=oldpins)
+        # Same-length alteration of the raw LOCAL filename only. Central
+        # directory remains unchanged and digest is recomputed by adversary.
+        raw = bytearray(capsule.data)
+        self.assertEqual(raw[:4], b"PK\\x03\\x04")
+        filename_len = struct.unpack_from("<H", raw, 26)[0]
+        self.assertGreater(filename_len, 0)
+        raw[30] = ord("X") if raw[30] != ord("X") else ord("Y")
+        with self.assertRaises(mod.ReleaseCapsuleRejected):
+            mod.verify_source_capsule(bytes(raw), sha(raw),
                 reviewed_main_sha=SHA, reviewed_source_pins=pins,
                 reviewed_old_pins=oldpins)
 
