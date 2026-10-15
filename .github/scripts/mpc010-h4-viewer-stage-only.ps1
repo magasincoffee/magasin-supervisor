@@ -6,6 +6,210 @@ param(
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version 2.0
 # Isolated STAGE only. No Control Center live write and NO robot START.
+
+# All STAGE writes use Windows handles rooted at an already-open D:\ directory.
+# NtCreateFile with RootDirectory prevents ancestor substitution; no-share-delete
+# directory handles stop junction swaps, and exclusive file handles stop content edits.
+$nativeStageWriter=@'
+using System;
+using System.IO;
+using System.Text;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using Microsoft.Win32.SafeHandles;
+
+public sealed class Mpc010SafeStage : IDisposable {
+  const uint READ = 0x80000000, WRITE = 0x40000000, SYNCHRONIZE = 0x00100000;
+  const uint SHARE_READ_WRITE = 3, FILE_OPEN = 1, FILE_CREATE = 2;
+  const uint DIRECTORY_OPTIONS = 0x00200000 | 0x00000001 | 0x00000020;
+  const uint FILE_OPTIONS = 0x00200000 | 0x00000040 | 0x00000020;
+  const uint OBJ_CASE_INSENSITIVE = 0x40, OBJ_DONT_REPARSE = 0x1000;
+  const uint FLAG_BACKUP_SEMANTICS = 0x02000000, FLAG_OPEN_REPARSE_POINT = 0x00200000;
+  const int OBJECT_NAME_NOT_FOUND = unchecked((int)0xC0000034);
+  const int OBJECT_PATH_NOT_FOUND = unchecked((int)0xC000003A);
+  [StructLayout(LayoutKind.Sequential)] struct UNICODE_STRING {
+    public ushort Length, MaximumLength;
+    public IntPtr Buffer;
+  }
+  [StructLayout(LayoutKind.Sequential)] struct OBJECT_ATTRIBUTES {
+    public int Length;
+    public IntPtr RootDirectory, ObjectName;
+    public uint Attributes;
+    public IntPtr SecurityDescriptor, SecurityQualityOfService;
+  }
+  [StructLayout(LayoutKind.Sequential)] struct IO_STATUS_BLOCK {
+    public IntPtr Status, Information;
+  }
+  [StructLayout(LayoutKind.Sequential)] struct FILETIME {
+    public uint Low, High;
+  }
+  [StructLayout(LayoutKind.Sequential)] struct BY_HANDLE_FILE_INFORMATION {
+    public uint FileAttributes;
+    public FILETIME CreationTime, LastAccessTime, LastWriteTime;
+    public uint VolumeSerialNumber, FileSizeHigh, FileSizeLow, NumberOfLinks, FileIndexHigh, FileIndexLow;
+  }
+  [DllImport("ntdll.dll", ExactSpelling=true)]
+  static extern int NtCreateFile(out SafeFileHandle handle, uint desiredAccess,
+    ref OBJECT_ATTRIBUTES attributes, out IO_STATUS_BLOCK statusBlock, IntPtr allocationSize,
+    uint fileAttributes, uint shareAccess, uint createDisposition, uint createOptions,
+    IntPtr eaBuffer, uint eaLength);
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true, EntryPoint="CreateFileW")]
+  static extern SafeFileHandle OpenRoot(string path, uint access, uint share,
+    IntPtr security, uint disposition, uint flags, IntPtr template);
+  [DllImport("kernel32.dll", SetLastError=true)]
+  static extern bool GetFileInformationByHandle(SafeFileHandle handle, out BY_HANDLE_FILE_INFORMATION info);
+
+  readonly List<SafeFileHandle> directories = new List<SafeFileHandle>();
+  readonly Dictionary<string,SafeFileHandle> knownDirectories =
+    new Dictionary<string,SafeFileHandle>(StringComparer.OrdinalIgnoreCase);
+  readonly Dictionary<string,FileStream> openFiles =
+    new Dictionary<string,FileStream>(StringComparer.OrdinalIgnoreCase);
+  readonly Dictionary<string,string> expectedHashes =
+    new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+  SafeFileHandle current;
+  SafeFileHandle stage;
+  bool disposed;
+
+  static void EnsureOrdinaryHandle(SafeFileHandle h) {
+    BY_HANDLE_FILE_INFORMATION info;
+    if(h.IsInvalid || !GetFileInformationByHandle(h, out info) ||
+       (info.FileAttributes & 0x400) != 0) {
+      h.Dispose();
+      throw new InvalidOperationException("STAGE_REPARSE_OR_UNVERIFIED_HANDLE");
+    }
+  }
+  static void ValidSegment(string s) {
+    if(String.IsNullOrEmpty(s) || s=="." || s==".." ||
+       s.EndsWith(".") || s.EndsWith(" ") ||
+       s.IndexOfAny(new char[]{'/', '\\', ':', '\0'})>=0)
+      throw new InvalidOperationException("STAGE_UNSAFE_PATH_COMPONENT");
+  }
+  static SafeFileHandle Relative(SafeFileHandle parent, string segment,
+     bool directory, bool create, uint sharing, bool allowMissing) {
+    ValidSegment(segment);
+    IntPtr buf=IntPtr.Zero, up=IntPtr.Zero;
+    try {
+      buf=Marshal.StringToHGlobalUni(segment);
+      UNICODE_STRING u=new UNICODE_STRING {
+        Length=checked((ushort)(segment.Length*2)),
+        MaximumLength=checked((ushort)((segment.Length+1)*2)),
+        Buffer=buf
+      };
+      up=Marshal.AllocHGlobal(Marshal.SizeOf(typeof(UNICODE_STRING)));
+      Marshal.StructureToPtr(u,up,false);
+      OBJECT_ATTRIBUTES a=new OBJECT_ATTRIBUTES {
+        Length=Marshal.SizeOf(typeof(OBJECT_ATTRIBUTES)),
+        RootDirectory=parent.DangerousGetHandle(), ObjectName=up,
+        Attributes=OBJ_CASE_INSENSITIVE | OBJ_DONT_REPARSE
+      };
+      IO_STATUS_BLOCK status;
+      SafeFileHandle h;
+      int nt=NtCreateFile(out h, READ | WRITE | SYNCHRONIZE,ref a,out status,
+          IntPtr.Zero,0x80,sharing,create?FILE_CREATE:FILE_OPEN,
+          directory?DIRECTORY_OPTIONS:FILE_OPTIONS,IntPtr.Zero,0);
+      if(nt<0) {
+        if(h!=null && !h.IsInvalid)h.Dispose();
+        if(allowMissing && (nt==OBJECT_NAME_NOT_FOUND || nt==OBJECT_PATH_NOT_FOUND))
+          return null;
+        throw new IOException("STAGE_NATIVE_CREATE_FAILED_"+nt.ToString("X8"));
+      }
+      EnsureOrdinaryHandle(h);
+      return h;
+    } finally {
+      if(up!=IntPtr.Zero)Marshal.FreeHGlobal(up);
+      if(buf!=IntPtr.Zero)Marshal.FreeHGlobal(buf);
+    }
+  }
+  public Mpc010SafeStage() {
+    SafeFileHandle root=OpenRoot(@"D:\",READ | WRITE,SHARE_READ_WRITE,
+       IntPtr.Zero,3,FLAG_BACKUP_SEMANTICS | FLAG_OPEN_REPARSE_POINT,IntPtr.Zero);
+    if(root==null || root.IsInvalid)throw new IOException("D_VOLUME_HANDLE_UNAVAILABLE");
+    EnsureOrdinaryHandle(root);
+    directories.Add(root);
+    current=root;
+  }
+  public void Enter(string name, bool createIfMissing) {
+    SafeFileHandle next=Relative(current,name,true,false,SHARE_READ_WRITE,createIfMissing);
+    if(next==null)next=Relative(current,name,true,true,SHARE_READ_WRITE,false);
+    directories.Add(next);
+    current=next;
+  }
+  public void EnterNew(string sha) {
+    if(stage!=null)throw new InvalidOperationException("STAGE_ALREADY_SELECTED");
+    if(sha==null || !System.Text.RegularExpressions.Regex.IsMatch(sha,"^[0-9a-f]{40}$"))
+      throw new InvalidOperationException("STAGE_SHA_INVALID");
+    // Atomic FILE_CREATE: if pre-existing (including a junction) abort, not overwrite.
+    stage=Relative(current,sha,true,true,SHARE_READ_WRITE,false);
+    directories.Add(stage);
+    knownDirectories.Add("",stage);
+  }
+  static string[] Parts(string relativePath) {
+    if(String.IsNullOrEmpty(relativePath) || relativePath.StartsWith("\\") ||
+       relativePath.StartsWith("/") || relativePath.Contains(":"))
+      throw new InvalidOperationException("STAGE_PATH_ESCAPE");
+    string[] parts=relativePath.Replace('/','\\').Split('\\');
+    foreach(string part in parts)ValidSegment(part);
+    return parts;
+  }
+  SafeFileHandle DirectoryFor(string[] parts) {
+    SafeFileHandle h=stage;
+    string prefix="";
+    for(int i=0;i<parts.Length-1;i++) {
+      prefix=(prefix.Length==0?"":prefix+"\\")+parts[i];
+      SafeFileHandle existing;
+      if(knownDirectories.TryGetValue(prefix,out existing))h=existing;
+      else {
+        // FILE_CREATE only. Unexpected pre-existing directory is a hard failure.
+        h=Relative(h,parts[i],true,true,SHARE_READ_WRITE,false);
+        directories.Add(h);
+        knownDirectories.Add(prefix,h);
+      }
+    }
+    return h;
+  }
+  static string Digest(byte[] bytes) {
+    using(SHA256 sha=SHA256.Create())return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-","");
+  }
+  public void Write(string relativePath, byte[] bytes, string expectedSha) {
+    if(stage==null)throw new InvalidOperationException("STAGE_ROOT_NOT_CREATED");
+    if(bytes==null || expectedSha==null ||
+       !String.Equals(Digest(bytes),expectedSha,StringComparison.OrdinalIgnoreCase))
+       throw new InvalidOperationException("STAGE_UNREVIEWED_BYTES_DENIED");
+    string[] parts=Parts(relativePath);
+    string key=String.Join("\\",parts);
+    if(openFiles.ContainsKey(key))throw new InvalidOperationException("STAGE_DUPLICATE_TARGET");
+    SafeFileHandle parent=DirectoryFor(parts);
+    // The created handle is exclusive (shareAccess=0) until the final manifest readback.
+    SafeFileHandle file=Relative(parent,parts[parts.Length-1],false,true,0,false);
+    FileStream stream=new FileStream(file,FileAccess.ReadWrite,4096,false);
+    openFiles.Add(key,stream);
+    expectedHashes.Add(key,expectedSha);
+    stream.Write(bytes,0,bytes.Length);
+    stream.Flush(true);
+  }
+  public void VerifyAll() {
+    foreach(KeyValuePair<string,FileStream> item in openFiles) {
+      FileStream stream=item.Value;
+      stream.Flush(true);
+      stream.Position=0;
+      string observed;
+      using(SHA256 sha=SHA256.Create())
+        observed=BitConverter.ToString(sha.ComputeHash(stream)).Replace("-","");
+      if(!String.Equals(observed,expectedHashes[item.Key],StringComparison.OrdinalIgnoreCase))
+        throw new InvalidOperationException("STAGE_FINAL_READBACK_SHA_MISMATCH_"+item.Key);
+    }
+  }
+  public void Dispose() {
+    if(disposed)return;
+    disposed=true;
+    foreach(FileStream fs in openFiles.Values)fs.Dispose();
+    for(int i=directories.Count-1;i>=0;i--)directories[i].Dispose();
+  }
+}
+'@
+Add-Type -TypeDefinition $nativeStageWriter -Language CSharp -ErrorAction Stop
+
 if($Mode -eq 'SelfTest'){
   Write-Output 'MPC010_H4_VIEWER_STAGE_SYNTHETIC_SELFTEST_PASS=True'
   Write-Output 'FIELD_APPLY_AUTHORIZED=False'
@@ -89,62 +293,74 @@ foreach($source in $expectedFiles.Keys){
 foreach($path in $oldHashes.Keys){
   if((HashFile (Join-Path $install $path)) -cne $oldHashes[$path]){throw 'OLD_VIEWER_CHANGED_BEFORE_STAGE'}
 }
-# All writes below are confined to a NEW isolated D: stage subtree.
-$parent=Split-Path -Parent $stage
-if(!(Test-Path -LiteralPath $parent -PathType Container)){
-  New-Item -ItemType Directory -Path $parent -Force -ErrorAction Stop|Out-Null
-}
-AssertNoReparse $parent
-New-Item -ItemType Directory -Path $stage -ErrorAction Stop|Out-Null
+# All destination handles are anchored to D:\ and held until the complete
+# receipt readback. No New-Item / Copy-Item / WriteAllText path race is allowed.
 $utf8=New-Object System.Text.UTF8Encoding($false)
 $stagedCandidates=@{}
 $backups=@{}
-foreach($source in $expectedFiles.Keys){
-  $candidate=$candidates[$source]
-  $dest=Join-Path (Join-Path $stage 'candidate') $candidate.target
-  New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force -ErrorAction Stop|Out-Null
-  [IO.File]::WriteAllText($dest,[string]$candidate.content,$utf8)
-  if((HashFile $dest) -cne $candidate.sha){throw 'STAGED_CANDIDATE_HASH_MISMATCH'}
-  $stagedCandidates[$candidate.target]=[string]$candidate.sha
-}
-foreach($rel in $oldHashes.Keys){
-  $from=Join-Path $install $rel
-  $to=Join-Path (Join-Path $stage 'backup') $rel
-  New-Item -ItemType Directory -Path (Split-Path -Parent $to) -Force -ErrorAction Stop|Out-Null
-  Copy-Item -LiteralPath $from -Destination $to -ErrorAction Stop
-  if((HashFile $to) -cne $oldHashes[$rel]){throw 'OLD_VIEWER_BACKUP_HASH_MISMATCH'}
-  $backups[$rel]=[string]$oldHashes[$rel]
-  $dry=Join-Path (Join-Path $stage 'restore-test') $rel
-  New-Item -ItemType Directory -Path (Split-Path -Parent $dry) -Force -ErrorAction Stop|Out-Null
-  Copy-Item -LiteralPath $to -Destination $dry -ErrorAction Stop
-  if((HashFile $dry) -cne $oldHashes[$rel]){throw 'RESTORE_REHEARSAL_FAILED'}
-}
-VerifyHost
-VerifyCandidate $work
-if((HashFile $stopPath) -cne $stopBefore -or (HashFile $disabledPath) -cne $disabledBefore){
-  throw 'STOP_LATCH_CHANGED_DURING_STAGE'
-}
-foreach($rel in $oldHashes.Keys){
-  if((HashFile (Join-Path $install $rel)) -cne $oldHashes[$rel]){throw 'LIVE_VIEWER_CHANGED_DURING_STAGE'}
-}
-$receipt=[ordered]@{
-  schema='MPC010_H4_VIEWER_STAGE_ONLY_V1'
-  status='STAGED_AND_ISOLATED_RESTORE_VERIFIED'
-  expected_main_sha=$sha
-  host=[Environment]::MachineName
-  owner=[Security.Principal.WindowsIdentity]::GetCurrent().Name
-  staged_at=[DateTimeOffset]::UtcNow.ToString('o')
-  candidate_sha256=$stagedCandidates
-  old_file_backup_sha256=$backups
-  stop_sha256=$stopBefore
-  autostart_disabled_sha256=$disabledBefore
-  restore_rehearsal_pass=$true
-  live_viewer_touched=$false
-  worker_started=$false
-  field_apply_authorized=$false
+$guard=[Mpc010SafeStage]::new()
+try {
+  $guard.Enter('MAGASIN_ROBOTS',$false)
+  $guard.Enter('deploy',$true)
+  $guard.Enter('mpc010-viewer',$true)
+  $guard.EnterNew($sha)
+  foreach($source in $expectedFiles.Keys) {
+    $candidate=$candidates[$source]
+    $bytes=$utf8.GetBytes([string]$candidate.content)
+    $guard.Write(('candidate\'+$candidate.target),$bytes,[string]$candidate.sha)
+    $stagedCandidates[$candidate.target]=[string]$candidate.sha
+  }
+  foreach($rel in $oldHashes.Keys) {
+    $from=Join-Path $install $rel
+    $oldBytes=[IO.File]::ReadAllBytes($from)
+    $oldByteSha=[BitConverter]::ToString(([Security.Cryptography.SHA256]::Create()).ComputeHash($oldBytes)).Replace('-','')
+    if($oldByteSha -cne $oldHashes[$rel]){throw 'OLD_VIEWER_BACKUP_HASH_MISMATCH'}
+    $guard.Write(('backup\'+$rel),$oldBytes,[string]$oldHashes[$rel])
+    $backups[$rel]=[string]$oldHashes[$rel]
+    # Isolated restore rehearsal reproduces exactly the pinned backup bytes.
+    try{$guard.Write(('restore-test\'+$rel),$oldBytes,[string]$oldHashes[$rel])}
+    catch{throw ('RESTORE_REHEARSAL_FAILED: '+$_.Exception.Message)}
+  }
+  $guard.VerifyAll()
+  VerifyHost
+  VerifyCandidate $work
+  if((HashFile $stopPath) -cne $stopBefore -or (HashFile $disabledPath) -cne $disabledBefore){
+    throw 'STOP_LATCH_CHANGED_DURING_STAGE'
+  }
+  foreach($rel in $oldHashes.Keys){
+    if((HashFile (Join-Path $install $rel)) -cne $oldHashes[$rel]){
+      throw 'LIVE_VIEWER_CHANGED_DURING_STAGE'
+    }
+  }
+  # Recheck every held candidate, backup and rehearsal handle immediately
+  # before and after writing the receipt. A later APPLY must verify again.
+  $guard.VerifyAll()
+  $receipt=[ordered]@{
+    schema='MPC010_H4_VIEWER_STAGE_ONLY_V1'
+    status='STAGED_AND_ISOLATED_RESTORE_VERIFIED'
+    expected_main_sha=$sha
+    host=[Environment]::MachineName
+    owner=[Security.Principal.WindowsIdentity]::GetCurrent().Name
+    staged_at=[DateTimeOffset]::UtcNow.ToString('o')
+    candidate_sha256=$stagedCandidates
+    old_file_backup_sha256=$backups
+    stop_sha256=$stopBefore
+    autostart_disabled_sha256=$disabledBefore
+    restore_rehearsal_pass=$true
+    live_viewer_touched=$false
+    worker_started=$false
+    field_apply_authorized=$false
+  }
+  $manifestBytes=$utf8.GetBytes(($receipt|ConvertTo-Json -Depth 7))
+  $shaObj=[Security.Cryptography.SHA256]::Create()
+  try{$manifestSha=[BitConverter]::ToString($shaObj.ComputeHash($manifestBytes)).Replace('-','')}
+  finally{$shaObj.Dispose()}
+  $guard.Write('stage-manifest.json',$manifestBytes,$manifestSha)
+  $guard.VerifyAll()
+} finally {
+  $guard.Dispose()
 }
 $receiptPath=Join-Path $stage 'stage-manifest.json'
-[IO.File]::WriteAllText($receiptPath,($receipt|ConvertTo-Json -Depth 7),$utf8)
 Write-Output 'MPC010_H4_VIEWER_STAGE_ONLY_PASS=True'
 Write-Output 'ISOLATED_RESTORE_REHEARSAL_PASS=True'
 Write-Output 'LIVE_VIEWER_TOUCHED=False'

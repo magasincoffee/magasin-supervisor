@@ -23,19 +23,40 @@ test('H4 stage reuses independent fail-closed identity, latch, worker, candidate
   assert.match(s,/foreach\(\$source in \$expectedFiles.Keys\)/);
   assert.match(s,/foreach\(\$rel in \$oldHashes.Keys\)/);
 });
-test('stage writes only isolated D stage tree and never restarts or edits viewer',()=>{
+test('Codex P1: destination traversal is native handle-relative and deny-reparse',()=>{
+  assert.match(s,/NtCreateFile\(out SafeFileHandle handle/);
+  assert.match(s,/RootDirectory=parent.DangerousGetHandle\(\)/);
+  assert.match(s,/OBJ_DONT_REPARSE/);
+  assert.match(s,/FILE_OPEN_REPARSE_POINT/);
+  assert.match(s,/directory\?DIRECTORY_OPTIONS:FILE_OPTIONS/);
+  assert.match(s,/FILE_CREATE/);
+  assert.match(s,/shareAccess=0/);
+  assert.match(s,/DirectoryFor\(parts\)/);
+  assert.match(s,/STAGE_NATIVE_CREATE_FAILED/);
+  assert.match(s,/STAGE_REPARSE_OR_UNVERIFIED_HANDLE/);
+  assert.doesNotMatch(s,/New-Item -ItemType Directory -Path \$stage/);
+  assert.doesNotMatch(s,/Copy-Item -LiteralPath \$from -Destination \$to/);
+  assert.doesNotMatch(s,/\[IO\.File\]::WriteAllText\(\$dest/);
   assert.doesNotMatch(s,/Start-Process|Stop-Process|Restart-Service|Set-Service|Invoke-Expression|Invoke-RestMethod/);
-  assert.doesNotMatch(s,/Remove-Item|Move-Item|\[IO\.File\]::Replace/);
-  assert.doesNotMatch(s,/Copy-Item -LiteralPath \$[a-zA-Z]+ -Destination \$install/);
-  assert.match(s,/New-Item -ItemType Directory -Path \$stage -ErrorAction Stop/);
-  assert.match(s,/Copy-Item -LiteralPath \$from -Destination \$to -ErrorAction Stop/);
-  assert.match(s,/Copy-Item -LiteralPath \$to -Destination \$dry -ErrorAction Stop/);
   assert.match(s,/live_viewer_touched=\$false/);
   assert.match(s,/worker_started=\$false/);
 });
+test('Codex P2: receipt requires held-file final readbacks for all three trees',()=>{
+  assert.match(s,/foreach\(KeyValuePair<string,FileStream> item in openFiles\)/);
+  assert.match(s,/STAGE_FINAL_READBACK_SHA_MISMATCH/);
+  assert.match(s,/STAGE_UNREVIEWED_BYTES_DENIED/);
+  assert.match(s,/\$guard.Write\(\('candidate\\'/);
+  assert.match(s,/\$guard.Write\(\('backup\\'/);
+  assert.match(s,/\$guard.Write\(\('restore-test\\'/);
+  assert.match(s,/\$guard.Write\('stage-manifest.json'/);
+  assert.ok(s.indexOf('$guard.VerifyAll()') < s.indexOf("$guard.Write('stage-manifest.json'"));
+  assert.ok(s.lastIndexOf('$guard.VerifyAll()') > s.indexOf("$guard.Write('stage-manifest.json'"));
+  assert.match(s,/foreach\(FileStream fs in openFiles.Values\)fs.Dispose\(\)/);
+  assert.match(s,/for\(int i=directories.Count-1;i>=0;i--\)directories\[i\].Dispose\(\)/);
+});
 test('stage is exact-main and Owner-admin-bound before any writes',()=>{
-  assert.ok(s.indexOf('VerifyHost')<s.indexOf("New-Item -ItemType Directory -Path $stage"));
-  assert.ok(s.indexOf('VerifyCandidate $work')<s.indexOf("New-Item -ItemType Directory -Path $stage"));
+  assert.ok(s.indexOf('VerifyHost')<s.indexOf('$guard.EnterNew($sha)'));
+  assert.ok(s.indexOf('VerifyCandidate $work')<s.indexOf('$guard.EnterNew($sha)'));
   assert.match(s,/DESKTOP-H4A16IL\\admin/);
   assert.match(s,/CANONICAL_MAIN_STAGE_APPROVAL_MISSING/);
   assert.match(s,/\$stopBefore=HashFile \$stopPath/);
