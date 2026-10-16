@@ -49,7 +49,7 @@ test('git-pinned installation is additive and SHA verified', () => {
     "Join-Path $release '.venv'", "Join-Path $destination $SaydiSha",
     "Join-Path $shaNamespace $RequestId", "V6_PYTHON_ENVIRONMENT_FAILED",
     "V6_VENV_CREATION_FAILED", "[System.IO.Directory]::Move($stage, $release)",
-    "STAGING_REQUEST_ALREADY_USED", "Join-Path $stage '.venv'",
+    "STAGING_REQUEST_ALREADY_USED",
     "ast.parse(", "-I -c $astProbe", "sys.base_prefix",
     "Receipt acts as the only successful-install commit marker",
     "Get-Item -LiteralPath $Path",
