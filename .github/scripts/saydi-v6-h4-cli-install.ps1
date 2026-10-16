@@ -85,7 +85,15 @@ if (-not (Test-Path -LiteralPath $destination -PathType Container)) {
     New-Item -ItemType Directory -Path $destination -ErrorAction Stop | Out-Null
 }
 Assert-PlainDirectory $destination
-$release = Join-Path $destination $SaydiSha
+# One release leaf per authenticated one-shot request. If a crash occurs
+# after promotion but before receipt, a new request ID can retry safely
+# without deleting any previously staged or installed content.
+$shaNamespace = Join-Path $destination $SaydiSha
+if (-not (Test-Path -LiteralPath $shaNamespace -PathType Container)) {
+    New-Item -ItemType Directory -Path $shaNamespace -ErrorAction Stop | Out-Null
+}
+Assert-PlainDirectory $shaNamespace
+$release = Join-Path $shaNamespace $RequestId
 if (Test-Path -LiteralPath $release) { throw 'RELEASE_EXISTS_NO_OVERWRITE' }
 $stageRoot = Join-Path $base 'install-staging'
 if (-not (Test-Path -LiteralPath $stageRoot -PathType Container)) {
@@ -102,20 +110,26 @@ $originalHash = (Get-FileHash -LiteralPath (Join-Path $core 'pyproject.toml') -A
 $installedHash = (Get-FileHash -LiteralPath (Join-Path $installedCore 'pyproject.toml') -Algorithm SHA256).Hash
 if ($originalHash -ne $installedHash) { throw 'INSTALLED_CORE_HASH_MISMATCH' }
 
-# Reuse trusted Python, but create a new virtual environment under staging on D.
-# Never execute any SAYDI module at install time: even CLI --help can run
-# arbitrary import-time code with Runner privileges. AST parsing does NOT run
-# the source and is isolated from site packages and Python environment vars.
-$venv = Join-Path $stage '.venv'
+# Static analysis is nonexecuting: do not import SAYDI code.
+$astProbe = 'import ast,pathlib,sys; root=pathlib.Path(sys.argv[1]); files=list(root.rglob("*.py")); assert files, "empty core"; [ast.parse(p.read_text(encoding="utf-8-sig"), filename=str(p)) for p in files]; print("V6_PYTHON_FILES_PARSED="+str(len(files)))'
+& $trustedPython -I -c $astProbe $installedCore
+if ($LASTEXITCODE -ne 0) { throw 'V6_SOURCE_STATIC_SYNTAX_FAILED' }
+
+# Commit the verified source on the same volume with no-overwrite rename.
+# Install Python after rename, so the venv path is final (Windows venvs are
+# not safely relocatable). A failed venv has NO success receipt; a new
+# request_id can retry in a different leaf without any destructive cleanup.
+[System.IO.Directory]::Move($stage, $release)
+$venv = Join-Path $release '.venv'
 & $trustedPython -m venv $venv
 if ($LASTEXITCODE -ne 0) { throw 'V6_VENV_CREATION_FAILED' }
 $python = Join-Path $venv 'Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw 'V6_ENVIRONMENT_NOT_CREATED'
 }
-$astProbe = 'import ast,pathlib,sys; root=pathlib.Path(sys.argv[1]); files=list(root.rglob("*.py")); assert files, "empty core"; [ast.parse(p.read_text(encoding="utf-8-sig"), filename=str(p)) for p in files]; print("V6_PYTHON_FILES_PARSED="+str(len(files)))'
-& $python -I -c $astProbe $installedCore
-if ($LASTEXITCODE -ne 0) { throw 'V6_SOURCE_STATIC_SYNTAX_FAILED' }
+$envProbe = 'import sys; assert sys.prefix != sys.base_prefix, "venv not active"; print("V6_ISOLATED_PYTHON_READY=True")'
+& $python -I -c $envProbe
+if ($LASTEXITCODE -ne 0) { throw 'V6_PYTHON_ENVIRONMENT_FAILED' }
 
 $receipt = [ordered]@{
     schema = 'SAYDI_V6_H4_INSTALL_RECEIPT_V1'
@@ -133,9 +147,6 @@ $receipt = [ordered]@{
     supervisor_control_modified = $false
     previous_versions_modified = $false
 }
-$receipt | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $stage 'install-receipt.json') -Encoding UTF8 -NoNewline
-# Windows same-volume directory rename, fail closed if release already exists.
-# Failed attempts stay under unique staging request IDs; no final release path
-# is created until every non-executing validation has passed.
-[System.IO.Directory]::Move($stage, $release)
+# Receipt acts as the only successful-install commit marker.
+$receipt | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $release 'install-receipt.json') -Encoding UTF8 -NoNewline
 $receipt | ConvertTo-Json -Compress

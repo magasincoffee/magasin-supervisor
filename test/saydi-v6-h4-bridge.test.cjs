@@ -46,10 +46,12 @@ test('git-pinned installation is additive and SHA verified', () => {
   for (const marker of [
     "'saydi-source'", "git.exe", "Get-FileHash",
     "Copy-Item -LiteralPath $core",
-    "Join-Path $stage '.venv'",
+    "Join-Path $release '.venv'", "Join-Path $destination $SaydiSha",
+    "Join-Path $shaNamespace $RequestId", "V6_PYTHON_ENVIRONMENT_FAILED",
     "V6_VENV_CREATION_FAILED", "[System.IO.Directory]::Move($stage, $release)",
     "STAGING_REQUEST_ALREADY_USED", "Join-Path $stage '.venv'",
-    "ast.parse(", "-I -c $astProbe",
+    "ast.parse(", "-I -c $astProbe", "sys.base_prefix",
+    "Receipt acts as the only successful-install commit marker",
     "Get-Item -LiteralPath $Path",
   ]) assert.ok(ps.includes(marker), marker);
 });
