@@ -131,9 +131,32 @@ $envProbe = 'import sys; assert sys.prefix != sys.base_prefix, "venv not active"
 & $python -I -c $envProbe
 if ($LASTEXITCODE -ne 0) { throw 'V6_PYTHON_ENVIRONMENT_FAILED' }
 
+# Persistent, nonexecutable source registration (not a transient PYTHONPATH).
+# A .pth entry containing ONLY the fixed final D path makes the module
+# importable from this venv after installation. NEVER import it as Runner.
+$sitePackages = Join-Path $venv 'Lib\site-packages'
+if (-not (Test-Path -LiteralPath $sitePackages -PathType Container)) {
+    throw 'V6_SITE_PACKAGES_MISSING'
+}
+Assert-PlainDirectory $sitePackages
+$finalSourceDir = Join-Path (Join-Path $release '02_SAYDI_CORE') 'src'
+if (-not (Test-Path -LiteralPath $finalSourceDir -PathType Container)) {
+    throw 'V6_FINAL_SOURCE_MISSING'
+}
+Assert-PlainDirectory $finalSourceDir
+$modulePathFile = Join-Path $sitePackages 'saydi_v6_source.pth'
+if (Test-Path -LiteralPath $modulePathFile) { throw 'V6_MODULE_REGISTRATION_EXISTS' }
+[System.IO.File]::WriteAllText(
+    $modulePathFile, ($finalSourceDir + [Environment]::NewLine),
+    [System.Text.Encoding]::ASCII
+)
+if ((Get-Content -LiteralPath $modulePathFile -Raw -Encoding ASCII).Trim() -ne $finalSourceDir) {
+    throw 'V6_MODULE_REGISTRATION_FAILED'
+}
+
 $receipt = [ordered]@{
     schema = 'SAYDI_V6_H4_INSTALL_RECEIPT_V1'
-    status = 'CLI_FILES_INSTALLED_ON_D_NOT_EXECUTED'
+    status = 'CLI_MODULE_INSTALLED_ON_D_NOT_EXECUTED'
     target_host = $expectedHost
     request_id = $RequestId
     source_repository = 'magasincoffee/magasin-media-robot'
@@ -141,6 +164,8 @@ $receipt = [ordered]@{
     destination = 'D_DRIVE_VERSIONED_RELEASE'
     core_pyproject_sha256 = $installedHash
     static_ast_passed = $true
+    python_source_registered = $true
+    module_import_attempted = $false
     saydi_cli_executed = $false
     model_started = $false
     saydi_start_authenticated = $false

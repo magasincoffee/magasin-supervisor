@@ -31,7 +31,8 @@ test('Supervisor runner is transport only; no Supervisor controls changed', () =
     "'D:\\SAYDI_V6'", "Join-Path $source '02_SAYDI_CORE'",
     "RESOURCE_DISK_CAPACITY_HOLD", "SAYDI_MAIN_MOVED_HOLD",
     "RELEASE_EXISTS_NO_OVERWRITE", "SAYDI_SOURCE_REPARSE_DENIED",
-    "V6_SOURCE_STATIC_SYNTAX_FAILED", "CLI_FILES_INSTALLED_ON_D_NOT_EXECUTED",
+    "V6_SOURCE_STATIC_SYNTAX_FAILED", "CLI_MODULE_INSTALLED_ON_D_NOT_EXECUTED",
+    "python_source_registered = $true", "module_import_attempted = $false",
     "static_ast_passed = $true", "saydi_cli_executed = $false",
     "model_started = $false", "supervisor_control_modified = $false",
   ]) assert.ok(ps.includes(marker), marker);
@@ -49,6 +50,8 @@ test('git-pinned installation is additive and SHA verified', () => {
     "Join-Path $release '.venv'", "Join-Path $destination $SaydiSha",
     "Join-Path $shaNamespace $RequestId", "V6_PYTHON_ENVIRONMENT_FAILED",
     "V6_VENV_CREATION_FAILED", "[System.IO.Directory]::Move($stage, $release)",
+    "saydi_v6_source.pth", "V6_MODULE_REGISTRATION_FAILED",
+    "Join-Path $release '02_SAYDI_CORE'",
     "STAGING_REQUEST_ALREADY_USED",
     "ast.parse(", "-I -c $astProbe", "sys.base_prefix",
     "Receipt acts as the only successful-install commit marker",
