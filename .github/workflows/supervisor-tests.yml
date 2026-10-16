@@ -77,6 +77,9 @@ jobs:
       - name: MPC-010 single-file capsule synthetic Windows concurrency attacks (NO H4)
         shell: powershell
         run: python -m unittest discover -s test -p 'test_mpc010_capsule_adversarial.py' -v
+      - name: MPC-010 real pinned source bytes, synthetic old-file capsule (NO H4)
+        shell: powershell
+        run: python -m unittest discover -s test -p 'test_mpc010_release_capsule.py' -v
       - name: Parse H4 viewer Stage-only PowerShell and synthetic SelfTest
         shell: powershell
         run: |
