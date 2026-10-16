@@ -1,0 +1,42 @@
+name: SAYDI Shared Runner Bridge QA
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/saydi-v6-h4-transport.yml'
+      - '.github/workflows/saydi-v6-h4-bridge-qa.yml'
+      - '.github/scripts/saydi-v6-h4-cli-install.ps1'
+      - 'test/saydi-v6-h4-bridge.test.cjs'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/saydi-v6-h4-transport.yml'
+      - '.github/workflows/saydi-v6-h4-bridge-qa.yml'
+      - '.github/scripts/saydi-v6-h4-cli-install.ps1'
+      - 'test/saydi-v6-h4-bridge.test.cjs'
+
+permissions:
+  contents: read
+
+jobs:
+  read-only-source-qa:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse bridge PowerShell without invoking H4
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path '.github/scripts/saydi-v6-h4-cli-install.ps1'),
+            [ref]$tokens, [ref]$errors
+          )
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Host $_.Message }
+            throw 'BRIDGE_PS_PARSE_FAILED'
+          }
+      - name: Source contract tests — no H4 dispatch
+        shell: pwsh
+        run: node --test test/saydi-v6-h4-bridge.test.cjs

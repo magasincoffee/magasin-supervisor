@@ -1,0 +1,128 @@
+name: SAYDI V6 H4 Shared Runner Transport
+
+# Transport only. Supervisor STOP/START is not SAYDI's authority.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/saydi-v6-h4-install-request.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sc013-h4a16il-safe-deploy
+  cancel-in-progress: false
+
+jobs:
+  verify-exact-owner-request:
+    if: ${{ github.repository == 'magasincoffee/magasin-supervisor' && github.actor == 'magasincoffee' && github.triggering_actor == 'magasincoffee' && github.run_attempt == 1 && github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      saydi_sha: ${{ steps.verify.outputs.saydi_sha }}
+      request_id: ${{ steps.verify.outputs.request_id }}
+    steps:
+      - name: Verify one Owner request and exact SAYDI main
+        id: verify
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const before = context.payload.before;
+            const after = context.sha;
+            if (!/^[a-f0-9]{40}$/.test(before || '') ||
+                /^0{40}$/.test(before) ||
+                !/^[a-f0-9]{40}$/.test(after || '') ||
+                context.payload.forced === true ||
+                context.actor !== 'magasincoffee') {
+              core.setFailed('UNTRUSTED_OR_UNBOUNDED_GITHUB_PUSH');
+              return;
+            }
+            const diff = await github.rest.repos.compareCommitsWithBasehead({
+              owner: 'magasincoffee', repo: 'magasin-supervisor',
+              basehead: before + '...' + after,
+            });
+            const files = diff.data.files || [];
+            if (diff.data.total_commits !== 1 || files.length !== 1 ||
+                files[0].filename !== '.github/saydi-v6-h4-install-request.json' ||
+                !['added', 'modified'].includes(files[0].status) ||
+                diff.data.status !== 'ahead') {
+              core.setFailed('REQUEST_MUST_BE_SINGLE_FILE_SINGLE_COMMIT');
+              return;
+            }
+            const obj = await github.rest.repos.getContent({
+              owner: 'magasincoffee', repo: 'magasin-supervisor',
+              path: '.github/saydi-v6-h4-install-request.json', ref: after,
+            });
+            if (Array.isArray(obj.data) || !obj.data.content || obj.data.encoding !== 'base64') {
+              core.setFailed('REQUEST_FILE_MISSING');
+              return;
+            }
+            let req;
+            try {
+              req = JSON.parse(Buffer.from(obj.data.content, 'base64').toString('utf8'));
+            } catch (_) {
+              core.setFailed('REQUEST_JSON_INVALID');
+              return;
+            }
+            const expectedKeys = ['mode', 'request_id', 'saydi_main_sha', 'schema', 'target_host'];
+            if (typeof req !== 'object' || req === null || Array.isArray(req) ||
+                Object.keys(req).sort().join(',') !== expectedKeys.join(',') ||
+                req.schema !== 'SAYDI_V6_H4_INSTALL_V1' ||
+                req.mode !== 'INSTALL_CLI_ONLY' ||
+                req.target_host !== 'DESKTOP-H4A16IL' ||
+                !/^[a-f0-9]{40}$/.test(req.saydi_main_sha || '') ||
+                !/^SAYDI002-VN-001-[a-z0-9-]{8,45}$/.test(req.request_id || '')) {
+              core.setFailed('REQUEST_SCOPE_INVALID');
+              return;
+            }
+            const main = await github.rest.git.getRef({
+              owner: 'magasincoffee', repo: 'magasin-media-robot', ref: 'heads/main',
+            });
+            if (main.data.object.sha !== req.saydi_main_sha) {
+              core.setFailed('SAYDI_SHA_NOT_CURRENT_MAIN');
+              return;
+            }
+            core.setOutput('saydi_sha', req.saydi_main_sha);
+            core.setOutput('request_id', req.request_id);
+            core.info('REQUEST_VERIFIED_SINGLE_COMMIT=True');
+            core.info('PINNED_CANONICAL_SAYDI_MAIN=' + req.saydi_main_sha);
+
+  h4-cli-only-install:
+    needs: verify-exact-owner-request
+    if: ${{ github.repository == 'magasincoffee/magasin-supervisor' && github.actor == 'magasincoffee' && github.triggering_actor == 'magasincoffee' && github.run_attempt == 1 }}
+    runs-on: [self-hosted, Windows, X64, magasin-h4a16il]
+    timeout-minutes: 15
+    env:
+      SAYDI_MAIN_SHA: ${{ needs.verify-exact-owner-request.outputs.saydi_sha }}
+      SAYDI_REQUEST_ID: ${{ needs.verify-exact-owner-request.outputs.request_id }}
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - name: Verify actual H4 before checkout
+        shell: cmd
+        run: |
+          @echo off
+          if /I not "%COMPUTERNAME%"=="DESKTOP-H4A16IL" exit /b 30
+          echo H4_MACHINE_BOUND=True
+      - name: Checkout exact Supervisor transport script
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: sup-transport
+      - name: Checkout exact canonical SAYDI main commit
+        uses: actions/checkout@v4
+        with:
+          repository: magasincoffee/magasin-media-robot
+          ref: ${{ env.SAYDI_MAIN_SHA }}
+          path: saydi-source
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install isolated SAYDI CLI on D only
+        shell: cmd
+        run: |
+          @echo off
+          if /I not "%COMPUTERNAME%"=="DESKTOP-H4A16IL" exit /b 30
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "sup-transport\.github\scripts\saydi-v6-h4-cli-install.ps1" -SaydiSha "%SAYDI_MAIN_SHA%" -RequestId "%SAYDI_REQUEST_ID%"
+          if errorlevel 1 exit /b 31
