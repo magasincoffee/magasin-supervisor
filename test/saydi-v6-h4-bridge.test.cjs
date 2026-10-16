@@ -31,14 +31,15 @@ test('Supervisor runner is transport only; no Supervisor controls changed', () =
     "'D:\\SAYDI_V6'", "Join-Path $source '02_SAYDI_CORE'",
     "RESOURCE_DISK_CAPACITY_HOLD", "SAYDI_MAIN_MOVED_HOLD",
     "RELEASE_EXISTS_NO_OVERWRITE", "SAYDI_SOURCE_REPARSE_DENIED",
-    "V6_CLI_IMPORT_FAILED", "CLI_INSTALLED_ON_D_NO_AUDIO",
+    "V6_SOURCE_STATIC_SYNTAX_FAILED", "CLI_FILES_INSTALLED_ON_D_NOT_EXECUTED",
+    "static_ast_passed = $true", "saydi_cli_executed = $false",
     "model_started = $false", "supervisor_control_modified = $false",
   ]) assert.ok(ps.includes(marker), marker);
   for (const denied of [
     'Stop-Service', 'Start-Service', 'Stop-Process', 'Start-Process',
     'Remove-Item', 'C:\\SAYDI\\output', 'owner_stop', 'AUTOSTART_DISABLED',
     'dispatch_gateway.py', 'start_audiobook_chapter_1', 'Vieneu(',
-    'pip install', 'winget install',
+    'pip install', 'winget install', '-m saydi_audiobook',
   ]) assert.ok(!ps.includes(denied), denied);
 });
 test('git-pinned installation is additive and SHA verified', () => {
@@ -46,7 +47,9 @@ test('git-pinned installation is additive and SHA verified', () => {
     "'saydi-source'", "git.exe", "Get-FileHash",
     "Copy-Item -LiteralPath $core",
     "Join-Path $release '.venv'",
-    "V6_VENV_CREATION_FAILED",
+    "V6_VENV_CREATION_FAILED", "[System.IO.Directory]::Move($stage, $release)",
+    "STAGING_REQUEST_ALREADY_USED", "Join-Path $stage '.venv'",
+    "ast.parse(", "-I -c $astProbe",
     "Get-Item -LiteralPath $Path",
   ]) assert.ok(ps.includes(marker), marker);
 });

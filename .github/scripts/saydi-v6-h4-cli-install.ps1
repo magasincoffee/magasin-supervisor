@@ -87,47 +87,55 @@ if (-not (Test-Path -LiteralPath $destination -PathType Container)) {
 Assert-PlainDirectory $destination
 $release = Join-Path $destination $SaydiSha
 if (Test-Path -LiteralPath $release) { throw 'RELEASE_EXISTS_NO_OVERWRITE' }
-
-New-Item -ItemType Directory -Path $release -ErrorAction Stop | Out-Null
-$installedCore = Join-Path $release '02_SAYDI_CORE'
+$stageRoot = Join-Path $base 'install-staging'
+if (-not (Test-Path -LiteralPath $stageRoot -PathType Container)) {
+    New-Item -ItemType Directory -Path $stageRoot -ErrorAction Stop | Out-Null
+}
+Assert-PlainDirectory $stageRoot
+$stage = Join-Path $stageRoot $RequestId
+if (Test-Path -LiteralPath $stage) { throw 'STAGING_REQUEST_ALREADY_USED' }
+New-Item -ItemType Directory -Path $stage -ErrorAction Stop | Out-Null
+$installedCore = Join-Path $stage '02_SAYDI_CORE'
 Copy-Item -LiteralPath $core -Destination $installedCore -Recurse -ErrorAction Stop
-Copy-Item -LiteralPath $sot -Destination (Join-Path $release 'SOURCE_OF_TRUTH.snapshot.md') -ErrorAction Stop
+Copy-Item -LiteralPath $sot -Destination (Join-Path $stage 'SOURCE_OF_TRUTH.snapshot.md') -ErrorAction Stop
 $originalHash = (Get-FileHash -LiteralPath (Join-Path $core 'pyproject.toml') -Algorithm SHA256).Hash
 $installedHash = (Get-FileHash -LiteralPath (Join-Path $installedCore 'pyproject.toml') -Algorithm SHA256).Hash
 if ($originalHash -ne $installedHash) { throw 'INSTALLED_CORE_HASH_MISMATCH' }
 
-# Reuse installed Python, but create a new virtual environment on D.
-# Do not import/install VieNeu; no audio generation or service start.
-$venv = Join-Path $release '.venv'
+# Reuse trusted Python, but create a new virtual environment under staging on D.
+# Never execute any SAYDI module at install time: even CLI --help can run
+# arbitrary import-time code with Runner privileges. AST parsing does NOT run
+# the source and is isolated from site packages and Python environment vars.
+$venv = Join-Path $stage '.venv'
 & $trustedPython -m venv $venv
 if ($LASTEXITCODE -ne 0) { throw 'V6_VENV_CREATION_FAILED' }
 $python = Join-Path $venv 'Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw 'V6_ENVIRONMENT_NOT_CREATED'
 }
-$previousPythonPath = $env:PYTHONPATH
-try {
-    $env:PYTHONPATH = Join-Path $installedCore 'src'
-    & $python -m saydi_audiobook --help | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'V6_CLI_IMPORT_FAILED' }
-} finally {
-    $env:PYTHONPATH = $previousPythonPath
-}
+$astProbe = 'import ast,pathlib,sys; root=pathlib.Path(sys.argv[1]); files=list(root.rglob("*.py")); assert files, "empty core"; [ast.parse(p.read_text(encoding="utf-8-sig"), filename=str(p)) for p in files]; print("V6_PYTHON_FILES_PARSED="+str(len(files)))'
+& $python -I -c $astProbe $installedCore
+if ($LASTEXITCODE -ne 0) { throw 'V6_SOURCE_STATIC_SYNTAX_FAILED' }
 
 $receipt = [ordered]@{
     schema = 'SAYDI_V6_H4_INSTALL_RECEIPT_V1'
-    status = 'CLI_INSTALLED_ON_D_NO_AUDIO'
+    status = 'CLI_FILES_INSTALLED_ON_D_NOT_EXECUTED'
     target_host = $expectedHost
     request_id = $RequestId
     source_repository = 'magasincoffee/magasin-media-robot'
     source_sha = $SaydiSha
     destination = 'D_DRIVE_VERSIONED_RELEASE'
     core_pyproject_sha256 = $installedHash
-    cli_smoke_passed = $true
+    static_ast_passed = $true
+    saydi_cli_executed = $false
     model_started = $false
     saydi_start_authenticated = $false
     supervisor_control_modified = $false
     previous_versions_modified = $false
 }
-$receipt | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $release 'install-receipt.json') -Encoding UTF8 -NoNewline
+$receipt | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $stage 'install-receipt.json') -Encoding UTF8 -NoNewline
+# Windows same-volume directory rename, fail closed if release already exists.
+# Failed attempts stay under unique staging request IDs; no final release path
+# is created until every non-executing validation has passed.
+[System.IO.Directory]::Move($stage, $release)
 $receipt | ConvertTo-Json -Compress
