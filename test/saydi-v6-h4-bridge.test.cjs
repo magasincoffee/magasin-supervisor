@@ -46,7 +46,7 @@ test('git-pinned installation is additive and SHA verified', () => {
   for (const marker of [
     "'saydi-source'", "git.exe", "Get-FileHash",
     "Copy-Item -LiteralPath $core",
-    "Join-Path $release '.venv'",
+    "Join-Path $stage '.venv'",
     "V6_VENV_CREATION_FAILED", "[System.IO.Directory]::Move($stage, $release)",
     "STAGING_REQUEST_ALREADY_USED", "Join-Path $stage '.venv'",
     "ast.parse(", "-I -c $astProbe",
