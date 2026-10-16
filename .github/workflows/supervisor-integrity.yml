@@ -41,6 +41,8 @@ jobs:
           set -euo pipefail
           expected=$(cat <<'EOF'
           magasin-local-dispatch-receipts.yml
+          saydi-v6-h4-bridge-qa.yml
+          saydi-v6-h4-transport.yml
           sc013-coordinator-hook-apply.yml
           sc013-coordinator-inert-apply.yml
           sc013-coordinator-readonly-stage.yml
@@ -149,7 +151,8 @@ jobs:
             test/sc013-sot-adapter.test.mjs \
             test/sc013-live-observer-contract.test.mjs \
             test/sc013-owner-start-authority.test.mjs \
-            test/supervisor-guardian.test.mjs
+            test/supervisor-guardian.test.mjs \
+            test/saydi-v6-h4-bridge.test.cjs
           grep -q 'SINGLE_CONVERSATION_V1' SOURCE_OF_TRUTH.md
           grep -q 'FIRST-FAILURE ITERATIVE STABILIZATION LOOP' SOURCE_OF_TRUTH.md
           echo CURRENT_ARCHITECTURE_INTEGRITY_PASS=True
