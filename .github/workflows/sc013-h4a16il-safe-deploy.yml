@@ -8,7 +8,7 @@ on:
       mode:
         description: Stage (safe default) or Apply (separately authorized)
         type: choice
-        options: [Stage, Apply]
+        options: [Stage, Apply, Package]
         required: true
         default: Stage
       deploy_sha:
@@ -19,6 +19,13 @@ on:
     branches: [main]
     paths:
       - '.github/sc013-h4a16il-stage-request.json'
+      - '.github/sc013-h4-supervisor-package-request.json'
+
+  pull_request:
+    paths:
+      - '.github/workflows/sc013-h4a16il-safe-deploy.yml'
+      - '.github/scripts/sc013-h4-supervisor-package-stage.ps1'
+      - 'test/h4-supervisor-package-stage.test.mjs'
 
 permissions:
   contents: read
@@ -29,6 +36,11 @@ concurrency:
 
 jobs:
   stage-or-apply:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.mode != 'Package') ||
+      (github.event_name == 'push' &&
+       (contains(toJSON(github.event.head_commit.modified), 'sc013-h4a16il-stage-request.json') ||
+        contains(toJSON(github.event.head_commit.added), 'sc013-h4a16il-stage-request.json')))
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 10
     steps:
@@ -62,3 +74,65 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw 'SC013_H4_SAFE_DEPLOY_FAILED'
           }
+
+  package-contract:
+    if: github.event_name == 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate H4 source package stage source and workflow (synthetic only)
+        shell: powershell
+        run: |
+          $tokens=$null
+          $errors=$null
+          [Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD '.github/scripts/sc013-h4-supervisor-package-stage.ps1'),
+            [ref]$tokens,[ref]$errors
+          ) | Out-Null
+          if (@($errors).Count -gt 0) { throw 'PACKAGE_STAGE_POWERSHELL_PARSE_FAILED' }
+          node --test test/h4-supervisor-package-stage.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'PACKAGE_STAGE_NEGATIVE_TESTS_FAILED' }
+
+  package-on-h4:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.mode == 'Package') ||
+      (github.event_name == 'push' &&
+       (contains(toJSON(github.event.head_commit.modified), 'sc013-h4-supervisor-package-request.json') ||
+        contains(toJSON(github.event.head_commit.added), 'sc013-h4-supervisor-package-request.json')))
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+    env:
+      PACKAGE_SHA: ${{ github.event.inputs.deploy_sha || github.sha }}
+    steps:
+      - name: Reject wrong host BEFORE checkout
+        shell: cmd
+        run: |
+          @echo off
+          echo PACKAGE_TARGET_HOST=%COMPUTERNAME%
+          if /I not "%COMPUTERNAME%"=="DESKTOP-H4A16IL" (
+            echo TARGET_MUTATION_SKIPPED=True
+            exit /b 1
+          )
+          echo PACKAGE_TARGET_MATCH=True
+      - name: Checkout exact main source for package
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PACKAGE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Stage source archive on D without C installation
+        shell: cmd
+        run: |
+          @echo off
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ".github\scripts\sc013-h4-supervisor-package-stage.ps1" -ExpectedMainSha "%PACKAGE_SHA%"
+          if errorlevel 1 exit /b 1
+      - name: Publish hash-manifested package for reviewed Owner installation
+        uses: actions/upload-artifact@v4
+        with:
+          name: h4-supervisor-source-${{ env.PACKAGE_SHA }}
+          path: |
+            D:\MAGASIN_ROBOTS\control-center\state\supervisor-packages\${{ env.PACKAGE_SHA }}\supervisor-source.zip
+            D:\MAGASIN_ROBOTS\control-center\state\supervisor-packages\${{ env.PACKAGE_SHA }}\manifest.json
+          if-no-files-found: error
+          retention-days: 14
