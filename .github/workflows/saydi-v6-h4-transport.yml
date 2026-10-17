@@ -119,7 +119,7 @@ jobs:
           path: saydi-source
           persist-credentials: false
           fetch-depth: 1
-      - name: Install isolated SAYDI CLI on D only
+      - name: Stage verified SAYDI V6 source only on D (no Python execution)
         shell: cmd
         run: |
           @echo off
