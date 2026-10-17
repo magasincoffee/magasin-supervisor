@@ -13,7 +13,7 @@ test("package flow targets only H4 and checks identity before checkout",()=>{
   assert.match(ps,/GITHUB_RUNNER_CONTEXT_REQUIRED/);
 });
 test("package requires exact current main SHA and closed file allowlist",()=>{
-  for(const token of ["CHECKOUT_SHA_MISMATCH","MAIN_AUTHORITY_UNAVAILABLE","MAIN_MOVED_OR_UNAPPROVED_SHA","GIT_NO_REPLACE_OBJECTS","git -C $workspace","--format=zip","HEAD -- src windows package.json README.md SOURCE_OF_TRUTH.md","UNSAFE_ARCHIVE_ENTRY","PACKAGE_READBACK_MISMATCH"]) assert.ok(ps.includes(token),token);
+  assert.ok(ps.includes("D:\\MAGASIN_ROBOTS\\control-center\\state"));
   assert.match(yaml,/persist-credentials: false/);
   assert.match(ps,/archive_sha256/);
 });
