@@ -12,15 +12,16 @@ test('only one bounded Owner request can reach the H4 transport', () => {
     "github.actor == 'magasincoffee'",
     "github.triggering_actor == 'magasincoffee'",
     'github.run_attempt == 1', 'branches: [main]',
-    '.github/saydi-v6-h4-install-request.json',
+    '.github/saydi-v6-h4-source-stage-request.json',
     'REQUEST_MUST_BE_SINGLE_FILE_SINGLE_COMMIT',
+    'SAYDI_V6_H4_SOURCE_STAGE_V1', 'STAGE_SOURCE_ONLY',
     'SAYDI_SHA_NOT_CURRENT_MAIN', 'github.rest.git.getRef',
     'magasin-h4a16il', 'DESKTOP-H4A16IL',
     'persist-credentials: false',
     'sc013-h4a16il-safe-deploy',
     'Stage verified SAYDI V6 source only on D'
   ]) assert.ok(workflow.includes(x), x);
-  for (const forbidden of ['workflow_dispatch:', 'schedule:', 'pull_request:', 'issues:', 'actions/setup-python']) {
+  for (const forbidden of ['workflow_dispatch:', 'schedule:', 'pull_request:', 'issues:', 'actions/setup-python', 'INSTALL_CLI_ONLY']) {
     assert.ok(!workflow.includes(forbidden), forbidden);
   }
 });
@@ -36,14 +37,19 @@ test('stage only: honest receipt, SHA-verified files, no existing versions overw
     "RESOURCE_DISK_CAPACITY_HOLD", "SAYDI_MAIN_MOVED_HOLD",
     'RELEASE_EXISTS_NO_OVERWRITE', 'STAGING_REQUEST_ALREADY_USED',
     'SAYDI_SOURCE_REPARSE_DENIED',
-    'V6_SOURCE_FILE_COUNT_MISMATCH', 'V6_STAGED_FILE_UNSAFE',
+    'V6_GIT_TREE_FILE_COUNT_MISMATCH', 'V6_STAGED_FILE_UNSAFE',
     'V6_STAGED_CONTENT_HASH_MISMATCH', 'V6_STAGED_SOT_HASH_MISMATCH',
+    'V6_STAGED_GIT_BLOB_MISMATCH', 'V6_STAGED_SOT_GIT_BLOB_MISMATCH',
+    'V6_UNTRACKED_SOURCE_FILE_DENIED', 'SAYDI_SOT_REPARSE_DENIED',
+    'ls-tree -r --name-only', 'hash-object --no-filters',
+    "rev-parse --verify ('HEAD:' + $gitPath)",
     "Copy-Item -LiteralPath $core",
     'Get-FileHash',
     '[System.IO.Directory]::Move($stage, $release)',
     'SOURCE_ONLY_STAGED_ON_D_NO_PYTHON',
     'source-stage-receipt.json',
     'copied_tree_sha256_verified = $true',
+    'canonical_git_tree_verified = $true',
     'python_qualified = $false',
     'cli_installed = $false',
     'cli_executed = $false',
