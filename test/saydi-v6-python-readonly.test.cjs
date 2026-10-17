@@ -8,6 +8,7 @@ test('owner-only one-file gate and actual H4 runner',()=>{
     'ONLY_ONE_PYTHON_CHECK_REQUEST_FILE','CHECK_REQUEST_NOT_ALLOWLISTED',
     'magasin-h4a16il','DESKTOP-H4A16IL','persist-credentials: false',
     'PRIOR_MAIN_CI_NOT_GREEN', 'body.base_main_sha!==before',
+    'actions: read',
     'REQUEST_BOUND_TO_UNIQUE_BASE_SHA=True']){
     assert.ok(wf.includes(v),v);
   }
