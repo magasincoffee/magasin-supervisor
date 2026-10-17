@@ -8,7 +8,7 @@ on:
       mode:
         description: Stage (safe default) or Apply (separately authorized)
         type: choice
-        options: [Stage, Apply]
+        options: [Stage, Apply, Package]
         required: true
         default: Stage
       deploy_sha:
@@ -20,6 +20,12 @@ on:
     paths:
       - '.github/sc013-h4a16il-stage-request.json'
 
+  pull_request:
+    paths:
+      - '.github/workflows/sc013-h4a16il-safe-deploy.yml'
+      - '.github/scripts/sc013-h4-supervisor-package-stage.ps1'
+      - 'test/h4-supervisor-package-stage.test.mjs'
+
 permissions:
   contents: read
 
@@ -29,6 +35,7 @@ concurrency:
 
 jobs:
   stage-or-apply:
+    if: github.event_name != 'pull_request' && (github.event_name == 'push' || inputs.mode != 'Package')
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 10
     steps:
@@ -62,3 +69,104 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw 'SC013_H4_SAFE_DEPLOY_FAILED'
           }
+
+  package-contract:
+    if: github.event_name == 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Source-only H4 package synthetic contracts
+        shell: powershell
+        run: |
+          $tokens=$null
+          $errors=$null
+          [Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD '.github/scripts/sc013-h4-supervisor-package-stage.ps1'),
+            [ref]$tokens,[ref]$errors
+          ) | Out-Null
+          if (@($errors).Count -gt 0) { throw 'PACKAGE_POWERSHELL_PARSE_FAILED' }
+          node --test test/h4-supervisor-package-stage.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'PACKAGE_NEGATIVE_TESTS_FAILED' }
+      - name: Publish PR-only review ZIP (hosted, never H4)
+        shell: cmd
+        run: |
+          @echo off
+          git archive --format=zip --output="%RUNNER_TEMP%\supervisor-source-candidate.zip" HEAD -- src windows package.json README.md SOURCE_OF_TRUTH.md
+          if errorlevel 1 exit /b 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: supervisor-pr-review-${{ github.sha }}
+          path: ${{ runner.temp }}\supervisor-source-candidate.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  package-build:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'Package'
+    runs-on: windows-latest
+    timeout-minutes: 12
+    env:
+      PACKAGE_SHA: ${{ inputs.deploy_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PACKAGE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Build canonical allowlisted source archive on hosted Windows
+        shell: powershell
+        run: |
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '.github/scripts/sc013-h4-supervisor-package-stage.ps1' -Mode Build -ExpectedMainSha $env:PACKAGE_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'HOSTED_PACKAGE_BUILD_FAILED' }
+          Copy-Item -LiteralPath '.github/scripts/sc013-h4-supervisor-package-stage.ps1' -Destination (Join-Path $env:RUNNER_TEMP 'h4-package\sc013-h4-supervisor-package-stage.ps1')
+      - uses: actions/upload-artifact@v4
+        with:
+          name: h4-supervisor-source-${{ env.PACKAGE_SHA }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}\h4-package\
+          if-no-files-found: error
+          retention-days: 14
+
+  package-on-h4:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'Package'
+    needs: package-build
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    env:
+      PACKAGE_SHA: ${{ inputs.deploy_sha }}
+      PRIVATE_STAGE: D:\MAGASIN_ROBOTS\supervisor-reinstall-backup-20261017\h4-package-stage
+    steps:
+      - name: Verify H4 machine and low-privilege service BEFORE download (NO checkout)
+        shell: cmd
+        run: |
+          @echo off
+          echo TARGET=%COMPUTERNAME%
+          if /I not "%COMPUTERNAME%"=="DESKTOP-H4A16IL" (
+            echo TARGET_MUTATION_SKIPPED=True
+            exit /b 1
+          )
+          whoami /user | findstr /C:"S-1-5-20" >nul
+          if errorlevel 1 (
+            echo NETWORK_SERVICE_REQUIRED=True
+            exit /b 1
+          )
+          echo TARGET_MATCH=True
+          echo RUNNER_IDENTITY_MATCH=True
+      - name: Fail before extraction unless protected D inbox prevents untrusted swaps
+        shell: cmd
+        run: |
+          @echo off
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$r=$env:PRIVATE_STAGE; $p=Split-Path $r -Parent; $child=Join-Path $r 'inbox'; foreach($v in @($p,$r,$child)) { if(!(Test-Path -LiteralPath $v -PathType Container)){exit 1};$i=Get-Item -LiteralPath $v -Force;$a=Get-Acl -LiteralPath $v;if(($i.Attributes -band [IO.FileAttributes]::ReparsePoint) -or !$a.AreAccessRulesProtected){exit 2};$allowed=if($v -eq $p){@('NT AUTHORITY\SYSTEM','BUILTIN\Administrators','DESKTOP-H4A16IL\admin')}else{@('NT AUTHORITY\NETWORK SERVICE','NT AUTHORITY\SYSTEM','BUILTIN\Administrators','DESKTOP-H4A16IL\admin')};foreach($ace in $a.Access){if($ace.AccessControlType -ne 'Allow' -or $ace.IdentityReference.ToString() -notin $allowed){exit 3}}}; $rootAce=@((Get-Acl $r).Access|Where-Object{$_.IdentityReference.ToString() -eq 'NT AUTHORITY\NETWORK SERVICE'})|Select-Object -First 1; $childAce=@((Get-Acl $child).Access|Where-Object{$_.IdentityReference.ToString() -eq 'NT AUTHORITY\NETWORK SERVICE'})|Select-Object -First 1; if(!$rootAce -or !$childAce){exit 4};$D=[Security.AccessControl.FileSystemRights]::Delete;$A=[Security.AccessControl.FileSystemRights]::AppendData;$W=[Security.AccessControl.FileSystemRights]::WriteData;if(($rootAce.FileSystemRights -band $D) -or ($rootAce.FileSystemRights -band $W) -or ($rootAce.FileSystemRights -band $A) -or ($childAce.FileSystemRights -band $D) -or ($childAce.FileSystemRights -band $A) -or !(($childAce.FileSystemRights -band $W))){exit 5};Write-Output 'SEALED_D_INBOX_PREFLIGHT_PASS=True'"
+          if errorlevel 1 exit /b 1
+      - name: Download trusted same-workflow artifact directly to private D stage
+        uses: actions/download-artifact@v4
+        with:
+          name: h4-supervisor-source-${{ env.PACKAGE_SHA }}-${{ github.run_attempt }}
+          path: ${{ env.PRIVATE_STAGE }}\inbox
+      - name: Check D private-stage ACL and ZIP SHA before any install
+        shell: cmd
+        run: |
+          @echo off
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%PRIVATE_STAGE%\inbox\sc013-h4-supervisor-package-stage.ps1" -Mode Verify -ExpectedMainSha "%PACKAGE_SHA%"
+          if errorlevel 1 exit /b 1
+          echo NO_C_RUNTIME_MUTATION=True
+          echo NO_SUPERVISOR_START=True
