@@ -121,7 +121,7 @@ $originalFiles = @(Get-ChildItem -LiteralPath $core -Force -File -Recurse -Error
 $copiedFiles = @(Get-ChildItem -LiteralPath $installedCore -Force -File -Recurse -ErrorAction Stop)
 # Authenticate each staged file against its pinned canonical Git blob ID.
 # No configurable clean filters or candidate interpreters are executed.
-$expectedFiles = @(& $git -C $source ls-tree -r --name-only $SaydiSha -- '02_SAYDI_CORE')
+$expectedFiles = @(& $git --no-replace-objects -C $source ls-tree -r --name-only $SaydiSha -- '02_SAYDI_CORE')
 if ($LASTEXITCODE -ne 0 -or $expectedFiles.Count -lt 1 -or
     $originalFiles.Count -ne $expectedFiles.Count -or
     $copiedFiles.Count -ne $expectedFiles.Count) {
@@ -140,7 +140,7 @@ foreach ($file in $originalFiles) {
     if ($srcHash -ne $dstHash) { throw 'V6_STAGED_CONTENT_HASH_MISMATCH' }
     $gitPath = '02_SAYDI_CORE/' + $relative.Replace('\', '/')
     if ($expectedFiles -cnotcontains $gitPath) { throw 'V6_UNTRACKED_SOURCE_FILE_DENIED' }
-    $expectedObject = (& $git -C $source rev-parse --verify ($SaydiSha + ':' + $gitPath)).Trim()
+    $expectedObject = (& $git --no-replace-objects -C $source rev-parse --verify ($SaydiSha + ':' + $gitPath)).Trim()
     if ($LASTEXITCODE -ne 0 -or $expectedObject -notmatch '^[0-9a-f]{40}$') {
         throw 'V6_GIT_BLOB_LOOKUP_FAILED'
     }
@@ -152,7 +152,7 @@ foreach ($file in $originalFiles) {
 $stagedSotHash = (Get-FileHash -LiteralPath (Join-Path $stage 'SOURCE_OF_TRUTH.snapshot.md') -Algorithm SHA256).Hash
 $originalSotHash = (Get-FileHash -LiteralPath $sot -Algorithm SHA256).Hash
 if ($stagedSotHash -ne $originalSotHash) { throw 'V6_STAGED_SOT_HASH_MISMATCH' }
-$expectedSotObject = (& $git -C $source rev-parse --verify ($SaydiSha + ':00_PROJECT/SOURCE_OF_TRUTH.md')).Trim()
+$expectedSotObject = (& $git --no-replace-objects -C $source rev-parse --verify ($SaydiSha + ':00_PROJECT/SOURCE_OF_TRUTH.md')).Trim()
 if ($LASTEXITCODE -ne 0 -or $expectedSotObject -notmatch '^[0-9a-f]{40}$') {
     throw 'V6_SOT_GIT_OBJECT_LOOKUP_FAILED'
 }
