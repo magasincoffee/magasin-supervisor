@@ -43,14 +43,16 @@ function Verify-Zip([string]$zip) {
 }
 function Assert-PrivateStageRoot {
   $parent=Split-Path $privateRoot -Parent
-  foreach($path in @('D:\MAGASIN_ROBOTS',$parent,$privateRoot)) {
+  $inbox=Join-Path $privateRoot 'inbox'
+  foreach($path in @('D:\MAGASIN_ROBOTS',$parent,$privateRoot,$inbox)) {
     if (-not (Test-Path -LiteralPath $path -PathType Container)) { throw 'PRIVATE_STAGE_ROOT_MISSING' }
     $item=Get-Item -LiteralPath $path -Force
     if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'STAGE_REPARSE_REJECTED' }
   }
   $parentAcl=Get-Acl -LiteralPath $parent
   $acl=Get-Acl -LiteralPath $privateRoot
-  if (-not $acl.AreAccessRulesProtected -or -not $parentAcl.AreAccessRulesProtected) {throw 'STAGE_ACL_INHERITED'}
+  $inboxAcl=Get-Acl -LiteralPath $inbox
+  if (-not $acl.AreAccessRulesProtected -or -not $inboxAcl.AreAccessRulesProtected -or -not $parentAcl.AreAccessRulesProtected) {throw 'STAGE_ACL_INHERITED'}
   $accepted=@('NT AUTHORITY\SYSTEM','NT AUTHORITY\NETWORK SERVICE','BUILTIN\Administrators','DESKTOP-H4A16IL\admin')
   $bad=@($acl.Access | Where-Object {
     $_.AccessControlType -ne 'Allow' -or
@@ -64,6 +66,18 @@ function Assert-PrivateStageRoot {
     $_.IdentityReference.ToString() -notin @('NT AUTHORITY\SYSTEM','BUILTIN\Administrators','DESKTOP-H4A16IL\admin')
   })
   if($parentUnexpected.Count -gt 0){throw 'BACKUP_PARENT_ACL_UNSAFE'}
+  $badInbox=@($inboxAcl.Access|Where-Object{$_.AccessControlType -ne 'Allow' -or $_.IdentityReference.ToString() -notin $accepted})
+  if($badInbox.Count -gt 0){throw 'INBOX_ACL_UNSAFE'}
+  foreach($entry in @($acl.Access|Where-Object{$_.IdentityReference.ToString() -eq 'NT AUTHORITY\NETWORK SERVICE'})) {
+    if(($entry.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Delete) -or
+       ($entry.FileSystemRights -band [Security.AccessControl.FileSystemRights]::WriteData) -or
+       ($entry.FileSystemRights -band [Security.AccessControl.FileSystemRights]::AppendData)) {throw 'STAGE_ROOT_RUNNER_TOO_BROAD'}
+  }
+  $writers=@($inboxAcl.Access|Where-Object{$_.IdentityReference.ToString() -eq 'NT AUTHORITY\NETWORK SERVICE' -and $_.AccessControlType -eq 'Allow'})
+  if($writers.Count -ne 1 -or -not ($writers[0].FileSystemRights -band [Security.AccessControl.FileSystemRights]::WriteData)) {throw 'INBOX_WRITE_GRANT_MISSING'}
+  if(($writers[0].FileSystemRights -band [Security.AccessControl.FileSystemRights]::Delete) -or
+     ($writers[0].FileSystemRights -band [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles) -or
+     ($writers[0].FileSystemRights -band [Security.AccessControl.FileSystemRights]::AppendData)) {throw 'INBOX_RUNNER_MAY_RENAME_OR_CREATE_DIR'}
 }
 
 Assert-ExactMain
@@ -105,9 +119,9 @@ if ($env:RUNNER_ENVIRONMENT -ne 'self-hosted' -or $env:GITHUB_ACTIONS -ne 'true'
 $identity=[Security.Principal.WindowsIdentity]::GetCurrent().Name
 if ($identity -ne 'NT AUTHORITY\NETWORK SERVICE') {throw 'UNEXPECTED_RUNNER_IDENTITY'}
 Assert-PrivateStageRoot
-$stage=Join-Path $privateRoot $want
+$stage=Join-Path $privateRoot 'inbox'
 if (-not (Test-Path -LiteralPath $stage -PathType Container)) {throw 'PACKAGE_NOT_DOWNLOADED'}
-if ((Get-Item -LiteralPath $stage -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {throw 'SHA_STAGE_REPARSE_REJECTED'}
+if ((Get-Item -LiteralPath $stage -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {throw 'INBOX_REPARSE_REJECTED'}
 $zip=Join-Path $stage 'supervisor-source.zip'
 $manifest=Join-Path $stage 'manifest.json'
 if (-not (Test-Path $zip -PathType Leaf) -or -not (Test-Path $manifest -PathType Leaf)) {throw 'PACKAGE_OR_MANIFEST_MISSING'}
