@@ -121,7 +121,7 @@ jobs:
           Copy-Item -LiteralPath '.github/scripts/sc013-h4-supervisor-package-stage.ps1' -Destination (Join-Path $env:RUNNER_TEMP 'h4-package\sc013-h4-supervisor-package-stage.ps1')
       - uses: actions/upload-artifact@v4
         with:
-          name: h4-supervisor-source-${{ env.PACKAGE_SHA }}
+          name: h4-supervisor-source-${{ env.PACKAGE_SHA }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}\h4-package\
           if-no-files-found: error
           retention-days: 14
@@ -151,22 +151,22 @@ jobs:
           )
           echo TARGET_MATCH=True
           echo RUNNER_IDENTITY_MATCH=True
-      - name: Reject inherited or public D stage BEFORE download
+      - name: Fail before extraction unless protected D inbox prevents untrusted swaps
         shell: cmd
         run: |
           @echo off
-          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$r=$env:PRIVATE_STAGE; $p=Split-Path $r -Parent; if (!(Test-Path -LiteralPath $r -PathType Container) -or !(Test-Path -LiteralPath $p -PathType Container)) { exit 1 }; foreach($v in @($r,$p)) { $i=Get-Item -LiteralPath $v -Force; $a=Get-Acl -LiteralPath $v; if (($i.Attributes -band [IO.FileAttributes]::ReparsePoint) -or !$a.AreAccessRulesProtected) { exit 2 }; $allowed=if($v -eq $r){@('NT AUTHORITY\NETWORK SERVICE','NT AUTHORITY\SYSTEM','BUILTIN\Administrators','DESKTOP-H4A16IL\admin')}else{@('NT AUTHORITY\SYSTEM','BUILTIN\Administrators','DESKTOP-H4A16IL\admin')}; foreach($ace in $a.Access){if($ace.AccessControlType -ne 'Allow' -or $ace.IdentityReference.ToString() -notin $allowed){exit 3}}}; Write-Output 'PRIVATE_D_ACL_PREFLIGHT_PASS=True'"
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$r=$env:PRIVATE_STAGE; $p=Split-Path $r -Parent; $child=Join-Path $r 'inbox'; foreach($v in @($p,$r,$child)) { if(!(Test-Path -LiteralPath $v -PathType Container)){exit 1};$i=Get-Item -LiteralPath $v -Force;$a=Get-Acl -LiteralPath $v;if(($i.Attributes -band [IO.FileAttributes]::ReparsePoint) -or !$a.AreAccessRulesProtected){exit 2};$allowed=if($v -eq $p){@('NT AUTHORITY\SYSTEM','BUILTIN\Administrators','DESKTOP-H4A16IL\admin')}else{@('NT AUTHORITY\NETWORK SERVICE','NT AUTHORITY\SYSTEM','BUILTIN\Administrators','DESKTOP-H4A16IL\admin')};foreach($ace in $a.Access){if($ace.AccessControlType -ne 'Allow' -or $ace.IdentityReference.ToString() -notin $allowed){exit 3}}}; $rootAce=@((Get-Acl $r).Access|Where-Object{$_.IdentityReference.ToString() -eq 'NT AUTHORITY\NETWORK SERVICE'})|Select-Object -First 1; $childAce=@((Get-Acl $child).Access|Where-Object{$_.IdentityReference.ToString() -eq 'NT AUTHORITY\NETWORK SERVICE'})|Select-Object -First 1; if(!$rootAce -or !$childAce){exit 4};$D=[Security.AccessControl.FileSystemRights]::Delete;$A=[Security.AccessControl.FileSystemRights]::AppendData;$W=[Security.AccessControl.FileSystemRights]::WriteData;if(($rootAce.FileSystemRights -band $D) -or ($rootAce.FileSystemRights -band $W) -or ($rootAce.FileSystemRights -band $A) -or ($childAce.FileSystemRights -band $D) -or ($childAce.FileSystemRights -band $A) -or !(($childAce.FileSystemRights -band $W))){exit 5};Write-Output 'SEALED_D_INBOX_PREFLIGHT_PASS=True'"
           if errorlevel 1 exit /b 1
       - name: Download trusted same-workflow artifact directly to private D stage
         uses: actions/download-artifact@v4
         with:
-          name: h4-supervisor-source-${{ env.PACKAGE_SHA }}
-          path: ${{ env.PRIVATE_STAGE }}\${{ env.PACKAGE_SHA }}
+          name: h4-supervisor-source-${{ env.PACKAGE_SHA }}-${{ github.run_attempt }}
+          path: ${{ env.PRIVATE_STAGE }}\inbox
       - name: Check D private-stage ACL and ZIP SHA before any install
         shell: cmd
         run: |
           @echo off
-          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%PRIVATE_STAGE%\%PACKAGE_SHA%\sc013-h4-supervisor-package-stage.ps1" -Mode Verify -ExpectedMainSha "%PACKAGE_SHA%"
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%PRIVATE_STAGE%\inbox\sc013-h4-supervisor-package-stage.ps1" -Mode Verify -ExpectedMainSha "%PACKAGE_SHA%"
           if errorlevel 1 exit /b 1
           echo NO_C_RUNTIME_MUTATION=True
           echo NO_SUPERVISOR_START=True
