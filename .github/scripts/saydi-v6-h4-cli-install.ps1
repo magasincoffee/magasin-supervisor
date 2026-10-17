@@ -12,7 +12,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $expectedHost = 'DESKTOP-H4A16IL'
-$trustedPython = $null # resolved AFTER trusted H4/owner/source gates
+$trustedPython = $null # resolved after H4/Owner/sha gates
 
 function Assert-PlainDirectory([string]$Path) {
     $entry = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
@@ -22,212 +22,56 @@ function Assert-PlainDirectory([string]$Path) {
     }
 }
 
-# Resolve only an existing and signed SYSTEM-level Python. The GitHub Runner
-# identity remains NETWORK SERVICE. Neither Get-Command nor registry discovery
-# is permission to execute; verify signer, non-reparse path and venv modules
-# before any filesystem write. Do not display paths in public workflow logs.
+# Qualified discovery from service PATH and machine-wide Python registry only.
+# No Python installer, user-profile traversal or new Windows privilege.
 function Resolve-TrustedSharedPython {
     $candidates = [System.Collections.Generic.List[string]]::new()
-    foreach ($command in @(Get-Command python.exe -All -CommandType Application -ErrorAction SilentlyContinue)) {
-        if ($command.Source) { [void]$candidates.Add($command.Source) }
+    foreach ($c in @(Get-Command python.exe -All -CommandType Application -ErrorAction SilentlyContinue)) {
+        if ($c.Source) { [void]$candidates.Add($c.Source) }
     }
-    foreach ($keyRoot in @('HKLM:\SOFTWARE\Python\PythonCore',
-                           'HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore')) {
-        foreach ($ver in @(Get-ChildItem -LiteralPath $keyRoot -ErrorAction SilentlyContinue | Select-Object -First 20)) {
+    foreach ($registryRoot in @('HKLM:\SOFTWARE\Python\PythonCore',
+                                'HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore')) {
+        foreach ($v in @(Get-ChildItem -LiteralPath $registryRoot -ErrorAction SilentlyContinue | Select-Object -First 20)) {
             try {
-                $info = Get-ItemProperty -LiteralPath (Join-Path $ver.PSPath 'InstallPath') -ErrorAction Stop
-                if ($info.ExecutablePath) { [void]$candidates.Add($info.ExecutablePath) }
+                $installed = Get-ItemProperty -LiteralPath (Join-Path $v.PSPath 'InstallPath') -ErrorAction Stop
+                if ($installed.ExecutablePath) { [void]$candidates.Add($installed.ExecutablePath) }
             } catch { continue }
         }
     }
-    $visited = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($candidate in $candidates) {
         try {
-            $full = [IO.Path]::GetFullPath($candidate)
-            if (-not $visited.Add($full) -or
-                $full -match '^[A-Za-z]:\\Users\\' -or
-                $full -match '\\WindowsApps\\' -or
-                [IO.Path]::GetFileName($full) -ine 'python.exe') { continue }
-            $item = Get-Item -LiteralPath $full -Force -ErrorAction Stop
-            if ($item.PSIsContainer -or
-                (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) { continue }
-            $directory = $item.Directory
-            $unsafe = $false
-            while ($null -ne $directory) {
-                $folder = Get-Item -LiteralPath $directory.FullName -Force -ErrorAction Stop
-                if (($folder.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-                    $unsafe = $true
+            $path = [IO.Path]::GetFullPath($candidate)
+            if (-not $seen.Add($path) -or $path -match '^[A-Za-z]:\\Users\\' -or
+                $path -match '\\WindowsApps\\' -or
+                [IO.Path]::GetFileName($path) -ine 'python.exe') { continue }
+            $f = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+            if ($f.PSIsContainer -or (($f.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
+                continue
+            }
+            $parent = $f.Directory
+            $reparse = $false
+            while ($null -ne $parent) {
+                $p = Get-Item -LiteralPath $parent.FullName -Force -ErrorAction Stop
+                if (($p.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    $reparse = $true
                     break
                 }
-                $directory = $directory.Parent
+                $parent = $parent.Parent
             }
-            if ($unsafe) { continue }
-            $signature = Get-AuthenticodeSignature -LiteralPath $full -ErrorAction Stop
-            if ($signature.Status -ne 'Valid' -or $null -eq $signature.SignerCertificate -or
+            if ($reparse) { continue }
+            $signature = Get-AuthenticodeSignature -LiteralPath $path -ErrorAction Stop
+            if ($signature.Status -ne 'Valid' -or
+                $null -eq $signature.SignerCertificate -or
                 $signature.SignerCertificate.Subject -notmatch 'Python Software Foundation') {
                 continue
             }
-            # Run ONLY trusted interpreter's isolated stdlib check; no SAYDI
-            # code, package downloads or arbitrary command arguments.
-            $check = & $full -I -c 'import sys,venv,ensurepip; print(str(sys.version_info.major)+"."+str(sys.version_info.minor))' 2>$null
+            # Execute official Python with isolated stdlib only. No SAYDI import.
+            $check = & $path -I -c 'import sys,venv,ensurepip; print(str(sys.version_info.major)+"."+str(sys.version_info.minor))' 2>$null
             if ($LASTEXITCODE -ne 0) { continue }
-            if (($check | Out-String).Trim() -notmatch '^3\.(11|12|13)
-if ($env:GITHUB_REPOSITORY -ne 'magasincoffee/magasin-supervisor') {
-    throw 'WRONG_TRANSPORT_REPOSITORY'
-}
-if ($env:GITHUB_REF -ne 'refs/heads/main' -or $env:GITHUB_EVENT_NAME -ne 'push' -or $env:GITHUB_RUN_ATTEMPT -ne '1') {
-    throw 'UNTRUSTED_TRIGGER'
-}
-if ($env:GITHUB_ACTOR -ne 'magasincoffee' -or
-    $env:GITHUB_TRIGGERING_ACTOR -ne 'magasincoffee' -or
-    $env:GITHUB_ACTOR_ID -ne '191064507') {
-    throw 'UNTRUSTED_OWNER_IDENTITY'
-}
-if ($env:SAYDI_MAIN_SHA -ne $SaydiSha -or $env:SAYDI_REQUEST_ID -ne $RequestId) {
-    throw 'REQUEST_METADATA_MISMATCH'
-}
-
-$c = Get-PSDrive -Name C -ErrorAction Stop
-$d = Get-PSDrive -Name D -ErrorAction Stop
-if ($c.Free -lt 2GB -or $d.Free -lt 10GB) {
-    throw 'RESOURCE_DISK_CAPACITY_HOLD'
-}
-
-$source = Join-Path $env:GITHUB_WORKSPACE 'saydi-source'
-if (-not (Test-Path -LiteralPath $source -PathType Container)) {
-    throw 'SAYDI_CHECKOUT_MISSING'
-}
-Assert-PlainDirectory $source
-$git = (Get-Command git.exe -ErrorAction Stop).Source
-$checkoutSha = (& $git -C $source rev-parse HEAD).Trim()
-if ($LASTEXITCODE -ne 0 -or $checkoutSha -ne $SaydiSha) {
-    throw 'SAYDI_SOURCE_SHA_MISMATCH'
-}
-$mainRef = & $git ls-remote https://github.com/magasincoffee/magasin-media-robot.git refs/heads/main
-if ($LASTEXITCODE -ne 0 -or -not $mainRef -or -not ($mainRef -match '^([0-9a-f]{40})\s')) {
-    throw 'SAYDI_MAIN_VERIFICATION_UNAVAILABLE'
-}
-if ($Matches[1] -ne $SaydiSha) { throw 'SAYDI_MAIN_MOVED_HOLD' }
-
-$core = Join-Path $source '02_SAYDI_CORE'
-$sot = Join-Path $source '00_PROJECT\SOURCE_OF_TRUTH.md'
-if (-not (Test-Path -LiteralPath $sot -PathType Leaf)) { throw 'SAYDI_CANONICAL_SOT_MISSING' }
-if (-not (Test-Path -LiteralPath (Join-Path $core 'pyproject.toml') -PathType Leaf)) {
-    throw 'SAYDI_CORE_MISSING'
-}
-Assert-PlainDirectory $core
-foreach ($entry in @(Get-ChildItem -LiteralPath $core -Force -Recurse -ErrorAction Stop)) {
-    if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-        throw 'SAYDI_SOURCE_REPARSE_DENIED'
-    }
-}
-$trustedPython = Resolve-TrustedSharedPython
-if (-not (Test-Path -LiteralPath $trustedPython -PathType Leaf)) {
-    throw 'TRUSTED_PYTHON_MISSING'
-}
-Assert-PlainDirectory 'D:\'
-$base = 'D:\SAYDI_V6'
-$destination = Join-Path $base 'releases'
-if (-not (Test-Path -LiteralPath $base -PathType Container)) {
-    New-Item -ItemType Directory -Path $base -ErrorAction Stop | Out-Null
-}
-Assert-PlainDirectory $base
-if (-not (Test-Path -LiteralPath $destination -PathType Container)) {
-    New-Item -ItemType Directory -Path $destination -ErrorAction Stop | Out-Null
-}
-Assert-PlainDirectory $destination
-# One release leaf per authenticated one-shot request. If a crash occurs
-# after promotion but before receipt, a new request ID can retry safely
-# without deleting any previously staged or installed content.
-$shaNamespace = Join-Path $destination $SaydiSha
-if (-not (Test-Path -LiteralPath $shaNamespace -PathType Container)) {
-    New-Item -ItemType Directory -Path $shaNamespace -ErrorAction Stop | Out-Null
-}
-Assert-PlainDirectory $shaNamespace
-$release = Join-Path $shaNamespace $RequestId
-if (Test-Path -LiteralPath $release) { throw 'RELEASE_EXISTS_NO_OVERWRITE' }
-$stageRoot = Join-Path $base 'install-staging'
-if (-not (Test-Path -LiteralPath $stageRoot -PathType Container)) {
-    New-Item -ItemType Directory -Path $stageRoot -ErrorAction Stop | Out-Null
-}
-Assert-PlainDirectory $stageRoot
-$stage = Join-Path $stageRoot $RequestId
-if (Test-Path -LiteralPath $stage) { throw 'STAGING_REQUEST_ALREADY_USED' }
-New-Item -ItemType Directory -Path $stage -ErrorAction Stop | Out-Null
-$installedCore = Join-Path $stage '02_SAYDI_CORE'
-Copy-Item -LiteralPath $core -Destination $installedCore -Recurse -ErrorAction Stop
-Copy-Item -LiteralPath $sot -Destination (Join-Path $stage 'SOURCE_OF_TRUTH.snapshot.md') -ErrorAction Stop
-$originalHash = (Get-FileHash -LiteralPath (Join-Path $core 'pyproject.toml') -Algorithm SHA256).Hash
-$installedHash = (Get-FileHash -LiteralPath (Join-Path $installedCore 'pyproject.toml') -Algorithm SHA256).Hash
-if ($originalHash -ne $installedHash) { throw 'INSTALLED_CORE_HASH_MISMATCH' }
-
-# Static analysis is nonexecuting: do not import SAYDI code.
-$astProbe = 'import ast,pathlib,sys; root=pathlib.Path(sys.argv[1]); files=list(root.rglob("*.py")); assert files, "empty core"; [ast.parse(p.read_text(encoding="utf-8-sig"), filename=str(p)) for p in files]; print("V6_PYTHON_FILES_PARSED="+str(len(files)))'
-& $trustedPython -I -c $astProbe $installedCore
-if ($LASTEXITCODE -ne 0) { throw 'V6_SOURCE_STATIC_SYNTAX_FAILED' }
-
-# Commit the verified source on the same volume with no-overwrite rename.
-# Install Python after rename, so the venv path is final (Windows venvs are
-# not safely relocatable). A failed venv has NO success receipt; a new
-# request_id can retry in a different leaf without any destructive cleanup.
-[System.IO.Directory]::Move($stage, $release)
-$venv = Join-Path $release '.venv'
-& $trustedPython -m venv $venv
-if ($LASTEXITCODE -ne 0) { throw 'V6_VENV_CREATION_FAILED' }
-$python = Join-Path $venv 'Scripts\python.exe'
-if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
-    throw 'V6_ENVIRONMENT_NOT_CREATED'
-}
-$envProbe = 'import sys; assert sys.prefix != sys.base_prefix, "venv not active"; print("V6_ISOLATED_PYTHON_READY=True")'
-& $python -I -c $envProbe
-if ($LASTEXITCODE -ne 0) { throw 'V6_PYTHON_ENVIRONMENT_FAILED' }
-
-# Persistent, nonexecutable source registration (not a transient PYTHONPATH).
-# A .pth entry containing ONLY the fixed final D path makes the module
-# importable from this venv after installation. NEVER import it as Runner.
-$sitePackages = Join-Path $venv 'Lib\site-packages'
-if (-not (Test-Path -LiteralPath $sitePackages -PathType Container)) {
-    throw 'V6_SITE_PACKAGES_MISSING'
-}
-Assert-PlainDirectory $sitePackages
-$finalSourceDir = Join-Path (Join-Path $release '02_SAYDI_CORE') 'src'
-if (-not (Test-Path -LiteralPath $finalSourceDir -PathType Container)) {
-    throw 'V6_FINAL_SOURCE_MISSING'
-}
-Assert-PlainDirectory $finalSourceDir
-$modulePathFile = Join-Path $sitePackages 'saydi_v6_source.pth'
-if (Test-Path -LiteralPath $modulePathFile) { throw 'V6_MODULE_REGISTRATION_EXISTS' }
-[System.IO.File]::WriteAllText(
-    $modulePathFile, ($finalSourceDir + [Environment]::NewLine),
-    [System.Text.Encoding]::ASCII
-)
-if ((Get-Content -LiteralPath $modulePathFile -Raw -Encoding ASCII).Trim() -ne $finalSourceDir) {
-    throw 'V6_MODULE_REGISTRATION_FAILED'
-}
-
-$receipt = [ordered]@{
-    schema = 'SAYDI_V6_H4_INSTALL_RECEIPT_V1'
-    status = 'CLI_MODULE_INSTALLED_ON_D_NOT_EXECUTED'
-    target_host = $expectedHost
-    request_id = $RequestId
-    source_repository = 'magasincoffee/magasin-media-robot'
-    source_sha = $SaydiSha
-    destination = 'D_DRIVE_VERSIONED_RELEASE'
-    core_pyproject_sha256 = $installedHash
-    static_ast_passed = $true
-    python_source_registered = $true
-    module_import_attempted = $false
-    saydi_cli_executed = $false
-    model_started = $false
-    saydi_start_authenticated = $false
-    supervisor_control_modified = $false
-    previous_versions_modified = $false
-}
-# Receipt acts as the only successful-install commit marker.
-$receipt | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $release 'install-receipt.json') -Encoding UTF8 -NoNewline
-$receipt | ConvertTo-Json -Compress) { continue }
+            if (($check | Out-String).Trim() -notmatch '^3\.(11|12|13)$') { continue }
             Write-Host 'SIGNED_SHARED_PYTHON_VERIFIED=True'
-            return $full
+            return $path
         } catch { continue }
     }
     throw 'TRUSTED_SHARED_PYTHON_UNAVAILABLE'
@@ -283,6 +127,7 @@ foreach ($entry in @(Get-ChildItem -LiteralPath $core -Force -Recurse -ErrorActi
         throw 'SAYDI_SOURCE_REPARSE_DENIED'
     }
 }
+$trustedPython = Resolve-TrustedSharedPython
 if (-not (Test-Path -LiteralPath $trustedPython -PathType Leaf)) {
     throw 'TRUSTED_PYTHON_MISSING'
 }
