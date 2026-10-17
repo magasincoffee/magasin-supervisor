@@ -38,7 +38,7 @@ test("runner package and existing patch apply are isolated triggers",()=>{
   assert.match(yaml,/retention-days: 14/);
 });
 test("runner writes package only under pinned D stage with symlink protection",()=>{
-  assert.match(ps,/D:\\\\MAGASIN_ROBOTS\\\\control-center\\\\state/);
+  assert.ok(ps.includes("D:\\\\MAGASIN_ROBOTS\\\\control-center\\\\state"));
   assert.match(ps,/ReparsePoint/);
   assert.match(ps,/STAGE_ALREADY_EXISTS_DO_NOT_OVERWRITE/);
   assert.doesNotMatch(ps,/New-Item[^\n]*C:/);
