@@ -1,0 +1,78 @@
+name: SAYDI H4 Python Readonly Check
+
+# One-shot owner-authored request only; observes five known interpreter paths.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/saydi-v6-python-check-request.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sc013-h4a16il-safe-deploy
+  cancel-in-progress: false
+
+jobs:
+  verify-request:
+    if: ${{ github.repository == 'magasincoffee/magasin-supervisor' && github.actor == 'magasincoffee' && github.triggering_actor == 'magasincoffee' && github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const before=context.payload.before, after=context.sha;
+            if (!/^[a-f0-9]{40}$/.test(before || '') || /^0{40}$/.test(before) ||
+                context.payload.forced || context.actor !== 'magasincoffee' ||
+                context.payload.pusher?.name !== 'magasincoffee') {
+              core.setFailed('UNTRUSTED_PYTHON_CHECK_REQUEST'); return;
+            }
+            const d=await github.rest.repos.compareCommitsWithBasehead({
+              owner:'magasincoffee',repo:'magasin-supervisor',
+              basehead:before+'...'+after,
+            });
+            const files=d.data.files||[];
+            if(d.data.total_commits!==1 || files.length!==1 ||
+               files[0].filename!=='.github/saydi-v6-python-check-request.json' ||
+               !['added','modified'].includes(files[0].status) ||
+               d.data.status!=='ahead'){
+              core.setFailed('ONLY_ONE_PYTHON_CHECK_REQUEST_FILE'); return;
+            }
+            const c=await github.rest.repos.getContent({
+              owner:'magasincoffee',repo:'magasin-supervisor',
+              path:'.github/saydi-v6-python-check-request.json',ref:after
+            });
+            let body;
+            try {body=JSON.parse(Buffer.from(c.data.content,'base64').toString('utf8'));}
+            catch (_) {core.setFailed('INVALID_CHECK_REQUEST');return;}
+            if(!body || Array.isArray(body) ||
+               Object.keys(body).sort().join(',')!=='schema,target_host' ||
+               body.schema!=='SAYDI_V6_PYTHON_READONLY_V1' ||
+               body.target_host!=='DESKTOP-H4A16IL'){
+              core.setFailed('CHECK_REQUEST_NOT_ALLOWLISTED');return;
+            }
+            core.info('READONLY_CHECK_REQUEST_VERIFIED=True');
+
+  h4-python-inspect:
+    needs: verify-request
+    if: ${{ github.repository == 'magasincoffee/magasin-supervisor' && github.actor == 'magasincoffee' && github.triggering_actor == 'magasincoffee' && github.run_attempt == 1 }}
+    runs-on: [self-hosted, Windows, X64, magasin-h4a16il]
+    timeout-minutes: 5
+    steps:
+      - name: Verify H4 before checkout
+        shell: cmd
+        run: |
+          @echo off
+          if /I not "%COMPUTERNAME%"=="DESKTOP-H4A16IL" exit /b 30
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Inspect only known shared Python locations
+        shell: cmd
+        run: |
+          @echo off
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ".github\scripts\saydi-v6-python-readonly.ps1"
+          if errorlevel 1 exit /b 31
