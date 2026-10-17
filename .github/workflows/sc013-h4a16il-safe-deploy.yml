@@ -151,6 +151,12 @@ jobs:
           )
           echo TARGET_MATCH=True
           echo RUNNER_IDENTITY_MATCH=True
+      - name: Reject inherited or public D stage BEFORE download
+        shell: cmd
+        run: |
+          @echo off
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$r=$env:PRIVATE_STAGE; $p=Split-Path $r -Parent; if (!(Test-Path -LiteralPath $r -PathType Container) -or !(Test-Path -LiteralPath $p -PathType Container)) { exit 1 }; foreach($v in @($r,$p)) { $i=Get-Item -LiteralPath $v -Force; $a=Get-Acl -LiteralPath $v; if (($i.Attributes -band [IO.FileAttributes]::ReparsePoint) -or !$a.AreAccessRulesProtected) { exit 2 }; $allowed=if($v -eq $r){@('NT AUTHORITY\NETWORK SERVICE','NT AUTHORITY\SYSTEM','BUILTIN\Administrators','DESKTOP-H4A16IL\admin')}else{@('NT AUTHORITY\SYSTEM','BUILTIN\Administrators','DESKTOP-H4A16IL\admin')}; foreach($ace in $a.Access){if($ace.AccessControlType -ne 'Allow' -or $ace.IdentityReference.ToString() -notin $allowed){exit 3}}}; Write-Output 'PRIVATE_D_ACL_PREFLIGHT_PASS=True'"
+          if errorlevel 1 exit /b 1
       - name: Download trusted same-workflow artifact directly to private D stage
         uses: actions/download-artifact@v4
         with:
