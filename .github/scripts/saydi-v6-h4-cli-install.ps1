@@ -12,7 +12,20 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $expectedHost = 'DESKTOP-H4A16IL'
-$trustedPython = 'C:\Users\admin\AppData\Local\Programs\Python\Python312\python.exe'
+# Python is prepared by trusted actions/setup-python for the runner
+# SERVICE ACCOUNT. Never traverse admin's private user profile to obtain it.
+# The output must point to the GitHub Runner toolcache, never a PATH command.
+$trustedPython = $env:SAYDI_BOOTSTRAP_PYTHON
+if ([string]::IsNullOrWhiteSpace($trustedPython) -or
+    [string]::IsNullOrWhiteSpace($env:RUNNER_TOOL_CACHE)) {
+    throw 'RUNNER_PYTHON_TOOLCACHE_MISSING'
+}
+$trustedPython = [System.IO.Path]::GetFullPath($trustedPython)
+$toolCacheRoot = [System.IO.Path]::GetFullPath($env:RUNNER_TOOL_CACHE).TrimEnd('\') + '\'
+if (-not $trustedPython.StartsWith($toolCacheRoot, [StringComparison]::OrdinalIgnoreCase) -or
+    [System.IO.Path]::GetFileName($trustedPython) -ne 'python.exe') {
+    throw 'RUNNER_PYTHON_OUTSIDE_TOOLCACHE'
+}
 
 function Assert-PlainDirectory([string]$Path) {
     $entry = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
@@ -73,6 +86,14 @@ foreach ($entry in @(Get-ChildItem -LiteralPath $core -Force -Recurse -ErrorActi
 }
 if (-not (Test-Path -LiteralPath $trustedPython -PathType Leaf)) {
     throw 'TRUSTED_PYTHON_MISSING'
+}
+$pythonItem = Get-Item -LiteralPath $trustedPython -Force -ErrorAction Stop
+if (($pythonItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw 'RUNNER_PYTHON_REPARSE_DENIED'
+}
+$pythonV = & $trustedPython -I -c 'import sys; print(str(sys.version_info.major)+"."+str(sys.version_info.minor))'
+if ($LASTEXITCODE -ne 0 -or $pythonV.Trim() -ne '3.12') {
+    throw 'RUNNER_PYTHON_VERSION_INVALID'
 }
 Assert-PlainDirectory 'D:\'
 $base = 'D:\SAYDI_V6'

@@ -119,8 +119,17 @@ jobs:
           path: saydi-source
           persist-credentials: false
           fetch-depth: 1
+      - name: Obtain Python for Runner service (not admin user profile)
+        id: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          check-latest: false
+          update-environment: false
       - name: Install isolated SAYDI CLI on D only
         shell: cmd
+        env:
+          SAYDI_BOOTSTRAP_PYTHON: ${{ steps.setup_python.outputs['python-path'] }}
         run: |
           @echo off
           if /I not "%COMPUTERNAME%"=="DESKTOP-H4A16IL" exit /b 30
