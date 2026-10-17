@@ -48,11 +48,36 @@ jobs:
             try {body=JSON.parse(Buffer.from(c.data.content,'base64').toString('utf8'));}
             catch (_) {core.setFailed('INVALID_CHECK_REQUEST');return;}
             if(!body || Array.isArray(body) ||
-               Object.keys(body).sort().join(',')!=='schema,target_host' ||
+               Object.keys(body).sort().join(',')!=='base_main_sha,schema,target_host' ||
+               body.base_main_sha!==before ||
                body.schema!=='SAYDI_V6_PYTHON_READONLY_V1' ||
                body.target_host!=='DESKTOP-H4A16IL'){
               core.setFailed('CHECK_REQUEST_NOT_ALLOWLISTED');return;
             }
+            const required=new Set([
+              'Supervisor Tests','Supervisor Integrity',
+              'Supervisor Lifecycle Acceptance','Supervisor Autostart Install'
+            ]);
+            const runs=await github.rest.actions.listWorkflowRunsForRepo({
+              owner:'magasincoffee',repo:'magasin-supervisor',
+              head_sha:before,per_page:100
+            });
+            if(runs.data.total_count>100){
+              core.setFailed('PRIOR_MAIN_CI_UNBOUNDED');return;
+            }
+            const latest=new Map();
+            for(const run of runs.data.workflow_runs||[]){
+              if(run.head_sha!==before || run.head_branch!=='main' ||
+                 run.event!=='push' || !required.has(run.name)) continue;
+              if(!latest.has(run.name)) latest.set(run.name,run);
+            }
+            if(latest.size!==required.size ||
+               [...required].some(name=>latest.get(name)?.status!=='completed' ||
+                                     latest.get(name)?.conclusion!=='success')){
+              core.setFailed('PRIOR_MAIN_CI_NOT_GREEN');return;
+            }
+            core.info('REQUEST_BOUND_TO_UNIQUE_BASE_SHA=True');
+            core.info('PRIOR_MAIN_FOUR_CI_GREEN=True');
             core.info('READONLY_CHECK_REQUEST_VERIFIED=True');
 
   h4-python-inspect:
