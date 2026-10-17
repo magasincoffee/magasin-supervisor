@@ -41,8 +41,9 @@ test('stage only: honest receipt, SHA-verified files, no existing versions overw
     'V6_STAGED_CONTENT_HASH_MISMATCH', 'V6_STAGED_SOT_HASH_MISMATCH',
     'V6_STAGED_GIT_BLOB_MISMATCH', 'V6_STAGED_SOT_GIT_BLOB_MISMATCH',
     'V6_UNTRACKED_SOURCE_FILE_DENIED', 'SAYDI_SOT_REPARSE_DENIED',
+    "rev-parse --verify ($SaydiSha + ':00_PROJECT/SOURCE_OF_TRUTH.md')",
     'ls-tree -r --name-only', 'hash-object --no-filters',
-    "rev-parse --verify ('HEAD:' + $gitPath)",
+    "rev-parse --verify ($SaydiSha + ':' + $gitPath)",
     "Copy-Item -LiteralPath $core",
     'Get-FileHash',
     '[System.IO.Directory]::Move($stage, $release)',
@@ -62,6 +63,7 @@ test('stage only: honest receipt, SHA-verified files, no existing versions overw
 
 test('a shared Supervisor runner must never start a candidate interpreter or modify old system', () => {
   for (const bad of [
+    "rev-parse --verify ('HEAD:'", "rev-parse --verify 'HEAD:",
     'Resolve-TrustedSharedPython', 'Get-AuthenticodeSignature',
     'python.exe', 'venv', 'ensurepip', ' -m ', ' -c ',
     'Start-Service', 'Stop-Service', 'Start-Process', 'Stop-Process',

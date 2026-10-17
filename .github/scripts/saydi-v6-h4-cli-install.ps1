@@ -140,7 +140,7 @@ foreach ($file in $originalFiles) {
     if ($srcHash -ne $dstHash) { throw 'V6_STAGED_CONTENT_HASH_MISMATCH' }
     $gitPath = '02_SAYDI_CORE/' + $relative.Replace('\', '/')
     if ($expectedFiles -cnotcontains $gitPath) { throw 'V6_UNTRACKED_SOURCE_FILE_DENIED' }
-    $expectedObject = (& $git -C $source rev-parse --verify ('HEAD:' + $gitPath)).Trim()
+    $expectedObject = (& $git -C $source rev-parse --verify ($SaydiSha + ':' + $gitPath)).Trim()
     if ($LASTEXITCODE -ne 0 -or $expectedObject -notmatch '^[0-9a-f]{40}$') {
         throw 'V6_GIT_BLOB_LOOKUP_FAILED'
     }
@@ -152,7 +152,7 @@ foreach ($file in $originalFiles) {
 $stagedSotHash = (Get-FileHash -LiteralPath (Join-Path $stage 'SOURCE_OF_TRUTH.snapshot.md') -Algorithm SHA256).Hash
 $originalSotHash = (Get-FileHash -LiteralPath $sot -Algorithm SHA256).Hash
 if ($stagedSotHash -ne $originalSotHash) { throw 'V6_STAGED_SOT_HASH_MISMATCH' }
-$expectedSotObject = (& $git -C $source rev-parse --verify 'HEAD:00_PROJECT/SOURCE_OF_TRUTH.md').Trim()
+$expectedSotObject = (& $git -C $source rev-parse --verify ($SaydiSha + ':00_PROJECT/SOURCE_OF_TRUTH.md')).Trim()
 if ($LASTEXITCODE -ne 0 -or $expectedSotObject -notmatch '^[0-9a-f]{40}$') {
     throw 'V6_SOT_GIT_OBJECT_LOOKUP_FAILED'
 }
