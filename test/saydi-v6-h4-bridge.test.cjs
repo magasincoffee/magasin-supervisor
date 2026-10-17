@@ -14,6 +14,8 @@ test('single-file owner-only request enters a dedicated protected transport', ()
     "github.run_attempt == 1", "on:", "push:", "branches: [main]",
     "'.github/saydi-v6-h4-install-request.json'",
     "REQUEST_MUST_BE_SINGLE_FILE_SINGLE_COMMIT",
+    "uses: actions/setup-python@v5", "id: setup_python",
+    "update-environment: false", "SAYDI_BOOTSTRAP_PYTHON:",
     "SAYDI_SHA_NOT_CURRENT_MAIN",
     "github.rest.git.getRef", "['added', 'modified']",
     "persist-credentials: false", "magasin-h4a16il",
@@ -30,6 +32,8 @@ test('Supervisor runner is transport only; no Supervisor controls changed', () =
     "GITHUB_EVENT_NAME -ne 'push'", "GITHUB_RUN_ATTEMPT -ne '1'",
     "'D:\\SAYDI_V6'", "Join-Path $source '02_SAYDI_CORE'",
     "RESOURCE_DISK_CAPACITY_HOLD", "SAYDI_MAIN_MOVED_HOLD",
+    "RUNNER_PYTHON_TOOLCACHE_MISSING", "RUNNER_PYTHON_OUTSIDE_TOOLCACHE",
+    "RUNNER_PYTHON_VERSION_INVALID", "RUNNER_PYTHON_REPARSE_DENIED",
     "RELEASE_EXISTS_NO_OVERWRITE", "SAYDI_SOURCE_REPARSE_DENIED",
     "V6_SOURCE_STATIC_SYNTAX_FAILED", "CLI_MODULE_INSTALLED_ON_D_NOT_EXECUTED",
     "python_source_registered = $true", "module_import_attempted = $false",
@@ -41,6 +45,7 @@ test('Supervisor runner is transport only; no Supervisor controls changed', () =
     'Remove-Item', 'C:\\SAYDI\\output', 'owner_stop', 'AUTOSTART_DISABLED',
     'dispatch_gateway.py', 'start_audiobook_chapter_1', 'Vieneu(',
     'pip install', 'winget install', '-m saydi_audiobook',
+    'C:\\Users\\admin\\AppData\\Local\\Programs\\Python',
   ]) assert.ok(!ps.includes(denied), denied);
 });
 test('git-pinned installation is additive and SHA verified', () => {
