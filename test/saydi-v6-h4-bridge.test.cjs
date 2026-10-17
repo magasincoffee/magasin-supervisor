@@ -58,3 +58,18 @@ test('git-pinned installation is additive and SHA verified', () => {
     "Get-Item -LiteralPath $Path",
   ]) assert.ok(ps.includes(marker), marker);
 });
+
+test('use pre-existing signed shared Python, never install or access admin Python', () => {
+  for (const required of [
+    'Resolve-TrustedSharedPython', 'Get-AuthenticodeSignature',
+    'Python Software Foundation', 'TRUSTED_SHARED_PYTHON_UNAVAILABLE',
+    "import sys,venv,ensurepip", 'Write-Host',
+    'RUNNER_PYTHON', // optional replaced below
+  ].filter(x=>x!=='RUNNER_PYTHON')) {
+    assert.ok(ps.includes(required), required);
+  }
+  for (const forbidden of [
+    'C:\\Users\\admin\\AppData\\Local\\Programs\\Python',
+    'actions/setup-python@v5', 'Invoke-WebRequest', 'Set-Acl'
+  ]) assert.ok(!ps.includes(forbidden), forbidden);
+});
