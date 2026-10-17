@@ -45,6 +45,7 @@ try {
   & git -C $workspace -c core.fsmonitor=false archive --format=zip "--output=$partial" HEAD -- src windows package.json README.md SOURCE_OF_TRUTH.md
   if ($LASTEXITCODE -ne 0) { throw 'GIT_ARCHIVE_FAILED' }
   Add-Type -AssemblyName System.IO.Compression
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
   $archive=[IO.Compression.ZipFile]::OpenRead($partial)
   $count=0
   try {
