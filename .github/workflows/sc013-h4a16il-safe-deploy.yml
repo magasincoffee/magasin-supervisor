@@ -94,6 +94,21 @@ jobs:
           node --test test/h4-supervisor-package-stage.test.mjs
           if ($LASTEXITCODE -ne 0) { throw 'PACKAGE_STAGE_NEGATIVE_TESTS_FAILED' }
 
+      - name: Build PR-only source candidate ZIP (hosted QA; never install on H4)
+        shell: cmd
+        run: |
+          @echo off
+          git archive --format=zip --output="%RUNNER_TEMP%\supervisor-source-candidate.zip" HEAD -- src windows package.json README.md SOURCE_OF_TRUTH.md
+          if errorlevel 1 exit /b 1
+      - name: Publish review candidate archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: supervisor-pr-review-${{ github.sha }}
+          path: ${{ runner.temp }}\supervisor-source-candidate.zip
+          if-no-files-found: error
+          retention-days: 7
+
+
   package-on-h4:
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'Package') ||
