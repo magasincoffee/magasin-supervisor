@@ -1,5 +1,5 @@
 # Shared H4 Runner is only a delivery channel, never Supervisor authority.
-# Source-only SAYDI V6 CLI install on D. DOES NOT START VieNeu, Whisper or worker.
+# Source-only SAYDI V6 STAGE on D; never starts Python, VieNeu, Whisper or worker.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
@@ -12,7 +12,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $expectedHost = 'DESKTOP-H4A16IL'
-$trustedPython = 'C:\Users\admin\AppData\Local\Programs\Python\Python312\python.exe'
+# No Python binary is selected or executed in this version. Prior Codex
+# review identified uncontrolled code-execution risks in shared PATH Python.
+# The authenticated Runner is only a transport for immutable SOURCE files.
 
 function Assert-PlainDirectory([string]$Path) {
     $entry = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
@@ -21,6 +23,7 @@ function Assert-PlainDirectory([string]$Path) {
         throw 'REPARSE_DIRECTORY_DENIED'
     }
 }
+
 if ([Environment]::MachineName -ne $expectedHost) { throw 'WRONG_H4_HOST' }
 if ($env:GITHUB_REPOSITORY -ne 'magasincoffee/magasin-supervisor') {
     throw 'WRONG_TRANSPORT_REPOSITORY'
@@ -61,7 +64,12 @@ if ($Matches[1] -ne $SaydiSha) { throw 'SAYDI_MAIN_MOVED_HOLD' }
 
 $core = Join-Path $source '02_SAYDI_CORE'
 $sot = Join-Path $source '00_PROJECT\SOURCE_OF_TRUTH.md'
+Assert-PlainDirectory (Join-Path $source '00_PROJECT')
 if (-not (Test-Path -LiteralPath $sot -PathType Leaf)) { throw 'SAYDI_CANONICAL_SOT_MISSING' }
+$sotEntry = Get-Item -LiteralPath $sot -Force -ErrorAction Stop
+if ($sotEntry.PSIsContainer -or (($sotEntry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
+    throw 'SAYDI_SOT_REPARSE_DENIED'
+}
 if (-not (Test-Path -LiteralPath (Join-Path $core 'pyproject.toml') -PathType Leaf)) {
     throw 'SAYDI_CORE_MISSING'
 }
@@ -70,9 +78,6 @@ foreach ($entry in @(Get-ChildItem -LiteralPath $core -Force -Recurse -ErrorActi
     if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw 'SAYDI_SOURCE_REPARSE_DENIED'
     }
-}
-if (-not (Test-Path -LiteralPath $trustedPython -PathType Leaf)) {
-    throw 'TRUSTED_PYTHON_MISSING'
 }
 Assert-PlainDirectory 'D:\'
 $base = 'D:\SAYDI_V6'
@@ -110,68 +115,75 @@ $originalHash = (Get-FileHash -LiteralPath (Join-Path $core 'pyproject.toml') -A
 $installedHash = (Get-FileHash -LiteralPath (Join-Path $installedCore 'pyproject.toml') -Algorithm SHA256).Hash
 if ($originalHash -ne $installedHash) { throw 'INSTALLED_CORE_HASH_MISMATCH' }
 
-# Static analysis is nonexecuting: do not import SAYDI code.
-$astProbe = 'import ast,pathlib,sys; root=pathlib.Path(sys.argv[1]); files=list(root.rglob("*.py")); assert files, "empty core"; [ast.parse(p.read_text(encoding="utf-8-sig"), filename=str(p)) for p in files]; print("V6_PYTHON_FILES_PARSED="+str(len(files)))'
-& $trustedPython -I -c $astProbe $installedCore
-if ($LASTEXITCODE -ne 0) { throw 'V6_SOURCE_STATIC_SYNTAX_FAILED' }
+# Validate every copied file against the exact main checkout; no Python or
+# SAYDI code runs under the shared Supervisor service identity.
+$originalFiles = @(Get-ChildItem -LiteralPath $core -Force -File -Recurse -ErrorAction Stop)
+$copiedFiles = @(Get-ChildItem -LiteralPath $installedCore -Force -File -Recurse -ErrorAction Stop)
+# Authenticate each staged file against its pinned canonical Git blob ID.
+# No configurable clean filters or candidate interpreters are executed.
+$expectedFiles = @(& $git --no-replace-objects -C $source ls-tree -r --name-only $SaydiSha -- '02_SAYDI_CORE')
+if ($LASTEXITCODE -ne 0 -or $expectedFiles.Count -lt 1 -or
+    $originalFiles.Count -ne $expectedFiles.Count -or
+    $copiedFiles.Count -ne $expectedFiles.Count) {
+    throw 'V6_GIT_TREE_FILE_COUNT_MISMATCH'
+}
+foreach ($file in $originalFiles) {
+    $relative = $file.FullName.Substring($core.Length).TrimStart('\')
+    $target = Join-Path $installedCore $relative
+    $entry = Get-Item -LiteralPath $target -Force -ErrorAction Stop
+    if ($entry.PSIsContainer -or
+        (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        throw 'V6_STAGED_FILE_UNSAFE'
+    }
+    $srcHash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+    $dstHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+    if ($srcHash -ne $dstHash) { throw 'V6_STAGED_CONTENT_HASH_MISMATCH' }
+    $gitPath = '02_SAYDI_CORE/' + $relative.Replace('\', '/')
+    if ($expectedFiles -cnotcontains $gitPath) { throw 'V6_UNTRACKED_SOURCE_FILE_DENIED' }
+    $expectedObject = (& $git --no-replace-objects -C $source rev-parse --verify ($SaydiSha + ':' + $gitPath)).Trim()
+    if ($LASTEXITCODE -ne 0 -or $expectedObject -notmatch '^[0-9a-f]{40}$') {
+        throw 'V6_GIT_BLOB_LOOKUP_FAILED'
+    }
+    $observedObject = (& $git -C $source hash-object --no-filters -- $target).Trim()
+    if ($LASTEXITCODE -ne 0 -or $observedObject -cne $expectedObject) {
+        throw 'V6_STAGED_GIT_BLOB_MISMATCH'
+    }
+}
+$stagedSotHash = (Get-FileHash -LiteralPath (Join-Path $stage 'SOURCE_OF_TRUTH.snapshot.md') -Algorithm SHA256).Hash
+$originalSotHash = (Get-FileHash -LiteralPath $sot -Algorithm SHA256).Hash
+if ($stagedSotHash -ne $originalSotHash) { throw 'V6_STAGED_SOT_HASH_MISMATCH' }
+$expectedSotObject = (& $git --no-replace-objects -C $source rev-parse --verify ($SaydiSha + ':00_PROJECT/SOURCE_OF_TRUTH.md')).Trim()
+if ($LASTEXITCODE -ne 0 -or $expectedSotObject -notmatch '^[0-9a-f]{40}$') {
+    throw 'V6_SOT_GIT_OBJECT_LOOKUP_FAILED'
+}
+$observedSotObject = (& $git -C $source hash-object --no-filters -- (Join-Path $stage 'SOURCE_OF_TRUTH.snapshot.md')).Trim()
+if ($LASTEXITCODE -ne 0 -or $observedSotObject -cne $expectedSotObject) {
+    throw 'V6_STAGED_SOT_GIT_BLOB_MISMATCH'
+}
 
-# Commit the verified source on the same volume with no-overwrite rename.
-# Install Python after rename, so the venv path is final (Windows venvs are
-# not safely relocatable). A failed venv has NO success receipt; a new
-# request_id can retry in a different leaf without any destructive cleanup.
-[System.IO.Directory]::Move($stage, $release)
-$venv = Join-Path $release '.venv'
-& $trustedPython -m venv $venv
-if ($LASTEXITCODE -ne 0) { throw 'V6_VENV_CREATION_FAILED' }
-$python = Join-Path $venv 'Scripts\python.exe'
-if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
-    throw 'V6_ENVIRONMENT_NOT_CREATED'
-}
-$envProbe = 'import sys; assert sys.prefix != sys.base_prefix, "venv not active"; print("V6_ISOLATED_PYTHON_READY=True")'
-& $python -I -c $envProbe
-if ($LASTEXITCODE -ne 0) { throw 'V6_PYTHON_ENVIRONMENT_FAILED' }
-
-# Persistent, nonexecutable source registration (not a transient PYTHONPATH).
-# A .pth entry containing ONLY the fixed final D path makes the module
-# importable from this venv after installation. NEVER import it as Runner.
-$sitePackages = Join-Path $venv 'Lib\site-packages'
-if (-not (Test-Path -LiteralPath $sitePackages -PathType Container)) {
-    throw 'V6_SITE_PACKAGES_MISSING'
-}
-Assert-PlainDirectory $sitePackages
-$finalSourceDir = Join-Path (Join-Path $release '02_SAYDI_CORE') 'src'
-if (-not (Test-Path -LiteralPath $finalSourceDir -PathType Container)) {
-    throw 'V6_FINAL_SOURCE_MISSING'
-}
-Assert-PlainDirectory $finalSourceDir
-$modulePathFile = Join-Path $sitePackages 'saydi_v6_source.pth'
-if (Test-Path -LiteralPath $modulePathFile) { throw 'V6_MODULE_REGISTRATION_EXISTS' }
-[System.IO.File]::WriteAllText(
-    $modulePathFile, ($finalSourceDir + [Environment]::NewLine),
-    [System.Text.Encoding]::ASCII
-)
-if ((Get-Content -LiteralPath $modulePathFile -Raw -Encoding ASCII).Trim() -ne $finalSourceDir) {
-    throw 'V6_MODULE_REGISTRATION_FAILED'
-}
 
 $receipt = [ordered]@{
-    schema = 'SAYDI_V6_H4_INSTALL_RECEIPT_V1'
-    status = 'CLI_MODULE_INSTALLED_ON_D_NOT_EXECUTED'
+    schema = 'SAYDI_V6_H4_SOURCE_STAGE_RECEIPT_V1'
+    status = 'SOURCE_ONLY_STAGED_ON_D_NO_PYTHON'
     target_host = $expectedHost
     request_id = $RequestId
     source_repository = 'magasincoffee/magasin-media-robot'
     source_sha = $SaydiSha
-    destination = 'D_DRIVE_VERSIONED_RELEASE'
+    destination = 'D_DRIVE_VERSIONED_RELEASE_SOURCE_ONLY'
     core_pyproject_sha256 = $installedHash
-    static_ast_passed = $true
-    python_source_registered = $true
-    module_import_attempted = $false
-    saydi_cli_executed = $false
+    canonical_sot_sha256 = $originalSotHash
+    copied_file_count = $originalFiles.Count
+    copied_tree_sha256_verified = $true
+    canonical_git_tree_verified = $true
+    python_qualified = $false
+    cli_installed = $false
+    cli_executed = $false
     model_started = $false
     saydi_start_authenticated = $false
     supervisor_control_modified = $false
     previous_versions_modified = $false
 }
-# Receipt acts as the only successful-install commit marker.
-$receipt | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $release 'install-receipt.json') -Encoding UTF8 -NoNewline
+# A completed source-only receipt must be inside the final atomic release.
+$receipt | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $stage 'source-stage-receipt.json') -Encoding UTF8 -NoNewline
+[System.IO.Directory]::Move($stage, $release)
 $receipt | ConvertTo-Json -Compress

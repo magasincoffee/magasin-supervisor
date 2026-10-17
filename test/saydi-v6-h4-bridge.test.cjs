@@ -3,58 +3,74 @@ const path = require('node:path');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const root = path.resolve(__dirname, '..');
-const workflow = fs.readFileSync(path.join(root, '.github/workflows/saydi-v6-h4-transport.yml'), 'utf8');
-const ps = fs.readFileSync(path.join(root, '.github/scripts/saydi-v6-h4-cli-install.ps1'), 'utf8');
+const workflow = fs.readFileSync(path.join(root,'.github/workflows/saydi-v6-h4-transport.yml'),'utf8');
+const ps = fs.readFileSync(path.join(root,'.github/scripts/saydi-v6-h4-cli-install.ps1'),'utf8');
 
-test('single-file owner-only request enters a dedicated protected transport', () => {
-  for (const marker of [
+test('only one bounded Owner request can reach the H4 transport', () => {
+  for (const x of [
     "github.repository == 'magasincoffee/magasin-supervisor'",
     "github.actor == 'magasincoffee'",
     "github.triggering_actor == 'magasincoffee'",
-    "github.run_attempt == 1", "on:", "push:", "branches: [main]",
-    "'.github/saydi-v6-h4-install-request.json'",
-    "REQUEST_MUST_BE_SINGLE_FILE_SINGLE_COMMIT",
-    "SAYDI_SHA_NOT_CURRENT_MAIN",
-    "github.rest.git.getRef", "['added', 'modified']",
-    "persist-credentials: false", "magasin-h4a16il",
-    "DESKTOP-H4A16IL", "sc013-h4a16il-safe-deploy",
-  ]) assert.ok(workflow.includes(marker), marker);
-  for (const denied of ["workflow_dispatch:", "schedule:", "pull_request:", "issues:"]) {
-    assert.ok(!workflow.includes(denied), denied);
+    'github.run_attempt == 1', 'branches: [main]',
+    '.github/saydi-v6-h4-source-stage-request.json',
+    'REQUEST_MUST_BE_SINGLE_FILE_SINGLE_COMMIT',
+    'SAYDI_V6_H4_SOURCE_STAGE_V1', 'STAGE_SOURCE_ONLY',
+    'SAYDI_SHA_NOT_CURRENT_MAIN', 'github.rest.git.getRef',
+    'magasin-h4a16il', 'DESKTOP-H4A16IL',
+    'persist-credentials: false',
+    'sc013-h4a16il-safe-deploy',
+    'Stage verified SAYDI V6 source only on D'
+  ]) assert.ok(workflow.includes(x), x);
+  for (const forbidden of ['workflow_dispatch:', 'schedule:', 'pull_request:', 'issues:', 'actions/setup-python', 'INSTALL_CLI_ONLY']) {
+    assert.ok(!workflow.includes(forbidden), forbidden);
   }
 });
-test('Supervisor runner is transport only; no Supervisor controls changed', () => {
-  for (const marker of [
-    "UNTRUSTED_OWNER_IDENTITY", "GITHUB_ACTOR_ID -ne '191064507'",
+
+test('stage only: honest receipt, SHA-verified files, no existing versions overwritten', () => {
+  for (const x of [
+    "GITHUB_ACTOR_ID -ne '191064507'",
     "GITHUB_REF -ne 'refs/heads/main'",
-    "GITHUB_EVENT_NAME -ne 'push'", "GITHUB_RUN_ATTEMPT -ne '1'",
-    "'D:\\SAYDI_V6'", "Join-Path $source '02_SAYDI_CORE'",
+    "GITHUB_EVENT_NAME -ne 'push'",
+    "GITHUB_RUN_ATTEMPT -ne '1'",
+    "'D:\\SAYDI_V6'",
+    "Join-Path $source '02_SAYDI_CORE'",
     "RESOURCE_DISK_CAPACITY_HOLD", "SAYDI_MAIN_MOVED_HOLD",
-    "RELEASE_EXISTS_NO_OVERWRITE", "SAYDI_SOURCE_REPARSE_DENIED",
-    "V6_SOURCE_STATIC_SYNTAX_FAILED", "CLI_MODULE_INSTALLED_ON_D_NOT_EXECUTED",
-    "python_source_registered = $true", "module_import_attempted = $false",
-    "static_ast_passed = $true", "saydi_cli_executed = $false",
-    "model_started = $false", "supervisor_control_modified = $false",
-  ]) assert.ok(ps.includes(marker), marker);
-  for (const denied of [
-    'Stop-Service', 'Start-Service', 'Stop-Process', 'Start-Process',
-    'Remove-Item', 'C:\\SAYDI\\output', 'owner_stop', 'AUTOSTART_DISABLED',
-    'dispatch_gateway.py', 'start_audiobook_chapter_1', 'Vieneu(',
-    'pip install', 'winget install', '-m saydi_audiobook',
-  ]) assert.ok(!ps.includes(denied), denied);
-});
-test('git-pinned installation is additive and SHA verified', () => {
-  for (const marker of [
-    "'saydi-source'", "git.exe", "Get-FileHash",
+    'RELEASE_EXISTS_NO_OVERWRITE', 'STAGING_REQUEST_ALREADY_USED',
+    'SAYDI_SOURCE_REPARSE_DENIED',
+    'V6_GIT_TREE_FILE_COUNT_MISMATCH', 'V6_STAGED_FILE_UNSAFE',
+    'V6_STAGED_CONTENT_HASH_MISMATCH', 'V6_STAGED_SOT_HASH_MISMATCH',
+    'V6_STAGED_GIT_BLOB_MISMATCH', 'V6_STAGED_SOT_GIT_BLOB_MISMATCH',
+    'V6_UNTRACKED_SOURCE_FILE_DENIED', 'SAYDI_SOT_REPARSE_DENIED',
+    "--no-replace-objects -C $source rev-parse --verify ($SaydiSha + ':00_PROJECT/SOURCE_OF_TRUTH.md')",
+    'ls-tree -r --name-only',
+    '--no-replace-objects', 'hash-object --no-filters',
+    "--no-replace-objects -C $source rev-parse --verify ($SaydiSha + ':' + $gitPath)",
     "Copy-Item -LiteralPath $core",
-    "Join-Path $release '.venv'", "Join-Path $destination $SaydiSha",
-    "Join-Path $shaNamespace $RequestId", "V6_PYTHON_ENVIRONMENT_FAILED",
-    "V6_VENV_CREATION_FAILED", "[System.IO.Directory]::Move($stage, $release)",
-    "saydi_v6_source.pth", "V6_MODULE_REGISTRATION_FAILED",
-    "Join-Path $release '02_SAYDI_CORE'",
-    "STAGING_REQUEST_ALREADY_USED",
-    "ast.parse(", "-I -c $astProbe", "sys.base_prefix",
-    "Receipt acts as the only successful-install commit marker",
-    "Get-Item -LiteralPath $Path",
-  ]) assert.ok(ps.includes(marker), marker);
+    'Get-FileHash',
+    '[System.IO.Directory]::Move($stage, $release)',
+    'SOURCE_ONLY_STAGED_ON_D_NO_PYTHON',
+    'source-stage-receipt.json',
+    'copied_tree_sha256_verified = $true',
+    'canonical_git_tree_verified = $true',
+    'python_qualified = $false',
+    'cli_installed = $false',
+    'cli_executed = $false',
+    'model_started = $false',
+    'saydi_start_authenticated = $false',
+    'supervisor_control_modified = $false',
+    'previous_versions_modified = $false'
+  ]) assert.ok(ps.includes(x),x);
+});
+
+test('a shared Supervisor runner must never start a candidate interpreter or modify old system', () => {
+  for (const bad of [
+    "rev-parse --verify ('HEAD:'", "rev-parse --verify 'HEAD:",
+    'Resolve-TrustedSharedPython', 'Get-AuthenticodeSignature',
+    'python.exe', 'venv', 'ensurepip', ' -m ', ' -c ',
+    'Start-Service', 'Stop-Service', 'Start-Process', 'Stop-Process',
+    'Remove-Item', 'Set-Acl', 'icacls', 'C:\\Users\\admin',
+    'owner_stop', 'AUTOSTART_DISABLED', 'dispatch_gateway.py',
+    'Invoke-WebRequest', 'Expand-Archive', 'pip install',
+    'Vieneu(', 'saydi_audiobook --help',
+  ]) assert.ok(!ps.includes(bad), bad);
 });
