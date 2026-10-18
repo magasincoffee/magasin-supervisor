@@ -19,6 +19,8 @@ test('only one bounded Owner request can reach the H4 transport', () => {
     'magasin-h4a16il', 'DESKTOP-H4A16IL',
     'persist-credentials: false',
     'sc013-h4a16il-safe-deploy',
+    "GIT_CONFIG_COUNT: '1'", "GIT_CONFIG_KEY_0: core.autocrlf",
+    "GIT_CONFIG_VALUE_0: 'false'",
     'Stage verified SAYDI V6 source only on D'
   ]) assert.ok(workflow.includes(x), x);
   for (const forbidden of ['workflow_dispatch:', 'schedule:', 'pull_request:', 'issues:', 'actions/setup-python', 'INSTALL_CLI_ONLY']) {
@@ -38,6 +40,7 @@ test('stage only: honest receipt, SHA-verified files, no existing versions overw
     'RELEASE_EXISTS_NO_OVERWRITE', 'STAGING_REQUEST_ALREADY_USED',
     'SAYDI_SOURCE_REPARSE_DENIED',
     'V6_GIT_TREE_FILE_COUNT_MISMATCH', 'V6_STAGED_FILE_UNSAFE',
+    "('V6_STAGED_GIT_BLOB_MISMATCH:' + $gitPath)",
     'V6_STAGED_CONTENT_HASH_MISMATCH', 'V6_STAGED_SOT_HASH_MISMATCH',
     'V6_STAGED_GIT_BLOB_MISMATCH', 'V6_STAGED_SOT_GIT_BLOB_MISMATCH',
     'V6_UNTRACKED_SOURCE_FILE_DENIED', 'SAYDI_SOT_REPARSE_DENIED',
