@@ -146,7 +146,7 @@ foreach ($file in $originalFiles) {
     }
     $observedObject = (& $git -C $source hash-object --no-filters -- $target).Trim()
     if ($LASTEXITCODE -ne 0 -or $observedObject -cne $expectedObject) {
-        throw 'V6_STAGED_GIT_BLOB_MISMATCH'
+        throw ('V6_STAGED_GIT_BLOB_MISMATCH:' + $gitPath)
     }
 }
 $stagedSotHash = (Get-FileHash -LiteralPath (Join-Path $stage 'SOURCE_OF_TRUTH.snapshot.md') -Algorithm SHA256).Hash

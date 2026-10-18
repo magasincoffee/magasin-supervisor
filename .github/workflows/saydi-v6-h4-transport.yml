@@ -98,6 +98,11 @@ jobs:
       SAYDI_REQUEST_ID: ${{ needs.verify-exact-owner-request.outputs.request_id }}
       PYTHONDONTWRITEBYTECODE: '1'
       PYTHONNOUSERSITE: '1'
+      # H4 git.exe may inherit core.autocrlf=true from its service account.
+      # Force checkout bytes to match immutable Git blob IDs before hash checks.
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
     steps:
       - name: Verify actual H4 before checkout
         shell: cmd
