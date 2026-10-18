@@ -191,7 +191,9 @@ if ($LASTEXITCODE -ne 0) { throw 'V6_VENV_SELF_CHECK_FAILED' }
 
 # Parse source as static syntax; never import SAYDI, VieNeu, Whisper or its CLI.
 $astProbe = 'import ast,pathlib,sys; r=pathlib.Path(sys.argv[1]); fs=list(r.rglob("*.py")); assert fs; [ast.parse(p.read_text(encoding="utf-8-sig"),filename=str(p)) for p in fs]; print("V6_PYTHON_FILES_PARSED="+str(len(fs)))'
-& $trustedPython -I -c $astProbe $installedCore
+$finalCore = Join-Path $release '02_SAYDI_CORE'
+Assert-PlainDirectory $finalCore
+& $trustedPython -I -c $astProbe $finalCore
 if ($LASTEXITCODE -ne 0) { throw 'V6_STATIC_SOURCE_PARSE_FAILED' }
 
 # Persistent source-module registration without pip, internet or module execution.

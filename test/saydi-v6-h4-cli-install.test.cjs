@@ -40,7 +40,8 @@ test('install source is fully Git blob verified and no old release overwritten',
 test('honest CLI only with persistent launcher but zero SAYDI execution', () => {
   for(const marker of ['saydi_v6_source.pth','saydi-audiobook.cmd',
       'V6_MODULE_REGISTRATION_FAILED','V6_LAUNCHER_MISSING',
-      'V6_STATIC_SOURCE_PARSE_FAILED','CLI_FILES_INSTALLED_ON_D_SAYDI_NOT_EXECUTED',
+      'V6_STATIC_SOURCE_PARSE_FAILED',"& $trustedPython -I -c $astProbe $finalCore",
+      "Join-Path $release '02_SAYDI_CORE'",'CLI_FILES_INSTALLED_ON_D_SAYDI_NOT_EXECUTED',
       'cli_executed = $false','module_import_attempted = $false',
       'model_started = $false','saydi_start_authenticated = $false',
       'supervisor_control_modified = $false'])
