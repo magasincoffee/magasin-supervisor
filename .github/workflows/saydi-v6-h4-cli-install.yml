@@ -127,6 +127,10 @@ jobs:
       - name: Obtain isolated Python for Runner service
         id: setup_python
         uses: actions/setup-python@v5
+        # H4 LocalMachine policy is Restricted; the signed official setup action
+        # launches setup.ps1. Override PROCESS only; never change machine or user policy.
+        env:
+          PSExecutionPolicyPreference: Bypass
         with:
           python-version: '3.12'
           check-latest: false
