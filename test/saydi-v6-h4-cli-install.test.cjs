@@ -44,7 +44,7 @@ test('install source is fully Git blob verified and no old release overwritten',
 });
 
 test('honest CLI only with persistent launcher but zero SAYDI execution', () => {
-  for(const marker of ['saydi_v6_source.pth','saydi-audiobook.cmd',
+  for(const marker of ['python312._pth','saydi-audiobook.cmd',
       'V6_EMBEDDED_PATH_WRITE_FAILED','V6_LAUNCHER_MISSING',
       'V6_PYTHON_ARCHIVE_HASH_MISMATCH',"$pathData",
       "Join-Path $stage 'runtime'",'CLI_FILES_INSTALLED_ON_D_SAYDI_NOT_EXECUTED',
@@ -59,7 +59,7 @@ test('bootstrap downloads PSF SHA256-pinned portable runtime, never runs Python'
   assert.ok(ps.includes("Get-FileHash -LiteralPath $archivePath -Algorithm SHA256"));
   assert.ok(ps.includes('V6_PYTHON_ARCHIVE_HASH_MISMATCH'));
   assert.ok(ps.includes('V6_PYTHON_ARCHIVE_ENTRY_UNSAFE'));
-  assert.ok(ps.includes('..\\\\02_SAYDI_CORE\\\\src'), 'relative isolated embedded source path');
+  assert.ok(ps.includes('..\\02_SAYDI_CORE\\src'), 'relative isolated embedded source path');
   assert.ok(ps.includes('python_runtime_executed = $false'));
   assert.ok(ps.includes('python_qualified = $false'));
   assert.ok(!ps.includes('Get-AuthenticodeSignature'));

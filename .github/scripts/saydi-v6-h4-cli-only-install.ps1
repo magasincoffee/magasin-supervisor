@@ -221,12 +221,12 @@ finally { $zip.Dispose() }
 $pathFile = Join-Path $runtime 'python312._pth'
 if (-not (Test-Path -LiteralPath $pathFile -PathType Leaf)) { throw 'V6_EMBEDDED_PTH_MISSING' }
 $originalPathFile = Get-Content -LiteralPath $pathFile -Raw -ErrorAction Stop
-if ($originalPathFile -notmatch '(?m)^python312\\.zip\\s*$' -or
-    $originalPathFile -notmatch '(?m)^\\.\\s*$' -or
-    $originalPathFile -match '(?m)^\\s*import\\s+site') {
+if ($originalPathFile -notmatch '(?m)^python312\.zip\s*$' -or
+    $originalPathFile -notmatch '(?m)^\.\s*$' -or
+    $originalPathFile -match '(?m)^\s*import\s+site') {
     throw 'V6_EMBEDDED_PATH_FILE_UNSAFE'
 }
-$pathData = "python312.zip`r`n.`r`n..\\02_SAYDI_CORE\\src`r`n"
+$pathData = "python312.zip`r`n.`r`n..\02_SAYDI_CORE\src`r`n"
 [IO.File]::WriteAllText($pathFile, $pathData, [Text.Encoding]::ASCII)
 if ((Get-Content -LiteralPath $pathFile -Raw -Encoding ASCII) -cne $pathData) {
     throw 'V6_EMBEDDED_PATH_WRITE_FAILED'
@@ -239,7 +239,7 @@ if (Test-Path -LiteralPath $launcher) { throw 'V6_LAUNCHER_ALREADY_EXISTS' }
 $launcherData = @'
 @echo off
 setlocal DisableDelayedExpansion
-"%~dp0runtime\\python.exe" -I -S -m saydi_audiobook %*
+"%~dp0runtime\python.exe" -I -S -m saydi_audiobook %*
 '@
 [IO.File]::WriteAllText($launcher, ($launcherData + [Environment]::NewLine), [Text.Encoding]::ASCII)
 if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) { throw 'V6_LAUNCHER_MISSING' }
