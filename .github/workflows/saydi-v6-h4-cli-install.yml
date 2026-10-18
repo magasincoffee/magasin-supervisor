@@ -124,11 +124,8 @@ jobs:
           path: saydi-source
           persist-credentials: false
           fetch-depth: 1
-      - name: Install verified SAYDI CLI files on D using pre-existing signed Python 3.12 (no SAYDI execution)
+      - name: Install verified SAYDI CLI and SHA256-pinned portable Python on D (no Python execution)
         shell: cmd
-        env:
-          # Fixed, existing H4 interpreter; do not invoke setup-python, PATH or Registry.
-          SAYDI_BOOTSTRAP_PYTHON: 'C:\Users\admin\AppData\Local\Programs\Python\Python312\python.exe'
         run: |
           @echo off
           if /I not "%COMPUTERNAME%"=="DESKTOP-H4A16IL" exit /b 30
