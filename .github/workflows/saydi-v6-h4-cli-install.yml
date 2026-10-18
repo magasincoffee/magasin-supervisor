@@ -124,21 +124,8 @@ jobs:
           path: saydi-source
           persist-credentials: false
           fetch-depth: 1
-      - name: Obtain isolated Python for Runner service
-        id: setup_python
-        uses: actions/setup-python@v5
-        # H4 LocalMachine policy is Restricted; the signed official setup action
-        # launches setup.ps1. Override PROCESS only; never change machine or user policy.
-        env:
-          PSExecutionPolicyPreference: Bypass
-        with:
-          python-version: '3.12'
-          check-latest: false
-          update-environment: false
-      - name: Install verified SAYDI CLI files on D only (no SAYDI execution)
+      - name: Install verified SAYDI CLI and SHA256-pinned portable Python on D (no Python execution)
         shell: cmd
-        env:
-          SAYDI_BOOTSTRAP_PYTHON: ${{ steps.setup_python.outputs['python-path'] }}
         run: |
           @echo off
           if /I not "%COMPUTERNAME%"=="DESKTOP-H4A16IL" exit /b 30

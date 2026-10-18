@@ -12,8 +12,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $expectedHost = 'DESKTOP-H4A16IL'
-# Python must originate from the official setup-python Runner toolcache, not PATH or admin profile.
-# No SAYDI module is imported or executed under the Supervisor Runner identity.
+# Python 3.12 embeddable ZIP is SHA256-pinned to the PSF-published SBOM.
+# Never invoke Python, install through Registry, run pip/setup-python or
+# activate SAYDI under the shared Supervisor Runner identity.
 
 function Assert-PlainDirectory([string]$Path) {
     $entry = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
@@ -39,20 +40,10 @@ if ($env:SAYDI_MAIN_SHA -ne $SaydiSha -or $env:SAYDI_REQUEST_ID -ne $RequestId) 
     throw 'REQUEST_METADATA_MISMATCH'
 }
 
-$trustedPython = $env:SAYDI_BOOTSTRAP_PYTHON
-if ([string]::IsNullOrWhiteSpace($trustedPython) -or [string]::IsNullOrWhiteSpace($env:RUNNER_TOOL_CACHE)) {
-    throw 'RUNNER_PYTHON_TOOLCACHE_MISSING'
-}
-$trustedPython = [IO.Path]::GetFullPath($trustedPython)
-$cache = [IO.Path]::GetFullPath($env:RUNNER_TOOL_CACHE).TrimEnd('\') + '\'
-if (-not $trustedPython.StartsWith($cache, [StringComparison]::OrdinalIgnoreCase) -or
-    [IO.Path]::GetFileName($trustedPython) -cne 'python.exe') { throw 'RUNNER_PYTHON_OUTSIDE_TOOLCACHE' }
-$pyEntry = Get-Item -LiteralPath $trustedPython -Force -ErrorAction Stop
-if ($pyEntry.PSIsContainer -or (($pyEntry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
-    throw 'RUNNER_PYTHON_REPARSE_DENIED'
-}
-$version = (& $trustedPython -I -c 'import sys;print(str(sys.version_info.major)+"."+str(sys.version_info.minor))')
-if ($LASTEXITCODE -ne 0 -or $version.Trim() -ne '3.12') { throw 'RUNNER_PYTHON_VERSION_INVALID' }
+# No Python interpreter, native library, bundled package or SAYDI module
+# is executed by the shared Supervisor Runner identity. The only Python
+# runtime installed is a digest-pinned official Windows embeddable archive.
+# Runtime activation belongs to an independently authenticated SAYDI process.
 
 $c = Get-PSDrive -Name C -ErrorAction Stop
 $d = Get-PSDrive -Name D -ErrorAction Stop
@@ -176,48 +167,85 @@ if ($LASTEXITCODE -ne 0 -or $observedSotObject -cne $expectedSotObject) {
 }
 
 
-# Move verified source into final versioned release BEFORE creating venv:
-# Windows venv absolute paths are not reliably relocatable.
-[System.IO.Directory]::Move($stage, $release)
-$venv = Join-Path $release '.venv'
-if (Test-Path -LiteralPath $venv) { throw 'V6_VENV_ALREADY_EXISTS' }
-& $trustedPython -m venv $venv
-if ($LASTEXITCODE -ne 0) { throw 'V6_VENV_CREATION_FAILED' }
-$venvPython = Join-Path $venv 'Scripts\python.exe'
-if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) { throw 'V6_PYTHON_MISSING' }
-$probe = 'import sys;assert sys.prefix != sys.base_prefix;print("V6_ISOLATED_PYTHON_READY=True")'
-& $venvPython -I -c $probe
-if ($LASTEXITCODE -ne 0) { throw 'V6_VENV_SELF_CHECK_FAILED' }
+# Archive digest comes from the PSF-authored official 3.12.10 SPDX SBOM,
+# not from the download channel. HTTPS is necessary but not sufficient.
+$pythonArchiveUrl = 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip'
+$pythonArchiveSha256 = '4ACBED6DD1C744B0376E3B1CF57CE906F9DC9E95E68824584C8099A63025A3C3'
+$pythonArchiveLength = 11133606
+$archivePath = Join-Path $stage 'python-3.12.10-embed-amd64.zip'
+if (Test-Path -LiteralPath $archivePath) { throw 'PYTHON_ARCHIVE_EXISTS_NO_OVERWRITE' }
+Invoke-WebRequest -Uri $pythonArchiveUrl -OutFile $archivePath -UseBasicParsing -ErrorAction Stop
+$archiveFile = Get-Item -LiteralPath $archivePath -Force -ErrorAction Stop
+if ($archiveFile.PSIsContainer -or
+    (($archiveFile.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) -or
+    $archiveFile.Length -ne $pythonArchiveLength) {
+    throw 'V6_PYTHON_ARCHIVE_LENGTH_INVALID'
+}
+if ((Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash -cne $pythonArchiveSha256) {
+    throw 'V6_PYTHON_ARCHIVE_HASH_MISMATCH'
+}
+$runtime = Join-Path $stage 'runtime'
+if (Test-Path -LiteralPath $runtime) { throw 'V6_RUNTIME_EXISTS_NO_OVERWRITE' }
+New-Item -ItemType Directory -Path $runtime -ErrorAction Stop | Out-Null
+Assert-PlainDirectory $runtime
+# The official embeddable ZIP contains flat file names only. Deny ZIP-slip,
+# duplicate/case-fold collisions and arbitrary directories before extracting.
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [System.IO.Compression.ZipFile]::OpenRead($archivePath)
+try {
+    $names = @{}
+    foreach ($entry in $zip.Entries) {
+        $name = $entry.FullName
+        if ($name -cnotmatch '^[A-Za-z0-9_.-]+$' -or $name -in @('.', '..') -or
+            $name.IndexOf('..', [StringComparison]::Ordinal) -ge 0 -or
+            $names.ContainsKey($name.ToLowerInvariant())) {
+            throw 'V6_PYTHON_ARCHIVE_ENTRY_UNSAFE'
+        }
+        $names[$name.ToLowerInvariant()] = $true
+    }
+    foreach ($required in @('python.exe', 'python312.dll', 'python3.dll',
+                             'python312.zip', 'python312._pth')) {
+        if (-not $names.ContainsKey($required)) { throw 'V6_PYTHON_ARCHIVE_INCOMPLETE' }
+    }
+    foreach ($entry in $zip.Entries) {
+        $target = Join-Path $runtime $entry.FullName
+        if (Test-Path -LiteralPath $target) { throw 'V6_RUNTIME_FILE_EXISTS_NO_OVERWRITE' }
+        [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target)
+    }
+}
+finally { $zip.Dispose() }
 
-# Parse source as static syntax; never import SAYDI, VieNeu, Whisper or its CLI.
-$astProbe = 'import ast,pathlib,sys; r=pathlib.Path(sys.argv[1]); fs=list(r.rglob("*.py")); assert fs; [ast.parse(p.read_text(encoding="utf-8-sig"),filename=str(p)) for p in fs]; print("V6_PYTHON_FILES_PARSED="+str(len(fs)))'
-$finalCore = Join-Path $release '02_SAYDI_CORE'
-Assert-PlainDirectory $finalCore
-& $trustedPython -I -c $astProbe $finalCore
-if ($LASTEXITCODE -ne 0) { throw 'V6_STATIC_SOURCE_PARSE_FAILED' }
-
-# Persistent source-module registration without pip, internet or module execution.
-$sitePackages = Join-Path $venv 'Lib\site-packages'
-Assert-PlainDirectory $sitePackages
-$finalSource = Join-Path (Join-Path $release '02_SAYDI_CORE') 'src'
-Assert-PlainDirectory $finalSource
-$pth = Join-Path $sitePackages 'saydi_v6_source.pth'
-if (Test-Path -LiteralPath $pth) { throw 'V6_MODULE_REGISTRATION_EXISTS' }
-[IO.File]::WriteAllText($pth, $finalSource + [Environment]::NewLine, [Text.Encoding]::ASCII)
-if ((Get-Content -LiteralPath $pth -Raw -Encoding ASCII).Trim() -cne $finalSource) {
-    throw 'V6_MODULE_REGISTRATION_FAILED'
+# The embedded runtime uses a closed path file with site disabled by default.
+# Register SAYDI source with a relative path so moving the release is safe.
+$pathFile = Join-Path $runtime 'python312._pth'
+if (-not (Test-Path -LiteralPath $pathFile -PathType Leaf)) { throw 'V6_EMBEDDED_PTH_MISSING' }
+$originalPathFile = Get-Content -LiteralPath $pathFile -Raw -ErrorAction Stop
+if ($originalPathFile -notmatch '(?m)^python312\.zip\s*$' -or
+    $originalPathFile -notmatch '(?m)^\.\s*$' -or
+    $originalPathFile -match '(?m)^\s*import\s+site') {
+    throw 'V6_EMBEDDED_PATH_FILE_UNSAFE'
+}
+$pathData = "python312.zip`r`n.`r`n..\02_SAYDI_CORE\src`r`n"
+[IO.File]::WriteAllText($pathFile, $pathData, [Text.Encoding]::ASCII)
+if ((Get-Content -LiteralPath $pathFile -Raw -Encoding ASCII) -cne $pathData) {
+    throw 'V6_EMBEDDED_PATH_WRITE_FAILED'
 }
 
-# Install a fixed local CLI wrapper. This file is NOT invoked by the Runner.
-$launcher = Join-Path $venv 'Scripts\saydi-audiobook.cmd'
+# Install only a launcher file; DO NOT invoke the embedded interpreter here.
+# Real activation is a separate SAYDI-local authenticated START operation.
+$launcher = Join-Path $stage 'saydi-audiobook.cmd'
 if (Test-Path -LiteralPath $launcher) { throw 'V6_LAUNCHER_ALREADY_EXISTS' }
 $launcherData = @'
 @echo off
 setlocal DisableDelayedExpansion
-"%~dp0python.exe" -m saydi_audiobook %*
+"%~dp0runtime\python.exe" -I -S -m saydi_audiobook %*
 '@
 [IO.File]::WriteAllText($launcher, ($launcherData + [Environment]::NewLine), [Text.Encoding]::ASCII)
 if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) { throw 'V6_LAUNCHER_MISSING' }
+
+# Promotion of verified bytes; zero executable SAYDI/Python operations.
+[System.IO.Directory]::Move($stage, $release)
 
 $receipt = [ordered]@{
     schema = 'SAYDI_V6_H4_CLI_INSTALL_RECEIPT_V1'
@@ -232,7 +260,10 @@ $receipt = [ordered]@{
     copied_tree_sha256_verified = $true
     core_pyproject_sha256 = $installedHash
     canonical_sot_sha256 = $originalSotHash
-    python_qualified = $true
+    portable_runtime_archive_sha256 = $pythonArchiveSha256
+    portable_runtime_archive_verified = $true
+    python_qualified = $false
+    python_runtime_executed = $false
     cli_files_installed = $true
     cli_executed = $false
     module_import_attempted = $false
