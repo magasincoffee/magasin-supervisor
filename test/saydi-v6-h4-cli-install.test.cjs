@@ -16,8 +16,11 @@ test('only an Owner one-file main push enters the H4 install lane', () => {
     'SAYDI_SHA_NOT_CURRENT_MAIN','magasin-h4a16il',
     'sc013-h4a16il-safe-deploy','DESKTOP-H4A16IL',
     'persist-credentials: false','actions/setup-python@v5',
+    'PSExecutionPolicyPreference: Bypass',
     "SAYDI_BOOTSTRAP_PYTHON: ${{ steps.setup_python.outputs['python-path'] }}"
   ]) assert.ok(wf.includes(marker),marker);
+  assert.ok(wf.includes("id: setup_python\n        uses: actions/setup-python@v5\n"),'setup-python step');
+  assert.ok(!wf.includes("    env:\n      PSExecutionPolicyPreference: Bypass"),'must not elevate whole job');
   for (const forbidden of ['workflow_dispatch:','  schedule:','  pull_request:','  issues:'])
     assert.ok(!wf.includes(forbidden),forbidden);
 });
