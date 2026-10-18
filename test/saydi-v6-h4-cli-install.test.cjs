@@ -15,11 +15,11 @@ test('only an Owner one-file main push enters the H4 install lane', () => {
     'SAYDI_V6_H4_CLI_INSTALL_V1','INSTALL_CLI_ONLY',
     'SAYDI_SHA_NOT_CURRENT_MAIN','magasin-h4a16il',
     'sc013-h4a16il-safe-deploy','DESKTOP-H4A16IL',
-    'persist-credentials: false','actions/setup-python@v5',
-    'PSExecutionPolicyPreference: Bypass',
-    "SAYDI_BOOTSTRAP_PYTHON: ${{ steps.setup_python.outputs['python-path'] }}"
+    'persist-credentials: false',
+    "SAYDI_BOOTSTRAP_PYTHON: 'C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\python.exe'"
   ]) assert.ok(wf.includes(marker),marker);
-  assert.match(wf, /id: setup_python\r?\n\s+uses: actions\/setup-python@v5/, 'setup-python step');
+  assert.ok(!wf.includes('actions/setup-python@v5'), 'do not execute setup-python registry installer');
+  assert.ok(!wf.includes('id: setup_python'), 'do not use toolcache setup');
   assert.ok(!/\n    env:\r?\n      PSExecutionPolicyPreference: Bypass/.test(wf), 'must not elevate whole job');
   for (const forbidden of ['workflow_dispatch:','  schedule:','  pull_request:','  issues:'])
     assert.ok(!wf.includes(forbidden),forbidden);
@@ -32,11 +32,13 @@ test('install source is fully Git blob verified and no old release overwritten',
     'RESOURCE_DISK_CAPACITY_HOLD','SAYDI_MAIN_MOVED_HOLD',
     'STAGING_REQUEST_ALREADY_USED','RELEASE_EXISTS_NO_OVERWRITE',
     'Get-FileHash','[System.IO.Directory]::Move($stage, $release)',
-    'RUNNER_PYTHON_TOOLCACHE_MISSING','RUNNER_PYTHON_OUTSIDE_TOOLCACHE',
-    'RUNNER_PYTHON_REPARSE_DENIED','RUNNER_PYTHON_VERSION_INVALID'])
+    'RUNNER_PYTHON_PATH_NOT_PINN','RUNNER_PYTHON_SIGNATURE_NOT_QUALIFIED',
+    'RUNNER_PYTHON_REPARSE_DENIED','RUNNER_PYTHON_VERSION_INVALID',
+    'Get-AuthenticodeSignature',"SignerCertificate.Subject -notmatch 'Python Software Foundation'"])
       assert.ok(ps.includes(marker),marker);
   for (const forbidden of ['Remove-Item','Stop-Service','Start-Service','Stop-Process',
-      'Start-Process','pip install','winget install','C:\\Users\\admin'])
+      'Start-Process','pip install','winget install','New-ItemProperty',
+      'Set-ItemProperty','Registry::','reg.exe','Remove-ItemProperty'])
       assert.ok(!ps.includes(forbidden),forbidden);
 });
 
@@ -49,4 +51,15 @@ test('honest CLI only with persistent launcher but zero SAYDI execution', () => 
       'model_started = $false','saydi_start_authenticated = $false',
       'supervisor_control_modified = $false'])
        assert.ok(ps.includes(marker),marker);
+});
+
+test('Python bootstrap requires exact signed existing interpreter with no installer action', () => {
+  const fixed = 'C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\python.exe';
+  assert.ok(ps.includes(fixed), 'fixed Python interpreter on H4');
+  assert.ok(ps.includes("if ($env:SAYDI_BOOTSTRAP_PYTHON -cne $trustedPython)"));
+  assert.ok(ps.includes("$signature.Status -ne 'Valid'"));
+  assert.ok(ps.includes('Assert-PlainDirectory $dir'));
+  assert.ok(ps.includes("& $trustedPython -m venv $venv"));
+  assert.ok(!ps.includes('RUNNER_TOOL_CACHE'));
+  assert.ok(!wf.includes('setup-python@'));
 });

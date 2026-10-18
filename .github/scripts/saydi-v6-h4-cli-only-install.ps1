@@ -12,7 +12,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $expectedHost = 'DESKTOP-H4A16IL'
-# Python must originate from the official setup-python Runner toolcache, not PATH or admin profile.
+# Allow only the pre-existing H4 Python 3.12 absolute path, verified with
+# Authenticode and an isolated interpreter/version check. Never use PATH,
+# setup-python, Python installers or Registry modifications.
 # No SAYDI module is imported or executed under the Supervisor Runner identity.
 
 function Assert-PlainDirectory([string]$Path) {
@@ -39,20 +41,29 @@ if ($env:SAYDI_MAIN_SHA -ne $SaydiSha -or $env:SAYDI_REQUEST_ID -ne $RequestId) 
     throw 'REQUEST_METADATA_MISMATCH'
 }
 
-$trustedPython = $env:SAYDI_BOOTSTRAP_PYTHON
-if ([string]::IsNullOrWhiteSpace($trustedPython) -or [string]::IsNullOrWhiteSpace($env:RUNNER_TOOL_CACHE)) {
-    throw 'RUNNER_PYTHON_TOOLCACHE_MISSING'
+$trustedPython = 'C:\Users\admin\AppData\Local\Programs\Python\Python312\python.exe'
+if ($env:SAYDI_BOOTSTRAP_PYTHON -cne $trustedPython) {
+    throw 'RUNNER_PYTHON_PATH_NOT_PINNED'
 }
-$trustedPython = [IO.Path]::GetFullPath($trustedPython)
-$cache = [IO.Path]::GetFullPath($env:RUNNER_TOOL_CACHE).TrimEnd('\') + '\'
-if (-not $trustedPython.StartsWith($cache, [StringComparison]::OrdinalIgnoreCase) -or
-    [IO.Path]::GetFileName($trustedPython) -cne 'python.exe') { throw 'RUNNER_PYTHON_OUTSIDE_TOOLCACHE' }
+foreach ($dir in @('C:\Users', 'C:\Users\admin', 'C:\Users\admin\AppData',
+    'C:\Users\admin\AppData\Local', 'C:\Users\admin\AppData\Local\Programs',
+    'C:\Users\admin\AppData\Local\Programs\Python',
+    'C:\Users\admin\AppData\Local\Programs\Python\Python312')) {
+    Assert-PlainDirectory $dir
+}
 $pyEntry = Get-Item -LiteralPath $trustedPython -Force -ErrorAction Stop
 if ($pyEntry.PSIsContainer -or (($pyEntry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
     throw 'RUNNER_PYTHON_REPARSE_DENIED'
 }
+$signature = Get-AuthenticodeSignature -LiteralPath $trustedPython
+if ($signature.Status -ne 'Valid' -or $null -eq $signature.SignerCertificate -or
+    $signature.SignerCertificate.Subject -notmatch 'Python Software Foundation') {
+    throw 'RUNNER_PYTHON_SIGNATURE_NOT_QUALIFIED'
+}
 $version = (& $trustedPython -I -c 'import sys;print(str(sys.version_info.major)+"."+str(sys.version_info.minor))')
-if ($LASTEXITCODE -ne 0 -or $version.Trim() -ne '3.12') { throw 'RUNNER_PYTHON_VERSION_INVALID' }
+if ($LASTEXITCODE -ne 0 -or @($version).Count -ne 1 -or $version.Trim() -ne '3.12') {
+    throw 'RUNNER_PYTHON_VERSION_INVALID'
+}
 
 $c = Get-PSDrive -Name C -ErrorAction Stop
 $d = Get-PSDrive -Name D -ErrorAction Stop
