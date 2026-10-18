@@ -25,7 +25,7 @@ test('only an Owner one-file main push enters the H4 install lane', () => {
 test('install source is fully Git blob verified and no old release overwritten', () => {
   for(const marker of ['V6_GIT_TREE_FILE_COUNT_MISMATCH',
     'V6_STAGED_GIT_BLOB_MISMATCH','V6_STAGED_SOT_GIT_BLOB_MISMATCH',
-    'V6_SOURCE_REPARSE_DENIED','V6_STAGED_CONTENT_HASH_MISMATCH',
+    'SAYDI_SOURCE_REPARSE_DENIED','V6_STAGED_CONTENT_HASH_MISMATCH',
     'RESOURCE_DISK_CAPACITY_HOLD','SAYDI_MAIN_MOVED_HOLD',
     'STAGING_REQUEST_ALREADY_USED','RELEASE_EXISTS_NO_OVERWRITE',
     'Get-FileHash','[System.IO.Directory]::Move($stage, $release)',

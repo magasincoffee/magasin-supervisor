@@ -42,6 +42,8 @@ jobs:
           expected=$(cat <<'EOF'
           magasin-local-dispatch-receipts.yml
           saydi-v6-h4-bridge-qa.yml
+          saydi-v6-h4-cli-install.yml
+          saydi-v6-h4-cli-qa.yml
           saydi-v6-h4-transport.yml
           saydi-v6-python-readonly.yml
           sc013-coordinator-hook-apply.yml
