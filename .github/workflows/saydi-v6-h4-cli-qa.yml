@@ -1,0 +1,42 @@
+name: SAYDI H4 CLI Install Hosted QA
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/saydi-v6-h4-cli-install.yml'
+      - '.github/workflows/saydi-v6-h4-cli-qa.yml'
+      - '.github/scripts/saydi-v6-h4-cli-only-install.ps1'
+      - 'test/saydi-v6-h4-cli-install.test.cjs'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/saydi-v6-h4-cli-install.yml'
+      - '.github/workflows/saydi-v6-h4-cli-qa.yml'
+      - '.github/scripts/saydi-v6-h4-cli-only-install.ps1'
+      - 'test/saydi-v6-h4-cli-install.test.cjs'
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-static-qa:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse PowerShell only; never reach self-hosted Runner on PR
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path '.github/scripts/saydi-v6-h4-cli-only-install.ps1'),
+            [ref]$tokens, [ref]$errors
+          )
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Host $_.Message }
+            throw 'CLI_INSTALL_PS_PARSE_FAILED'
+          }
+      - name: Negative source contracts only
+        shell: pwsh
+        run: node --test test/saydi-v6-h4-cli-install.test.cjs
