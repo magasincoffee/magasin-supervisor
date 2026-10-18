@@ -19,8 +19,8 @@ test('only an Owner one-file main push enters the H4 install lane', () => {
     'PSExecutionPolicyPreference: Bypass',
     "SAYDI_BOOTSTRAP_PYTHON: ${{ steps.setup_python.outputs['python-path'] }}"
   ]) assert.ok(wf.includes(marker),marker);
-  assert.ok(wf.includes("id: setup_python\n        uses: actions/setup-python@v5\n"),'setup-python step');
-  assert.ok(!wf.includes("    env:\n      PSExecutionPolicyPreference: Bypass"),'must not elevate whole job');
+  assert.match(wf, /id: setup_python\r?\n\s+uses: actions\/setup-python@v5/, 'setup-python step');
+  assert.ok(!/\n    env:\r?\n      PSExecutionPolicyPreference: Bypass/.test(wf), 'must not elevate whole job');
   for (const forbidden of ['workflow_dispatch:','  schedule:','  pull_request:','  issues:'])
     assert.ok(!wf.includes(forbidden),forbidden);
 });
